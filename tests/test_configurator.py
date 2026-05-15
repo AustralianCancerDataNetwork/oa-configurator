@@ -143,6 +143,35 @@ class ResolverTests(unittest.TestCase):
         self.assertEqual(resolved.url, "postgresql://omop:env-secret@db.internal/cdm")
         self.assertEqual(resolved.safe_url, "postgresql://omop:***@db.internal/cdm")
 
+    def test_resolve_connection_keeps_inline_password_and_redacts_repr(self) -> None:
+        config = StackConfig(
+            connections={
+                "local": ConnectionConfig(
+                    dialect="postgresql",
+                    host="localhost",
+                    port=5432,
+                    user="omop",
+                    password="omop",
+                    database="omop",
+                )
+            },
+        )
+        config.bind_loaded_path(Path("/tmp/config-dir/config.toml").resolve())
+
+        resolved = Resolver(config).resolve_connection("local")
+
+        self.assertEqual(resolved.url, "postgresql://omop:omop@localhost:5432/omop")
+        self.assertEqual(resolved.safe_url, "postgresql://omop:***@localhost:5432/omop")
+        self.assertEqual(
+            repr(resolved),
+            "ResolvedDatabaseTarget("
+            "name='local', "
+            "dialect='postgresql', "
+            "database='omop', "
+            "safe_url='postgresql://omop:***@localhost:5432/omop'"
+            ")",
+        )
+
 
 class LoaderTests(unittest.TestCase):
     def test_environment_overrides_active_profile(self) -> None:

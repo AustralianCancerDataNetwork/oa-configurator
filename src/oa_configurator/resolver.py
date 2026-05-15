@@ -49,8 +49,22 @@ class ResolvedDatabaseTarget:
             f"name={self.name!r}, "
             f"dialect={self.dialect!r}, "
             f"database={self.database!r}, "
-            f"url={self.safe_url!r}"
+            f"safe_url={self.safe_url!r}"
             ")"
+        )
+
+    def __dir__(self) -> list[str]:
+        """Expose the resolved database target shape for interactive completion."""
+
+        return sorted(
+            {
+                "connection",
+                "database",
+                "dialect",
+                "name",
+                "safe_url",
+                "url",
+            }
         )
 
 
@@ -85,6 +99,25 @@ class ResolvedResource:
             ")"
         )
 
+    def __dir__(self) -> list[str]:
+        """Expose the resolved resource shape for interactive completion."""
+
+        return sorted(
+            {
+                "analytic_db_file_root",
+                "artifact_root",
+                "athena_source_path",
+                "embedding_file_root",
+                "name",
+                "omop_schema",
+                "primary_db",
+                "results_db",
+                "results_schema",
+                "vocab_db",
+                "vocab_schema",
+            }
+        )
+
 
 @dataclass(frozen=True)
 class ResolvedToolConfig:
@@ -105,6 +138,19 @@ class ResolvedToolConfig:
             f"embedding_file_root={display_path(self.embedding_file_root)!r}, "
             f"database_file_root={display_path(self.database_file_root)!r}"
             ")"
+        )
+
+    def __dir__(self) -> list[str]:
+        """Expose the resolved tool shape for interactive completion."""
+
+        return sorted(
+            {
+                "backend",
+                "database_file_root",
+                "default_resource",
+                "embedding_file_root",
+                "name",
+            }
         )
 
 
@@ -141,7 +187,12 @@ class _NameNamespace(Generic[T]):
     def __dir__(self) -> list[str]:
         """Expose safe names for tab completion without leaking secrets."""
 
-        return sorted(name for name in self._names() if _is_identifier_safe(name))
+        return sorted(
+            {
+                *super().__dir__(),
+                *(name for name in self._names() if _is_identifier_safe(name)),
+            }
+        )
 
     def __repr__(self) -> str:
         visible = ", ".join(self.__dir__())
@@ -226,6 +277,14 @@ class Resolver:
         """Resolve one configured connection name into a concrete connection target."""
 
         connection = _get_named_config(self.config.connections, kind="connection", name=name)
+        if connection.secret_source is None:
+            return ResolvedDatabaseTarget(
+                name=name,
+                connection=connection,
+                url=connection.as_url_resolved(self.configuration_base_path),
+                safe_url=connection.as_safe_url_resolved(self.configuration_base_path),
+            )
+
         resolved_secret = _resolve_connection_secret(
             connection,
             configuration_base_path=self.configuration_base_path,
@@ -316,6 +375,32 @@ class Resolver:
             f"resources={len(self.config.resources)}, "
             f"tools={len(self.config.tools)}"
             ")"
+        )
+
+    def __dir__(self) -> list[str]:
+        """Expose the resolver surface clearly for interactive completion."""
+
+        return sorted(
+            {
+                *super().__dir__(),
+                "active_profile",
+                "active_profile_name",
+                "complete_connection_name",
+                "complete_resource_name",
+                "complete_tool_name",
+                "config",
+                "configuration_base_path",
+                "connection_names",
+                "connections",
+                "profile_names",
+                "resolve_connection",
+                "resolve_resource",
+                "resolve_tool",
+                "resource_names",
+                "resources",
+                "tool_names",
+                "tools",
+            }
         )
 
 

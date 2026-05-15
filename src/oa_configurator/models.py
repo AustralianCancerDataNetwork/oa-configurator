@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field, PrivateAttr, model_validator
+from sqlalchemy.engine import URL
 
 from .paths import resolve_filesystem_path
 
@@ -181,18 +182,14 @@ class ConnectionConfig(BaseModel):
         """Render a network-style database URL with optional password redaction."""
 
         effective_password = self.password if password_override is _PASSWORD_UNSET else password_override
-        auth = ""
-        if self.user:
-            auth = self.user
-            if effective_password is not None:
-                password = "***" if redact_password else effective_password
-                auth += f":{password}"
-            auth += "@"
-
-        host = self.host or "localhost"
-        port = f":{self.port}" if self.port is not None else ""
-        database = self.database or ""
-        return f"{self.dialect}://{auth}{host}{port}/{database}"
+        return URL.create(
+            drivername=self.dialect,
+            username=self.user,
+            password=effective_password if effective_password is not None else None,
+            host=self.host or "localhost",
+            port=self.port,
+            database=self.database or "",
+        ).render_as_string(hide_password=redact_password)
 
 
 class ResourceConfig(BaseModel):

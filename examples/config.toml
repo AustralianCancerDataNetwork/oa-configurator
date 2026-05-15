@@ -1,0 +1,83 @@
+[settings]
+active_profile = "prod"
+active_stack = "default"
+configuration_base_path = "."
+
+[profiles.local]
+description = "everything local"
+
+[profiles.prod]
+description = "remote OMOP source with local derived artifacts"
+
+[profiles.prod.resource_overrides.default]
+primary_db = "prod_cdm"
+vocab_db = "prod_vocab"
+results_db = "prod_cdm"
+vocab_schema = "vocab"
+artifact_root = "artifacts/prod"
+embedding_file_root = "artifacts/prod/embeddings"
+analytic_db_file_root = "artifacts/prod/databases"
+
+[profiles.prod.tool_overrides.omop_emb]
+embedding_file_root = "artifacts/prod/embeddings"
+
+[profiles.prod.tool_overrides.orm_loader]
+database_file_root = "artifacts/prod/databases"
+
+[connections.local_cdm]
+dialect = "postgresql"
+host = "localhost"
+port = 5432
+user = "omop"
+password = "omop"
+database = "omop"
+
+[connections.prod_cdm]
+dialect = "postgresql"
+host = "prod.hospital.org"
+port = 5432
+user = "omop_prod"
+password = "secret"
+database = "omop_cdm"
+
+[connections.prod_vocab]
+dialect = "postgresql"
+host = "prod.hospital.org"
+port = 5432
+user = "omop_vocab"
+password = "secret"
+database = "omop_vocab"
+
+[resources.default]
+primary_db = "local_cdm"
+vocab_db = "local_cdm"
+results_db = "local_cdm"
+omop_schema = "cdm"
+vocab_schema = "cdm"
+results_schema = "results"
+artifact_root = "artifacts"
+embedding_file_root = "artifacts/embeddings"
+analytic_db_file_root = "artifacts/databases"
+
+[resources.local_all_in_one]
+primary_db = "local_cdm"
+vocab_db = "local_cdm"
+results_db = "local_cdm"
+omop_schema = "cdm"
+vocab_schema = "cdm"
+results_schema = "results"
+artifact_root = "artifacts/local"
+embedding_file_root = "artifacts/local/embeddings"
+analytic_db_file_root = "artifacts/local/databases"
+
+[tools.omop_emb]
+default_resource = "default"
+backend = "pgvector"
+embedding_file_root = "artifacts/embeddings"
+
+[tools.orm_loader]
+default_resource = "default"
+database_file_root = "artifacts/databases"
+
+[tools.omop_graph]
+default_resource = "default"

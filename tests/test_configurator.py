@@ -39,6 +39,15 @@ class ConnectionConfigTests(unittest.TestCase):
             "postgresql://omop:secret@db.internal/cdm",
         )
 
+    def test_password_and_secret_source_are_mutually_exclusive(self) -> None:
+        with self.assertRaisesRegex(ValueError, "password or secret_source"):
+            ConnectionConfig(
+                dialect="postgresql",
+                database="cdm",
+                password="secret",
+                secret_source="env:OA_DB_PASSWORD",
+            )
+
 
 class ResolverTests(unittest.TestCase):
     def test_active_profile_overrides_and_resolves_paths(self) -> None:
@@ -79,6 +88,61 @@ class ResolverTests(unittest.TestCase):
             config_root / "artifacts/base/embeddings",
         )
 
+    def test_resolves_file_backed_connection_secret_from_secrets_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_root = Path(tmpdir).resolve()
+            secrets_dir = config_root / "secrets"
+            secrets_dir.mkdir()
+            (secrets_dir / "prod.password").write_text("super-secret\n", encoding="utf-8")
+
+            config = StackConfig(
+                settings={
+                    "secrets_dir": "secrets",
+                },
+                connections={
+                    "prod": ConnectionConfig(
+                        dialect="postgresql",
+                        host="db.internal",
+                        user="omop",
+                        database="cdm",
+                        secret_source="file:prod.password",
+                    )
+                },
+            )
+            config.bind_loaded_path(config_root / "config.toml")
+
+            resolved = Resolver(config).resolve_connection("prod")
+
+        self.assertEqual(resolved.url, "postgresql://omop:super-secret@db.internal/cdm")
+        self.assertEqual(resolved.safe_url, "postgresql://omop:***@db.internal/cdm")
+
+    def test_resolves_env_backed_connection_secret(self) -> None:
+        config = StackConfig(
+            connections={
+                "prod": ConnectionConfig(
+                    dialect="postgresql",
+                    host="db.internal",
+                    user="omop",
+                    database="cdm",
+                    secret_source="env:OA_TEST_DB_PASSWORD",
+                )
+            },
+        )
+        config.bind_loaded_path(Path("/tmp/config-dir/config.toml").resolve())
+
+        original = os.environ.get("OA_TEST_DB_PASSWORD")
+        try:
+            os.environ["OA_TEST_DB_PASSWORD"] = "env-secret"
+            resolved = Resolver(config).resolve_connection("prod")
+        finally:
+            if original is None:
+                os.environ.pop("OA_TEST_DB_PASSWORD", None)
+            else:
+                os.environ["OA_TEST_DB_PASSWORD"] = original
+
+        self.assertEqual(resolved.url, "postgresql://omop:env-secret@db.internal/cdm")
+        self.assertEqual(resolved.safe_url, "postgresql://omop:***@db.internal/cdm")
+
 
 class LoaderTests(unittest.TestCase):
     def test_environment_overrides_active_profile(self) -> None:
@@ -108,3 +172,4 @@ description = "prod"
 
         self.assertEqual(config.settings.active_profile, "prod")
         self.assertEqual(config.configuration_base_path, config_path.parent.resolve())
+        self.assertIsNone(config.secrets_dir)

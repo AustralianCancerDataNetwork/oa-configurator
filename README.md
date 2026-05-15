@@ -11,6 +11,7 @@
 - support for local file-based artifacts like DuckDB and FAISS
 - clean migration path from today’s env-var-heavy tools
 - stable relative path semantics via one configuration base directory
+- opt-in file or env backed secret resolution for connection passwords
 
 ## App Shape
 
@@ -35,6 +36,15 @@ When a profile defines `resource_overrides` or `tool_overrides`, those patches
 are applied by the resolver at access time rather than mutating the raw loaded
 config object.
 
+Connection passwords may be provided inline with `password` or indirectly with
+`secret_source`. Supported secret source formats are:
+
+- `env:VARIABLE_NAME`
+- `file:relative/or/absolute/path`
+
+When `settings.secrets_dir` is configured, relative `file:` sources resolve
+from that directory. Otherwise they resolve from `configuration_base_path`.
+
 ## Example
 
 ```python
@@ -47,8 +57,10 @@ resource = resolver.resolve_resource("default")
 tool = resolver.resolve_tool("omop_emb")
 
 print(resource.primary_db.database)
+print(resource.primary_db.safe_url)
 print(tool.backend)
 print(resolver.configuration_base_path)
+print(config.secrets_dir)
 print(resolver.active_profile_name())
 ```
 

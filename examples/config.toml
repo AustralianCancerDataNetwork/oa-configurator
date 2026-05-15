@@ -2,6 +2,7 @@
 active_profile = "prod"
 active_stack = "default"
 configuration_base_path = "."
+secrets_dir = "secrets"
 
 [profiles.local]
 description = "everything local"
@@ -37,7 +38,7 @@ dialect = "postgresql"
 host = "prod.hospital.org"
 port = 5432
 user = "omop_prod"
-password = "secret"
+secret_source = "file:prod_cdm.password"
 database = "omop_cdm"
 
 [connections.prod_vocab]
@@ -45,7 +46,7 @@ dialect = "postgresql"
 host = "prod.hospital.org"
 port = 5432
 user = "omop_vocab"
-password = "secret"
+secret_source = "file:prod_vocab.password"
 database = "omop_vocab"
 
 [resources.default]

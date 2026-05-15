@@ -19,7 +19,7 @@ from rich.table import Table
 from .loader import load_stack_config
 from .models import ConnectionConfig, ProfileConfig, ResourceConfig, SettingsConfig, StackConfig
 from .persistence import save_stack_config
-from .resolver import Resolver
+from .resolver import ResolvedDatabaseTarget, Resolver
 from .settings import DEFAULT_CONFIG_PATH
 
 app = typer.Typer(help="CLI for inspecting and editing oa_configurator settings.")
@@ -132,6 +132,12 @@ def add_connection(
         port = _prompt_int("Port", default=int(defaults["port"]))
         user = _prompt_text("User", default=str(defaults["user"]))
         password = _prompt_text("Password", default="", password=True)
+        secret_source = None
+        if password == "":
+            secret_source = _optional_prompt(
+                "Secret source (env:NAME or file:PATH)",
+                default="",
+            )
         database = _prompt_text("Database name", default=str(defaults["database"]))
         connection = ConnectionConfig(
             kind=kind,
@@ -140,14 +146,20 @@ def add_connection(
             port=port,
             user=user or None,
             password=password or None,
+            secret_source=secret_source,
             database=database,
             read_only=_confirm("Read only?", default=False),
         )
 
-    _connection_preview(connection_name, connection, config.configuration_base_path)
+    resolved_connection = _resolve_preview_connection(
+        connection_name,
+        connection,
+        config,
+    )
+    _connection_preview(resolved_connection)
 
     if _confirm("Test this connection now?", default=True):
-        success, message = _test_connection(connection, config.configuration_base_path)
+        success, message = _test_connection(resolved_connection)
         if success:
             _success(f"Connection test succeeded: {message}")
         else:
@@ -236,6 +248,18 @@ def _load_or_create_config(path: Path | None) -> tuple[StackConfig, Path]:
     config = StackConfig(settings=SettingsConfig())
     config.bind_loaded_path(resolved_path)
     return config, resolved_path
+
+
+def _resolve_preview_connection(
+    name: str,
+    connection: ConnectionConfig,
+    config: StackConfig,
+) -> ResolvedDatabaseTarget:
+    """Resolve an unsaved connection against the current config context."""
+
+    preview_config = config.model_copy(deep=True)
+    preview_config.connections[name] = connection
+    return Resolver(preview_config).resolve_connection(name)
 
 
 def _optional_prompt(label: str, *, default: str = "") -> str | None:
@@ -345,7 +369,7 @@ def _suggest_connection_defaults(name: str, kind: str) -> dict[str, str | int]:
     }
 
 
-def _test_connection(connection: ConnectionConfig, configuration_base_path: Path) -> tuple[bool, str]:
+def _test_connection(connection: ResolvedDatabaseTarget) -> tuple[bool, str]:
     """Attempt to connect using SQLAlchemy and return a friendly result tuple.
 
     The function is intentionally defensive:
@@ -355,7 +379,7 @@ def _test_connection(connection: ConnectionConfig, configuration_base_path: Path
     - it does not raise on ordinary connectivity failures
     """
 
-    url = connection.as_url_resolved(configuration_base_path)
+    url = connection.url
     try:
         engine = sa.create_engine(url, future=True)
     except ModuleNotFoundError as exc:
@@ -369,7 +393,7 @@ def _test_connection(connection: ConnectionConfig, configuration_base_path: Path
     try:
         with engine.connect() as conn:
             conn.execute(sa.text("SELECT 1"))
-        return True, connection.as_safe_url_resolved(configuration_base_path)
+        return True, connection.safe_url
     except Exception as exc:
         return False, _short_error(exc)
     finally:
@@ -441,16 +465,18 @@ def _show_names_table(title: str, names: tuple[str, ...]) -> None:
     console.print(table)
 
 
-def _connection_preview(name: str, connection: ConnectionConfig, configuration_base_path: Path) -> None:
+def _connection_preview(connection: ResolvedDatabaseTarget) -> None:
     """Render a compact preview of the connection before test/save."""
 
-    table = Table(title=f"Connection Preview: {name}", show_header=False, box=None)
+    table = Table(title=f"Connection Preview: {connection.name}", show_header=False, box=None)
     table.add_column("Field", style="bold")
     table.add_column("Value", style="white")
-    table.add_row("kind", connection.kind)
+    table.add_row("kind", connection.connection.kind)
     table.add_row("dialect", connection.dialect)
-    table.add_row("url", connection.as_safe_url_resolved(configuration_base_path))
-    table.add_row("read_only", str(connection.read_only))
+    table.add_row("url", connection.safe_url)
+    if connection.connection.secret_source is not None:
+        table.add_row("secret_source", connection.connection.secret_source)
+    table.add_row("read_only", str(connection.connection.read_only))
     console.print(Panel.fit(table, border_style="cyan"))
 
 

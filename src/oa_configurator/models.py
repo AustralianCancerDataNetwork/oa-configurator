@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field, PrivateAttr, model_validator
 
 from .paths import resolve_filesystem_path
 
+_PASSWORD_UNSET = object()
+
 
 class SettingsConfig(BaseModel):
     """Top-level lightweight runtime selection settings.
@@ -24,13 +26,15 @@ class SettingsConfig(BaseModel):
     active_profile: str = "default"
     active_stack: str = "default"
     configuration_base_path: str = "."
+    secrets_dir: str | None = None
 
     def __repr__(self) -> str:
         return (
             "SettingsConfig("
             f"active_profile={self.active_profile!r}, "
             f"active_stack={self.active_stack!r}, "
-            f"configuration_base_path={self.configuration_base_path!r}"
+            f"configuration_base_path={self.configuration_base_path!r}, "
+            f"secrets_dir={self.secrets_dir!r}"
             ")"
         )
 
@@ -70,6 +74,7 @@ class ConnectionConfig(BaseModel):
     port: int | None = None
     user: str | None = None
     password: str | None = None
+    secret_source: str | None = None
     database: str | None = None
     path: str | None = None
     read_only: bool = False
@@ -79,6 +84,8 @@ class ConnectionConfig(BaseModel):
     def validate_shape(self) -> "ConnectionConfig":
         """Validate the minimum fields required by the selected connection type."""
 
+        if self.password is not None and self.secret_source is not None:
+            raise ValueError("connections may define password or secret_source, not both")
         if self.kind == "database" and self.dialect != "sqlite":
             if self.database is None:
                 raise ValueError("database connections require a database name")
@@ -91,7 +98,12 @@ class ConnectionConfig(BaseModel):
 
         return self.as_url_resolved()
 
-    def as_url_resolved(self, configuration_base_path: Path | None = None) -> str:
+    def as_url_resolved(
+        self,
+        configuration_base_path: Path | None = None,
+        *,
+        password_override: str | object = _PASSWORD_UNSET,
+    ) -> str:
         """Render the full connection URL with optional base-path resolution.
 
         Parameters
@@ -110,20 +122,31 @@ class ConnectionConfig(BaseModel):
         if self.kind == "file" and file_target is not None:
             return f"{self.dialect}:///{file_target}"
 
-        return self._render_network_url(redact_password=False)
+        return self._render_network_url(
+            redact_password=False,
+            password_override=password_override,
+        )
 
     def as_safe_url(self) -> str:
         """Render a redacted connection URL suitable for logs and reprs."""
 
         return self.as_safe_url_resolved()
 
-    def as_safe_url_resolved(self, configuration_base_path: Path | None = None) -> str:
+    def as_safe_url_resolved(
+        self,
+        configuration_base_path: Path | None = None,
+        *,
+        password_override: str | object = _PASSWORD_UNSET,
+    ) -> str:
         """Render a redacted connection URL with optional base-path resolution."""
 
         if self.dialect == "sqlite" or (self.kind == "file" and self.path is not None):
             return self.as_url_resolved(configuration_base_path)
 
-        return self._render_network_url(redact_password=True)
+        return self._render_network_url(
+            redact_password=True,
+            password_override=password_override,
+        )
 
     def __repr__(self) -> str:
         path_repr = str(Path(self.path).expanduser()) if self.path is not None else None
@@ -136,6 +159,7 @@ class ConnectionConfig(BaseModel):
             f"port={self.port!r}, "
             f"user={self.user!r}, "
             f"path={path_repr!r}, "
+            f"secret_source={self.secret_source!r}, "
             f"read_only={self.read_only!r}, "
             f"url={self.as_safe_url()!r}"
             ")"
@@ -148,14 +172,20 @@ class ConnectionConfig(BaseModel):
             return None
         return resolve_filesystem_path(self.path, configuration_base_path)
 
-    def _render_network_url(self, *, redact_password: bool) -> str:
+    def _render_network_url(
+        self,
+        *,
+        redact_password: bool,
+        password_override: str | object = _PASSWORD_UNSET,
+    ) -> str:
         """Render a network-style database URL with optional password redaction."""
 
+        effective_password = self.password if password_override is _PASSWORD_UNSET else password_override
         auth = ""
         if self.user:
             auth = self.user
-            if self.password is not None:
-                password = "***" if redact_password else self.password
+            if effective_password is not None:
+                password = "***" if redact_password else effective_password
                 auth += f":{password}"
             auth += "@"
 
@@ -273,6 +303,7 @@ class StackConfig(BaseModel):
     tools: dict[str, ToolConfig] = Field(default_factory=dict)
     _config_file_path: Path | None = PrivateAttr(default=None)
     _resolved_configuration_base_path: Path | None = PrivateAttr(default=None)
+    _resolved_secrets_dir: Path | None = PrivateAttr(default=None)
 
     def bind_loaded_path(self, config_file_path: Path) -> None:
         """Bind the resolved loaded config path and derive path resolution base.
@@ -296,6 +327,13 @@ class StackConfig(BaseModel):
 
         self._config_file_path = resolved_file
         self._resolved_configuration_base_path = resolved_base
+        if self.settings.secrets_dir is None:
+            self._resolved_secrets_dir = None
+        else:
+            self._resolved_secrets_dir = resolve_filesystem_path(
+                self.settings.secrets_dir,
+                resolved_base,
+            )
 
     @property
     def config_file_path(self) -> Path | None:
@@ -320,6 +358,19 @@ class StackConfig(BaseModel):
                 )
             return configured_base.resolve()
         return self._resolved_configuration_base_path
+
+    @property
+    def secrets_dir(self) -> Path | None:
+        """Return the fully resolved directory used for file-backed secrets."""
+
+        if self.settings.secrets_dir is None:
+            return None
+        if self._resolved_secrets_dir is None:
+            return resolve_filesystem_path(
+                self.settings.secrets_dir,
+                self.configuration_base_path,
+            )
+        return self._resolved_secrets_dir
 
     def profile_names(self) -> tuple[str, ...]:
         """Return known profile names in sorted order."""
@@ -351,11 +402,13 @@ class StackConfig(BaseModel):
             config_base_repr = str(self._resolved_configuration_base_path)
         else:
             config_base_repr = self.settings.configuration_base_path
+        secrets_dir_repr = str(self._resolved_secrets_dir) if self._resolved_secrets_dir is not None else self.settings.secrets_dir
         return (
             "StackConfig("
             f"active_profile={self.settings.active_profile!r}, "
             f"active_stack={self.settings.active_stack!r}, "
             f"configuration_base_path={config_base_repr!r}, "
+            f"secrets_dir={secrets_dir_repr!r}, "
             f"profiles={len(self.profiles)}, "
             f"connections={len(self.connections)}, "
             f"resources={len(self.resources)}, "

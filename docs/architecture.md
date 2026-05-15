@@ -101,6 +101,49 @@ then these resolve to:
 - `analytic_db_file_root` -> `/home/alice/.config/omop/artifacts/databases`
 - `athena_source_path` -> `/srv/athena`
 
+## Secret Sources
+
+Inline passwords are still allowed for local or throwaway setups, but the
+configuration model now supports indirect secret lookup as well.
+
+- `settings.secrets_dir` is an optional filesystem root for file-backed
+  secrets
+- `connections.<name>.secret_source` is an explicit source string
+- `password` and `secret_source` are mutually exclusive on a connection
+
+The sketch currently supports two secret source formats:
+
+- `env:VARIABLE_NAME`
+- `file:relative/or/absolute/path`
+
+Relative `file:` sources resolve from `settings.secrets_dir` when that setting
+is present. Otherwise they resolve from `configuration_base_path`.
+
+### Example
+
+```toml
+[settings]
+active_profile = "prod"
+configuration_base_path = "."
+secrets_dir = "secrets"
+
+[connections.prod_cdm]
+dialect = "postgresql"
+host = "prod.hospital.org"
+port = 5432
+user = "omop_prod"
+secret_source = "file:prod_cdm.password"
+database = "omop_cdm"
+
+[connections.prod_vocab]
+dialect = "postgresql"
+host = "prod.hospital.org"
+port = 5432
+user = "omop_vocab"
+secret_source = "env:OA_PROD_VOCAB_PASSWORD"
+database = "omop_vocab"
+```
+
 ## Profile Overlay Shape
 
 Profiles now do more than act as labels.
@@ -141,6 +184,7 @@ This is the shape the prototype now supports:
 [settings]
 active_profile = "local"
 configuration_base_path = "."
+secrets_dir = "secrets"
 
 [connections.local_cdm]
 dialect = "postgresql"
@@ -155,7 +199,7 @@ dialect = "postgresql"
 host = "prod.hospital.org"
 port = 5432
 user = "omop_prod"
-password = "secret"
+secret_source = "file:prod_cdm.password"
 database = "omop_cdm"
 
 [connections.prod_vocab]
@@ -163,7 +207,7 @@ dialect = "postgresql"
 host = "prod.hospital.org"
 port = 5432
 user = "omop_vocab"
-password = "secret"
+secret_source = "file:prod_vocab.password"
 database = "omop_vocab"
 
 [resources.default]
@@ -245,7 +289,7 @@ Possible but more debatable:
 
 - selected `ConnectionConfig` fields, for example host or database name
 
-My current bias remains:
+General considerations:
 
 - prefer overriding resource and tool mappings first
 - only add connection-level overlays if there is a real repeated need
@@ -260,11 +304,11 @@ The current prototype implements:
 - TOML loading
 - simple resolution
 - CLI skeleton
+- file and env backed secret resolution
 
 Still to add:
 
 - compatibility exporters for legacy env vars
 - a doctor/validation command
-- secrets-dir and secret-source support
 - project-local overlay file support
 - more complete tool-specific resolution helpers

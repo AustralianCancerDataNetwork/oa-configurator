@@ -17,6 +17,7 @@ from .models import (
     ToolOverrideConfig,
 )
 from .paths import display_path, resolve_filesystem_path
+from .secret_sources import resolve_secret_value
 
 T = TypeVar("T")
 
@@ -28,6 +29,7 @@ class ResolvedDatabaseTarget:
     name: str
     connection: ConnectionConfig
     url: str
+    safe_url: str
 
     @property
     def database(self) -> str | None:
@@ -40,12 +42,6 @@ class ResolvedDatabaseTarget:
         """Return the resolved connection dialect."""
 
         return self.connection.dialect
-
-    @property
-    def safe_url(self) -> str:
-        """Return a password-redacted URL for display and debugging."""
-
-        return self.connection.as_safe_url_resolved()
 
     def __repr__(self) -> str:
         return (
@@ -230,10 +226,22 @@ class Resolver:
         """Resolve one configured connection name into a concrete connection target."""
 
         connection = _get_named_config(self.config.connections, kind="connection", name=name)
+        resolved_secret = _resolve_connection_secret(
+            connection,
+            configuration_base_path=self.configuration_base_path,
+            secrets_dir=self.config.secrets_dir,
+        )
         return ResolvedDatabaseTarget(
             name=name,
             connection=connection,
-            url=connection.as_url_resolved(self.configuration_base_path),
+            url=connection.as_url_resolved(
+                self.configuration_base_path,
+                password_override=resolved_secret,
+            ),
+            safe_url=connection.as_safe_url_resolved(
+                self.configuration_base_path,
+                password_override=resolved_secret,
+            ),
         )
 
     def resolve_resource(self, name: str) -> ResolvedResource:
@@ -317,6 +325,23 @@ def _resolve_optional_path(value: str | None, configuration_base_path: Path) -> 
     if value is None:
         return None
     return resolve_filesystem_path(value, configuration_base_path)
+
+
+def _resolve_connection_secret(
+    connection: ConnectionConfig,
+    *,
+    configuration_base_path: Path,
+    secrets_dir: Path | None,
+) -> str | None:
+    """Resolve the configured connection secret, if one is referenced indirectly."""
+
+    if connection.secret_source is None:
+        return None
+    return resolve_secret_value(
+        connection.secret_source,
+        configuration_base_path=configuration_base_path,
+        secrets_dir=secrets_dir,
+    )
 
 
 def _is_identifier_safe(name: str) -> bool:

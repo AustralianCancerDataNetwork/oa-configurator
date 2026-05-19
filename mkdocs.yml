@@ -58,6 +58,7 @@ nav:
       - Secrets: secrets.md
       - Profiles & Overlays: profiles.md
       - Inline & Session Usage: inline-usage.md
+      - Logging: logging.md
   - Integration: integration.md
   - Architecture: architecture.md
   - API Reference:
@@ -66,3 +67,4 @@ nav:
       - Resolver: api/resolver.md
       - Schema Helpers: api/schema-helpers.md
       - Persistence: api/persistence.md
+      - Logging: api/logging.md

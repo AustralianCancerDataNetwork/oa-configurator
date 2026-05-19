@@ -114,7 +114,15 @@ def add_connection(
     defaults = _suggest_connection_defaults(connection_name, kind)
     dialect = _prompt_text("Dialect", default=str(defaults["dialect"]))
 
-    if kind == "file" or dialect == "sqlite":
+    if kind == "file":
+        file_path = _prompt_text("Path to the database/file", default=str(defaults["path"]))
+        connection = ConnectionConfig(
+            kind=kind,
+            dialect=dialect,
+            path=file_path,
+            read_only=_confirm("Read only?", default=False),
+        )
+    elif dialect == "sqlite":
         file_path = _prompt_text("Path to the database/file", default=str(defaults["path"]))
         database = None
         if dialect == "sqlite" and _confirm("Store sqlite file path in the 'database' field instead?", default=False):

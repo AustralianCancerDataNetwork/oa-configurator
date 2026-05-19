@@ -51,8 +51,8 @@ One block per named connection. Referenced by resources via their name.
 | `password` | string | mutually exclusive with `secret_source` | Inline password (avoid for shared files) |
 | `secret_source` | string | mutually exclusive with `password` | Indirect credential — see [Secrets](secrets.md) |
 | `path` | string | for file-backed DBs | Local file path (SQLite, DuckDB). Relative to `configuration_base_path`. |
-| `kind` | `"database"` \| `"file"` | no | Default: `"database"`. Use `"file"` for local file-backed connections. |
-| `read_only` | bool | no | Default: `false`. Marks the connection as read-only. |
+| `kind` | `"database"` \| `"file"` | no | Default: `"database"`. Use `"file"` for local file-backed connections; file connections require `path`. |
+| `read_only` | bool | no | Default: `false`. For PostgreSQL connections, engine creation injects `default_transaction_read_only=on`. Other dialects currently treat this as advisory metadata. |
 | `engine_kwargs` | dict | no | Extra keyword arguments passed through to `sqlalchemy.create_engine()` (e.g. `pool_size`, `echo`). |
 
 ### Network database
@@ -167,8 +167,8 @@ See [Profiles & Overlays](profiles.md) for the full guide.
 | Field | Type | Description |
 |-------|------|-------------|
 | `description` | string \| null | Human-readable description. |
-| `resource_overrides.<resource_name>` | partial ResourceConfig | Overrides applied to the named resource when this profile is active. |
-| `tool_overrides.<tool_name>` | partial ToolConfig | Overrides applied to the named tool when this profile is active. |
+| `resource_overrides.<resource_name>` | partial ResourceConfig | Overrides applied to the named resource when this profile is active. The resource name must already exist in `resources`. |
+| `tool_overrides.<tool_name>` | partial ToolConfig | Overrides applied to the named tool when this profile is active. The tool name must already exist in `tools`. |
 
 ```toml
 [profiles.prod]

@@ -35,7 +35,10 @@ def load_stack_config(path: str | Path | None = None) -> StackConfig:
     if not resolved_path.exists():
         raise FileNotFoundError(f"Config file not found: {resolved_path}")
 
-    data = tomllib.loads(resolved_path.read_text(encoding="utf-8"))
+    try:
+        data = tomllib.loads(resolved_path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as exc:
+        raise ValueError(f"Malformed TOML in {resolved_path}: {exc}") from exc
     config = StackConfig.model_validate(data)
 
     if runtime.active_profile is not None:

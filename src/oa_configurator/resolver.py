@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from keyword import iskeyword
+import logging
 from pathlib import Path
 from typing import Any, Callable, Generic, Literal, TypeVar
 
@@ -24,6 +25,7 @@ from .schema_helpers import schema_translate_map as build_schema_translate_map
 from .secret_sources import resolve_secret_value
 
 T = TypeVar("T")
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -50,10 +52,7 @@ class ResolvedDatabaseTarget:
     def create_engine(self, **kwargs: Any) -> Engine:
         """Create a SQLAlchemy engine for this resolved connection target."""
 
-        merged_kwargs = {
-            **self.connection.engine_kwargs,
-            **kwargs,
-        }
+        merged_kwargs = self.connection.engine_create_kwargs(**kwargs)
         return sa.create_engine(self.url, **merged_kwargs)
 
     def __repr__(self) -> str:
@@ -69,17 +68,7 @@ class ResolvedDatabaseTarget:
     def __dir__(self) -> list[str]:
         """Expose the resolved database target shape for interactive completion."""
 
-        return sorted(
-            {
-                "connection",
-                "create_engine",
-                "database",
-                "dialect",
-                "name",
-                "safe_url",
-                "url",
-            }
-        )
+        return _dataclass_public_dir(self)
 
 
 @dataclass(frozen=True)
@@ -116,18 +105,6 @@ class ResolvedResource:
             f"analytic_db_file_root={display_path(self.analytic_db_file_root)!r}"
             ")"
         )
-
-    @property
-    def vocab_db_is_primary(self) -> bool:
-        """Return whether the vocab DB role falls back to the primary DB."""
-
-        return self.vocab_db_is_primary_fallback
-
-    @property
-    def results_db_is_primary(self) -> bool:
-        """Return whether the results DB role falls back to the primary DB."""
-
-        return self.results_db_is_primary_fallback
 
     def database_target(self, role: Literal["primary", "vocab", "results"] = "primary") -> ResolvedDatabaseTarget:
         """Return the resolved database target for one resource role."""
@@ -166,28 +143,7 @@ class ResolvedResource:
     def __dir__(self) -> list[str]:
         """Expose the resolved resource shape for interactive completion."""
 
-        return sorted(
-            {
-                "analytic_db_file_root",
-                "artifact_root",
-                "athena_source_path",
-                "create_engine",
-                "database_target",
-                "embedding_file_root",
-                "name",
-                "omop_schema",
-                "primary_db",
-                "results_db",
-                "results_db_is_primary_fallback",
-                "results_db_is_primary",
-                "results_schema",
-                "schema_translate_map",
-                "vocab_db",
-                "vocab_db_is_primary_fallback",
-                "vocab_db_is_primary",
-                "vocab_schema",
-            }
-        )
+        return _dataclass_public_dir(self)
 
 
 @dataclass(frozen=True)
@@ -214,15 +170,7 @@ class ResolvedToolConfig:
     def __dir__(self) -> list[str]:
         """Expose the resolved tool shape for interactive completion."""
 
-        return sorted(
-            {
-                "backend",
-                "database_file_root",
-                "default_resource",
-                "embedding_file_root",
-                "name",
-            }
-        )
+        return _dataclass_public_dir(self)
 
 
 class _NameNamespace(Generic[T]):
@@ -251,6 +199,8 @@ class _NameNamespace(Generic[T]):
     def __getattr__(self, name: str) -> T:
         """Resolve identifier-safe names as interactive attributes."""
 
+        if name.startswith("_"):
+            raise AttributeError(name)
         if name in self._names():
             return self._resolver(name)
         raise AttributeError(f"Unknown {self._label}: {name}")
@@ -354,19 +304,21 @@ class Resolver:
 
         connection = _get_named_config(self.config.connections, kind="connection", name=name)
         if connection.secret_source is None:
-            return ResolvedDatabaseTarget(
+            target = ResolvedDatabaseTarget(
                 name=name,
                 connection=connection,
                 url=connection.as_url_resolved(self.configuration_base_path),
                 safe_url=connection.as_safe_url_resolved(self.configuration_base_path),
             )
+            logger.debug("Resolved connection %r to %s", name, target.safe_url)
+            return target
 
         resolved_secret = _resolve_connection_secret(
             connection,
             configuration_base_path=self.configuration_base_path,
             secrets_dir=self.config.secrets_dir,
         )
-        return ResolvedDatabaseTarget(
+        target = ResolvedDatabaseTarget(
             name=name,
             connection=connection,
             url=connection.as_url_resolved(
@@ -378,6 +330,8 @@ class Resolver:
                 password_override=resolved_secret,
             ),
         )
+        logger.debug("Resolved connection %r to %s", name, target.safe_url)
+        return target
 
     def resolve_resource(self, name: str) -> ResolvedResource:
         """Resolve one logical resource bundle into concrete database targets."""
@@ -391,7 +345,7 @@ class Resolver:
         vocab = self.resolve_connection(resource.vocab_db or resource.primary_db)
         results = self.resolve_connection(resource.results_db or resource.primary_db)
 
-        return ResolvedResource(
+        resolved = ResolvedResource(
             name=name,
             primary_db=primary,
             vocab_db=vocab,
@@ -406,6 +360,14 @@ class Resolver:
             embedding_file_root=_resolve_optional_path(resource.embedding_file_root, self.configuration_base_path),
             analytic_db_file_root=_resolve_optional_path(resource.analytic_db_file_root, self.configuration_base_path),
         )
+        logger.debug(
+            "Resolved resource %r to primary=%s vocab=%s results=%s",
+            name,
+            resolved.primary_db.safe_url,
+            resolved.vocab_db.safe_url,
+            resolved.results_db.safe_url,
+        )
+        return resolved
 
     def resolve_tool(self, name: str) -> ResolvedToolConfig:
         """Resolve one tool-default entry into expanded settings."""
@@ -413,13 +375,15 @@ class Resolver:
         tool = _get_named_config(self.config.tools, kind="tool", name=name)
         tool = self._apply_tool_overlay(name, tool)
 
-        return ResolvedToolConfig(
+        resolved = ResolvedToolConfig(
             name=name,
             backend=tool.backend,
             default_resource=tool.default_resource,
             embedding_file_root=_resolve_optional_path(tool.embedding_file_root, self.configuration_base_path),
             database_file_root=_resolve_optional_path(tool.database_file_root, self.configuration_base_path),
         )
+        logger.debug("Resolved tool %r with default_resource=%r", name, resolved.default_resource)
+        return resolved
 
     def with_overrides(
         self,
@@ -449,6 +413,7 @@ class Resolver:
             connections={**self.config.connections, **(connections or {})},
             resources={**self.config.resources, **(resources or {})},
             tools={**self.config.tools, **(tools or {})},
+            logging=self.config.logging,
         )
         bind_path = self.config.config_file_path or (
             self.configuration_base_path / "_session.toml"
@@ -467,6 +432,11 @@ class Resolver:
         if override is None:
             return resource
 
+        logger.debug(
+            "Applying resource override from profile %r to resource %r",
+            self.active_profile_name(),
+            name,
+        )
         return _merge_resource_config(resource, override)
 
     def _apply_tool_overlay(self, name: str, tool: ToolConfig) -> ToolConfig:
@@ -480,6 +450,11 @@ class Resolver:
         if override is None:
             return tool
 
+        logger.debug(
+            "Applying tool override from profile %r to tool %r",
+            self.active_profile_name(),
+            name,
+        )
         return _merge_tool_config(tool, override)
 
     def __repr__(self) -> str:
@@ -495,28 +470,7 @@ class Resolver:
     def __dir__(self) -> list[str]:
         """Expose the resolver surface clearly for interactive completion."""
 
-        return sorted(
-            {
-                *super().__dir__(),
-                "active_profile",
-                "active_profile_name",
-                "complete_connection_name",
-                "complete_resource_name",
-                "complete_tool_name",
-                "config",
-                "configuration_base_path",
-                "connection_names",
-                "connections",
-                "profile_names",
-                "resolve_connection",
-                "resolve_resource",
-                "resolve_tool",
-                "resource_names",
-                "resources",
-                "tool_names",
-                "tools",
-            }
-        )
+        return sorted(super().__dir__())
 
 
 def _resolve_optional_path(value: str | None, configuration_base_path: Path) -> Path | None:
@@ -525,6 +479,17 @@ def _resolve_optional_path(value: str | None, configuration_base_path: Path) -> 
     if value is None:
         return None
     return resolve_filesystem_path(value, configuration_base_path)
+
+
+def _dataclass_public_dir(instance: object) -> list[str]:
+    """Derive completion names from dataclass fields plus public type members."""
+
+    return sorted(
+        {
+            *(field.name for field in fields(instance)),
+            *(name for name in dir(type(instance)) if not name.startswith("_")),
+        }
+    )
 
 
 def _resolve_connection_secret(

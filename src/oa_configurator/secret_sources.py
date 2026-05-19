@@ -38,6 +38,10 @@ def resolve_secret_value(
             raise SecretSourceResolutionError(
                 f"environment variable {source_value!r} is not set"
             )
+        if secret_value == "":
+            raise SecretSourceResolutionError(
+                f"environment variable {source_value!r} is set but empty"
+            )
         return secret_value
 
     if source_kind == "file":

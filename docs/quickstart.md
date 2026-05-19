@@ -38,7 +38,29 @@ resource = resolver.resources.default       # same as resolve_resource("default"
 engine   = resource.primary_db.create_engine()
 ```
 
-### 3. Use with orm-loader or omop-alchemy
+### 3. Configure logging (optional)
+
+Call `configure_logging()` once at the top of your script or notebook. It sets consistent levels and formats across `orm_loader`, `omop_alchemy`, and every other OMOP stack package:
+
+```python
+from oa_configurator import configure_logging
+
+configure_logging(preset="notebook")    # INFO to stdout, no timestamps
+configure_logging(preset="application") # INFO to stderr, with timestamps
+```
+
+Or derive it from the loaded config:
+
+```python
+from oa_configurator import load_stack_config, configure_logging
+
+config = load_stack_config()
+configure_logging(config)               # applies config.logging
+```
+
+See [Logging](logging.md) for presets, TOML configuration, and per-logger overrides.
+
+### 4. Use with orm-loader or omop-alchemy
 
 ```python
 from orm_loader.helpers import bootstrap, Base

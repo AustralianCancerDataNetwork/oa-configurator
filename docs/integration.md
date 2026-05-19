@@ -94,6 +94,53 @@ session = Session(engine, execution_options={"schema_translate_map": stm})
 
 ---
 
+## Logging
+
+`configure_logging()` sets consistent log levels and output formats across the entire stack — `oa_configurator`, `orm_loader`, `omop_alchemy`, and future OMOP packages — in a single call.
+
+### Typical usage
+
+```python
+from oa_configurator import load_stack_config, Resolver, configure_logging
+
+config   = load_stack_config()
+configure_logging(config)                        # applies [logging] block from TOML
+
+resource = Resolver(config).resolve_resource("default")
+engine   = resource.create_engine()
+```
+
+When `configure_logging(config)` is called with a `StackConfig`, it reads `config.logging`. If the TOML file has no `[logging]` block, the default `preset = "library"` applies — levels are set to WARNING and no handler is added, so the host application's root logger handles output.
+
+### Standalone (no config file)
+
+```python
+from oa_configurator import configure_logging
+
+configure_logging(preset="notebook")             # INFO → stdout, no timestamps
+configure_logging(preset="application")          # INFO → stderr, with timestamps
+configure_logging(preset="production")           # INFO → stdout, JSON lines
+```
+
+### Suppress noisy third-party loggers
+
+Add a `[logging.loggers]` block to the config file:
+
+```toml
+[logging]
+preset = "application"
+
+[logging.loggers]
+"sqlalchemy.engine" = "WARNING"
+"sqlalchemy.pool"   = "WARNING"
+```
+
+This targets any fully-qualified Python logger name — not just stack namespaces.
+
+See [Logging](logging.md) for the full reference including custom handler config and all preset details.
+
+---
+
 ## Multi-database vs single-database deployments
 
 **Single database, multiple schemas** (common):

@@ -14,6 +14,7 @@ A shared configuration layer for the OMOP-oriented Python stack.
 | **resource** | A logical role bundle — primary OMOP DB, vocab DB, results DB, artifact paths |
 | **profile** | A named environment (e.g. `local`, `prod`) that patches resources and tools |
 | **tool** | Per-tool defaults — backend, default resource, storage roots |
+| **logging** | One call configures consistent log output for the entire OMOP Python stack |
 
 Configuration lives in one TOML file (default `~/.config/omop/config.toml`) and is loaded once. The **Resolver** turns logical names into typed, credential-resolved handles ready for use.
 
@@ -65,6 +66,7 @@ Configuration lives in one TOML file (default `~/.config/omop/config.toml`) and 
 
 - [Quick Start](quickstart.md) — install and get a working engine in minutes
 - [Config File Reference](config-reference.md) — every TOML field documented
+- [Logging](logging.md) — consistent log output across the entire OMOP stack
 - [Inline & Session Usage](inline-usage.md) — construct config in code without a file
 - [Profiles & Overlays](profiles.md) — switch between environments cleanly
 - [Secrets](secrets.md) — keep passwords out of the config file

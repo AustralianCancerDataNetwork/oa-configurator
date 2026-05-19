@@ -7,6 +7,7 @@ from typing import Any
 
 import tomli_w
 
+from .logging_config import LoggingConfig
 from .models import StackConfig
 
 
@@ -20,8 +21,18 @@ def save_stack_config(config: StackConfig, path: Path) -> Path:
     """
 
     payload = _drop_none_and_empty(config.model_dump(mode="python"))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(tomli_w.dumps(payload), encoding="utf-8")
+    if config.logging == LoggingConfig():
+        payload.pop("logging", None)
+
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise type(exc)(f"Could not create parent directory for {path}: {exc}") from exc
+
+    try:
+        path.write_text(tomli_w.dumps(payload), encoding="utf-8")
+    except OSError as exc:
+        raise type(exc)(f"Could not write config to {path}: {exc}") from exc
     return path
 
 

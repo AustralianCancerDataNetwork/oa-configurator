@@ -2,15 +2,26 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 from sqlalchemy.engine import URL
 
+from .logging_config import LoggingConfig
 from .paths import resolve_filesystem_path
 
-_PASSWORD_UNSET = object()
+
+class _UnsetPasswordOverride:
+    """Sentinel for an omitted password override argument."""
+
+    def __repr__(self) -> str:
+        return "<UNSET_PASSWORD_OVERRIDE>"
+
+
+_PASSWORD_UNSET = _UnsetPasswordOverride()
+PasswordOverride = str | _UnsetPasswordOverride
 
 
 class SettingsConfig(BaseModel):
@@ -50,6 +61,8 @@ class ProfileConfig(BaseModel):
     ``tools.omop_emb``.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     description: str | None = None
     resource_overrides: dict[str, "ResourceOverrideConfig"] = Field(default_factory=dict)
     tool_overrides: dict[str, "ToolOverrideConfig"] = Field(default_factory=dict)
@@ -72,6 +85,8 @@ class ConnectionConfig(BaseModel):
     default developer-facing representation.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     dialect: str
     host: str | None = None
     port: int | None = None
@@ -90,10 +105,16 @@ class ConnectionConfig(BaseModel):
 
         if self.password is not None and self.secret_source is not None:
             raise ValueError("connections may define password or secret_source, not both")
+        if self.kind == "file":
+            if self.path is None:
+                raise ValueError("file connections require a path")
+            for field_name in ("host", "port", "user", "password", "secret_source"):
+                if getattr(self, field_name) is not None:
+                    raise ValueError(f"file connections may not define {field_name}")
         if self.kind == "database" and self.dialect != "sqlite":
             if self.database is None:
                 raise ValueError("database connections require a database name")
-        if self.dialect == "sqlite" and self.path is None and self.database is None:
+        if self.kind != "file" and self.dialect == "sqlite" and self.path is None and self.database is None:
             raise ValueError("sqlite connections require either path or database")
         return self
 
@@ -111,7 +132,7 @@ class ConnectionConfig(BaseModel):
         self,
         configuration_base_path: Path | None = None,
         *,
-        password_override: str | object = _PASSWORD_UNSET,
+        password_override: PasswordOverride = _PASSWORD_UNSET,
     ) -> str:
         """Render the full connection URL with optional base-path resolution.
 
@@ -123,13 +144,14 @@ class ConnectionConfig(BaseModel):
         """
 
         file_target = self._resolved_file_target(configuration_base_path)
+        if self.kind == "file":
+            if file_target is None:
+                raise RuntimeError("file connections require a resolved path")
+            return f"{self.dialect}:///{file_target}"
         if self.dialect == "sqlite":
             if file_target is not None:
                 return f"sqlite:///{file_target}"
             return f"sqlite:///{self.database}"
-
-        if self.kind == "file" and file_target is not None:
-            return f"{self.dialect}:///{file_target}"
 
         return self._render_network_url(
             redact_password=False,
@@ -145,17 +167,60 @@ class ConnectionConfig(BaseModel):
         self,
         configuration_base_path: Path | None = None,
         *,
-        password_override: str | object = _PASSWORD_UNSET,
+        password_override: PasswordOverride = _PASSWORD_UNSET,
     ) -> str:
         """Render a redacted connection URL with optional base-path resolution."""
 
-        if self.dialect == "sqlite" or (self.kind == "file" and self.path is not None):
+        if self.kind == "file" or self.dialect == "sqlite":
             return self.as_url_resolved(configuration_base_path)
 
         return self._render_network_url(
             redact_password=True,
             password_override=password_override,
         )
+
+    def engine_create_kwargs(self, **overrides: Any) -> dict[str, Any]:
+        """Return effective kwargs for ``sqlalchemy.create_engine()``.
+
+        ``engine_kwargs`` from configuration are used as the base. Explicit
+        call-site overrides win. When ``read_only`` is enabled for PostgreSQL,
+        a startup ``connect_args.options`` flag is injected unless the caller
+        has already set it.
+        """
+
+        merged = deepcopy(self.engine_kwargs)
+        if self.read_only and self.dialect.startswith("postgresql"):
+            connect_args = merged.get("connect_args")
+            if connect_args is None:
+                connect_args = {}
+                merged["connect_args"] = connect_args
+            if not isinstance(connect_args, dict):
+                raise TypeError(
+                    "connections.<name>.engine_kwargs.connect_args must be a mapping "
+                    "when read_only=true"
+                )
+            options = connect_args.get("options")
+            if options is None:
+                connect_args["options"] = "-c default_transaction_read_only=on"
+            elif "default_transaction_read_only" not in str(options):
+                connect_args["options"] = (
+                    f"{options} -c default_transaction_read_only=on".strip()
+                )
+
+        explicit = dict(overrides)
+        explicit_connect_args = explicit.pop("connect_args", None)
+        if explicit_connect_args is not None and isinstance(merged.get("connect_args"), dict):
+            if not isinstance(explicit_connect_args, dict):
+                raise TypeError("create_engine(..., connect_args=...) must receive a mapping")
+            merged["connect_args"] = {
+                **merged["connect_args"],
+                **explicit_connect_args,
+            }
+        elif explicit_connect_args is not None:
+            merged["connect_args"] = explicit_connect_args
+
+        merged.update(explicit)
+        return merged
 
     def __repr__(self) -> str:
         path_repr = str(Path(self.path).expanduser()) if self.path is not None else None
@@ -186,7 +251,7 @@ class ConnectionConfig(BaseModel):
         self,
         *,
         redact_password: bool,
-        password_override: str | object = _PASSWORD_UNSET,
+        password_override: PasswordOverride = _PASSWORD_UNSET,
     ) -> str:
         """Render a network-style database URL with optional password redaction."""
 
@@ -203,6 +268,8 @@ class ConnectionConfig(BaseModel):
 
 class ResourceConfig(BaseModel):
     """Logical resource-role mapping for one stack usage pattern."""
+
+    model_config = ConfigDict(extra="forbid")
 
     primary_db: str
     vocab_db: str | None = None
@@ -237,6 +304,8 @@ class ResourceOverrideConfig(BaseModel):
     the base resource during resolution for the active profile.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     primary_db: str | None = None
     vocab_db: str | None = None
     results_db: str | None = None
@@ -255,6 +324,8 @@ class ResourceOverrideConfig(BaseModel):
 
 class ToolConfig(BaseModel):
     """Tool-specific defaults layered on top of shared resources."""
+
+    model_config = ConfigDict(extra="forbid")
 
     default_resource: str | None = None
     backend: str | None = None
@@ -276,6 +347,8 @@ class ToolConfig(BaseModel):
 
 class ToolOverrideConfig(BaseModel):
     """Partial patch for a named :class:`ToolConfig`."""
+
+    model_config = ConfigDict(extra="forbid")
 
     default_resource: str | None = None
     backend: str | None = None
@@ -302,11 +375,14 @@ class StackConfig(BaseModel):
     notebooks and REPLs feels pleasant without exposing sensitive values.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     settings: SettingsConfig = Field(default_factory=SettingsConfig)
     profiles: dict[str, ProfileConfig] = Field(default_factory=dict)
     connections: dict[str, ConnectionConfig] = Field(default_factory=dict)
     resources: dict[str, ResourceConfig] = Field(default_factory=dict)
     tools: dict[str, ToolConfig] = Field(default_factory=dict)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
     _config_file_path: Path | None = PrivateAttr(default=None)
     _resolved_configuration_base_path: Path | None = PrivateAttr(default=None)
     _resolved_secrets_dir: Path | None = PrivateAttr(default=None)
@@ -316,22 +392,50 @@ class StackConfig(BaseModel):
         """Validate that named cross-references point at configured objects."""
 
         for resource_name, resource in self.resources.items():
-            for field_name, connection_name in (
-                ("primary_db", resource.primary_db),
-                ("vocab_db", resource.vocab_db),
-                ("results_db", resource.results_db),
-            ):
-                if connection_name is not None and connection_name not in self.connections:
-                    raise ValueError(
-                        f"resources.{resource_name}.{field_name} references unknown connection "
-                        f"{connection_name!r}"
-                    )
+            _validate_resource_connections(
+                resource,
+                self.connections,
+                location=f"resources.{resource_name}",
+            )
 
         for tool_name, tool in self.tools.items():
-            if tool.default_resource is not None and tool.default_resource not in self.resources:
-                raise ValueError(
-                    f"tools.{tool_name}.default_resource references unknown resource "
-                    f"{tool.default_resource!r}"
+            _validate_tool_resource(
+                tool,
+                self.resources,
+                location=f"tools.{tool_name}",
+            )
+
+        for profile_name, profile in self.profiles.items():
+            for resource_name, override in profile.resource_overrides.items():
+                base_resource = self.resources.get(resource_name)
+                if base_resource is None:
+                    raise ValueError(
+                        f"profiles.{profile_name}.resource_overrides references unknown resource "
+                        f"{resource_name!r}"
+                    )
+                merged_resource = base_resource.model_copy(
+                    update=override.model_dump(exclude_none=True)
+                )
+                _validate_resource_connections(
+                    merged_resource,
+                    self.connections,
+                    location=f"profiles.{profile_name}.resource_overrides.{resource_name}",
+                )
+
+            for tool_name, override in profile.tool_overrides.items():
+                base_tool = self.tools.get(tool_name)
+                if base_tool is None:
+                    raise ValueError(
+                        f"profiles.{profile_name}.tool_overrides references unknown tool "
+                        f"{tool_name!r}"
+                    )
+                merged_tool = base_tool.model_copy(
+                    update=override.model_dump(exclude_none=True)
+                )
+                _validate_tool_resource(
+                    merged_tool,
+                    self.resources,
+                    location=f"profiles.{profile_name}.tool_overrides.{tool_name}",
                 )
 
         return self
@@ -351,7 +455,9 @@ class StackConfig(BaseModel):
 
         The ``base_path`` (default: ``Path.cwd()``) anchors relative filesystem
         paths in connections, resources, and tools. Equivalent to loading a TOML
-        file from that directory.
+        file from that directory. Internally this binds a synthetic config file
+        path inside ``base_path`` so that ``configuration_base_path = "."``
+        behaves the same way it would for a loaded TOML file.
 
         Example::
 
@@ -378,6 +484,11 @@ class StackConfig(BaseModel):
         This should be called by the loader after the TOML file is parsed so
         that every later filesystem resolution uses a stable directory base
         rather than the process working directory.
+
+        The method only uses the fully resolved file path and its parent
+        directory; the file itself does not need to exist. ``for_session()``
+        relies on that behavior by binding a synthetic ``_session.toml`` path
+        within the chosen base directory.
         """
 
         resolved_file = config_file_path.expanduser().resolve()
@@ -480,4 +591,39 @@ class StackConfig(BaseModel):
             f"resources={len(self.resources)}, "
             f"tools={len(self.tools)}"
             ")"
+        )
+
+
+def _validate_resource_connections(
+    resource: ResourceConfig,
+    connections: dict[str, ConnectionConfig],
+    *,
+    location: str,
+) -> None:
+    """Raise when a resource references a missing named connection."""
+
+    for field_name, connection_name in (
+        ("primary_db", resource.primary_db),
+        ("vocab_db", resource.vocab_db),
+        ("results_db", resource.results_db),
+    ):
+        if connection_name is not None and connection_name not in connections:
+            raise ValueError(
+                f"{location}.{field_name} references unknown connection "
+                f"{connection_name!r}"
+            )
+
+
+def _validate_tool_resource(
+    tool: ToolConfig,
+    resources: dict[str, ResourceConfig],
+    *,
+    location: str,
+) -> None:
+    """Raise when a tool references a missing named resource."""
+
+    if tool.default_resource is not None and tool.default_resource not in resources:
+        raise ValueError(
+            f"{location}.default_resource references unknown resource "
+            f"{tool.default_resource!r}"
         )

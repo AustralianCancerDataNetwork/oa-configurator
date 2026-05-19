@@ -5,7 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from keyword import iskeyword
 from pathlib import Path
-from typing import Callable, Generic, TypeVar
+from typing import Any, Callable, Generic, Literal, TypeVar
+
+import sqlalchemy as sa
+from sqlalchemy.engine import Engine
 
 from .models import (
     ConnectionConfig,
@@ -17,6 +20,7 @@ from .models import (
     ToolOverrideConfig,
 )
 from .paths import display_path, resolve_filesystem_path
+from .schema_helpers import schema_translate_map as build_schema_translate_map
 from .secret_sources import resolve_secret_value
 
 T = TypeVar("T")
@@ -43,6 +47,15 @@ class ResolvedDatabaseTarget:
 
         return self.connection.dialect
 
+    def create_engine(self, **kwargs: Any) -> Engine:
+        """Create a SQLAlchemy engine for this resolved connection target."""
+
+        merged_kwargs = {
+            **self.connection.engine_kwargs,
+            **kwargs,
+        }
+        return sa.create_engine(self.url, **merged_kwargs)
+
     def __repr__(self) -> str:
         return (
             "ResolvedDatabaseTarget("
@@ -59,6 +72,7 @@ class ResolvedDatabaseTarget:
         return sorted(
             {
                 "connection",
+                "create_engine",
                 "database",
                 "dialect",
                 "name",
@@ -76,6 +90,8 @@ class ResolvedResource:
     primary_db: ResolvedDatabaseTarget
     vocab_db: ResolvedDatabaseTarget
     results_db: ResolvedDatabaseTarget
+    vocab_db_is_primary_fallback: bool
+    results_db_is_primary_fallback: bool
     omop_schema: str | None
     vocab_schema: str | None
     results_schema: str | None
@@ -91,6 +107,8 @@ class ResolvedResource:
             f"primary_db={self.primary_db.name!r}, "
             f"vocab_db={self.vocab_db.name!r}, "
             f"results_db={self.results_db.name!r}, "
+            f"vocab_db_is_primary_fallback={self.vocab_db_is_primary_fallback!r}, "
+            f"results_db_is_primary_fallback={self.results_db_is_primary_fallback!r}, "
             f"omop_schema={self.omop_schema!r}, "
             f"vocab_schema={self.vocab_schema!r}, "
             f"results_schema={self.results_schema!r}, "
@@ -98,6 +116,52 @@ class ResolvedResource:
             f"analytic_db_file_root={display_path(self.analytic_db_file_root)!r}"
             ")"
         )
+
+    @property
+    def vocab_db_is_primary(self) -> bool:
+        """Return whether the vocab DB role falls back to the primary DB."""
+
+        return self.vocab_db_is_primary_fallback
+
+    @property
+    def results_db_is_primary(self) -> bool:
+        """Return whether the results DB role falls back to the primary DB."""
+
+        return self.results_db_is_primary_fallback
+
+    def database_target(self, role: Literal["primary", "vocab", "results"] = "primary") -> ResolvedDatabaseTarget:
+        """Return the resolved database target for one resource role."""
+
+        if role == "primary":
+            return self.primary_db
+        if role == "vocab":
+            return self.vocab_db
+        if role == "results":
+            return self.results_db
+        raise ValueError(f"Unknown resource database role: {role}")
+
+    def schema_translate_map(self) -> dict[str | None, str | None]:
+        """Return a schema translate map suitable for OMOP-oriented SQLAlchemy models."""
+
+        return build_schema_translate_map(self)
+
+    def create_engine(
+        self,
+        *,
+        role: Literal["primary", "vocab", "results"] = "primary",
+        execution_options: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> Engine:
+        """Create a SQLAlchemy engine for one resource role with schema translation applied."""
+
+        engine = self.database_target(role).create_engine(**kwargs)
+        merged_execution_options = dict(execution_options or {})
+        schema_translate_map = self.schema_translate_map()
+        if schema_translate_map:
+            merged_execution_options.setdefault("schema_translate_map", schema_translate_map)
+        if not merged_execution_options:
+            return engine
+        return engine.execution_options(**merged_execution_options)
 
     def __dir__(self) -> list[str]:
         """Expose the resolved resource shape for interactive completion."""
@@ -107,13 +171,20 @@ class ResolvedResource:
                 "analytic_db_file_root",
                 "artifact_root",
                 "athena_source_path",
+                "create_engine",
+                "database_target",
                 "embedding_file_root",
                 "name",
                 "omop_schema",
                 "primary_db",
                 "results_db",
+                "results_db_is_primary_fallback",
+                "results_db_is_primary",
                 "results_schema",
+                "schema_translate_map",
                 "vocab_db",
+                "vocab_db_is_primary_fallback",
+                "vocab_db_is_primary",
                 "vocab_schema",
             }
         )
@@ -274,7 +345,12 @@ class Resolver:
         return self.config.configuration_base_path
 
     def resolve_connection(self, name: str) -> ResolvedDatabaseTarget:
-        """Resolve one configured connection name into a concrete connection target."""
+        """Resolve one configured connection name into a concrete connection target.
+
+        Secret sources are resolved on each call rather than memoized so
+        callers can pick up environment or file rotations. In hot paths, prefer
+        creating one engine from the resolved target and reusing that engine.
+        """
 
         connection = _get_named_config(self.config.connections, kind="connection", name=name)
         if connection.secret_source is None:
@@ -310,6 +386,8 @@ class Resolver:
         resource = self._apply_resource_overlay(name, resource)
 
         primary = self.resolve_connection(resource.primary_db)
+        vocab_db_is_primary_fallback = resource.vocab_db is None
+        results_db_is_primary_fallback = resource.results_db is None
         vocab = self.resolve_connection(resource.vocab_db or resource.primary_db)
         results = self.resolve_connection(resource.results_db or resource.primary_db)
 
@@ -318,6 +396,8 @@ class Resolver:
             primary_db=primary,
             vocab_db=vocab,
             results_db=results,
+            vocab_db_is_primary_fallback=vocab_db_is_primary_fallback,
+            results_db_is_primary_fallback=results_db_is_primary_fallback,
             omop_schema=resource.omop_schema,
             vocab_schema=resource.vocab_schema,
             results_schema=resource.results_schema,
@@ -340,6 +420,41 @@ class Resolver:
             embedding_file_root=_resolve_optional_path(tool.embedding_file_root, self.configuration_base_path),
             database_file_root=_resolve_optional_path(tool.database_file_root, self.configuration_base_path),
         )
+
+    def with_overrides(
+        self,
+        *,
+        connections: "dict[str, ConnectionConfig] | None" = None,
+        resources: "dict[str, ResourceConfig] | None" = None,
+        tools: "dict[str, ToolConfig] | None" = None,
+    ) -> "Resolver":
+        """Return a new Resolver with entries merged over the current config.
+
+        Useful for session-level overrides — swap one connection or resource
+        without touching the loaded TOML file or recreating the full config.
+        Profile overlays and path context from the current config are preserved.
+        Cross-references are validated against the merged result.
+
+        Example::
+
+            # Load shared team config, redirect primary_db to a local DuckDB for this session
+            resolver = Resolver(load_stack_config()).with_overrides(
+                connections={"local": ConnectionConfig(dialect="duckdb", path="local.duckdb")},
+                resources={"default": ResourceConfig(primary_db="local")},
+            )
+        """
+        new_config = StackConfig(
+            settings=self.config.settings,
+            profiles=self.config.profiles,
+            connections={**self.config.connections, **(connections or {})},
+            resources={**self.config.resources, **(resources or {})},
+            tools={**self.config.tools, **(tools or {})},
+        )
+        bind_path = self.config.config_file_path or (
+            self.configuration_base_path / "_session.toml"
+        )
+        new_config.bind_loaded_path(bind_path)
+        return Resolver(new_config)
 
     def _apply_resource_overlay(self, name: str, resource: ResourceConfig) -> ResourceConfig:
         """Apply the active profile's partial patch to a base resource."""

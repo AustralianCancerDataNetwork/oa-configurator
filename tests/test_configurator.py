@@ -10,6 +10,7 @@ from pathlib import Path
 from oa_configurator.loader import load_stack_config
 from oa_configurator.models import ConnectionConfig, ProfileConfig, ResourceConfig, StackConfig
 from oa_configurator.resolver import Resolver
+from oa_configurator.schema_helpers import schema_translate_map
 
 
 class ConnectionConfigTests(unittest.TestCase):
@@ -39,6 +40,37 @@ class ConnectionConfigTests(unittest.TestCase):
             "postgresql://omop:secret@db.internal/cdm",
         )
 
+    def test_create_engine_uses_resolved_connection_url(self) -> None:
+        connection = ConnectionConfig(dialect="sqlite", database=":memory:")
+        config = StackConfig(
+            connections={
+                "local": connection,
+            },
+        )
+        config.bind_loaded_path(Path("/tmp/config-dir/config.toml").resolve())
+
+        engine = Resolver(config).resolve_connection("local").create_engine()
+
+        with engine.connect() as conn:
+            self.assertEqual(conn.exec_driver_sql("SELECT 1").scalar_one(), 1)
+
+    def test_create_engine_uses_connection_engine_kwargs(self) -> None:
+        connection = ConnectionConfig(
+            dialect="sqlite",
+            database=":memory:",
+            engine_kwargs={"echo": True},
+        )
+        config = StackConfig(
+            connections={
+                "local": connection,
+            },
+        )
+        config.bind_loaded_path(Path("/tmp/config-dir/config.toml").resolve())
+
+        engine = Resolver(config).resolve_connection("local").create_engine()
+
+        self.assertTrue(engine.echo)
+
     def test_password_and_secret_source_are_mutually_exclusive(self) -> None:
         with self.assertRaisesRegex(ValueError, "password or secret_source"):
             ConnectionConfig(
@@ -47,6 +79,30 @@ class ConnectionConfigTests(unittest.TestCase):
                 password="secret",
                 secret_source="env:OA_DB_PASSWORD",
             )
+
+    def test_as_url_requires_resolved_secret_context(self) -> None:
+        connection = ConnectionConfig(
+            dialect="postgresql",
+            host="db.internal",
+            user="omop",
+            database="cdm",
+            secret_source="env:OA_DB_PASSWORD",
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "requires a resolved secret"):
+            connection.as_url()
+
+    def test_secret_source_safe_url_and_repr_do_not_expose_sentinel(self) -> None:
+        connection = ConnectionConfig(
+            dialect="postgresql",
+            host="db.internal",
+            user="omop",
+            database="cdm",
+            secret_source="env:OA_DB_PASSWORD",
+        )
+
+        self.assertEqual(connection.as_safe_url(), "postgresql://omop@db.internal/cdm")
+        self.assertNotIn("_PASSWORD_UNSET", repr(connection))
 
 
 class ResolverTests(unittest.TestCase):
@@ -172,6 +228,156 @@ class ResolverTests(unittest.TestCase):
             ")",
         )
 
+    def test_resolved_resource_exposes_alias_flags_and_schema_translate_map(self) -> None:
+        config = StackConfig(
+            connections={
+                "local": ConnectionConfig(dialect="sqlite", database=":memory:"),
+            },
+            resources={
+                "default": ResourceConfig(
+                    primary_db="local",
+                    omop_schema="cdm",
+                    vocab_schema="vocab",
+                    results_schema="results",
+                )
+            },
+        )
+        config.bind_loaded_path(Path("/tmp/config-dir/config.toml").resolve())
+
+        resolved = Resolver(config).resolve_resource("default")
+
+        self.assertTrue(resolved.vocab_db_is_primary_fallback)
+        self.assertTrue(resolved.results_db_is_primary_fallback)
+        self.assertTrue(resolved.vocab_db_is_primary)
+        self.assertTrue(resolved.results_db_is_primary)
+        self.assertEqual(
+            resolved.schema_translate_map(),
+            {
+                None: "cdm",
+                "vocab": "vocab",
+                "results": "results",
+            },
+        )
+        self.assertEqual(schema_translate_map(resolved), resolved.schema_translate_map())
+
+    def test_resolved_resource_create_engine_applies_schema_translate_map(self) -> None:
+        config = StackConfig(
+            connections={
+                "local": ConnectionConfig(dialect="sqlite", database=":memory:"),
+            },
+            resources={
+                "default": ResourceConfig(
+                    primary_db="local",
+                    omop_schema="cdm",
+                    vocab_schema="vocab",
+                )
+            },
+        )
+        config.bind_loaded_path(Path("/tmp/config-dir/config.toml").resolve())
+
+        engine = Resolver(config).resolve_resource("default").create_engine()
+
+        self.assertEqual(
+            engine.get_execution_options().get("schema_translate_map"),
+            {
+                None: "cdm",
+                "vocab": "vocab",
+            },
+        )
+
+
+class InlineConfigTests(unittest.TestCase):
+    def test_for_session_resolves_without_toml_file(self) -> None:
+        config = StackConfig.for_session(
+            connections={"local": ConnectionConfig(dialect="sqlite", database=":memory:")},
+            resources={"default": ResourceConfig(primary_db="local")},
+        )
+
+        engine = Resolver(config).resolve_resource("default").create_engine()
+
+        with engine.connect() as conn:
+            self.assertEqual(conn.exec_driver_sql("SELECT 1").scalar_one(), 1)
+
+    def test_for_session_uses_custom_base_path_for_relative_paths(self) -> None:
+        base = Path("/tmp/session-base").resolve()
+        config = StackConfig.for_session(
+            connections={"db": ConnectionConfig(dialect="sqlite", path="data/db.sqlite")},
+            resources={"default": ResourceConfig(primary_db="db")},
+            base_path=base,
+        )
+
+        resolved = Resolver(config).resolve_connection("db")
+
+        self.assertIn(str(base / "data/db.sqlite"), resolved.url)
+
+    def test_for_session_configuration_base_path_defaults_to_cwd(self) -> None:
+        config = StackConfig.for_session(
+            connections={"local": ConnectionConfig(dialect="sqlite", database=":memory:")},
+        )
+
+        self.assertEqual(config.configuration_base_path, Path.cwd().resolve())
+
+    def test_for_session_validates_references(self) -> None:
+        with self.assertRaisesRegex(ValueError, "references unknown connection"):
+            StackConfig.for_session(
+                connections={"local": ConnectionConfig(dialect="sqlite", database=":memory:")},
+                resources={"default": ResourceConfig(primary_db="missing")},
+            )
+
+    def test_with_overrides_adds_new_connection(self) -> None:
+        base_config = StackConfig.for_session(
+            connections={"prod": ConnectionConfig(dialect="postgresql", host="prod", database="cdm")},
+            resources={"default": ResourceConfig(primary_db="prod")},
+        )
+        resolver = Resolver(base_config).with_overrides(
+            connections={"local": ConnectionConfig(dialect="sqlite", database=":memory:")},
+            resources={"default": ResourceConfig(primary_db="local")},
+        )
+
+        engine = resolver.resolve_resource("default").create_engine()
+
+        with engine.connect() as conn:
+            self.assertEqual(conn.exec_driver_sql("SELECT 1").scalar_one(), 1)
+
+    def test_with_overrides_preserves_unchanged_connections(self) -> None:
+        base_config = StackConfig.for_session(
+            connections={
+                "prod": ConnectionConfig(dialect="postgresql", host="prod", database="cdm"),
+                "vocab": ConnectionConfig(dialect="postgresql", host="vocab", database="vocab"),
+            },
+            resources={"default": ResourceConfig(primary_db="prod", vocab_db="vocab")},
+        )
+        resolver = Resolver(base_config).with_overrides(
+            connections={"prod": ConnectionConfig(dialect="sqlite", database=":memory:")},
+        )
+
+        self.assertIn("vocab", resolver.connection_names())
+        self.assertEqual(resolver.config.connections["vocab"].host, "vocab")
+
+    def test_with_overrides_validates_references_in_merged_result(self) -> None:
+        base_config = StackConfig.for_session(
+            connections={"prod": ConnectionConfig(dialect="postgresql", host="prod", database="cdm")},
+            resources={"default": ResourceConfig(primary_db="prod")},
+        )
+        with self.assertRaisesRegex(ValueError, "references unknown connection"):
+            Resolver(base_config).with_overrides(
+                resources={"default": ResourceConfig(primary_db="nonexistent")},
+            )
+
+    def test_with_overrides_preserves_path_context(self) -> None:
+        base = Path("/tmp/override-base").resolve()
+        base_config = StackConfig.for_session(
+            connections={"local": ConnectionConfig(dialect="sqlite", database=":memory:")},
+            base_path=base,
+        )
+        resolver = Resolver(base_config).with_overrides(
+            resources={"default": ResourceConfig(primary_db="local", artifact_root="artifacts")},
+        )
+
+        resolved = resolver.resolve_resource("default")
+
+        self.assertEqual(resolved.artifact_root, base / "artifacts")
+
 
 class LoaderTests(unittest.TestCase):
     def test_environment_overrides_active_profile(self) -> None:
@@ -202,3 +408,35 @@ description = "prod"
         self.assertEqual(config.settings.active_profile, "prod")
         self.assertEqual(config.configuration_base_path, config_path.parent.resolve())
         self.assertIsNone(config.secrets_dir)
+
+    def test_settings_reject_removed_active_stack(self) -> None:
+        with self.assertRaisesRegex(Exception, "active_stack"):
+            StackConfig.model_validate(
+                {
+                    "settings": {
+                        "active_profile": "local",
+                        "active_stack": "default",
+                    }
+                }
+            )
+
+    def test_stack_config_rejects_unknown_resource_connection_reference(self) -> None:
+        with self.assertRaisesRegex(ValueError, "resources.default.primary_db references unknown connection"):
+            StackConfig(
+                connections={
+                    "local": ConnectionConfig(dialect="postgresql", database="omop"),
+                },
+                resources={
+                    "default": ResourceConfig(primary_db="missing"),
+                },
+            )
+
+    def test_stack_config_rejects_unknown_tool_resource_reference(self) -> None:
+        with self.assertRaisesRegex(ValueError, "tools.omop_emb.default_resource references unknown resource"):
+            StackConfig(
+                tools={
+                    "omop_emb": {
+                        "default_resource": "missing",
+                    }
+                },
+            )

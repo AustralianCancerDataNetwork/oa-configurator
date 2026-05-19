@@ -225,3 +225,4 @@ __pycache__/
 .ruff_cache/
 .venv/
 *.ipynb
+_temp/

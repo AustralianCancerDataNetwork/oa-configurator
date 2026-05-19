@@ -1,4 +1,4 @@
-"""Public package surface for ``oa_configurator``."""
+"""Public package surface for ``oa-configurator``."""
 
 from .loader import load_stack_config
 from .models import (
@@ -11,6 +11,7 @@ from .models import (
     ToolOverrideConfig,
 )
 from .resolver import Resolver, ResolvedDatabaseTarget, ResolvedResource, ResolvedToolConfig
+from .schema_helpers import schema_translate_map
 from .settings import DEFAULT_CONFIG_PATH
 
 __all__ = [
@@ -27,4 +28,5 @@ __all__ = [
     "ToolConfig",
     "ToolOverrideConfig",
     "load_stack_config",
+    "schema_translate_map",
 ]

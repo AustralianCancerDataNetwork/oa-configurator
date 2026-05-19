@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, PrivateAttr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 from sqlalchemy.engine import URL
 
 from .paths import resolve_filesystem_path
@@ -20,12 +20,15 @@ class SettingsConfig(BaseModel):
     resolved throughout the configuration:
 
     - ``"."`` means "the fully resolved directory containing the loaded
-      configuration file"
+      configuration file" after the loaded config path has been bound with
+      ``StackConfig.bind_loaded_path()`` or by loading through
+      ``load_stack_config()``
     - any other value must be an absolute directory path
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     active_profile: str = "default"
-    active_stack: str = "default"
     configuration_base_path: str = "."
     secrets_dir: str | None = None
 
@@ -33,7 +36,6 @@ class SettingsConfig(BaseModel):
         return (
             "SettingsConfig("
             f"active_profile={self.active_profile!r}, "
-            f"active_stack={self.active_stack!r}, "
             f"configuration_base_path={self.configuration_base_path!r}, "
             f"secrets_dir={self.secrets_dir!r}"
             ")"
@@ -78,6 +80,7 @@ class ConnectionConfig(BaseModel):
     secret_source: str | None = None
     database: str | None = None
     path: str | None = None
+    engine_kwargs: dict[str, Any] = Field(default_factory=dict)
     read_only: bool = False
     kind: Literal["database", "file"] = "database"
 
@@ -97,6 +100,11 @@ class ConnectionConfig(BaseModel):
     def as_url(self) -> str:
         """Render the full connection URL, including password when configured."""
 
+        if self.secret_source is not None and self.password is None:
+            raise RuntimeError(
+                "ConnectionConfig.as_url() requires a resolved secret when secret_source is configured. "
+                "Use Resolver.resolve_connection(...).url or call as_url_resolved(...) with a resolved secret."
+            )
         return self.as_url_resolved()
 
     def as_url_resolved(
@@ -161,6 +169,7 @@ class ConnectionConfig(BaseModel):
             f"user={self.user!r}, "
             f"path={path_repr!r}, "
             f"secret_source={self.secret_source!r}, "
+            f"engine_kwargs_keys={sorted(self.engine_kwargs)!r}, "
             f"read_only={self.read_only!r}, "
             f"url={self.as_safe_url()!r}"
             ")"
@@ -302,6 +311,67 @@ class StackConfig(BaseModel):
     _resolved_configuration_base_path: Path | None = PrivateAttr(default=None)
     _resolved_secrets_dir: Path | None = PrivateAttr(default=None)
 
+    @model_validator(mode="after")
+    def validate_references(self) -> "StackConfig":
+        """Validate that named cross-references point at configured objects."""
+
+        for resource_name, resource in self.resources.items():
+            for field_name, connection_name in (
+                ("primary_db", resource.primary_db),
+                ("vocab_db", resource.vocab_db),
+                ("results_db", resource.results_db),
+            ):
+                if connection_name is not None and connection_name not in self.connections:
+                    raise ValueError(
+                        f"resources.{resource_name}.{field_name} references unknown connection "
+                        f"{connection_name!r}"
+                    )
+
+        for tool_name, tool in self.tools.items():
+            if tool.default_resource is not None and tool.default_resource not in self.resources:
+                raise ValueError(
+                    f"tools.{tool_name}.default_resource references unknown resource "
+                    f"{tool.default_resource!r}"
+                )
+
+        return self
+
+    @classmethod
+    def for_session(
+        cls,
+        *,
+        connections: "dict[str, ConnectionConfig] | None" = None,
+        resources: "dict[str, ResourceConfig] | None" = None,
+        tools: "dict[str, ToolConfig] | None" = None,
+        profiles: "dict[str, ProfileConfig] | None" = None,
+        settings: "SettingsConfig | None" = None,
+        base_path: Path | None = None,
+    ) -> "StackConfig":
+        """Construct a StackConfig programmatically without a TOML file.
+
+        The ``base_path`` (default: ``Path.cwd()``) anchors relative filesystem
+        paths in connections, resources, and tools. Equivalent to loading a TOML
+        file from that directory.
+
+        Example::
+
+            config = StackConfig.for_session(
+                connections={"local": ConnectionConfig(dialect="sqlite", database=":memory:")},
+                resources={"default": ResourceConfig(primary_db="local")},
+            )
+            engine = Resolver(config).resolve_resource("default").create_engine()
+        """
+        config = cls(
+            connections=connections or {},
+            resources=resources or {},
+            tools=tools or {},
+            profiles=profiles or {},
+            settings=settings or SettingsConfig(),
+        )
+        resolved_base = (base_path or Path.cwd()).expanduser().resolve()
+        config.bind_loaded_path(resolved_base / "_session.toml")
+        return config
+
     def bind_loaded_path(self, config_file_path: Path) -> None:
         """Bind the resolved loaded config path and derive path resolution base.
 
@@ -403,7 +473,6 @@ class StackConfig(BaseModel):
         return (
             "StackConfig("
             f"active_profile={self.settings.active_profile!r}, "
-            f"active_stack={self.settings.active_stack!r}, "
             f"configuration_base_path={config_base_repr!r}, "
             f"secrets_dir={secrets_dir_repr!r}, "
             f"profiles={len(self.profiles)}, "

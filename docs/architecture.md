@@ -4,7 +4,7 @@
 
 This package is a shared configuration library for the stack around:
 
-- `OMOP_Alchemy`
+- `omop-alchemy`
 - `orm-loader`
 - `omop-emb`
 - `omop-graph`
@@ -283,7 +283,6 @@ Strong candidates:
 
 - `ResourceConfig` fields
 - `ToolConfig` fields
-- selected global settings like `active_stack`
 
 Possible but more debatable:
 
@@ -296,19 +295,41 @@ General considerations:
 
 That keeps the mental model simpler.
 
-## Intended Evolution
+## Implemented
 
-The current prototype implements:
+- Typed Pydantic v2 models for all config sections
+- TOML loading with environment-variable overrides (`OA_CONFIG_FILE`, `OA_ACTIVE_PROFILE`)
+- Cross-reference validation at load time (unknown connection/resource names raise immediately)
+- Resolver: logical names → typed, secret-resolved, path-expanded handles
+- Profile overlays: shallow field-level merge for resources and tools
+- Secret sources: `env:VARNAME` and `file:path`
+- `ResolvedDatabaseTarget.create_engine()` and `ResolvedResource.create_engine()`
+- `ResolvedResource.schema_translate_map()` — SQLAlchemy `{None: omop_schema, "vocab": vocab_schema, ...}`
+- `ResolvedResource.vocab_db_is_primary_fallback` / `results_db_is_primary_fallback`
+- `StackConfig.for_session()` — inline construction without a TOML file
+- `Resolver.with_overrides()` — session-level connection/resource replacement
+- Interactive REPL namespaces with tab completion (`resolver.resources.default`)
+- CLI wizards: `add-connection`, `add-resource`, `add-profile`, `show`, `resolve-resource`, `resolve-tool`
+- TOML persistence (`save_stack_config`)
 
-- typed models
-- TOML loading
-- simple resolution
-- CLI skeleton
-- file and env backed secret resolution
+## Possible future additions
 
-Still to add:
+- Doctor / validation command that checks connectivity and schema presence
+- Project-local overlay file (`./oa-config.toml`) that merges over the user config
+- Compatibility shims that export resolved config back to legacy env var format
+- Vault / cloud secrets manager sources beyond `env:` and `file:`
+- Async engine factory for asyncpg / greenlet-based stacks
 
-- compatibility exporters for legacy env vars
-- a doctor/validation command
-- project-local overlay file support
-- more complete tool-specific resolution helpers
+## Design notes
+
+`active_stack` was considered as a way to select a default resource by name but
+was removed — `active_profile` + resource naming covers the use case without
+the extra indirection.
+
+`schema_translate_map` follows the SQLAlchemy convention of mapping `None` to
+the unqualified (default) schema. OMOP clinical tables carry `schema=None` in
+the ORM; the translate map routes them to the configured OMOP schema at runtime
+without changing model definitions.
+
+Inline secrets (`password = "..."`) are allowed but not recommended for shared
+config files. The `secret_source` mechanism keeps the TOML file safe to commit.

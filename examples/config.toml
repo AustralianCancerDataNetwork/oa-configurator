@@ -1,6 +1,5 @@
 [settings]
 active_profile = "prod"
-active_stack = "default"
 configuration_base_path = "."
 secrets_dir = "secrets"
 

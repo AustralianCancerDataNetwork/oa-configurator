@@ -24,7 +24,6 @@ class RuntimeSettings(BaseSettings):
 
     config_file: Path = DEFAULT_CONFIG_PATH
     active_profile: str | None = None
-    active_stack: str | None = None
 
     model_config = SettingsConfigDict(
         env_prefix="OA_",

@@ -1,0 +1,68 @@
+site_name: oa-configurator
+site_description: A tool to generate configuration files for OMOP data model database and logging configuration focused on omop-alchemy.
+site_url: https://AustralianCancerDataNetwork.github.io/oa-configurator/
+repo_url: https://github.com/AustralianCancerDataNetwork/oa-configurator
+repo_name: oa-configurator
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.top
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+
+markdown_extensions:
+  - admonition
+  - footnotes
+  - tables
+  - attr_list
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:mermaid2.fence_mermaid
+  - toc:
+      permalink: true
+
+extra_javascript:
+  - https://unpkg.com/mermaid@10/dist/mermaid.min.js
+  - js/mermaid-init.js
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths:
+            - src
+          options:
+            show_source: false
+            docstring_style: google
+            merge_init_into_class: true
+            separate_signature: true
+            show_signature_annotations: true
+
+nav:
+  - Home: index.md
+  - Getting Started: quickstart.md
+  - User Guide:
+      - Config File Reference: config-reference.md
+      - Secrets: secrets.md
+      - Profiles & Overlays: profiles.md
+      - Inline & Session Usage: inline-usage.md
+  - Integration: integration.md
+  - Architecture: architecture.md
+  - API Reference:
+      - Loader: api/loader.md
+      - Models: api/models.md
+      - Resolver: api/resolver.md
+      - Schema Helpers: api/schema-helpers.md
+      - Persistence: api/persistence.md

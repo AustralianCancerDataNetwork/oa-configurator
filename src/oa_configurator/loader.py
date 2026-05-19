@@ -40,8 +40,6 @@ def load_stack_config(path: str | Path | None = None) -> StackConfig:
 
     if runtime.active_profile is not None:
         config.settings.active_profile = runtime.active_profile
-    if runtime.active_stack is not None:
-        config.settings.active_stack = runtime.active_stack
 
     config.bind_loaded_path(resolved_path)
 

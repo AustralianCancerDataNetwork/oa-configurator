@@ -1,6 +1,6 @@
-# oa_configurator
+# oa-configurator
 
-`oa_configurator` is a shared configuration layer across the OMOP-oriented public stack.
+`oa-configurator` is a shared configuration layer across the OMOP-oriented public stack.
 
 ## Goals
 
@@ -58,6 +58,8 @@ tool = resolver.resolve_tool("omop_emb")
 
 print(resource.primary_db.database)
 print(resource.primary_db.safe_url)
+print(resource.vocab_db_is_primary_fallback)
+print(resource.schema_translate_map())
 print(tool.backend)
 print(resolver.configuration_base_path)
 print(config.secrets_dir)

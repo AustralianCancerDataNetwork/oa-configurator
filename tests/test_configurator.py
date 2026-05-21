@@ -18,9 +18,9 @@ from oa_configurator.logging_config import (
     STACK_LOG_NAMESPACES,
     configure_logging,
 )
-from oa_configurator.models import ConnectionConfig, ProfileConfig, ResourceConfig, StackConfig, ToolConfig
+from oa_configurator.models import ConnectionConfig, ProfileConfig, ResourceConfig, StackConfig, ToolConfig, ToolOverrideConfig
 from oa_configurator.persistence import save_stack_config
-from oa_configurator.resolver import Resolver
+from oa_configurator.resolver import Resolver, ResolvedApiTarget
 from oa_configurator.schema_helpers import schema_translate_map
 from oa_configurator.secret_sources import resolve_secret_value
 
@@ -1015,3 +1015,384 @@ class LoggingConfigTests(unittest.TestCase):
                         if not isinstance(h, logging.NullHandler)
                     ]
                     self.assertEqual(non_null, [], f"{ns} should have no non-null handlers")
+
+
+class ApiConnectionConfigTests(unittest.TestCase):
+    def test_api_connection_minimal(self) -> None:
+        connection = ConnectionConfig(kind="api", base_url="http://localhost:11434/v1")
+
+        self.assertEqual(connection.kind, "api")
+        self.assertEqual(connection.base_url, "http://localhost:11434/v1")
+        self.assertIsNone(connection.api_key)
+        self.assertIsNone(connection.provider)
+
+    def test_api_connection_with_all_fields(self) -> None:
+        connection = ConnectionConfig(
+            kind="api",
+            base_url="http://localhost:11434/v1",
+            provider="ollama",
+            api_key="test-key",
+        )
+
+        self.assertEqual(connection.provider, "ollama")
+        self.assertEqual(connection.api_key, "test-key")
+
+    def test_api_connection_with_secret_source(self) -> None:
+        connection = ConnectionConfig(
+            kind="api",
+            base_url="http://localhost:11434/v1",
+            secret_source="env:OLLAMA_API_KEY",
+        )
+
+        self.assertIsNone(connection.api_key)
+        self.assertEqual(connection.secret_source, "env:OLLAMA_API_KEY")
+
+    def test_api_connection_requires_base_url(self) -> None:
+        with self.assertRaisesRegex(ValueError, "api connections require a base_url"):
+            ConnectionConfig(kind="api")
+
+    def test_api_connection_rejects_api_key_and_secret_source(self) -> None:
+        with self.assertRaisesRegex(ValueError, "api connections may define api_key or secret_source, not both"):
+            ConnectionConfig(
+                kind="api",
+                base_url="http://localhost:11434/v1",
+                api_key="plaintext",
+                secret_source="env:OLLAMA_API_KEY",
+            )
+
+    def test_api_connection_rejects_dialect(self) -> None:
+        with self.assertRaisesRegex(ValueError, "api connections may not define dialect"):
+            ConnectionConfig(kind="api", base_url="http://localhost:11434/v1", dialect="postgresql")
+
+    def test_api_connection_rejects_host(self) -> None:
+        with self.assertRaisesRegex(ValueError, "api connections may not define host"):
+            ConnectionConfig(kind="api", base_url="http://localhost:11434/v1", host="localhost")
+
+    def test_api_connection_rejects_database(self) -> None:
+        with self.assertRaisesRegex(ValueError, "api connections may not define database"):
+            ConnectionConfig(kind="api", base_url="http://localhost:11434/v1", database="cdm")
+
+    def test_database_connection_rejects_base_url(self) -> None:
+        with self.assertRaisesRegex(ValueError, "database connections may not define base_url"):
+            ConnectionConfig(
+                kind="database",
+                dialect="postgresql",
+                database="cdm",
+                base_url="http://localhost",
+            )
+
+    def test_database_connection_rejects_api_key(self) -> None:
+        with self.assertRaisesRegex(ValueError, "database connections may not define api_key"):
+            ConnectionConfig(
+                kind="database",
+                dialect="postgresql",
+                database="cdm",
+                api_key="key",
+            )
+
+    def test_database_connection_rejects_provider(self) -> None:
+        with self.assertRaisesRegex(ValueError, "database connections may not define provider"):
+            ConnectionConfig(
+                kind="database",
+                dialect="postgresql",
+                database="cdm",
+                provider="ollama",
+            )
+
+    def test_database_connection_requires_dialect(self) -> None:
+        with self.assertRaisesRegex(ValueError, "database connections require a dialect"):
+            ConnectionConfig(kind="database", database="cdm")
+
+    def test_file_connection_requires_dialect(self) -> None:
+        with self.assertRaisesRegex(ValueError, "file connections require a dialect"):
+            ConnectionConfig(kind="file", path="data/example.sqlite")
+
+    def test_api_connection_as_url_raises(self) -> None:
+        connection = ConnectionConfig(kind="api", base_url="http://localhost:11434/v1")
+
+        with self.assertRaisesRegex(RuntimeError, "api connections do not have a database URL"):
+            connection.as_url()
+
+    def test_api_connection_as_safe_url_raises(self) -> None:
+        connection = ConnectionConfig(kind="api", base_url="http://localhost:11434/v1")
+
+        with self.assertRaisesRegex(RuntimeError, "api connections do not have a database URL"):
+            connection.as_safe_url()
+
+    def test_api_connection_repr_does_not_expose_api_key(self) -> None:
+        connection = ConnectionConfig(
+            kind="api",
+            base_url="http://localhost:11434/v1",
+            api_key="secret-key",
+            provider="ollama",
+        )
+
+        r = repr(connection)
+
+        self.assertIn("kind='api'", r)
+        self.assertIn("base_url=", r)
+        self.assertIn("provider='ollama'", r)
+        self.assertNotIn("secret-key", r)
+        self.assertIn("<set>", r)
+
+    def test_api_connection_repr_shows_not_set_when_no_key(self) -> None:
+        connection = ConnectionConfig(kind="api", base_url="http://localhost:11434/v1")
+
+        self.assertIn("<not set>", repr(connection))
+
+
+class ResolveApiConnectionTests(unittest.TestCase):
+    def _make_config(self, **conn_kwargs) -> StackConfig:
+        config = StackConfig(
+            connections={"ollama": ConnectionConfig(kind="api", **conn_kwargs)},
+        )
+        config.bind_loaded_path(Path("/tmp/config-dir/config.toml").resolve())
+        return config
+
+    def test_resolve_api_connection_with_inline_key(self) -> None:
+        config = self._make_config(
+            base_url="http://localhost:11434/v1",
+            api_key="my-key",
+            provider="ollama",
+        )
+
+        target = Resolver(config).resolve_api_connection("ollama")
+
+        self.assertIsInstance(target, ResolvedApiTarget)
+        self.assertEqual(target.name, "ollama")
+        self.assertEqual(target.base_url, "http://localhost:11434/v1")
+        self.assertEqual(target.api_key, "my-key")
+        self.assertEqual(target.provider, "ollama")
+        self.assertEqual(target.safe_base_url, "http://localhost:11434/v1")
+
+    def test_resolve_api_connection_no_key(self) -> None:
+        config = self._make_config(base_url="http://localhost:11434/v1")
+
+        target = Resolver(config).resolve_api_connection("ollama")
+
+        self.assertIsNone(target.api_key)
+
+    def test_resolve_api_connection_env_secret(self) -> None:
+        config = self._make_config(
+            base_url="http://api.openai.com/v1",
+            secret_source="env:OA_TEST_OLLAMA_KEY",
+        )
+        original = os.environ.get("OA_TEST_OLLAMA_KEY")
+        try:
+            os.environ["OA_TEST_OLLAMA_KEY"] = "env-api-key"
+            target = Resolver(config).resolve_api_connection("ollama")
+        finally:
+            if original is None:
+                os.environ.pop("OA_TEST_OLLAMA_KEY", None)
+            else:
+                os.environ["OA_TEST_OLLAMA_KEY"] = original
+
+        self.assertEqual(target.api_key, "env-api-key")
+
+    def test_resolve_api_connection_file_secret(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_root = Path(tmpdir).resolve()
+            secrets_dir = config_root / "secrets"
+            secrets_dir.mkdir()
+            (secrets_dir / "api.key").write_text("file-api-key\n", encoding="utf-8")
+
+            config = StackConfig(
+                settings={"secrets_dir": "secrets"},
+                connections={
+                    "ollama": ConnectionConfig(
+                        kind="api",
+                        base_url="http://localhost:11434/v1",
+                        secret_source="file:api.key",
+                    )
+                },
+            )
+            config.bind_loaded_path(config_root / "config.toml")
+
+            target = Resolver(config).resolve_api_connection("ollama")
+
+        self.assertEqual(target.api_key, "file-api-key")
+
+    def test_resolve_api_connection_raises_for_unknown_name(self) -> None:
+        config = StackConfig()
+        config.bind_loaded_path(Path("/tmp/config-dir/config.toml").resolve())
+
+        with self.assertRaisesRegex(KeyError, "Unknown connection: missing"):
+            Resolver(config).resolve_api_connection("missing")
+
+    def test_resolve_api_connection_raises_for_non_api_kind(self) -> None:
+        config = StackConfig(
+            connections={"db": ConnectionConfig(dialect="sqlite", database=":memory:")},
+        )
+        config.bind_loaded_path(Path("/tmp/config-dir/config.toml").resolve())
+
+        with self.assertRaisesRegex(ValueError, "has kind 'database', not 'api'"):
+            Resolver(config).resolve_api_connection("db")
+
+    def test_resolve_api_connection_repr_does_not_expose_api_key(self) -> None:
+        config = self._make_config(
+            base_url="http://localhost:11434/v1",
+            api_key="secret-key",
+        )
+
+        target = Resolver(config).resolve_api_connection("ollama")
+
+        self.assertNotIn("secret-key", repr(target))
+        self.assertIn("<set>", repr(target))
+
+
+class ToolConfigExtendedTests(unittest.TestCase):
+    def test_tool_config_new_fields_default_to_none(self) -> None:
+        tool = ToolConfig()
+
+        self.assertIsNone(tool.default_model_name)
+        self.assertIsNone(tool.vector_index_cache_dir)
+        self.assertIsNone(tool.db_filename)
+        self.assertIsNone(tool.api_connection)
+
+    def test_tool_config_accepts_new_fields(self) -> None:
+        tool = ToolConfig(
+            default_model_name="nomic-embed-text:v1.5",
+            vector_index_cache_dir="artifacts/faiss",
+            db_filename="omop_emb.db",
+            api_connection="ollama_local",
+        )
+
+        self.assertEqual(tool.default_model_name, "nomic-embed-text:v1.5")
+        self.assertEqual(tool.vector_index_cache_dir, "artifacts/faiss")
+        self.assertEqual(tool.db_filename, "omop_emb.db")
+        self.assertEqual(tool.api_connection, "ollama_local")
+
+    def test_tool_override_config_accepts_new_fields(self) -> None:
+        override = ToolOverrideConfig(
+            default_model_name="nomic-embed-text:v1.5",
+            vector_index_cache_dir="artifacts/faiss",
+            db_filename="omop_emb.db",
+            api_connection="ollama_prod",
+        )
+
+        self.assertEqual(override.default_model_name, "nomic-embed-text:v1.5")
+        self.assertEqual(override.api_connection, "ollama_prod")
+
+    def test_resolved_tool_config_exposes_new_fields(self) -> None:
+        config = StackConfig(
+            connections={
+                "ollama": ConnectionConfig(kind="api", base_url="http://localhost:11434/v1"),
+            },
+            tools={
+                "omop_emb": ToolConfig(
+                    default_model_name="nomic-embed-text:v1.5",
+                    database_file_root="artifacts/databases",
+                    db_filename="omop_emb.db",
+                    vector_index_cache_dir="artifacts/faiss",
+                    api_connection="ollama",
+                )
+            },
+        )
+        config_root = Path("/tmp/config-dir").resolve()
+        config.bind_loaded_path(config_root / "config.toml")
+
+        resolved = Resolver(config).resolve_tool("omop_emb")
+
+        self.assertEqual(resolved.default_model_name, "nomic-embed-text:v1.5")
+        self.assertEqual(resolved.db_filename, "omop_emb.db")
+        self.assertEqual(resolved.vector_index_cache_dir, config_root / "artifacts/faiss")
+        self.assertEqual(resolved.database_file_root, config_root / "artifacts/databases")
+        self.assertEqual(resolved.api_connection, "ollama")
+
+    def test_tool_api_connection_references_validated_on_stack_config(self) -> None:
+        with self.assertRaisesRegex(ValueError, "api_connection references unknown connection"):
+            StackConfig(
+                tools={"omop_emb": ToolConfig(api_connection="missing")},
+            )
+
+    def test_tool_api_connection_must_reference_api_kind_connection(self) -> None:
+        with self.assertRaisesRegex(ValueError, "has kind 'database', not 'api'"):
+            StackConfig(
+                connections={
+                    "local": ConnectionConfig(dialect="sqlite", database=":memory:"),
+                },
+                tools={"omop_emb": ToolConfig(api_connection="local")},
+            )
+
+    def test_profile_tool_override_can_swap_api_connection(self) -> None:
+        config = StackConfig(
+            settings={"active_profile": "prod"},
+            connections={
+                "ollama_local": ConnectionConfig(kind="api", base_url="http://localhost:11434/v1"),
+                "ollama_prod": ConnectionConfig(kind="api", base_url="http://prod.internal:11434/v1"),
+            },
+            tools={"omop_emb": ToolConfig(api_connection="ollama_local")},
+            profiles={
+                "prod": ProfileConfig(
+                    tool_overrides={"omop_emb": {"api_connection": "ollama_prod"}}
+                )
+            },
+        )
+        config.bind_loaded_path(Path("/tmp/config-dir/config.toml").resolve())
+
+        resolved = Resolver(config).resolve_tool("omop_emb")
+
+        self.assertEqual(resolved.api_connection, "ollama_prod")
+
+    def test_profile_tool_override_api_connection_reference_validated(self) -> None:
+        with self.assertRaisesRegex(ValueError, "api_connection references unknown connection"):
+            StackConfig(
+                connections={
+                    "ollama_local": ConnectionConfig(kind="api", base_url="http://localhost:11434/v1"),
+                },
+                tools={"omop_emb": ToolConfig(api_connection="ollama_local")},
+                profiles={
+                    "prod": ProfileConfig(
+                        tool_overrides={"omop_emb": {"api_connection": "missing"}}
+                    )
+                },
+            )
+
+    def test_full_cava_mcp_style_config(self) -> None:
+        """Exercise the target TOML shape described in config_dependencies.txt."""
+        config = StackConfig(
+            connections={
+                "omop_local": ConnectionConfig(
+                    kind="database",
+                    dialect="postgresql",
+                    host="localhost",
+                    port=5432,
+                    user="readonly",
+                    database="omop",
+                    secret_source="env:OA_TEST_OMOP_PASS",
+                ),
+                "ollama_local": ConnectionConfig(
+                    kind="api",
+                    base_url="http://localhost:11434/v1",
+                    secret_source="env:OA_TEST_OLLAMA_KEY",
+                    provider="ollama",
+                ),
+            },
+            resources={"default": ResourceConfig(primary_db="omop_local", vocab_db="omop_local")},
+            tools={
+                "omop_emb": ToolConfig(
+                    default_resource="default",
+                    backend="sqlitevec",
+                    database_file_root="artifacts/databases",
+                    db_filename="omop_emb.db",
+                    default_model_name="nomic-embed-text:v1.5",
+                    vector_index_cache_dir="artifacts/faiss",
+                    api_connection="ollama_local",
+                ),
+                "omop_graph": ToolConfig(
+                    default_resource="default",
+                    extra={"fulltext_schema": "omop_vocab_search", "fulltext_table": "concept_search"},
+                ),
+                "oa_cohorts": ToolConfig(default_resource="default"),
+                "cava_mcp": ToolConfig(default_resource="default"),
+            },
+        )
+        config.bind_loaded_path(Path("/tmp/config-dir/config.toml").resolve())
+
+        self.assertIn("omop_emb", config.tool_names())
+        self.assertIn("ollama_local", config.connection_names())
+        emb_tool = Resolver(config).resolve_tool("omop_emb")
+        self.assertEqual(emb_tool.backend, "sqlitevec")
+        self.assertEqual(emb_tool.default_model_name, "nomic-embed-text:v1.5")
+        self.assertEqual(emb_tool.db_filename, "omop_emb.db")
+        self.assertEqual(emb_tool.api_connection, "ollama_local")

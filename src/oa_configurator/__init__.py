@@ -12,7 +12,7 @@ from .models import (
     ToolConfig,
     ToolOverrideConfig,
 )
-from .resolver import Resolver, ResolvedDatabaseTarget, ResolvedResource, ResolvedToolConfig
+from .resolver import Resolver, ResolvedApiTarget, ResolvedDatabaseTarget, ResolvedResource, ResolvedToolConfig
 from .schema_helpers import schema_translate_map
 from .secret_sources import SecretSourceResolutionError
 from .settings import DEFAULT_CONFIG_PATH
@@ -26,6 +26,7 @@ __all__ = [
     "ResourceConfig",
     "ResourceOverrideConfig",
     "Resolver",
+    "ResolvedApiTarget",
     "ResolvedDatabaseTarget",
     "ResolvedResource",
     "ResolvedToolConfig",

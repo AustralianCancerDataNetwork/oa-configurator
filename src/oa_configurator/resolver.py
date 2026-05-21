@@ -19,6 +19,7 @@ from .models import (
     StackConfig,
     ToolConfig,
     ToolOverrideConfig,
+    _validate_tool_api_connection,
 )
 from .paths import display_path, resolve_filesystem_path
 from .schema_helpers import schema_translate_map as build_schema_translate_map
@@ -147,6 +148,32 @@ class ResolvedResource:
 
 
 @dataclass(frozen=True)
+class ResolvedApiTarget:
+    """Resolved HTTP API connection with credentials ready for use."""
+
+    name: str
+    base_url: str
+    api_key: str | None
+    provider: str | None
+    safe_base_url: str
+
+    def __repr__(self) -> str:
+        return (
+            "ResolvedApiTarget("
+            f"name={self.name!r}, "
+            f"base_url={self.safe_base_url!r}, "
+            f"provider={self.provider!r}, "
+            f"api_key={'<set>' if self.api_key else '<not set>'}"
+            ")"
+        )
+
+    def __dir__(self) -> list[str]:
+        """Expose the resolved API target shape for interactive completion."""
+
+        return _dataclass_public_dir(self)
+
+
+@dataclass(frozen=True)
 class ResolvedToolConfig:
     """Resolved tool defaults with local paths expanded for direct use."""
 
@@ -155,6 +182,10 @@ class ResolvedToolConfig:
     default_resource: str | None
     embedding_file_root: Path | None
     database_file_root: Path | None
+    default_model_name: str | None
+    vector_index_cache_dir: Path | None
+    db_filename: str | None
+    api_connection: str | None
 
     def __repr__(self) -> str:
         return (
@@ -163,7 +194,11 @@ class ResolvedToolConfig:
             f"backend={self.backend!r}, "
             f"default_resource={self.default_resource!r}, "
             f"embedding_file_root={display_path(self.embedding_file_root)!r}, "
-            f"database_file_root={display_path(self.database_file_root)!r}"
+            f"database_file_root={display_path(self.database_file_root)!r}, "
+            f"default_model_name={self.default_model_name!r}, "
+            f"vector_index_cache_dir={display_path(self.vector_index_cache_dir)!r}, "
+            f"db_filename={self.db_filename!r}, "
+            f"api_connection={self.api_connection!r}"
             ")"
         )
 
@@ -381,9 +416,45 @@ class Resolver:
             default_resource=tool.default_resource,
             embedding_file_root=_resolve_optional_path(tool.embedding_file_root, self.configuration_base_path),
             database_file_root=_resolve_optional_path(tool.database_file_root, self.configuration_base_path),
+            default_model_name=tool.default_model_name,
+            vector_index_cache_dir=_resolve_optional_path(tool.vector_index_cache_dir, self.configuration_base_path),
+            db_filename=tool.db_filename,
+            api_connection=tool.api_connection,
         )
         logger.debug("Resolved tool %r with default_resource=%r", name, resolved.default_resource)
         return resolved
+
+    def resolve_api_connection(self, name: str) -> ResolvedApiTarget:
+        """Resolve one configured API connection name into a concrete API target.
+
+        Secret sources are resolved on each call rather than memoized so
+        callers can pick up environment or file rotations.
+        """
+
+        connection = _get_named_config(self.config.connections, kind="connection", name=name)
+        if connection.kind != "api":
+            raise ValueError(
+                f"connection {name!r} has kind {connection.kind!r}, not 'api'; "
+                "use resolve_connection() for database and file connections"
+            )
+
+        api_key: str | None = connection.api_key
+        if connection.secret_source is not None:
+            api_key = resolve_secret_value(
+                connection.secret_source,
+                configuration_base_path=self.configuration_base_path,
+                secrets_dir=self.config.secrets_dir,
+            )
+
+        target = ResolvedApiTarget(
+            name=name,
+            base_url=connection.base_url,  # type: ignore[arg-type]  # guaranteed by validate_shape
+            api_key=api_key,
+            provider=connection.provider,
+            safe_base_url=connection.base_url,  # type: ignore[arg-type]
+        )
+        logger.debug("Resolved api_connection %r to base_url=%s", name, target.safe_base_url)
+        return target
 
     def with_overrides(
         self,

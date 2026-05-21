@@ -78,16 +78,22 @@ class ProfileConfig(BaseModel):
 
 
 class ConnectionConfig(BaseModel):
-    """Concrete database or file-backed connection target.
+    """Concrete database, file-backed, or HTTP API connection target.
 
     This model captures the minimal details needed to render a URL or file
     reference, while keeping sensitive elements such as passwords out of the
     default developer-facing representation.
+
+    Three connection kinds are supported:
+
+    - ``"database"`` — network or local SQL database (default)
+    - ``"file"`` — file-backed database (DuckDB, SQLite by path)
+    - ``"api"`` — HTTP API endpoint (Ollama, OpenAI-compatible services)
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    dialect: str
+    dialect: str | None = None
     host: str | None = None
     port: int | None = None
     user: str | None = None
@@ -97,12 +103,33 @@ class ConnectionConfig(BaseModel):
     path: str | None = None
     engine_kwargs: dict[str, Any] = Field(default_factory=dict)
     read_only: bool = False
-    kind: Literal["database", "file"] = "database"
+    kind: Literal["database", "file", "api"] = "database"
+    base_url: str | None = None
+    api_key: str | None = None
+    provider: str | None = None
 
     @model_validator(mode="after")
     def validate_shape(self) -> "ConnectionConfig":
         """Validate the minimum fields required by the selected connection type."""
 
+        if self.kind == "api":
+            if self.base_url is None:
+                raise ValueError("api connections require a base_url")
+            if self.api_key is not None and self.secret_source is not None:
+                raise ValueError("api connections may define api_key or secret_source, not both")
+            for field_name in ("dialect", "host", "port", "user", "password", "database", "path"):
+                if getattr(self, field_name) is not None:
+                    raise ValueError(f"api connections may not define {field_name}")
+            return self
+
+        if self.base_url is not None:
+            raise ValueError(f"{self.kind} connections may not define base_url")
+        if self.api_key is not None:
+            raise ValueError(f"{self.kind} connections may not define api_key")
+        if self.provider is not None:
+            raise ValueError(f"{self.kind} connections may not define provider")
+        if self.dialect is None:
+            raise ValueError(f"{self.kind} connections require a dialect")
         if self.password is not None and self.secret_source is not None:
             raise ValueError("connections may define password or secret_source, not both")
         if self.kind == "file":
@@ -121,6 +148,11 @@ class ConnectionConfig(BaseModel):
     def as_url(self) -> str:
         """Render the full connection URL, including password when configured."""
 
+        if self.kind == "api":
+            raise RuntimeError(
+                "api connections do not have a database URL; "
+                "use Resolver.resolve_api_connection() instead."
+            )
         if self.secret_source is not None and self.password is None:
             raise RuntimeError(
                 "ConnectionConfig.as_url() requires a resolved secret when secret_source is configured. "
@@ -161,6 +193,11 @@ class ConnectionConfig(BaseModel):
     def as_safe_url(self) -> str:
         """Render a redacted connection URL suitable for logs and reprs."""
 
+        if self.kind == "api":
+            raise RuntimeError(
+                "api connections do not have a database URL; "
+                "use Resolver.resolve_api_connection() instead."
+            )
         return self.as_safe_url_resolved()
 
     def as_safe_url_resolved(
@@ -223,6 +260,16 @@ class ConnectionConfig(BaseModel):
         return merged
 
     def __repr__(self) -> str:
+        if self.kind == "api":
+            return (
+                "ConnectionConfig("
+                f"kind={self.kind!r}, "
+                f"base_url={self.base_url!r}, "
+                f"provider={self.provider!r}, "
+                f"api_key={'<set>' if self.api_key else '<not set>'}, "
+                f"secret_source={self.secret_source!r}"
+                ")"
+            )
         path_repr = str(Path(self.path).expanduser()) if self.path is not None else None
         return (
             "ConnectionConfig("
@@ -331,6 +378,10 @@ class ToolConfig(BaseModel):
     backend: str | None = None
     embedding_file_root: str | None = None
     database_file_root: str | None = None
+    default_model_name: str | None = None
+    vector_index_cache_dir: str | None = None
+    db_filename: str | None = None
+    api_connection: str | None = None
     extra: dict[str, str] = Field(default_factory=dict)
 
     def __repr__(self) -> str:
@@ -340,6 +391,10 @@ class ToolConfig(BaseModel):
             f"backend={self.backend!r}, "
             f"embedding_file_root={self.embedding_file_root!r}, "
             f"database_file_root={self.database_file_root!r}, "
+            f"default_model_name={self.default_model_name!r}, "
+            f"vector_index_cache_dir={self.vector_index_cache_dir!r}, "
+            f"db_filename={self.db_filename!r}, "
+            f"api_connection={self.api_connection!r}, "
             f"extra_keys={sorted(self.extra)!r}"
             ")"
         )
@@ -354,6 +409,10 @@ class ToolOverrideConfig(BaseModel):
     backend: str | None = None
     embedding_file_root: str | None = None
     database_file_root: str | None = None
+    default_model_name: str | None = None
+    vector_index_cache_dir: str | None = None
+    db_filename: str | None = None
+    api_connection: str | None = None
     extra: dict[str, str] | None = None
 
     def __repr__(self) -> str:
@@ -399,11 +458,9 @@ class StackConfig(BaseModel):
             )
 
         for tool_name, tool in self.tools.items():
-            _validate_tool_resource(
-                tool,
-                self.resources,
-                location=f"tools.{tool_name}",
-            )
+            location = f"tools.{tool_name}"
+            _validate_tool_resource(tool, self.resources, location=location)
+            _validate_tool_api_connection(tool, self.connections, location=location)
 
         for profile_name, profile in self.profiles.items():
             for resource_name, override in profile.resource_overrides.items():
@@ -432,11 +489,9 @@ class StackConfig(BaseModel):
                 merged_tool = base_tool.model_copy(
                     update=override.model_dump(exclude_none=True)
                 )
-                _validate_tool_resource(
-                    merged_tool,
-                    self.resources,
-                    location=f"profiles.{profile_name}.tool_overrides.{tool_name}",
-                )
+                location = f"profiles.{profile_name}.tool_overrides.{tool_name}"
+                _validate_tool_resource(merged_tool, self.resources, location=location)
+                _validate_tool_api_connection(merged_tool, self.connections, location=location)
 
         return self
 
@@ -626,4 +681,26 @@ def _validate_tool_resource(
         raise ValueError(
             f"{location}.default_resource references unknown resource "
             f"{tool.default_resource!r}"
+        )
+
+
+def _validate_tool_api_connection(
+    tool: ToolConfig,
+    connections: dict[str, ConnectionConfig],
+    *,
+    location: str,
+) -> None:
+    """Raise when a tool references a missing or non-api named connection."""
+
+    if tool.api_connection is None:
+        return
+    if tool.api_connection not in connections:
+        raise ValueError(
+            f"{location}.api_connection references unknown connection "
+            f"{tool.api_connection!r}"
+        )
+    if connections[tool.api_connection].kind != "api":
+        raise ValueError(
+            f"{location}.api_connection references connection {tool.api_connection!r} "
+            f"which has kind {connections[tool.api_connection].kind!r}, not 'api'"
         )

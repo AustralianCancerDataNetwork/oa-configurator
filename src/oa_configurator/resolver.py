@@ -1,29 +1,21 @@
-"""Resolution helpers that turn logical names into concrete typed handles."""
+"""Resolution helpers: turn logical config names into typed, usable handles."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
-from keyword import iskeyword
 import logging
-from pathlib import Path
-from typing import Any, Callable, Generic, Literal, TypeVar
+from dataclasses import dataclass
+from typing import Any, Literal, TypeVar
 
 import sqlalchemy as sa
 from sqlalchemy.engine import Engine
 
 from .models import (
     ConnectionConfig,
-    ProfileConfig,
+    ProfileOverrideConfig,
     ResourceConfig,
-    ResourceOverrideConfig,
     StackConfig,
     ToolConfig,
-    ToolOverrideConfig,
-    _validate_tool_api_connection,
 )
-from .paths import display_path, resolve_filesystem_path
-from .schema_helpers import schema_translate_map as build_schema_translate_map
-from .secret_sources import resolve_secret_value
 
 T = TypeVar("T")
 logger = logging.getLogger(__name__)
@@ -31,395 +23,155 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class ResolvedDatabaseTarget:
-    """Resolved concrete connection with both raw and safe renderings."""
+    """Concrete database connection ready for engine creation."""
 
     name: str
-    connection: ConnectionConfig
-    url: str
-    safe_url: str
-
-    @property
-    def database(self) -> str | None:
-        """Return the configured database name, if any."""
-
-        return self.connection.database
-
-    @property
-    def dialect(self) -> str:
-        """Return the resolved connection dialect."""
-
-        return self.connection.dialect
+    url: str        # full URL including password — keep internal / do not log
+    safe_url: str   # password redacted — safe for logs and display
 
     def create_engine(self, **kwargs: Any) -> Engine:
-        """Create a SQLAlchemy engine for this resolved connection target."""
-
-        merged_kwargs = self.connection.engine_create_kwargs(**kwargs)
-        return sa.create_engine(self.url, **merged_kwargs)
+        """Create a SQLAlchemy engine for this connection."""
+        if self.url.startswith("sqlite") and "read_only" in kwargs:
+            kwargs.pop("read_only", None)
+        return sa.create_engine(self.url, **kwargs)
 
     def __repr__(self) -> str:
-        return (
-            "ResolvedDatabaseTarget("
-            f"name={self.name!r}, "
-            f"dialect={self.dialect!r}, "
-            f"database={self.database!r}, "
-            f"safe_url={self.safe_url!r}"
-            ")"
-        )
-
-    def __dir__(self) -> list[str]:
-        """Expose the resolved database target shape for interactive completion."""
-
-        return _dataclass_public_dir(self)
+        return f"ResolvedDatabaseTarget(name={self.name!r}, safe_url={self.safe_url!r})"
 
 
 @dataclass(frozen=True)
 class ResolvedResource:
-    """Resolved logical resource bundle with concrete DB targets and local paths."""
+    """Resolved logical resource with concrete DB targets and effective schema names."""
 
     name: str
     primary_db: ResolvedDatabaseTarget
-    vocab_db: ResolvedDatabaseTarget
-    results_db: ResolvedDatabaseTarget
-    vocab_db_is_primary_fallback: bool
-    results_db_is_primary_fallback: bool
-    omop_schema: str | None
-    vocab_schema: str | None
+    vocab_db: ResolvedDatabaseTarget       # equals primary_db when vocab_db not configured
+    cdm_schema: str
+    vocab_schema: str                      # equals cdm_schema when vocab_schema not set
     results_schema: str | None
-    athena_source_path: Path | None
-    artifact_root: Path | None
-    embedding_file_root: Path | None
-    analytic_db_file_root: Path | None
+    vocab_db_is_primary_fallback: bool
 
-    def __repr__(self) -> str:
-        return (
-            "ResolvedResource("
-            f"name={self.name!r}, "
-            f"primary_db={self.primary_db.name!r}, "
-            f"vocab_db={self.vocab_db.name!r}, "
-            f"results_db={self.results_db.name!r}, "
-            f"vocab_db_is_primary_fallback={self.vocab_db_is_primary_fallback!r}, "
-            f"results_db_is_primary_fallback={self.results_db_is_primary_fallback!r}, "
-            f"omop_schema={self.omop_schema!r}, "
-            f"vocab_schema={self.vocab_schema!r}, "
-            f"results_schema={self.results_schema!r}, "
-            f"embedding_file_root={display_path(self.embedding_file_root)!r}, "
-            f"analytic_db_file_root={display_path(self.analytic_db_file_root)!r}"
-            ")"
-        )
-
-    def database_target(self, role: Literal["primary", "vocab", "results"] = "primary") -> ResolvedDatabaseTarget:
-        """Return the resolved database target for one resource role."""
-
+    def database_target(self, role: Literal["primary", "vocab"] = "primary") -> ResolvedDatabaseTarget:
+        """Return the resolved target for a given role."""
         if role == "primary":
             return self.primary_db
         if role == "vocab":
             return self.vocab_db
-        if role == "results":
-            return self.results_db
-        raise ValueError(f"Unknown resource database role: {role}")
+        raise ValueError(f"Unknown role: {role!r}. Valid roles: 'primary', 'vocab'")
 
     def schema_translate_map(self) -> dict[str | None, str | None]:
-        """Return a schema translate map suitable for OMOP-oriented SQLAlchemy models."""
+        """SQLAlchemy schema translate map for OMOP ORM models.
 
-        return build_schema_translate_map(self)
+        Maps:
+          None      → cdm_schema  (default / unqualified tables → CDM)
+          "vocab"   → vocab_schema (or cdm_schema as fallback)
+          "results" → results_schema (omitted when not configured)
+        """
+        m: dict[str | None, str | None] = {
+            None: self.cdm_schema,
+            "vocab": self.vocab_schema,
+        }
+        if self.results_schema is not None:
+            m["results"] = self.results_schema
+        return m
 
     def create_engine(
         self,
+        role: Literal["primary", "vocab"] = "primary",
         *,
-        role: Literal["primary", "vocab", "results"] = "primary",
         execution_options: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> Engine:
-        """Create a SQLAlchemy engine for one resource role with schema translation applied."""
-
+        """Create an engine for a role with schema_translate_map applied."""
         engine = self.database_target(role).create_engine(**kwargs)
-        merged_execution_options = dict(execution_options or {})
-        schema_translate_map = self.schema_translate_map()
-        if schema_translate_map:
-            merged_execution_options.setdefault("schema_translate_map", schema_translate_map)
-        if not merged_execution_options:
-            return engine
-        return engine.execution_options(**merged_execution_options)
-
-    def __dir__(self) -> list[str]:
-        """Expose the resolved resource shape for interactive completion."""
-
-        return _dataclass_public_dir(self)
-
-
-@dataclass(frozen=True)
-class ResolvedApiTarget:
-    """Resolved HTTP API connection with credentials ready for use."""
-
-    name: str
-    base_url: str
-    api_key: str | None
-    provider: str | None
-    safe_base_url: str
+        stm = self.schema_translate_map()
+        merged_opts = dict(execution_options or {})
+        merged_opts.setdefault("schema_translate_map", stm)
+        return engine.execution_options(**merged_opts)
 
     def __repr__(self) -> str:
         return (
-            "ResolvedApiTarget("
-            f"name={self.name!r}, "
-            f"base_url={self.safe_base_url!r}, "
-            f"provider={self.provider!r}, "
-            f"api_key={'<set>' if self.api_key else '<not set>'}"
-            ")"
+            f"ResolvedResource(name={self.name!r}, "
+            f"primary_db={self.primary_db.name!r}, "
+            f"cdm_schema={self.cdm_schema!r}, "
+            f"vocab_schema={self.vocab_schema!r}, "
+            f"results_schema={self.results_schema!r})"
         )
-
-    def __dir__(self) -> list[str]:
-        """Expose the resolved API target shape for interactive completion."""
-
-        return _dataclass_public_dir(self)
 
 
 @dataclass(frozen=True)
 class ResolvedToolConfig:
-    """Resolved tool defaults with local paths expanded for direct use."""
+    """Resolved tool section with raw extra dict for PackageConfigBase consumption."""
 
     name: str
-    backend: str | None
     default_resource: str | None
-    embedding_file_root: Path | None
-    database_file_root: Path | None
-    default_model_name: str | None
-    vector_index_cache_dir: Path | None
-    db_filename: str | None
-    api_connection: str | None
+    extra: dict[str, Any]
 
     def __repr__(self) -> str:
         return (
-            "ResolvedToolConfig("
-            f"name={self.name!r}, "
-            f"backend={self.backend!r}, "
+            f"ResolvedToolConfig(name={self.name!r}, "
             f"default_resource={self.default_resource!r}, "
-            f"embedding_file_root={display_path(self.embedding_file_root)!r}, "
-            f"database_file_root={display_path(self.database_file_root)!r}, "
-            f"default_model_name={self.default_model_name!r}, "
-            f"vector_index_cache_dir={display_path(self.vector_index_cache_dir)!r}, "
-            f"db_filename={self.db_filename!r}, "
-            f"api_connection={self.api_connection!r}"
-            ")"
+            f"extra_keys={sorted(self.extra)!r})"
         )
-
-    def __dir__(self) -> list[str]:
-        """Expose the resolved tool shape for interactive completion."""
-
-        return _dataclass_public_dir(self)
-
-
-class _NameNamespace(Generic[T]):
-    """Interactive namespace exposing non-sensitive names as attributes.
-
-    This is deliberately small DX sugar for REPL and notebook use:
-
-    - ``resolver.resources.default``
-    - ``resolver.tools.omop_emb``
-    - ``resolver.connections.prod_cdm``
-
-    Only identifier-safe names are exposed as attributes. All names remain
-    available via ``[]`` lookup.
-    """
-
-    def __init__(self, *, names: Callable[[], tuple[str, ...]], resolver: Callable[[str], T], label: str):
-        self._names = names
-        self._resolver = resolver
-        self._label = label
-
-    def __getitem__(self, name: str) -> T:
-        """Resolve a configured item by its exact name."""
-
-        return self._resolver(name)
-
-    def __getattr__(self, name: str) -> T:
-        """Resolve identifier-safe names as interactive attributes."""
-
-        if name.startswith("_"):
-            raise AttributeError(name)
-        if name in self._names():
-            return self._resolver(name)
-        raise AttributeError(f"Unknown {self._label}: {name}")
-
-    def __dir__(self) -> list[str]:
-        """Expose safe names for tab completion without leaking secrets."""
-
-        return sorted(
-            {
-                *super().__dir__(),
-                *(name for name in self._names() if _is_identifier_safe(name)),
-            }
-        )
-
-    def __repr__(self) -> str:
-        visible = ", ".join(self.__dir__())
-        return f"<{self._label} [{visible}]>"
 
 
 class Resolver:
-    """Resolve logical names in :class:`StackConfig` into typed handles."""
+    """Resolves logical names in a StackConfig into typed, usable handles."""
 
-    def __init__(self, config: StackConfig):
-        """Create a resolver around one validated stack configuration."""
-
+    def __init__(self, config: StackConfig) -> None:
         self.config = config
-        self.connections = _NameNamespace(
-            names=self.connection_names,
-            resolver=self.resolve_connection,
-            label="connections",
-        )
-        self.resources = _NameNamespace(
-            names=self.resource_names,
-            resolver=self.resolve_resource,
-            label="resources",
-        )
-        self.tools = _NameNamespace(
-            names=self.tool_names,
-            resolver=self.resolve_tool,
-            label="tools",
-        )
 
-    def profile_names(self) -> tuple[str, ...]:
-        """Return known profile names in sorted order."""
-
-        return self.config.profile_names()
-
-    def connection_names(self) -> tuple[str, ...]:
-        """Return known connection names in sorted order."""
-
-        return self.config.connection_names()
-
-    def resource_names(self) -> tuple[str, ...]:
-        """Return known resource names in sorted order."""
-
-        return self.config.resource_names()
-
-    def tool_names(self) -> tuple[str, ...]:
-        """Return known tool names in sorted order."""
-
-        return self.config.tool_names()
-
-    def active_profile_name(self) -> str:
-        """Return the name of the currently active profile."""
-
-        return self.config.settings.active_profile
-
-    def active_profile(self) -> ProfileConfig | None:
-        """Return the active profile configuration, if one exists."""
-
-        return self.config.active_profile_config()
-
-    def complete_connection_name(self, prefix: str = "") -> tuple[str, ...]:
-        """Return connection names matching a prefix for simple shell completion."""
-
-        return tuple(name for name in self.connection_names() if name.startswith(prefix))
-
-    def complete_resource_name(self, prefix: str = "") -> tuple[str, ...]:
-        """Return resource names matching a prefix for simple shell completion."""
-
-        return tuple(name for name in self.resource_names() if name.startswith(prefix))
-
-    def complete_tool_name(self, prefix: str = "") -> tuple[str, ...]:
-        """Return tool names matching a prefix for simple shell completion."""
-
-        return tuple(name for name in self.tool_names() if name.startswith(prefix))
-
-    @property
-    def configuration_base_path(self) -> Path:
-        """Return the resolved base directory for all relative filesystem paths."""
-
-        return self.config.configuration_base_path
+    # ------------------------------------------------------------------
+    # Resolution methods
+    # ------------------------------------------------------------------
 
     def resolve_connection(self, name: str) -> ResolvedDatabaseTarget:
-        """Resolve one configured connection name into a concrete connection target.
+        """Resolve a connection name to a concrete target.
 
-        Secret sources are resolved on each call rather than memoized so
-        callers can pick up environment or file rotations. In hot paths, prefer
-        creating one engine from the resolved target and reusing that engine.
+        Profile overlay connections take precedence over base connections.
         """
-
-        connection = _get_named_config(self.config.connections, kind="connection", name=name)
-        if connection.secret_source is None:
-            target = ResolvedDatabaseTarget(
-                name=name,
-                connection=connection,
-                url=connection.as_url_resolved(self.configuration_base_path),
-                safe_url=connection.as_safe_url_resolved(self.configuration_base_path),
-            )
-            logger.debug("Resolved connection %r to %s", name, target.safe_url)
-            return target
-
-        resolved_secret = _resolve_connection_secret(
-            connection,
-            configuration_base_path=self.configuration_base_path,
-            secrets_dir=self.config.secrets_dir,
-        )
+        conn = self._effective_connection(name)
         target = ResolvedDatabaseTarget(
             name=name,
-            connection=connection,
-            url=connection.as_url_resolved(
-                self.configuration_base_path,
-                password_override=resolved_secret,
-            ),
-            safe_url=connection.as_safe_url_resolved(
-                self.configuration_base_path,
-                password_override=resolved_secret,
-            ),
+            url=conn.build_url(),
+            safe_url=conn.safe_url(),
         )
-        logger.debug("Resolved connection %r to %s", name, target.safe_url)
+        logger.debug("Resolved connection %r → %s", name, target.safe_url)
         return target
 
     def resolve_resource(self, name: str) -> ResolvedResource:
-        """Resolve one logical resource bundle into concrete database targets."""
-
-        resource = _get_named_config(self.config.resources, kind="resource", name=name)
-        resource = self._apply_resource_overlay(name, resource)
+        """Resolve a resource name to a concrete bundle of DB targets and schemas."""
+        resource = self._effective_resource(name)
 
         primary = self.resolve_connection(resource.primary_db)
-        vocab_db_is_primary_fallback = resource.vocab_db is None
-        results_db_is_primary_fallback = resource.results_db is None
+        vocab_fallback = resource.vocab_db is None
         vocab = self.resolve_connection(resource.vocab_db or resource.primary_db)
-        results = self.resolve_connection(resource.results_db or resource.primary_db)
+        effective_vocab_schema = resource.vocab_schema or resource.cdm_schema
 
         resolved = ResolvedResource(
             name=name,
             primary_db=primary,
             vocab_db=vocab,
-            results_db=results,
-            vocab_db_is_primary_fallback=vocab_db_is_primary_fallback,
-            results_db_is_primary_fallback=results_db_is_primary_fallback,
-            omop_schema=resource.omop_schema,
-            vocab_schema=resource.vocab_schema,
+            cdm_schema=resource.cdm_schema,
+            vocab_schema=effective_vocab_schema,
             results_schema=resource.results_schema,
-            athena_source_path=_resolve_optional_path(resource.athena_source_path, self.configuration_base_path),
-            artifact_root=_resolve_optional_path(resource.artifact_root, self.configuration_base_path),
-            embedding_file_root=_resolve_optional_path(resource.embedding_file_root, self.configuration_base_path),
-            analytic_db_file_root=_resolve_optional_path(resource.analytic_db_file_root, self.configuration_base_path),
+            vocab_db_is_primary_fallback=vocab_fallback,
         )
         logger.debug(
-            "Resolved resource %r to primary=%s vocab=%s results=%s",
+            "Resolved resource %r → primary=%s cdm_schema=%r",
             name,
             resolved.primary_db.safe_url,
-            resolved.vocab_db.safe_url,
-            resolved.results_db.safe_url,
+            resolved.cdm_schema,
         )
         return resolved
 
     def resolve_tool(self, name: str) -> ResolvedToolConfig:
-        """Resolve one tool-default entry into expanded settings."""
-
-        tool = _get_named_config(self.config.tools, kind="tool", name=name)
-        tool = self._apply_tool_overlay(name, tool)
-
+        """Resolve a tool name to its configuration with extra dict intact."""
+        tool = self._effective_tool(name)
         resolved = ResolvedToolConfig(
             name=name,
-            backend=tool.backend,
             default_resource=tool.default_resource,
-            embedding_file_root=_resolve_optional_path(tool.embedding_file_root, self.configuration_base_path),
-            database_file_root=_resolve_optional_path(tool.database_file_root, self.configuration_base_path),
-            default_model_name=tool.default_model_name,
-            vector_index_cache_dir=_resolve_optional_path(tool.vector_index_cache_dir, self.configuration_base_path),
-            db_filename=tool.db_filename,
-            api_connection=tool.api_connection,
+            extra=dict(tool.extra),
         )
         logger.debug("Resolved tool %r with default_resource=%r", name, resolved.default_resource)
         return resolved
@@ -465,159 +217,77 @@ class Resolver:
     ) -> "Resolver":
         """Return a new Resolver with entries merged over the current config.
 
-        Useful for session-level overrides — swap one connection or resource
-        without touching the loaded TOML file or recreating the full config.
-        Profile overlays and path context from the current config are preserved.
-        Cross-references are validated against the merged result.
-
-        Example::
-
-            # Load shared team config, redirect primary_db to a local DuckDB for this session
-            resolver = Resolver(load_stack_config()).with_overrides(
-                connections={"local": ConnectionConfig(dialect="duckdb", path="local.duckdb")},
-                resources={"default": ResourceConfig(primary_db="local")},
-            )
+        Useful for session-level overrides without touching the TOML file.
         """
         new_config = StackConfig(
-            settings=self.config.settings,
+            active_profile=self.config.active_profile,
             profiles=self.config.profiles,
             connections={**self.config.connections, **(connections or {})},
             resources={**self.config.resources, **(resources or {})},
             tools={**self.config.tools, **(tools or {})},
             logging=self.config.logging,
         )
-        bind_path = self.config.config_file_path or (
-            self.configuration_base_path / "_session.toml"
-        )
-        new_config.bind_loaded_path(bind_path)
+        if self.config.loaded_path is not None:
+            new_config.bind_loaded_path(self.config.loaded_path)
         return Resolver(new_config)
 
-    def _apply_resource_overlay(self, name: str, resource: ResourceConfig) -> ResourceConfig:
-        """Apply the active profile's partial patch to a base resource."""
+    # ------------------------------------------------------------------
+    # Discovery helpers
+    # ------------------------------------------------------------------
 
-        profile = self.active_profile()
-        if profile is None:
-            return resource
+    def connection_names(self) -> tuple[str, ...]:
+        return self.config.connection_names()
 
-        override = profile.resource_overrides.get(name)
-        if override is None:
-            return resource
+    def resource_names(self) -> tuple[str, ...]:
+        return self.config.resource_names()
 
-        logger.debug(
-            "Applying resource override from profile %r to resource %r",
-            self.active_profile_name(),
-            name,
-        )
-        return _merge_resource_config(resource, override)
+    def tool_names(self) -> tuple[str, ...]:
+        return self.config.tool_names()
 
-    def _apply_tool_overlay(self, name: str, tool: ToolConfig) -> ToolConfig:
-        """Apply the active profile's partial patch to a base tool config."""
+    def profile_names(self) -> tuple[str, ...]:
+        return self.config.profile_names()
 
-        profile = self.active_profile()
-        if profile is None:
-            return tool
+    def active_profile_name(self) -> str | None:
+        return self.config.active_profile
 
-        override = profile.tool_overrides.get(name)
-        if override is None:
-            return tool
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
 
-        logger.debug(
-            "Applying tool override from profile %r to tool %r",
-            self.active_profile_name(),
-            name,
-        )
-        return _merge_tool_config(tool, override)
+    def _active_profile(self) -> ProfileOverrideConfig | None:
+        if self.config.active_profile is None:
+            return None
+        return self.config.profiles.get(self.config.active_profile)
+
+    def _effective_connection(self, name: str) -> ConnectionConfig:
+        profile = self._active_profile()
+        if profile and name in profile.connections:
+            return profile.connections[name]
+        return _get_named(self.config.connections, "connection", name)
+
+    def _effective_resource(self, name: str) -> ResourceConfig:
+        profile = self._active_profile()
+        if profile and name in profile.resources:
+            return profile.resources[name]
+        return _get_named(self.config.resources, "resource", name)
+
+    def _effective_tool(self, name: str) -> ToolConfig:
+        profile = self._active_profile()
+        if profile and name in profile.tools:
+            return profile.tools[name]
+        return _get_named(self.config.tools, "tool", name)
 
     def __repr__(self) -> str:
         return (
-            "Resolver("
-            f"profiles={len(self.config.profiles)}, "
+            f"Resolver(active_profile={self.config.active_profile!r}, "
             f"connections={len(self.config.connections)}, "
             f"resources={len(self.config.resources)}, "
-            f"tools={len(self.config.tools)}"
-            ")"
+            f"tools={len(self.config.tools)})"
         )
 
-    def __dir__(self) -> list[str]:
-        """Expose the resolver surface clearly for interactive completion."""
 
-        return sorted(super().__dir__())
-
-
-def _resolve_optional_path(value: str | None, configuration_base_path: Path) -> Path | None:
-    """Resolve an optional filesystem value against the configuration base path."""
-
-    if value is None:
-        return None
-    return resolve_filesystem_path(value, configuration_base_path)
-
-
-def _dataclass_public_dir(instance: object) -> list[str]:
-    """Derive completion names from dataclass fields plus public type members."""
-
-    return sorted(
-        {
-            *(field.name for field in fields(instance)),
-            *(name for name in dir(type(instance)) if not name.startswith("_")),
-        }
-    )
-
-
-def _resolve_connection_secret(
-    connection: ConnectionConfig,
-    *,
-    configuration_base_path: Path,
-    secrets_dir: Path | None,
-) -> str | None:
-    """Resolve the configured connection secret, if one is referenced indirectly."""
-
-    if connection.secret_source is None:
-        return None
-    return resolve_secret_value(
-        connection.secret_source,
-        configuration_base_path=configuration_base_path,
-        secrets_dir=secrets_dir,
-    )
-
-
-def _is_identifier_safe(name: str) -> bool:
-    """Return whether a configured name is safe to expose as an attribute."""
-
-    return name.isidentifier() and not iskeyword(name)
-
-
-def _get_named_config(mapping: dict[str, T], *, kind: str, name: str) -> T:
-    """Return a named config object with a consistent missing-name error."""
-
+def _get_named(mapping: dict[str, T], kind: str, name: str) -> T:
     try:
         return mapping[name]
     except KeyError as exc:
-        raise KeyError(f"Unknown {kind}: {name}") from exc
-
-
-def _merge_resource_config(
-    base: ResourceConfig,
-    override: ResourceOverrideConfig,
-) -> ResourceConfig:
-    """Return a resource config with a partial override applied."""
-
-    return base.model_copy(update=override.model_dump(exclude_none=True))
-
-
-def _merge_tool_config(
-    base: ToolConfig,
-    override: ToolOverrideConfig,
-) -> ToolConfig:
-    """Return a tool config with a partial override applied.
-
-    ``extra`` is merged shallowly so an override can add or replace individual
-    keys without discarding the full base mapping.
-    """
-
-    update = override.model_dump(exclude_none=True)
-    if "extra" in update:
-        update["extra"] = {
-            **base.extra,
-            **(update["extra"] or {}),
-        }
-    return base.model_copy(update=update)
+        raise KeyError(f"Unknown {kind}: {name!r}") from exc

@@ -11,14 +11,7 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-STACK_LOG_NAMESPACES: tuple[str, ...] = (
-    "oa_configurator",
-    "orm_loader",
-    "sql_loader",    # orm-loader legacy namespace; both configured during transition
-    "omop_alchemy",
-    "omop_emb",
-    "omop_graph",
-)
+_OWN_NAMESPACE = "oa_configurator"
 
 _PRESET_LEVELS: dict[str, str] = {
     "library": "WARNING",
@@ -33,13 +26,21 @@ _DETAILED_FORMAT = "%(asctime)s [%(levelname)-8s] %(name)s: %(message)s"
 _SENSITIVE_PATTERN = re.compile(
     r"(?i)\b(password|passwd|secret|token|key|dsn|uri|url)\b\s*[:=]\s*\S+",
 )
+# Matches passwords in URLs: scheme://user:password@host
+_URL_PASSWORD_PATTERN = re.compile(r"://([^:@/\s]+):([^@\s/]+)@")
 
 
-class _RedactingFormatter(logging.Formatter):
-    """Formatter that redacts sensitive key=value pairs from log output."""
+def _redact(text: str) -> str:
+    text = _SENSITIVE_PATTERN.sub(r"\1=<REDACTED>", text)
+    text = _URL_PASSWORD_PATTERN.sub(r"://\1:***@", text)
+    return text
+
+
+class RedactingFormatter(logging.Formatter):
+    """Formatter that redacts sensitive key=value pairs and URL passwords from log output."""
 
     def format(self, record: logging.LogRecord) -> str:
-        return _SENSITIVE_PATTERN.sub(r"\1=<REDACTED>", super().format(record))
+        return _redact(super().format(record))
 
 
 class _JsonFormatter(logging.Formatter):
@@ -50,13 +51,10 @@ class _JsonFormatter(logging.Formatter):
             "time": self.formatTime(record),
             "level": record.levelname,
             "logger": record.name,
-            "message": _SENSITIVE_PATTERN.sub(r"\1=<REDACTED>", record.getMessage()),
+            "message": _redact(record.getMessage()),
         }
         if record.exc_info:
-            entry["exc_info"] = _SENSITIVE_PATTERN.sub(
-                r"\1=<REDACTED>",
-                self.formatException(record.exc_info),
-            )
+            entry["exc_info"] = _redact(self.formatException(record.exc_info))
         return json.dumps(entry)
 
 
@@ -178,14 +176,19 @@ def _make_handler(
     if config.format == "json":
         handler.setFormatter(_JsonFormatter())
     elif config.format == "simple":
-        handler.setFormatter(_RedactingFormatter(_SIMPLE_FORMAT))
+        handler.setFormatter(RedactingFormatter(_SIMPLE_FORMAT))
     else:
-        handler.setFormatter(_RedactingFormatter(_DETAILED_FORMAT))
+        handler.setFormatter(RedactingFormatter(_DETAILED_FORMAT))
 
     return handler
 
 
-def _apply(logging_config: LoggingConfig, *, base_path: Path | None = None) -> None:
+def _apply(
+    logging_config: LoggingConfig,
+    *,
+    base_path: Path | None = None,
+    extra_namespaces: list[str] | None = None,
+) -> None:
     """Apply a LoggingConfig to the live Python logging system."""
     effective_level = logging_config.level or _PRESET_LEVELS[logging_config.preset]
     handler_config = logging_config.handler or _PRESET_HANDLER_DEFAULTS[logging_config.preset]
@@ -194,8 +197,9 @@ def _apply(logging_config: LoggingConfig, *, base_path: Path | None = None) -> N
     if handler_config is not None:
         handler = _make_handler(handler_config, base_path=base_path)
 
+    namespaces = (_OWN_NAMESPACE,) + tuple(extra_namespaces or [])
     stale_handlers: list[logging.Handler] = []
-    for namespace in STACK_LOG_NAMESPACES:
+    for namespace in namespaces:
         ns_logger = logging.getLogger(namespace)
         ns_logger.setLevel(effective_level)
         stale_handlers.extend(
@@ -205,9 +209,6 @@ def _apply(logging_config: LoggingConfig, *, base_path: Path | None = None) -> N
             h for h in ns_logger.handlers if isinstance(h, logging.NullHandler)
         ]
         if handler is not None:
-            # This currently configures the same handler on each namespace
-            # directly. A future redesign may prefer a shared parent logger,
-            # but the current approach keeps adoption simple and explicit.
             ns_logger.addHandler(handler)
             ns_logger.propagate = False
         else:
@@ -231,6 +232,7 @@ def configure_logging(
     config: "LoggingConfig | _HasLoggingConfig | None" = None,
     *,
     preset: Literal["library", "notebook", "application", "production"] | None = None,
+    extra_namespaces: list[str] | None = None,
 ) -> None:
     """Configure Python logging for the OMOP stack.
 
@@ -245,16 +247,21 @@ def configure_logging(
     preset:
         Shorthand for ``configure_logging(LoggingConfig(preset=...))``.
         Mutually exclusive with ``config``.
+    extra_namespaces:
+        Additional logger namespaces to configure alongside ``oa_configurator``.
+        Each consuming package passes its own namespace here, e.g.
+        ``extra_namespaces=["omop_graph"]``. OA_Configurator itself never
+        hardcodes downstream package names.
 
     Examples
     --------
     Notebook quick-start — no config file needed::
 
-        configure_logging(preset="notebook")
+        configure_logging(preset="notebook", extra_namespaces=["omop_graph"])
 
     From a loaded config file::
 
-        configure_logging(load_stack_config())
+        configure_logging(load_stack_config(), extra_namespaces=["omop_emb"])
 
     Inline with level override::
 
@@ -275,9 +282,18 @@ def configure_logging(
             raise TypeError(
                 f"configure_logging() expects a LoggingConfig or StackConfig, got {type(config).__name__!r}"
             )
-        file_path: Path | None = getattr(config, "config_file_path", None)
+        file_path: Path | None = getattr(config, "loaded_path", None) or getattr(config, "config_file_path", None)
         if file_path is not None:
             base_path = file_path.parent
         logging_config = config.logging
 
-    _apply(logging_config, base_path=base_path)
+    _apply(logging_config, base_path=base_path, extra_namespaces=extra_namespaces)
+
+
+def get_logger(name: str) -> logging.Logger:
+    """Return a named logger.
+
+    Thin wrapper around ``logging.getLogger`` provided as a single import
+    point for consuming packages.
+    """
+    return logging.getLogger(name)

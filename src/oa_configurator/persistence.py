@@ -1,7 +1,8 @@
-"""Persistence helpers for reading and writing TOML configuration files."""
+"""Helpers for writing configuration back to TOML."""
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -9,47 +10,43 @@ import tomli_w
 
 from .logging_config import LoggingConfig
 from .models import StackConfig
+from .settings import DEFAULT_CONFIG_PATH
 
 
-def save_stack_config(config: StackConfig, path: Path) -> Path:
-    """Serialize and write a validated :class:`StackConfig` back to TOML.
+def save_stack_config(config: StackConfig, path: Path = DEFAULT_CONFIG_PATH) -> Path:
+    """Serialize a :class:`StackConfig` back to TOML.
 
-    The writer currently normalizes output rather than preserving comments or
-    original formatting. That is acceptable for the current prototype CLI,
-    where correctness and predictability are more important than round-trip
-    fidelity.
+    Does NOT preserve comments or original formatting. The ``logging`` section
+    is omitted when it equals the default (no custom logging configured).
     """
-
     payload = _drop_none_and_empty(config.model_dump(mode="python"))
     if config.logging == LoggingConfig():
         payload.pop("logging", None)
 
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        raise type(exc)(f"Could not create parent directory for {path}: {exc}") from exc
-
-    try:
-        path.write_text(tomli_w.dumps(payload), encoding="utf-8")
-    except OSError as exc:
-        raise type(exc)(f"Could not write config to {path}: {exc}") from exc
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(tomli_w.dumps(payload), encoding="utf-8")
     return path
 
 
-def _drop_none_and_empty(value: Any) -> Any:
-    """Recursively remove ``None`` values and empty dictionaries."""
+def patch_active_profile(profile_name: str, path: Path = DEFAULT_CONFIG_PATH) -> None:
+    """Set ``active_profile`` in the TOML file without touching other fields.
 
+    If the file does not exist it is created with only the ``active_profile``
+    key. Used by ``omop-config use <profile>``.
+    """
+    data: dict[str, Any] = {}
+    if path.exists():
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    data["active_profile"] = profile_name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(tomli_w.dumps(data), encoding="utf-8")
+
+
+def _drop_none_and_empty(value: Any) -> Any:
+    """Recursively strip None values and empty dicts from a model_dump result."""
     if isinstance(value, dict):
-        cleaned = {
-            key: _drop_none_and_empty(inner)
-            for key, inner in value.items()
-            if inner is not None
-        }
-        return {
-            key: inner
-            for key, inner in cleaned.items()
-            if inner != {}
-        }
+        cleaned = {k: _drop_none_and_empty(v) for k, v in value.items() if v is not None}
+        return {k: v for k, v in cleaned.items() if v != {}}
     if isinstance(value, list):
-        return [_drop_none_and_empty(inner) for inner in value]
+        return [_drop_none_and_empty(v) for v in value]
     return value

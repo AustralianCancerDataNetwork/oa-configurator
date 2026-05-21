@@ -28,7 +28,7 @@ dev = [
 ]
 
 [project.scripts]
-oa-config = "oa_configurator.cli:app"
+omop-config = "oa_configurator.cli:app"
 
 [build-system]
 requires = ["hatchling"]

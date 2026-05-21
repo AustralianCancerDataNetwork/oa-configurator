@@ -1,130 +1,59 @@
-# Quick Start
+# Quickstart
 
-## Install
+## 1. Install
 
 ```bash
 pip install oa-configurator
-# or, if the stack uses uv:
-uv add oa-configurator
 ```
 
-## Option A — Config file (recommended for shared setups)
+## 2. Create `~/.config/omop/config.toml`
 
-### 1. Create a config file with the CLI wizard
+```toml
+active_profile = "local"
+
+[connections.cdm]
+dialect  = "postgresql+psycopg2"
+host     = "localhost"
+port     = 5432
+user     = "omop"
+password = "changeme"
+database = "omop_cdm"
+
+[resources.default]
+primary_db = "cdm"
+cdm_schema = "omop"
+```
+
+> **Note**: Passwords are stored in plaintext for now. Keep the file readable only by your user: `chmod 600 ~/.config/omop/config.toml`. Secret management improvements are planned for a future release.
+
+## 3. Verify
 
 ```bash
-oa-config add-connection   # guided prompts for dialect, host, credentials
-oa-config add-resource     # map the connection to a logical resource name
+omop-config show
 ```
 
-The wizard writes to `~/.config/omop/config.toml` by default.
+Prints your config as JSON. Validation errors (unknown field, missing cross-reference) appear here.
 
-### 2. Load and resolve in Python
+## 4. Export for Docker Compose
 
-```python
-from oa_configurator import load_stack_config, Resolver
-
-config   = load_stack_config()              # ~/.config/omop/config.toml
-resolver = Resolver(config)
-
-resource = resolver.resolve_resource("default")
-engine   = resource.create_engine()         # SQLAlchemy Engine, ready to use
+```bash
+omop-config export-env
 ```
 
-For interactive work (notebooks, REPLs), the namespace attributes give tab completion:
+Writes `~/.config/omop/config.env`. Docker Compose services read it via `env_file:`.
 
-```python
-resource = resolver.resources.default       # same as resolve_resource("default")
-engine   = resource.primary_db.create_engine()
+## 5. Test connectivity
+
+```bash
+omop-config verify
 ```
 
-### 3. Configure logging (optional)
-
-Call `configure_logging()` once at the top of your script or notebook. It sets consistent levels and formats across `orm_loader`, `omop_alchemy`, and every other OMOP stack package:
-
-```python
-from oa_configurator import configure_logging
-
-configure_logging(preset="notebook")    # INFO to stdout, no timestamps
-configure_logging(preset="application") # INFO to stderr, with timestamps
-```
-
-Or derive it from the loaded config:
-
-```python
-from oa_configurator import load_stack_config, configure_logging
-
-config = load_stack_config()
-configure_logging(config)               # applies config.logging
-```
-
-See [Logging](logging.md) for presets, TOML configuration, and per-logger overrides.
-
-### 4. Use with orm-loader or omop-alchemy
-
-```python
-from orm_loader.helpers import bootstrap, Base
-
-bootstrap(engine, Base)                     # create schema tables
-```
-
-```python
-from omop_alchemy.oa_bridge import engine_from_config
-
-engine = engine_from_config()               # reads config, resolves resource, returns Engine
-```
+Reports OK / FAIL for each configured connection, with latency.
 
 ---
 
-## Option B — Inline construction (notebooks, quick scripts)
+## Next steps
 
-No config file required. Pass connections and resources directly:
-
-```python
-from oa_configurator import StackConfig, ConnectionConfig, ResourceConfig, Resolver
-
-config = StackConfig.for_session(
-    connections={
-        "local": ConnectionConfig(
-            dialect="postgresql",
-            host="localhost",
-            database="omop",
-            secret_source="env:DB_PASSWORD",   # or: password="..."
-        )
-    },
-    resources={
-        "default": ResourceConfig(
-            primary_db="local",
-            omop_schema="cdm",
-            vocab_schema="vocab",
-        )
-    },
-)
-engine = Resolver(config).resolve_resource("default").create_engine()
-```
-
-See [Inline & Session Usage](inline-usage.md) for more patterns including session-level overrides.
-
----
-
-## Environment overrides
-
-Two environment variables are respected at load time:
-
-| Variable | Description |
-|----------|-------------|
-| `OA_CONFIG_FILE` | Path to a different TOML file |
-| `OA_ACTIVE_PROFILE` | Override `settings.active_profile` without editing the file |
-
-```bash
-OA_ACTIVE_PROFILE=prod python my_script.py
-```
-
----
-
-## Verify a config file
-
-```bash
-oa-config show                              # print validated config as JSON
-oa-config resolve-resource default         # print the resolved resource bundle
-```
+- Switch profiles: `omop-config use <profile>` — see [Profiles](profiles.md)
+- Configure a package interactively: `omop-config configure omop_emb` — see [Integration](integration.md)
+- All TOML fields: [Config reference](config-reference.md)

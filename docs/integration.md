@@ -1,175 +1,148 @@
 # Integration
 
-How oa-configurator connects to the rest of the OMOP Python stack.
+How to make your package support `omop-config configure <package>` and use OA_Configurator for engine creation and logging.
 
 ---
 
-## Dependency chain
+## Overview
 
-```
-oa-configurator   (no stack dependencies)
-       ↓
-  orm-loader      (no dependency on oa-configurator — stays neutral)
-       ↓
- omop-alchemy     (depends on orm-loader; adopts oa-configurator for engine creation)
-```
+Each package that integrates with OA_Configurator:
 
-oa-configurator sits at the top. orm-loader stays neutral — it always receives a fully constructed SQLAlchemy engine from its caller.
+1. Subclasses `PackageConfigBase` with its typed config fields
+2. Registers the class via an entry point in `pyproject.toml`
+3. Calls `PackageConfigBase.from_stack(load_stack_config())` to read its config
+4. Uses `Resolver(load_stack_config()).resolve_resource("default").create_engine()` for SQLAlchemy
+5. Calls `configure_logging(preset="application", extra_namespaces=["<package>"])` at startup
 
 ---
 
-## orm-loader
+## Step 1 — Add the dependency
 
-orm-loader has no dependency on oa-configurator. The connection pattern is:
+In your `pyproject.toml`:
 
-```python
-from oa_configurator import load_stack_config, Resolver
-from orm_loader.helpers import bootstrap, Base
-
-config = load_stack_config()
-engine = Resolver(config).resolve_resource("default").create_engine()
-
-bootstrap(engine, Base)          # create schema, set up tables
+```toml
+[project.dependencies]
+"oa-configurator>=0.1.0"
 ```
-
-`bootstrap()` takes a SQLAlchemy engine. oa-configurator produces one. No changes to orm-loader are needed.
 
 ---
 
-## omop-alchemy
+## Step 2 — Define your config class
 
-omop-alchemy currently uses environment variables to locate the database engine:
-
-```python
-# Legacy pattern in omop_alchemy/config.py
-engine_name = get_engine_name(schema="cdm")
-engine      = create_engine_with_dependencies(engine_name)
-```
-
-The replacement pattern uses oa-configurator:
+In `src/<package>/config.py`:
 
 ```python
-from oa_configurator import load_stack_config, Resolver
+from typing import ClassVar
+from oa_configurator import PackageConfigBase, Resolver, load_stack_config
 
-config   = load_stack_config()
-resource = Resolver(config).resolve_resource("default")
-engine   = resource.create_engine()
+
+class MyPackageConfig(PackageConfigBase):
+    tool_name: ClassVar[str] = "my_package"   # maps to [tools.my_package] in TOML
+
+    # Declare typed fields; they're backed by ToolConfig.extra in the TOML
+    backend: str = "default"
+    data_path: str | None = None
+
+
+def get_resolver() -> Resolver:
+    return Resolver(load_stack_config())
+
+
+def get_config() -> MyPackageConfig:
+    return MyPackageConfig.from_stack(load_stack_config())
 ```
 
-`resource.create_engine()` automatically applies `schema_translate_map` from the resource's schema fields, replacing the multi-engine `ENGINE_CDM` / `ENGINE_VOCAB` approach with a single engine and SQLAlchemy's built-in schema translation.
-
-### Schema mapping
-
-omop-alchemy uses SQLAlchemy's `schema_translate_map` to route tables to different schemas at runtime. `ResolvedResource.create_engine()` wires this up automatically:
-
-```python
-resource = Resolver(config).resolve_resource("default")
-# resource.omop_schema  = "cdm"
-# resource.vocab_schema = "vocab"
-
-engine = resource.create_engine()
-# engine.get_execution_options()["schema_translate_map"]
-# → {None: "cdm", "vocab": "vocab"}
-```
-
-Tables defined with `schema=None` route to `cdm`. Tables defined with `schema="vocab"` route to `vocab`.
-
-You can also retrieve the map directly for passing to a session:
-
-```python
-from oa_configurator import schema_translate_map
-
-stm     = schema_translate_map(resource)
-session = Session(engine, execution_options={"schema_translate_map": stm})
-```
-
-### ENV → TOML migration guide
-
-| Old env var | TOML equivalent |
-|-------------|----------------|
-| `ENGINE` | `connections.<name>` + `resources.<name>.primary_db = "<name>"` |
-| `ENGINE_CDM` | `resources.<name>.primary_db = "<cdm_connection>"` + `omop_schema = "cdm"` |
-| `ENGINE_VOCAB` | `resources.<name>.vocab_db = "<vocab_connection>"` + `vocab_schema = "vocab"` |
-| `ENGINE_RESULTS` | `resources.<name>.results_db = "<results_connection>"` + `results_schema = "results"` |
+`from_stack()` reads the `[tools.my_package.extra]` section and validates it against your typed fields. If the section is missing, fields fall back to their defaults.
 
 ---
 
-## Logging
+## Step 3 — Register the entry point
 
-`configure_logging()` sets consistent log levels and output formats across the entire stack — `oa_configurator`, `orm_loader`, `omop_alchemy`, and future OMOP packages — in a single call.
-
-### Typical usage
-
-```python
-from oa_configurator import load_stack_config, Resolver, configure_logging
-
-config   = load_stack_config()
-configure_logging(config)                        # applies [logging] block from TOML
-
-resource = Resolver(config).resolve_resource("default")
-engine   = resource.create_engine()
+```toml
+[project.entry-points."omop.config"]
+my_package = "my_package.config:MyPackageConfig"
 ```
 
-When `configure_logging(config)` is called with a `StackConfig`, it reads `config.logging`. If the TOML file has no `[logging]` block, the default `preset = "library"` applies — levels are set to WARNING and no handler is added, so the host application's root logger handles output.
+After installing your package, `omop-config configure my_package` will find and prompt through your fields.
 
-### Standalone (no config file)
+---
+
+## Step 4 — Engine creation
+
+```python
+from my_package.config import get_resolver
+
+engine = get_resolver().resolve_resource("default").create_engine()
+```
+
+`create_engine()` applies the `schema_translate_map` automatically so OMOP ORM models route to the right schemas without changes.
+
+For the vocabulary database:
+
+```python
+vocab_engine = get_resolver().resolve_resource("default").create_engine(role="vocab")
+```
+
+---
+
+## Step 5 — Logging
+
+At your package's entry point or CLI startup:
 
 ```python
 from oa_configurator import configure_logging
 
-configure_logging(preset="notebook")             # INFO → stdout, no timestamps
-configure_logging(preset="application")          # INFO → stderr, with timestamps
-configure_logging(preset="production")           # INFO → stdout, JSON lines
+configure_logging(preset="application", extra_namespaces=["my_package"])
 ```
 
-### Suppress noisy third-party loggers
-
-Add a `[logging.loggers]` block to the config file:
-
-```toml
-[logging]
-preset = "application"
-
-[logging.loggers]
-"sqlalchemy.engine" = "WARNING"
-"sqlalchemy.pool"   = "WARNING"
-```
-
-This targets any fully-qualified Python logger name — not just stack namespaces.
-
-See [Logging](logging.md) for the full reference including custom handler config and all preset details.
+This configures both `oa_configurator` and `my_package` loggers together. Pass `load_stack_config()` instead of `preset=` to use the `[logging]` block from the config file.
 
 ---
 
-## Multi-database vs single-database deployments
+## Testing
 
-**Single database, multiple schemas** (common):
+Package tests should never touch `~/.config/omop/config.toml`. Use `StackConfig.for_session()`:
 
-```toml
-[connections.local]
-dialect  = "postgresql"
-host     = "localhost"
-database = "omop"
-user     = "omop"
-password = "omop"
+```python
+from oa_configurator import StackConfig, Resolver
 
-[resources.default]
-primary_db     = "local"
-# vocab_db and results_db omitted → fall back to primary_db
-omop_schema    = "cdm"
-vocab_schema   = "vocab"
-results_schema = "results"
+def test_something():
+    cfg = StackConfig.for_session(
+        connections={"db": {"dialect": "sqlite", "database": ":memory:"}},
+        resources={"default": {"primary_db": "db", "cdm_schema": "omop"}},
+        tools={"my_package": {"extra": {"backend": "test_backend"}}},
+    )
+    resolver = Resolver(cfg)
+    # ... test against resolver
 ```
 
-`resource.vocab_db_is_primary_fallback` is `True` — the library signals that vocab and results are on the same physical server as primary. One engine, three schemas.
+For tests that need a real database, set `OA_ACTIVE_PROFILE=test` in `conftest.py` (pointing to a `[profiles.test]` section in the user's config) and call `load_stack_config()` normally.
 
-**Separate databases per role**:
+---
 
-```toml
-[resources.default]
-primary_db = "cdm_server"
-vocab_db   = "vocab_server"
-results_db = "results_server"
+## TOML snippet for your README
+
+Add a **Configuration** section to your package README:
+
+```markdown
+## Configuration
+
+Requires `omop-config` to be run once. See the
+[OA_Configurator quickstart](link) for initial setup.
+
+Add the following to `~/.config/omop/config.toml`:
+
+\`\`\`toml
+[tools.my_package]
+default_resource = "default"
+
+[tools.my_package.extra]
+backend   = "default"
+data_path = "/path/to/data"
+\`\`\`
+
+Then run:
+\`\`\`bash
+omop-config configure my_package
+\`\`\`
 ```
-
-`resource.vocab_db_is_primary_fallback` is `False`. Callers that need separate engines create them via `resource.primary_db.create_engine()`, `resource.vocab_db.create_engine()`, etc.

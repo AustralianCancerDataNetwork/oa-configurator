@@ -14,6 +14,19 @@ theme:
     - content.code.copy
     - content.code.annotate
     - content.tabs.link
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: light-blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
 
 markdown_extensions:
   - admonition
@@ -65,6 +78,6 @@ nav:
       - Loader: api/loader.md
       - Models: api/models.md
       - Resolver: api/resolver.md
-      - Schema Helpers: api/schema-helpers.md
+      - PackageConfigBase: api/package-base.md
       - Persistence: api/persistence.md
       - Logging: api/logging.md

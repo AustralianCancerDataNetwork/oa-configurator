@@ -1,6 +1,6 @@
 # Inline & Session Usage
 
-oa-configurator works without a TOML file. Two patterns cover the main use cases.
+OA_Configurator works without a TOML file. Two patterns cover the main use cases.
 
 ---
 
@@ -10,7 +10,7 @@ Equivalent to loading a TOML file, but the config is built in code. Useful for:
 
 - Notebooks and quick scripts where writing a file is overhead
 - Tests that need an isolated, reproducible config
-- Programmatic config generation (e.g. CI pipelines building config from secrets manager)
+- Programmatic config generation (e.g. CI pipelines)
 
 ```python
 from oa_configurator import StackConfig, ConnectionConfig, ResourceConfig, Resolver
@@ -18,7 +18,7 @@ from oa_configurator import StackConfig, ConnectionConfig, ResourceConfig, Resol
 config = StackConfig.for_session(
     connections={
         "local": ConnectionConfig(
-            dialect="postgresql",
+            dialect="postgresql+psycopg2",
             host="localhost",
             database="omop",
             user="omop",
@@ -28,7 +28,7 @@ config = StackConfig.for_session(
     resources={
         "default": ResourceConfig(
             primary_db="local",
-            omop_schema="cdm",
+            cdm_schema="cdm",
             vocab_schema="vocab",
         )
     },
@@ -40,33 +40,11 @@ engine = Resolver(config).resolve_resource("default").create_engine()
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `connections` | dict \| None | `{}` | Named `ConnectionConfig` objects |
-| `resources` | dict \| None | `{}` | Named `ResourceConfig` objects |
-| `tools` | dict \| None | `{}` | Named `ToolConfig` objects |
-| `profiles` | dict \| None | `{}` | Named `ProfileConfig` objects |
-| `settings` | `SettingsConfig` \| None | default `SettingsConfig` | Runtime settings |
-| `base_path` | `Path` \| None | `Path.cwd()` | Anchor for resolving relative paths |
-
-The `base_path` plays the same role as the directory containing the TOML file. Any `path`, `artifact_root`, or other filesystem field expressed as a relative string resolves relative to it.
-
-### With `secret_source`
-
-`secret_source` works exactly as in a file-based config — credentials are resolved from the environment or filesystem at resolution time.
-
-```python
-config = StackConfig.for_session(
-    connections={
-        "prod": ConnectionConfig(
-            dialect="postgresql",
-            host="prod.hospital.org",
-            database="omop",
-            user="omop_prod",
-            secret_source="env:PROD_DB_PASSWORD",
-        )
-    },
-    resources={"default": ResourceConfig(primary_db="prod")},
-)
-```
+| `connections` | dict \| None | `{}` | Named `ConnectionConfig` objects or raw dicts |
+| `resources` | dict \| None | `{}` | Named `ResourceConfig` objects or raw dicts |
+| `tools` | dict \| None | `{}` | Named `ToolConfig` objects or raw dicts |
+| `profiles` | dict \| None | `{}` | Named `ProfileOverrideConfig` objects or raw dicts |
+| `active_profile` | str \| None | `None` | Profile to activate |
 
 ### Validation
 
@@ -75,8 +53,26 @@ Cross-references are validated at construction time, same as for file-loaded con
 ```python
 StackConfig.for_session(
     connections={"local": ConnectionConfig(dialect="sqlite", database=":memory:")},
-    resources={"default": ResourceConfig(primary_db="typo")},  # raises ValueError
+    resources={"default": ResourceConfig(primary_db="typo", cdm_schema="omop")},  # raises ValueError
 )
+```
+
+### In tests
+
+`for_session()` is the recommended pattern for package tests — no file I/O, fully isolated:
+
+```python
+from oa_configurator import StackConfig, Resolver
+
+def test_something():
+    cfg = StackConfig.for_session(
+        connections={"db": {"dialect": "sqlite", "database": ":memory:"}},
+        resources={"default": {"primary_db": "db", "cdm_schema": "omop"}},
+        tools={"my_package": {"extra": {"backend": "test_backend"}}},
+    )
+    resolver = Resolver(cfg)
+    engine = resolver.resolve_resource("default").create_engine()
+    # ...
 ```
 
 ---
@@ -85,8 +81,8 @@ StackConfig.for_session(
 
 Loads the shared config file, then replaces specific connections or resources for this session without touching the file. Useful for:
 
-- Notebook sessions that need to redirect one resource to a local DuckDB
 - Tests that swap prod connections for in-memory equivalents
+- Notebook sessions that redirect one resource to a local database
 - Sharing a team config but running with personal credentials locally
 
 ```python
@@ -96,10 +92,10 @@ engine = (
     Resolver(load_stack_config())
     .with_overrides(
         connections={
-            "local": ConnectionConfig(dialect="duckdb", path="local.duckdb")
+            "local": ConnectionConfig(dialect="sqlite", database=":memory:")
         },
         resources={
-            "default": ResourceConfig(primary_db="local")
+            "default": ResourceConfig(primary_db="local", cdm_schema="omop")
         },
     )
     .resolve_resource("default")
@@ -117,10 +113,9 @@ engine = (
 
 ### What is preserved
 
-- The original `settings` (including `active_profile`)
+- The original active profile
 - All profiles and their overlays
 - All connections, resources, and tools **not** mentioned in the overrides
-- The path context (`configuration_base_path`, `secrets_dir`)
 
 ### What is validated
 
@@ -128,7 +123,7 @@ Cross-references are checked against the **merged** result. A resource override 
 
 ```python
 Resolver(load_stack_config()).with_overrides(
-    resources={"default": ResourceConfig(primary_db="nonexistent")}   # raises
+    resources={"default": ResourceConfig(primary_db="nonexistent", cdm_schema="omop")}  # raises
 )
 ```
 
@@ -141,5 +136,4 @@ Resolver(load_stack_config()).with_overrides(
 | Needs a config file | No | Yes |
 | Inherits shared team config | No | Yes |
 | Profile overlays preserved | Only if explicitly passed | Yes |
-| Path context | `base_path` parameter (default: cwd) | Inherited from loaded config |
-| Primary use case | Scripts, tests, CI | Notebooks, per-user local redirects |
+| Primary use case | Tests, scripts, CI | Notebooks, per-user local redirects |

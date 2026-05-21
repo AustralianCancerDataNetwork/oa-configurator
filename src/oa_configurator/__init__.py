@@ -1,41 +1,42 @@
 """Public package surface for ``oa-configurator``."""
 
-from .loader import load_stack_config
-from .logging_config import LoggingConfig, LoggingHandlerConfig, configure_logging
+from .io import FLAT_ENV_PATH
+from .loader import DEFAULT_CONFIG_PATH, load_stack_config
+from .logging_config import (
+    LoggingConfig,
+    LoggingHandlerConfig,
+    RedactingFormatter,
+    configure_logging,
+    get_logger,
+)
 from .models import (
     ConnectionConfig,
-    ProfileConfig,
+    ProfileOverrideConfig,
     ResourceConfig,
-    ResourceOverrideConfig,
-    SettingsConfig,
     StackConfig,
     ToolConfig,
-    ToolOverrideConfig,
 )
-from .resolver import Resolver, ResolvedApiTarget, ResolvedDatabaseTarget, ResolvedResource, ResolvedToolConfig
-from .schema_helpers import schema_translate_map
-from .secret_sources import SecretSourceResolutionError
-from .settings import DEFAULT_CONFIG_PATH
+from .package_base import PackageConfigBase
+from .resolver import Resolver, ResolvedDatabaseTarget, ResolvedResource, ResolvedToolConfig
 
 __all__ = [
     "DEFAULT_CONFIG_PATH",
+    "FLAT_ENV_PATH",
     "ConnectionConfig",
     "LoggingConfig",
     "LoggingHandlerConfig",
-    "ProfileConfig",
+    "PackageConfigBase",
+    "ProfileOverrideConfig",
+    "RedactingFormatter",
     "ResourceConfig",
-    "ResourceOverrideConfig",
     "Resolver",
     "ResolvedApiTarget",
     "ResolvedDatabaseTarget",
     "ResolvedResource",
     "ResolvedToolConfig",
-    "SecretSourceResolutionError",
-    "SettingsConfig",
     "StackConfig",
     "ToolConfig",
-    "ToolOverrideConfig",
     "configure_logging",
+    "get_logger",
     "load_stack_config",
-    "schema_translate_map",
 ]

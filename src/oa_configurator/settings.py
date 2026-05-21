@@ -13,16 +13,12 @@ DEFAULT_CONFIG_PATH = Path("~/.config/omop/config.toml").expanduser()
 class RuntimeSettings(BaseSettings):
     """Environment-backed runtime knobs for config loading.
 
-    These settings are intentionally small and operational:
-
-    - where the main TOML file lives
-    - which profile to force
-    - which logical stack to force
-
-    They are not intended to replace the main TOML configuration model.
+    Only ``active_profile`` is configurable via environment (``OA_ACTIVE_PROFILE``).
+    The config file path is always ``DEFAULT_CONFIG_PATH`` (``~/.config/omop/config.toml``)
+    and cannot be overridden — keeping a fixed, well-known location ensures every
+    package can find the config without coordination.
     """
 
-    config_file: Path = DEFAULT_CONFIG_PATH
     active_profile: str | None = None
 
     model_config = SettingsConfigDict(

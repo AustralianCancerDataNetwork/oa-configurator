@@ -1,0 +1,1531 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A tool to generate configuration files for OMOP data model database and logging configuration focused on omop-alchemy.">
+      
+      
+      
+        <link rel="canonical" href="https://AustralianCancerDataNetwork.github.io/oa-configurator/config-reference/">
+      
+      
+        <link rel="prev" href="../quickstart/">
+      
+      
+        <link rel="next" href="../secrets/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Config File Reference - oa-configurator</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#config-file-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="oa-configurator" class="md-header__button md-logo" aria-label="oa-configurator" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            oa-configurator
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Config File Reference
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/AustralianCancerDataNetwork/oa-configurator" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    oa-configurator
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="oa-configurator" class="md-nav__button md-logo" aria-label="oa-configurator" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    oa-configurator
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/AustralianCancerDataNetwork/oa-configurator" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    oa-configurator
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config File Reference
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config File Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [settings]
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connectionsname" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [connections.&lt;name&gt;]
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[connections.&lt;name&gt;]">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#network-database" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Network database
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sqlite-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SQLite file
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#duckdb-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DuckDB file
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#engine-kwargs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Engine kwargs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resourcesname" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [resources.&lt;name&gt;]
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#toolsname" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [tools.&lt;name&gt;]
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#profilesname" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [profiles.&lt;name&gt;]
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#complete-annotated-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Complete annotated example
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../secrets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Secrets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../profiles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Profiles & Overlays
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../inline-usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inline & Session Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/loader/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Loader
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/resolver/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resolver
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/schema-helpers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Schema Helpers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/persistence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Persistence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [settings]
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connectionsname" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [connections.&lt;name&gt;]
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[connections.&lt;name&gt;]">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#network-database" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Network database
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sqlite-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SQLite file
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#duckdb-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DuckDB file
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#engine-kwargs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Engine kwargs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resourcesname" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [resources.&lt;name&gt;]
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#toolsname" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [tools.&lt;name&gt;]
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#profilesname" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [profiles.&lt;name&gt;]
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#complete-annotated-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Complete annotated example
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href=".." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="./" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    User Guide
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="config-file-reference">Config File Reference<a class="headerlink" href="#config-file-reference" title="Permanent link">&para;</a></h1>
+<p>Configuration is stored in TOML. The default path is <code>~/.config/omop/config.toml</code>; override with <code>OA_CONFIG_FILE</code>.</p>
+<p>A minimal working file:</p>
+<div class="highlight"><pre><span></span><code><span class="k">[connections.local]</span>
+<span class="n">dialect</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;postgresql&quot;</span>
+<span class="n">host</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;localhost&quot;</span>
+<span class="n">database</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
+<span class="n">user</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
+<span class="n">password</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
+
+<span class="k">[resources.default]</span>
+<span class="n">primary_db</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local&quot;</span>
+</code></pre></div>
+<hr />
+<h2 id="settings"><code>[settings]</code><a class="headerlink" href="#settings" title="Permanent link">&para;</a></h2>
+<p>Optional top-level block. All fields have defaults.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>active_profile</code></td>
+<td>string</td>
+<td><code>"default"</code></td>
+<td>Name of the profile to apply. Overridable via <code>OA_ACTIVE_PROFILE</code>.</td>
+</tr>
+<tr>
+<td><code>configuration_base_path</code></td>
+<td>string</td>
+<td><code>"."</code></td>
+<td>Base directory for resolving relative paths. <code>"."</code> means the directory containing this file. Any other value must be an absolute path.</td>
+</tr>
+<tr>
+<td><code>secrets_dir</code></td>
+<td>string | null</td>
+<td><code>null</code></td>
+<td>Optional directory for file-backed secrets. Relative to <code>configuration_base_path</code>.</td>
+</tr>
+</tbody>
+</table>
+<div class="highlight"><pre><span></span><code><span class="k">[settings]</span>
+<span class="n">active_profile</span><span class="w">         </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod&quot;</span>
+<span class="n">configuration_base_path</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;.&quot;</span>
+<span class="n">secrets_dir</span><span class="w">            </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;secrets&quot;</span>
+</code></pre></div>
+<hr />
+<h2 id="connectionsname"><code>[connections.&lt;name&gt;]</code><a class="headerlink" href="#connectionsname" title="Permanent link">&para;</a></h2>
+<p>One block per named connection. Referenced by resources via their name.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dialect</code></td>
+<td>string</td>
+<td>yes</td>
+<td>SQLAlchemy drivername: <code>postgresql</code>, <code>postgresql+psycopg</code>, <code>sqlite</code>, <code>duckdb</code>, etc.</td>
+</tr>
+<tr>
+<td><code>host</code></td>
+<td>string</td>
+<td>for network DBs</td>
+<td>Hostname or IP</td>
+</tr>
+<tr>
+<td><code>port</code></td>
+<td>int</td>
+<td>no</td>
+<td>Port number; driver default used if omitted</td>
+</tr>
+<tr>
+<td><code>user</code></td>
+<td>string</td>
+<td>for network DBs</td>
+<td>Database user</td>
+</tr>
+<tr>
+<td><code>database</code></td>
+<td>string</td>
+<td>for network DBs</td>
+<td>Database name</td>
+</tr>
+<tr>
+<td><code>password</code></td>
+<td>string</td>
+<td>mutually exclusive with <code>secret_source</code></td>
+<td>Inline password (avoid for shared files)</td>
+</tr>
+<tr>
+<td><code>secret_source</code></td>
+<td>string</td>
+<td>mutually exclusive with <code>password</code></td>
+<td>Indirect credential — see <a href="../secrets/">Secrets</a></td>
+</tr>
+<tr>
+<td><code>path</code></td>
+<td>string</td>
+<td>for file-backed DBs</td>
+<td>Local file path (SQLite, DuckDB). Relative to <code>configuration_base_path</code>.</td>
+</tr>
+<tr>
+<td><code>kind</code></td>
+<td><code>"database"</code> | <code>"file"</code></td>
+<td>no</td>
+<td>Default: <code>"database"</code>. Use <code>"file"</code> for local file-backed connections; file connections require <code>path</code>.</td>
+</tr>
+<tr>
+<td><code>read_only</code></td>
+<td>bool</td>
+<td>no</td>
+<td>Default: <code>false</code>. For PostgreSQL connections, engine creation injects <code>default_transaction_read_only=on</code>. Other dialects currently treat this as advisory metadata.</td>
+</tr>
+<tr>
+<td><code>engine_kwargs</code></td>
+<td>dict</td>
+<td>no</td>
+<td>Extra keyword arguments passed through to <code>sqlalchemy.create_engine()</code> (e.g. <code>pool_size</code>, <code>echo</code>).</td>
+</tr>
+</tbody>
+</table>
+<h3 id="network-database">Network database<a class="headerlink" href="#network-database" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">[connections.prod_cdm]</span>
+<span class="n">dialect</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;postgresql&quot;</span>
+<span class="n">host</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod.hospital.org&quot;</span>
+<span class="n">port</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="mi">5432</span>
+<span class="n">user</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_prod&quot;</span>
+<span class="n">secret_source</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;file:prod_cdm.password&quot;</span>
+<span class="n">database</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_cdm&quot;</span>
+</code></pre></div>
+<h3 id="sqlite-file">SQLite file<a class="headerlink" href="#sqlite-file" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">[connections.local_sqlite]</span>
+<span class="n">dialect</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;sqlite&quot;</span>
+<span class="n">path</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;data/omop.sqlite&quot;</span>
+</code></pre></div>
+<h3 id="duckdb-file">DuckDB file<a class="headerlink" href="#duckdb-file" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">[connections.local_duckdb]</span>
+<span class="n">dialect</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;duckdb&quot;</span>
+<span class="n">kind</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;file&quot;</span>
+<span class="n">path</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;data/omop.duckdb&quot;</span>
+<span class="n">read_only</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+</code></pre></div>
+<h3 id="engine-kwargs">Engine kwargs<a class="headerlink" href="#engine-kwargs" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">[connections.prod_cdm]</span>
+<span class="n">dialect</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;postgresql&quot;</span>
+<span class="n">host</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod.hospital.org&quot;</span>
+<span class="n">database</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_cdm&quot;</span>
+<span class="n">user</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_prod&quot;</span>
+<span class="n">secret_source</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;env:PROD_CDM_PASSWORD&quot;</span>
+<span class="n">engine_kwargs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">pool_pre_ping</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="n">pool_size</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mi">5</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div>
+<hr />
+<h2 id="resourcesname"><code>[resources.&lt;name&gt;]</code><a class="headerlink" href="#resourcesname" title="Permanent link">&para;</a></h2>
+<p>Maps logical roles to named connections and schema / path settings.
+<code>primary_db</code> is the only required field; all others default to <code>null</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>primary_db</code></td>
+<td>string</td>
+<td><strong>Required.</strong> Connection name for the main OMOP/CDM database.</td>
+</tr>
+<tr>
+<td><code>vocab_db</code></td>
+<td>string | null</td>
+<td>Connection name for the vocabulary database. Falls back to <code>primary_db</code> when omitted.</td>
+</tr>
+<tr>
+<td><code>results_db</code></td>
+<td>string | null</td>
+<td>Connection name for the results / cohort database. Falls back to <code>primary_db</code> when omitted.</td>
+</tr>
+<tr>
+<td><code>omop_schema</code></td>
+<td>string | null</td>
+<td>Schema name for OMOP clinical tables. Maps to SQLAlchemy <code>schema_translate_map = {None: ...}</code>.</td>
+</tr>
+<tr>
+<td><code>vocab_schema</code></td>
+<td>string | null</td>
+<td>Schema name for vocabulary tables. Maps to <code>schema_translate_map = {"vocab": ...}</code>.</td>
+</tr>
+<tr>
+<td><code>results_schema</code></td>
+<td>string | null</td>
+<td>Schema name for results tables. Maps to <code>schema_translate_map = {"results": ...}</code>.</td>
+</tr>
+<tr>
+<td><code>athena_source_path</code></td>
+<td>string | null</td>
+<td>Local path to an Athena OHDSI vocabulary download.</td>
+</tr>
+<tr>
+<td><code>artifact_root</code></td>
+<td>string | null</td>
+<td>Root directory for all derived artifacts.</td>
+</tr>
+<tr>
+<td><code>embedding_file_root</code></td>
+<td>string | null</td>
+<td>Directory for vector embedding files (FAISS, etc.).</td>
+</tr>
+<tr>
+<td><code>analytic_db_file_root</code></td>
+<td>string | null</td>
+<td>Directory for local analytic DB files (DuckDB exports, etc.).</td>
+</tr>
+</tbody>
+</table>
+<p>All path fields resolve relative to <code>configuration_base_path</code>.</p>
+<div class="highlight"><pre><span></span><code><span class="k">[resources.default]</span>
+<span class="n">primary_db</span><span class="w">             </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local_cdm&quot;</span>
+<span class="n">vocab_db</span><span class="w">               </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local_cdm&quot;</span>
+<span class="n">results_db</span><span class="w">             </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local_cdm&quot;</span>
+<span class="n">omop_schema</span><span class="w">            </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
+<span class="n">vocab_schema</span><span class="w">           </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
+<span class="n">results_schema</span><span class="w">         </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;results&quot;</span>
+<span class="n">artifact_root</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;artifacts&quot;</span>
+<span class="n">embedding_file_root</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;artifacts/embeddings&quot;</span>
+<span class="n">analytic_db_file_root</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;artifacts/databases&quot;</span>
+</code></pre></div>
+<hr />
+<h2 id="toolsname"><code>[tools.&lt;name&gt;]</code><a class="headerlink" href="#toolsname" title="Permanent link">&para;</a></h2>
+<p>Per-tool defaults. Tool names are arbitrary — they match whatever name the consuming tool looks for.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>default_resource</code></td>
+<td>string | null</td>
+<td>Name of the resource this tool uses by default. Must reference a key in <code>resources</code>.</td>
+</tr>
+<tr>
+<td><code>backend</code></td>
+<td>string | null</td>
+<td>Backend identifier for tools that support multiple backends (e.g. <code>"pgvector"</code>, <code>"faiss"</code>).</td>
+</tr>
+<tr>
+<td><code>embedding_file_root</code></td>
+<td>string | null</td>
+<td>Tool-specific override for the embedding directory.</td>
+</tr>
+<tr>
+<td><code>database_file_root</code></td>
+<td>string | null</td>
+<td>Tool-specific override for the analytic DB directory.</td>
+</tr>
+<tr>
+<td><code>extra</code></td>
+<td>dict[string, string]</td>
+<td>Arbitrary key/value pairs for tool-specific options not covered above.</td>
+</tr>
+</tbody>
+</table>
+<div class="highlight"><pre><span></span><code><span class="k">[tools.omop_emb]</span>
+<span class="n">default_resource</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;default&quot;</span>
+<span class="n">backend</span><span class="w">             </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;pgvector&quot;</span>
+<span class="n">embedding_file_root</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;artifacts/embeddings&quot;</span>
+
+<span class="k">[tools.orm_loader]</span>
+<span class="n">default_resource</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;default&quot;</span>
+<span class="n">database_file_root</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;artifacts/databases&quot;</span>
+</code></pre></div>
+<hr />
+<h2 id="profilesname"><code>[profiles.&lt;name&gt;]</code><a class="headerlink" href="#profilesname" title="Permanent link">&para;</a></h2>
+<p>Named environments that patch resources and tools without duplicating full blocks.
+See <a href="../profiles/">Profiles &amp; Overlays</a> for the full guide.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>description</code></td>
+<td>string | null</td>
+<td>Human-readable description.</td>
+</tr>
+<tr>
+<td><code>resource_overrides.&lt;resource_name&gt;</code></td>
+<td>partial ResourceConfig</td>
+<td>Overrides applied to the named resource when this profile is active. The resource name must already exist in <code>resources</code>.</td>
+</tr>
+<tr>
+<td><code>tool_overrides.&lt;tool_name&gt;</code></td>
+<td>partial ToolConfig</td>
+<td>Overrides applied to the named tool when this profile is active. The tool name must already exist in <code>tools</code>.</td>
+</tr>
+</tbody>
+</table>
+<div class="highlight"><pre><span></span><code><span class="k">[profiles.prod]</span>
+<span class="n">description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;remote OMOP source, local derived artifacts&quot;</span>
+
+<span class="k">[profiles.prod.resource_overrides.default]</span>
+<span class="n">primary_db</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod_cdm&quot;</span>
+<span class="n">vocab_db</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod_vocab&quot;</span>
+
+<span class="k">[profiles.prod.tool_overrides.omop_emb]</span>
+<span class="n">embedding_file_root</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;artifacts/prod/embeddings&quot;</span>
+</code></pre></div>
+<hr />
+<h2 id="complete-annotated-example">Complete annotated example<a class="headerlink" href="#complete-annotated-example" title="Permanent link">&para;</a></h2>
+<p>See <a href="https://github.com/AustralianCancerDataNetwork/oa-configurator/blob/main/examples/config.toml"><code>examples/config.toml</code></a> in the repository for a full two-profile, multi-connection example.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.path", "navigation.top", "content.code.copy", "content.code.annotate", "content.tabs.link"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="https://unpkg.com/mermaid@10/dist/mermaid.min.js"></script>
+      
+        <script src="../js/mermaid-init.js"></script>
+      
+    
+  </body>
+</html>

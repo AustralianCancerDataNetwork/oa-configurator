@@ -10,15 +10,13 @@ from .settings import DEFAULT_CONFIG_PATH, RuntimeSettings
 
 
 def load_stack_config() -> StackConfig:
-    """Load a :class:`StackConfig` from ``~/.config/omop/config.toml``.
+    """Load a :class:`StackConfig` from  ``DEFAULT_CONFIG_PATH`` (``~/.config/omop/config.toml``).
 
-    The config path is always ``DEFAULT_CONFIG_PATH`` and cannot be
-    overridden at runtime. Use ``StackConfig.for_session()`` or
-    ``StackConfig.model_validate(tomllib.loads(...))`` in tests and
-    scripts that need a different file.
-
-    The active profile can be overridden via the ``OA_ACTIVE_PROFILE``
-    environment variable without changing the file path.
+    Notes
+    -----
+    - The file path is fixed to ``DEFAULT_CONFIG_PATH`` and cannot be overridden at runtime.
+    - Use ``StackConfig.for_session()`` or ``StackConfig.model_validate(tomllib.loads(...))`` in tests and scripts that need a different file.
+    - The active profile can be overridden via the ``OA_ACTIVE_PROFILE`` environment variable without changing the file path.
 
     Returns
     -------
@@ -28,7 +26,7 @@ def load_stack_config() -> StackConfig:
     Raises
     ------
     FileNotFoundError
-        If ``~/.config/omop/config.toml`` does not exist.
+        If ``DEFAULT_CONFIG_PATH`` does not exist.
     """
     return _load_from_path(DEFAULT_CONFIG_PATH)
 

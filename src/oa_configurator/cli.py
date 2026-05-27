@@ -1,4 +1,4 @@
-"""CLI for omop-config — inspect, switch profiles, test connections, configure packages."""
+"""CLI for omop-config — initialise, inspect, switch profiles, test connections, configure packages."""
 
 from __future__ import annotations
 
@@ -11,15 +11,103 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from .io import write_env_file
+from .io import patch_active_profile, save_stack_config, write_env_file
 from .loader import DEFAULT_CONFIG_PATH, load_stack_config
-from .models import StackConfig, ToolConfig
-from .persistence import patch_active_profile, save_stack_config
+from .logging_config import configure_logging
+from .models import ConnectionConfig, ResourceConfig, StackConfig, ToolConfig
 from .resolver import Resolver
 
 app = typer.Typer(name="omop-config", no_args_is_help=True, add_completion=False)
 console = Console()
 err_console = Console(stderr=True)
+
+
+# ---------------------------------------------------------------------------
+# Global callback — verbosity
+# ---------------------------------------------------------------------------
+
+
+@app.callback()
+def _main(
+    verbose: Annotated[
+        int,
+        typer.Option(
+            "--verbose", "-v",
+            count=True,
+            help="Increase log verbosity (-v INFO, -vv DEBUG).",
+        ),
+    ] = 0,
+) -> None:
+    configure_logging(verbosity=verbose)
+
+
+# ---------------------------------------------------------------------------
+# init
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def init(
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Overwrite existing config without prompting."),
+    ] = False,
+) -> None:
+    """Create ~/.config/omop/config.toml interactively."""
+    if DEFAULT_CONFIG_PATH.exists() and not force:
+        overwrite = typer.confirm(
+            f"Config already exists at {DEFAULT_CONFIG_PATH}. Overwrite?",
+            default=False,
+        )
+        if not overwrite:
+            console.print("[yellow]Aborted.[/yellow]")
+            raise typer.Exit(0)
+
+    console.print("\n[bold]Connection setup[/bold]")
+    console.print("[dim]A connection is a named database endpoint (host/port/credentials).[/dim]")
+    console.print("[dim]Tip: the value shown in [brackets] is the default — press Enter to accept it.[/dim]\n")
+    conn_name = typer.prompt("Connection name  (a short label, e.g. 'cdm' or 'prod')", default="cdm")
+    dialect = typer.prompt("Dialect  (SQLAlchemy driver string, e.g. postgresql+psycopg2, sqlite)")
+    host = typer.prompt("Host  (leave blank for SQLite or socket connections)", default="localhost") or None
+    port_str = typer.prompt("Port  (leave blank to use the dialect default)", default="")
+    port: int | None = int(port_str) if port_str.strip() else None
+    user = typer.prompt("User  (leave blank if not required)", default="") or None
+    password = typer.prompt("Password  (leave blank if not required)", default="", hide_input=True) or None
+    database = typer.prompt("Database  (database name, or file path for SQLite)", default="") or None
+
+    conn = ConnectionConfig(
+        dialect=dialect,
+        host=host,
+        port=port,
+        user=user,
+        password=password,
+        database=database,
+    )
+
+    console.print("\n[bold]Resource setup[/bold]")
+    console.print("[dim]A resource maps a connection to OMOP schemas (CDM, vocab, results).[/dim]\n")
+    res_name = typer.prompt("Resource name  (a short label, usually 'default')", default="default")
+    cdm_schema = typer.prompt("CDM schema  (PostgreSQL schema containing the OMOP tables)", default="omop")
+    vocab_schema_str = typer.prompt("Vocab schema  (leave blank to share the CDM schema)", default="")
+    results_schema_str = typer.prompt("Results schema  (leave blank to skip)", default="")
+
+    resource = ResourceConfig(
+        primary_db=conn_name,
+        cdm_schema=cdm_schema,
+        vocab_schema=vocab_schema_str or None,
+        results_schema=results_schema_str or None,
+    )
+
+    config = StackConfig.for_session(
+        connections={conn_name: conn},
+        resources={res_name: resource},
+    )
+    save_stack_config(config)
+    console.print(f"\n[green]✓[/green] Written to [dim]{DEFAULT_CONFIG_PATH}[/dim]")
+    console.print("\nNext steps:")
+    console.print("  omop-config show           — inspect the loaded config")
+    console.print("  omop-config verify         — test connectivity")
+    console.print("  omop-config configure <pkg> — configure a package")
 
 
 # ---------------------------------------------------------------------------
@@ -39,6 +127,7 @@ def show(
         config = load_stack_config()
     except FileNotFoundError:
         err_console.print(f"[red]Config file not found:[/red] {DEFAULT_CONFIG_PATH}")
+        err_console.print("Run [bold]omop-config init[/bold] to create it.")
         raise typer.Exit(1)
     if profile is not None:
         config.active_profile = profile

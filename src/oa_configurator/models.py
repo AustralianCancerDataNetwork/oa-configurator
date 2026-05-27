@@ -1,4 +1,4 @@
-"""Typed models for the OMOP stack configuration."""
+"""Typed Pydantic models for the OMOP stack configuration."""
 
 from __future__ import annotations
 
@@ -12,20 +12,36 @@ from .logging_config import LoggingConfig
 
 
 class ConnectionConfig(BaseModel):
-    """One named database connection."""
+    """Named database connection endpoint.
+
+    Stores all parameters needed to build a SQLAlchemy connection URL.
+    Passwords are stored in plaintext for now; secret management support
+    is planned for a future release.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    dialect: str                    # e.g. "postgresql+psycopg2", "sqlite"; no default
-    host: str | None = None
-    port: int | None = None
-    user: str | None = None
-    password: str | None = None     # plaintext; secret management deferred to future iteration
-    database: str | None = None
-    read_only: bool = False
+    dialect: str = Field(
+        description="SQLAlchemy dialect string, e.g. 'postgresql+psycopg2', 'mssql+pyodbc', 'sqlite'."
+    )
+    host: str | None = Field(default=None, description="Hostname or IP address.")
+    port: int | None = Field(default=None, description="Port number.")
+    user: str | None = Field(default=None, description="Database username.")
+    password: str | None = Field(
+        default=None,
+        description="Plaintext password. Secret management support is planned for a future release.",
+    )
+    database: str | None = Field(
+        default=None,
+        description="Database name. For SQLite use ':memory:' or an absolute path.",
+    )
+    read_only: bool = Field(
+        default=False,
+        description="Hint only; enforcement depends on the dialect.",
+    )
 
     def build_url(self) -> str:
-        """Full URL including plaintext password."""
+        """Full connection URL including plaintext password."""
         if self.dialect.startswith("sqlite"):
             db = self.database or ":memory:"
             return f"sqlite:///{db}"
@@ -39,7 +55,7 @@ class ConnectionConfig(BaseModel):
         ).render_as_string(hide_password=False)
 
     def safe_url(self) -> str:
-        """URL with password redacted; safe for logs and display."""
+        """Connection URL with password redacted; safe for logs and display."""
         if self.dialect.startswith("sqlite"):
             return self.build_url()
         return URL.create(
@@ -53,47 +69,110 @@ class ConnectionConfig(BaseModel):
 
 
 class ResourceConfig(BaseModel):
-    """Maps logical CDM roles to named connections and schema names."""
+    """Maps logical OMOP CDM roles to named connections and schema names.
+
+    A resource is the unit of database targeting that consuming packages
+    interact with. Most packages only need the ``default`` resource.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    primary_db: str                     # connection name for the CDM server
-    vocab_db: str | None = None         # separate connection for vocabulary; falls back to primary_db
-    cdm_schema: str                     # schema where CDM clinical tables live
-    vocab_schema: str | None = None     # vocabulary schema; falls back to cdm_schema when None
-    results_schema: str | None = None   # Achilles / Atlas results schema
+    primary_db: str = Field(
+        description="Name of the connection used for the CDM server."
+    )
+    vocab_db: str | None = Field(
+        default=None,
+        description="Name of the connection for vocabulary tables. Falls back to primary_db when not set.",
+    )
+    cdm_schema: str = Field(
+        description="Schema where CDM clinical tables live."
+    )
+    vocab_schema: str | None = Field(
+        default=None,
+        description="Vocabulary schema. Falls back to cdm_schema when not set.",
+    )
+    results_schema: str | None = Field(
+        default=None,
+        description="Achilles / Atlas results schema.",
+    )
 
 
 class ToolConfig(BaseModel):
-    """Per-tool section. Package-specific fields live in extra."""
+    """Per-package configuration section.
+
+    Package-specific fields are declared on a ``PackageConfigBase`` subclass
+    and stored in ``extra``. The core model only knows about
+    ``default_resource``.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    default_resource: str | None = None
-    extra: dict[str, Any] = Field(default_factory=dict)
+    default_resource: str | None = Field(
+        default=None,
+        description="Resource name this tool uses when none is specified by the caller.",
+    )
+    extra: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Package-specific key/value pairs. Each package defines its own typed fields that map here.",
+    )
 
 
 class ProfileOverrideConfig(BaseModel):
-    """Profile overlay: connections / resources / tools that replace base entries."""
+    """Profile overlay: connections, resources, and tools that replace base entries when the profile is active.
+
+    Entries in a profile completely replace the base entry with the same name.
+    Entries not mentioned in the profile are inherited from the base config unchanged.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    connections: dict[str, ConnectionConfig] = Field(default_factory=dict)
-    resources: dict[str, ResourceConfig] = Field(default_factory=dict)
-    tools: dict[str, ToolConfig] = Field(default_factory=dict)
+    connections: dict[str, ConnectionConfig] = Field(
+        default_factory=dict,
+        description="Connection configs that replace or extend the base connections.",
+    )
+    resources: dict[str, ResourceConfig] = Field(
+        default_factory=dict,
+        description="Resource configs that replace or extend the base resources.",
+    )
+    tools: dict[str, ToolConfig] = Field(
+        default_factory=dict,
+        description="Tool configs that replace or extend the base tool configs.",
+    )
 
 
 class StackConfig(BaseModel):
-    """Root configuration for the OMOP stack."""
+    """Root configuration for the OMOP stack.
+
+    Loaded from ``~/.config/omop/config.toml`` by :func:`~oa_configurator.loader.load_stack_config`.
+    Can also be constructed in memory via :meth:`for_session` (no file I/O).
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    active_profile: str | None = None
-    connections: dict[str, ConnectionConfig] = Field(default_factory=dict)
-    resources: dict[str, ResourceConfig] = Field(default_factory=dict)
-    tools: dict[str, ToolConfig] = Field(default_factory=dict)
-    profiles: dict[str, ProfileOverrideConfig] = Field(default_factory=dict)
-    logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    active_profile: str | None = Field(
+        default=None,
+        description="Name of the profile to activate. Can be overridden by the OA_ACTIVE_PROFILE env var.",
+    )
+    connections: dict[str, ConnectionConfig] = Field(
+        default_factory=dict,
+        description="Named database connection endpoints.",
+    )
+    resources: dict[str, ResourceConfig] = Field(
+        default_factory=dict,
+        description="Named logical role bundles mapping CDM roles to connections and schemas.",
+    )
+    tools: dict[str, ToolConfig] = Field(
+        default_factory=dict,
+        description="Per-package configuration sections.",
+    )
+    profiles: dict[str, ProfileOverrideConfig] = Field(
+        default_factory=dict,
+        description="Named environment overlays.",
+    )
+    logging: LoggingConfig = Field(
+        default_factory=LoggingConfig,
+        description="Logging configuration. Optional; defaults to WARNING level with no handler.",
+    )
     _loaded_path: Path | None = PrivateAttr(default=None)
 
     @model_validator(mode="after")
@@ -122,7 +201,11 @@ class StackConfig(BaseModel):
         profiles: dict | None = None,
         active_profile: str | None = None,
     ) -> "StackConfig":
-        """Build in memory without a TOML file. Intended for tests and scripts."""
+        """Build a config in memory without a TOML file.
+
+        Intended for tests and scripts. Cross-references are validated at
+        construction time, same as for file-loaded configs.
+        """
         return cls(
             active_profile=active_profile,
             connections=connections or {},

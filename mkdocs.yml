@@ -79,5 +79,5 @@ nav:
       - Models: api/models.md
       - Resolver: api/resolver.md
       - PackageConfigBase: api/package-base.md
-      - Persistence: api/persistence.md
+      #- Persistence: api/persistence.md
       - Logging: api/logging.md

@@ -1,6 +1,6 @@
 # Logging
 
-OA_Configurator provides a unified logging setup for the OMOP Python stack. All packages configure their loggers through the same call, using the same presets and redaction rules.
+OA_Configurator provides a unified logging setup for the OMOP Python stack. All packages configure their loggers through the same call and formatter.
 
 ---
 
@@ -9,10 +9,10 @@ OA_Configurator provides a unified logging setup for the OMOP Python stack. All 
 ```python
 from oa_configurator import configure_logging
 
-# Minimal — from a preset
-configure_logging(preset="application", extra_namespaces=["my_package"])
+# Minimal — WARNING level (default)
+configure_logging(extra_namespaces=["my_package"])
 
-# From config file
+# From a loaded config file (uses [logging] block)
 from oa_configurator import load_stack_config
 configure_logging(load_stack_config(), extra_namespaces=["my_package"])
 ```
@@ -21,16 +21,31 @@ configure_logging(load_stack_config(), extra_namespaces=["my_package"])
 
 ---
 
-## Presets
+## Verbosity
 
-| Preset | Level | Handler | Format |
-|---|---|---|---|
-| `library` | WARNING | none (propagates to root) | — |
-| `notebook` | INFO | stdout | simple `LEVEL name: message` |
-| `application` | INFO | stderr | detailed with timestamps |
-| `production` | INFO | stdout | newline-delimited JSON |
+Log level is driven by the `verbosity` parameter, which maps directly to CLI `-v` count flags:
 
-`library` is the default and is safe for use inside library code: it never installs handlers or touches the caller's logging configuration.
+| `verbosity` | Level |
+|-------------|-------|
+| `0` (default) | WARNING |
+| `1` (`-v`) | INFO |
+| `2+` (`-vv`) | DEBUG |
+
+```python
+configure_logging(verbosity=1, extra_namespaces=["omop_graph"])
+```
+
+---
+
+## Format
+
+All log records use a single fixed format:
+
+```
+2026-01-15 14:32:01 | my_package | INFO | Connected to database
+```
+
+Output always goes to **stderr**. There are no alternative handlers or JSON formatters — route stderr to a log aggregator if needed.
 
 ---
 
@@ -39,33 +54,27 @@ configure_logging(load_stack_config(), extra_namespaces=["my_package"])
 OA_Configurator never hardcodes downstream package names. Each consuming package passes its own namespace:
 
 ```python
-configure_logging(preset="application", extra_namespaces=["omop_graph", "omop_emb"])
+configure_logging(verbosity=1, extra_namespaces=["omop_graph", "omop_emb"])
 ```
 
 Both `oa_configurator` and all listed namespaces get the same level and handler.
 
 ---
 
-## Level and logger overrides
+## Level override from config file
 
-Override the preset level:
-
-```python
-from oa_configurator.logging_config import LoggingConfig
-
-configure_logging(LoggingConfig(preset="application", level="DEBUG"))
-```
-
-Fine-grained overrides for specific loggers:
+The `[logging]` section in `config.toml` can set a fixed level that overrides `verbosity`:
 
 ```toml
 [logging]
-preset = "application"
+level = "DEBUG"
 
 [logging.loggers]
 "sqlalchemy.engine" = "INFO"
 "httpx" = "WARNING"
 ```
+
+`level` applies to all OMOP namespaces. `loggers` applies fine-grained overrides to any specific logger.
 
 ---
 
@@ -79,22 +88,3 @@ logger.info("Hello from my package")
 ```
 
 Thin wrapper around `logging.getLogger()` — a single import point for all packages.
-
----
-
-## Password redaction
-
-`RedactingFormatter` (applied by all non-library presets) scrubs two patterns:
-
-1. `key=value` patterns: `password=secret` → `password=<REDACTED>`
-2. URL passwords: `postgresql://user:secret@host/db` → `postgresql://user:***@host/db`
-
-Import it directly if you need a custom handler:
-
-```python
-from oa_configurator import RedactingFormatter
-import logging
-
-handler = logging.StreamHandler()
-handler.setFormatter(RedactingFormatter("%(levelname)s %(name)s: %(message)s"))
-```

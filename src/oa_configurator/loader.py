@@ -2,26 +2,21 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import os
 import tomllib
+from pathlib import Path
 
 from .models import StackConfig
-from .settings import DEFAULT_CONFIG_PATH, RuntimeSettings
+
+DEFAULT_CONFIG_PATH = Path("~/.config/omop/config.toml").expanduser()
 
 
 def load_stack_config() -> StackConfig:
-    """Load a :class:`StackConfig` from  ``DEFAULT_CONFIG_PATH`` (``~/.config/omop/config.toml``).
+    """Load a :class:`StackConfig` from ``DEFAULT_CONFIG_PATH``
+    (``~/.config/omop/config.toml``).
 
-    Notes
-    -----
-    - The file path is fixed to ``DEFAULT_CONFIG_PATH`` and cannot be overridden at runtime.
-    - Use ``StackConfig.for_session()`` or ``StackConfig.model_validate(tomllib.loads(...))`` in tests and scripts that need a different file.
-    - The active profile can be overridden via the ``OA_ACTIVE_PROFILE`` environment variable without changing the file path.
-
-    Returns
-    -------
-    StackConfig
-        Parsed and validated stack configuration.
+    The active profile can be overridden via the ``OA_ACTIVE_PROFILE``
+    environment variable without modifying the file.
 
     Raises
     ------
@@ -34,10 +29,9 @@ def load_stack_config() -> StackConfig:
 def _load_from_path(path: str | Path) -> StackConfig:
     """Load a :class:`StackConfig` from an explicit path.
 
-    Intended for CLI commands and tooling that inspect or edit a specific
-    file. Application code should use :func:`load_stack_config` instead.
+    Intended for CLI commands and tooling. Application code should use
+    :func:`load_stack_config` instead.
     """
-    runtime = RuntimeSettings()
     resolved_path = Path(path).expanduser()
 
     if not resolved_path.exists():
@@ -50,8 +44,9 @@ def _load_from_path(path: str | Path) -> StackConfig:
 
     config = StackConfig.model_validate(data)
 
-    if runtime.active_profile is not None:
-        config.active_profile = runtime.active_profile
+    active_profile = os.environ.get("OA_ACTIVE_PROFILE")
+    if active_profile:
+        config.active_profile = active_profile
 
     config.bind_loaded_path(resolved_path)
 

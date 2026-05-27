@@ -1,13 +1,13 @@
-"""Tests for io.py — write_env_file."""
+"""Tests for io.py — write_env_file, save_stack_config, patch_active_profile."""
 
 from __future__ import annotations
 
-from pathlib import Path
+import tomllib
 
 import pytest
 
 from oa_configurator import Resolver, StackConfig
-from oa_configurator.io import write_env_file
+from oa_configurator.io import patch_active_profile, save_stack_config, write_env_file
 
 
 def _make_cdm_stack() -> StackConfig:
@@ -33,86 +33,153 @@ def _make_cdm_stack() -> StackConfig:
 
 class TestWriteEnvFile:
     def test_creates_file(self, tmp_path):
-        cfg = _make_cdm_stack()
         out = tmp_path / "config.env"
-        write_env_file(Resolver(cfg), path=out)
+        write_env_file(Resolver(_make_cdm_stack()), path=out)
         assert out.exists()
 
-    def test_cdm_host_port_user(self, tmp_path):
-        cfg = _make_cdm_stack()
+    def test_default_resource_host_port_user(self, tmp_path):
         out = tmp_path / "config.env"
-        write_env_file(Resolver(cfg), path=out)
+        write_env_file(Resolver(_make_cdm_stack()), path=out)
         content = out.read_text()
-        assert "OMOP_CDM_DB_HOST=db.example.com" in content
-        assert "OMOP_CDM_DB_PORT=5432" in content
-        assert "OMOP_CDM_DB_USER=omop_user" in content
+        assert "DEFAULT_DB_HOST=db.example.com" in content
+        assert "DEFAULT_DB_PORT=5432" in content
+        assert "DEFAULT_DB_USER=omop_user" in content
 
-    def test_cdm_password_written(self, tmp_path):
-        cfg = _make_cdm_stack()
+    def test_default_resource_password(self, tmp_path):
         out = tmp_path / "config.env"
-        write_env_file(Resolver(cfg), path=out)
-        content = out.read_text()
-        assert "OMOP_CDM_DB_PASSWORD=s3cr3t" in content
+        write_env_file(Resolver(_make_cdm_stack()), path=out)
+        assert "DEFAULT_DB_PASSWORD=s3cr3t" in out.read_text()
 
-    def test_cdm_database_and_driver(self, tmp_path):
-        cfg = _make_cdm_stack()
+    def test_default_resource_name_and_driver(self, tmp_path):
         out = tmp_path / "config.env"
-        write_env_file(Resolver(cfg), path=out)
+        write_env_file(Resolver(_make_cdm_stack()), path=out)
         content = out.read_text()
-        assert "OMOP_CDM_DB_NAME=omop_cdm" in content
-        assert "OMOP_CDM_DB_DRIVER=postgresql+psycopg2" in content
+        assert "DEFAULT_DB_NAME=omop_cdm" in content
+        assert "DEFAULT_DB_DRIVER=postgresql+psycopg2" in content
 
-    def test_engine_url_written(self, tmp_path):
-        cfg = _make_cdm_stack()
+    def test_default_resource_url_written(self, tmp_path):
         out = tmp_path / "config.env"
-        write_env_file(Resolver(cfg), path=out)
+        write_env_file(Resolver(_make_cdm_stack()), path=out)
         content = out.read_text()
-        assert "ENGINE=" in content
+        assert "DEFAULT_DB_URL=" in content
         assert "postgresql" in content
 
     def test_no_omop_emb_lines_when_resource_absent(self, tmp_path):
-        cfg = _make_cdm_stack()
         out = tmp_path / "config.env"
-        write_env_file(Resolver(cfg), path=out)
-        content = out.read_text()
-        assert "OMOP_EMB_DB_" not in content
+        write_env_file(Resolver(_make_cdm_stack()), path=out)
+        assert "OMOP_EMB_DB_" not in out.read_text()
 
-    def test_omop_emb_lines_when_resource_present(self, tmp_path):
+    def test_generic_resource_prefix(self, tmp_path):
         cfg = StackConfig.for_session(
             connections={
-                "cdm": {
-                    "dialect": "postgresql+psycopg2",
-                    "host": "cdm.host",
-                    "port": 5432,
-                    "user": "u",
-                    "password": "p",
-                    "database": "cdm",
-                },
-                "emb": {
-                    "dialect": "postgresql+psycopg2",
-                    "host": "emb.host",
-                    "port": 5433,
-                    "user": "eu",
-                    "password": "ep",
-                    "database": "embeddings",
-                },
+                "cdm": {"dialect": "postgresql+psycopg2", "host": "cdm.host",
+                        "port": 5432, "user": "u", "password": "p", "database": "cdm"},
+                "emb": {"dialect": "postgresql+psycopg2", "host": "emb.host",
+                        "port": 5433, "user": "eu", "password": "ep", "database": "embeddings"},
             },
             resources={
                 "default": {"primary_db": "cdm", "cdm_schema": "omop"},
                 "omop_emb": {"primary_db": "emb", "cdm_schema": "emb"},
             },
             tools={
-                "omop_emb": {"extra": {"backend": "postgres"}},
+                "omop_emb": {"extra": {"backend": "pgvector"}},
             },
         )
         out = tmp_path / "config.env"
         write_env_file(Resolver(cfg), path=out)
         content = out.read_text()
         assert "OMOP_EMB_DB_HOST=emb.host" in content
-        assert "OMOP_EMB_BACKEND=postgres" in content
+        assert "OMOP_EMB_BACKEND=pgvector" in content
+
+    def test_tool_extra_scalars_exported(self, tmp_path):
+        cfg = StackConfig.for_session(
+            connections={"db": {"dialect": "sqlite", "database": ":memory:"}},
+            resources={"default": {"primary_db": "db", "cdm_schema": "omop"}},
+            tools={"my_pkg": {"extra": {"foo": "bar", "count": 3}}},
+        )
+        out = tmp_path / "config.env"
+        write_env_file(Resolver(cfg), path=out)
+        content = out.read_text()
+        assert "MY_PKG_FOO=bar" in content
+        assert "MY_PKG_COUNT=3" in content
 
     def test_returns_path(self, tmp_path):
-        cfg = _make_cdm_stack()
         out = tmp_path / "config.env"
-        result = write_env_file(Resolver(cfg), path=out)
-        assert result == out
+        assert write_env_file(Resolver(_make_cdm_stack()), path=out) == out
+
+
+class TestSaveStackConfig:
+    def test_creates_file(self, tmp_path):
+        cfg = StackConfig.for_session(
+            connections={"db": {"dialect": "sqlite", "database": ":memory:"}},
+            resources={"default": {"primary_db": "db", "cdm_schema": "omop"}},
+        )
+        out = tmp_path / "config.toml"
+        save_stack_config(cfg, out)
+        assert out.exists()
+
+    def test_round_trip(self, tmp_path):
+        cfg = StackConfig.for_session(
+            connections={
+                "cdm": {"dialect": "postgresql+psycopg2", "host": "localhost",
+                        "port": 5432, "user": "omop", "password": "pass", "database": "omop_cdm"}
+            },
+            resources={"default": {"primary_db": "cdm", "cdm_schema": "omop"}},
+        )
+        out = tmp_path / "config.toml"
+        save_stack_config(cfg, out)
+        data = tomllib.loads(out.read_text())
+        assert data["connections"]["cdm"]["host"] == "localhost"
+        assert data["resources"]["default"]["cdm_schema"] == "omop"
+
+    def test_default_logging_not_written(self, tmp_path):
+        out = tmp_path / "config.toml"
+        save_stack_config(StackConfig.for_session(), out)
+        assert "logging" not in tomllib.loads(out.read_text())
+
+    def test_none_values_stripped(self, tmp_path):
+        cfg = StackConfig.for_session(
+            connections={"db": {"dialect": "sqlite"}},
+            resources={"default": {"primary_db": "db", "cdm_schema": "omop"}},
+        )
+        out = tmp_path / "config.toml"
+        save_stack_config(cfg, out)
+        data = tomllib.loads(out.read_text())
+        assert "password" not in data["connections"]["db"]
+
+    def test_creates_parent_dirs(self, tmp_path):
+        out = tmp_path / "nested" / "dirs" / "config.toml"
+        save_stack_config(StackConfig.for_session(), out)
+        assert out.exists()
+
+
+class TestPatchActiveProfile:
+    def test_sets_profile_in_new_file(self, tmp_path):
+        out = tmp_path / "config.toml"
+        patch_active_profile("prod", out)
+        assert tomllib.loads(out.read_text())["active_profile"] == "prod"
+
+    def test_updates_existing_file(self, tmp_path):
+        cfg = StackConfig.for_session(
+            connections={"db": {"dialect": "sqlite"}},
+            resources={"default": {"primary_db": "db", "cdm_schema": "omop"}},
+        )
+        out = tmp_path / "config.toml"
+        save_stack_config(cfg, out)
+        patch_active_profile("test", out)
+        data = tomllib.loads(out.read_text())
+        assert data["active_profile"] == "test"
+        assert "connections" in data
+
+    def test_does_not_touch_other_fields(self, tmp_path):
+        cfg = StackConfig.for_session(
+            connections={"db": {"dialect": "sqlite"}},
+            resources={"default": {"primary_db": "db", "cdm_schema": "omop"}},
+            active_profile="dev",
+        )
+        out = tmp_path / "config.toml"
+        save_stack_config(cfg, out)
+        patch_active_profile("prod", out)
+        data = tomllib.loads(out.read_text())
+        assert data["active_profile"] == "prod"
+        assert data["connections"]["db"]["dialect"] == "sqlite"

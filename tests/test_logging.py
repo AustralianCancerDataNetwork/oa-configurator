@@ -1,4 +1,4 @@
-"""Tests for logging_config.py — configure_logging, presets, RedactingFormatter."""
+"""Tests for logging_config.py — configure_logging, verbosity, LoggingConfig."""
 
 from __future__ import annotations
 
@@ -7,12 +7,11 @@ import logging
 import pytest
 
 from oa_configurator import configure_logging, get_logger
-from oa_configurator.logging_config import LoggingConfig, RedactingFormatter
+from oa_configurator.logging_config import LoggingConfig
 
 
-def _reset_logging():
-    """Remove handlers from oa_configurator namespace between tests."""
-    for name in ("oa_configurator", "test_ns"):
+def _reset(*names: str) -> None:
+    for name in ("oa_configurator", *names):
         lg = logging.getLogger(name)
         lg.handlers.clear()
         lg.propagate = True
@@ -21,48 +20,47 @@ def _reset_logging():
 
 class TestConfigureLogging:
     def setup_method(self):
-        _reset_logging()
+        _reset("test_ns")
 
-    def test_library_preset_sets_warning(self):
-        configure_logging(preset="library")
-        lg = logging.getLogger("oa_configurator")
-        assert lg.level == logging.WARNING
+    def test_verbosity_0_sets_warning(self):
+        configure_logging(verbosity=0)
+        assert logging.getLogger("oa_configurator").level == logging.WARNING
 
-    def test_application_preset_sets_info(self):
-        configure_logging(preset="application")
-        lg = logging.getLogger("oa_configurator")
-        assert lg.level == logging.INFO
+    def test_verbosity_1_sets_info(self):
+        configure_logging(verbosity=1)
+        assert logging.getLogger("oa_configurator").level == logging.INFO
+
+    def test_verbosity_2_sets_debug(self):
+        configure_logging(verbosity=2)
+        assert logging.getLogger("oa_configurator").level == logging.DEBUG
+
+    def test_config_level_overrides_verbosity(self):
+        cfg = LoggingConfig(level="DEBUG")
+        configure_logging(cfg, verbosity=0)
+        assert logging.getLogger("oa_configurator").level == logging.DEBUG
 
     def test_extra_namespaces_configured(self):
-        configure_logging(preset="application", extra_namespaces=["test_ns"])
-        lg = logging.getLogger("test_ns")
-        assert lg.level == logging.INFO
+        configure_logging(verbosity=1, extra_namespaces=["test_ns"])
+        assert logging.getLogger("test_ns").level == logging.INFO
 
     def test_extra_namespaces_none_no_error(self):
-        configure_logging(preset="application", extra_namespaces=None)
+        configure_logging(verbosity=0, extra_namespaces=None)
 
     def test_idempotent_reconfigure(self):
-        configure_logging(preset="application")
-        configure_logging(preset="application")
-        lg = logging.getLogger("oa_configurator")
-        assert lg.level == logging.INFO
-
-    def test_config_object(self):
-        cfg = LoggingConfig(preset="notebook")
-        configure_logging(cfg)
-        lg = logging.getLogger("oa_configurator")
-        assert lg.level == logging.INFO
+        configure_logging(verbosity=1)
+        configure_logging(verbosity=1)
+        assert logging.getLogger("oa_configurator").level == logging.INFO
 
     def test_stack_config_duck_type(self):
-        from oa_configurator import StackConfig
-        from oa_configurator.logging_config import LoggingConfig
-
         class FakeStack:
-            logging = LoggingConfig(preset="application")
+            logging = LoggingConfig(level="INFO")
 
         configure_logging(FakeStack())
-        lg = logging.getLogger("oa_configurator")
-        assert lg.level == logging.INFO
+        assert logging.getLogger("oa_configurator").level == logging.INFO
+
+    def test_invalid_config_type_raises(self):
+        with pytest.raises(TypeError):
+            configure_logging("not a config")  # type: ignore
 
 
 class TestGetLogger:
@@ -72,46 +70,20 @@ class TestGetLogger:
         assert lg.name == "oa_configurator.test"
 
 
-class TestRedactingFormatter:
-    def test_redacts_password_in_url(self):
-        fmt = RedactingFormatter("%(message)s")
-        record = logging.LogRecord(
-            name="test",
-            level=logging.INFO,
-            pathname="",
-            lineno=0,
-            msg="connecting to postgresql://user:s3cret@host/db",
-            args=(),
-            exc_info=None,
-        )
-        output = fmt.format(record)
-        assert "s3cret" not in output
-        assert "***" in output
-
-    def test_leaves_safe_strings_alone(self):
-        fmt = RedactingFormatter("%(message)s")
-        record = logging.LogRecord(
-            name="test",
-            level=logging.INFO,
-            pathname="",
-            lineno=0,
-            msg="normal log message with no secrets",
-            args=(),
-            exc_info=None,
-        )
-        output = fmt.format(record)
-        assert output == "normal log message with no secrets"
-
-
 class TestLoggingConfig:
-    def test_default_preset(self):
+    def test_defaults(self):
         cfg = LoggingConfig()
-        assert cfg.preset == "library"
+        assert cfg.level is None
+        assert cfg.loggers == {}
 
-    def test_production_preset(self):
-        cfg = LoggingConfig(preset="production")
-        assert cfg.preset == "production"
+    def test_level_normalised_to_upper(self):
+        cfg = LoggingConfig(level="info")
+        assert cfg.level == "INFO"
 
-    def test_invalid_preset(self):
+    def test_invalid_level_raises(self):
         with pytest.raises(Exception):
-            LoggingConfig(preset="invalid_preset")
+            LoggingConfig(level="SUPERVERBOSE")
+
+    def test_loggers_validated(self):
+        cfg = LoggingConfig(loggers={"sqlalchemy.engine": "debug"})
+        assert cfg.loggers["sqlalchemy.engine"] == "DEBUG"

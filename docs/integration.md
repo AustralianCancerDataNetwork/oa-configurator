@@ -12,7 +12,7 @@ Each package that integrates with OA_Configurator:
 2. Registers the class via an entry point in `pyproject.toml`
 3. Calls `PackageConfigBase.from_stack(load_stack_config())` to read its config
 4. Uses `Resolver(load_stack_config()).resolve_resource("default").create_engine()` for SQLAlchemy
-5. Calls `configure_logging(preset="application", extra_namespaces=["<package>"])` at startup
+5. Calls `configure_logging(verbosity=verbose, extra_namespaces=["<package>"])` at startup
 
 ---
 
@@ -22,7 +22,7 @@ In your `pyproject.toml`:
 
 ```toml
 [project.dependencies]
-"oa-configurator>=0.1.0"
+"oa-configurator>=0.2.0"
 ```
 
 ---
@@ -33,6 +33,7 @@ In `src/<package>/config.py`:
 
 ```python
 from typing import ClassVar
+from pydantic import Field
 from oa_configurator import PackageConfigBase, Resolver, load_stack_config
 
 
@@ -40,8 +41,8 @@ class MyPackageConfig(PackageConfigBase):
     tool_name: ClassVar[str] = "my_package"   # maps to [tools.my_package] in TOML
 
     # Declare typed fields; they're backed by ToolConfig.extra in the TOML
-    backend: str = "default"
-    data_path: str | None = None
+    backend: str = Field(default="default", description="Backend to use.")
+    data_path: str | None = Field(default=None, description="Path to local data files.")
 
 
 def get_resolver() -> Resolver:
@@ -87,15 +88,20 @@ vocab_engine = get_resolver().resolve_resource("default").create_engine(role="vo
 
 ## Step 5 — Logging
 
-At your package's entry point or CLI startup:
+At your package's CLI entry point or startup:
 
 ```python
 from oa_configurator import configure_logging
 
-configure_logging(preset="application", extra_namespaces=["my_package"])
+# verbosity comes from the -v/-vv CLI flag count
+configure_logging(verbosity=verbose, extra_namespaces=["my_package"])
 ```
 
-This configures both `oa_configurator` and `my_package` loggers together. Pass `load_stack_config()` instead of `preset=` to use the `[logging]` block from the config file.
+Pass `load_stack_config()` as the first argument instead of `verbosity=` to use the `[logging]` block from the config file:
+
+```python
+configure_logging(load_stack_config(), verbosity=verbose, extra_namespaces=["my_package"])
+```
 
 ---
 

@@ -1,14 +1,8 @@
 """Public package surface for ``oa-configurator``."""
 
-from .io import FLAT_ENV_PATH
+from .io import FLAT_ENV_PATH, patch_active_profile, save_stack_config, write_env_file
 from .loader import DEFAULT_CONFIG_PATH, load_stack_config
-from .logging_config import (
-    LoggingConfig,
-    LoggingHandlerConfig,
-    RedactingFormatter,
-    configure_logging,
-    get_logger,
-)
+from .logging_config import LoggingConfig, configure_logging, get_logger
 from .models import (
     ConnectionConfig,
     ProfileOverrideConfig,
@@ -24,13 +18,10 @@ __all__ = [
     "FLAT_ENV_PATH",
     "ConnectionConfig",
     "LoggingConfig",
-    "LoggingHandlerConfig",
     "PackageConfigBase",
     "ProfileOverrideConfig",
-    "RedactingFormatter",
     "ResourceConfig",
     "Resolver",
-    "ResolvedApiTarget",
     "ResolvedDatabaseTarget",
     "ResolvedResource",
     "ResolvedToolConfig",
@@ -39,4 +30,7 @@ __all__ = [
     "configure_logging",
     "get_logger",
     "load_stack_config",
+    "patch_active_profile",
+    "save_stack_config",
+    "write_env_file",
 ]

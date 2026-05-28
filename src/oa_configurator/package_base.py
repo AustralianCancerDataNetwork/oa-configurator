@@ -13,6 +13,7 @@ In ``omop_emb/config.py``::
 
     class OmopEmbConfig(PackageConfigBase):
         tool_name: ClassVar[str] = "omop_emb"
+        required_resources: ClassVar[tuple[str, ...]] = ("cdm_db",)
         backend: str = "sqlitevec"
         embedding_file_root: str | None = None
 
@@ -28,6 +29,7 @@ In ``pyproject.toml``::
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from pydantic import BaseModel
@@ -35,24 +37,83 @@ from pydantic import BaseModel
 from .models import StackConfig
 
 
+@dataclass(frozen=True)
+class ResourceSpec:
+    """Declares a resource that a package owns and can configure interactively.
+
+    Packages that own a resource (i.e. they are responsible for prompting the
+    user to set it up) add instances to ``owned_resources`` on their
+    ``PackageConfigBase`` subclass.  The ``omop-config configure`` command
+    reads this tuple and invokes the connection + schema prompts for each
+    spec before asking for package-specific extras.
+
+    ``owned_resources`` is a CLI-only concern — it has no effect at runtime.
+    """
+
+    semantic_name: str
+    display_name: str
+    description: str
+    connection_name_hint: str = ""
+
+
+class ConfigurationError(ValueError):
+    """Raised when a required resource or connection is missing from the stack config."""
+
+
 class PackageConfigBase(BaseModel):
     """Typed view over a package's ``[tools.<tool_name>]`` TOML section.
 
     Subclass this and set ``tool_name`` to the key used in
-    ``[tools.<name>]``. Fields declared on the subclass are validated against
-    the tool's ``extra`` dict when loaded via :meth:`from_stack`.
+    ``[tools.<name>]``. Declare ``required_resources`` with the canonical
+    resource name(s) the package depends on (e.g. ``("cdm_db",)``).  If the
+    resource is missing when :meth:`from_stack` is called, a
+    :exc:`ConfigurationError` is raised with an actionable message.
+
+    Declare ``owned_resources`` with :class:`ResourceSpec` instances for any
+    resources this package is responsible for configuring (connection + schema).
+    The ``omop-config configure`` command prompts for these before extras.
+
+    Users who name their resource differently can add a ``[resource_aliases]``
+    section to config.toml (e.g. ``cdm_db = "my_prod"``) so all packages
+    resolve correctly without per-package ``default_resource`` overrides.
     """
 
     tool_name: ClassVar[str]  # must be set on every subclass
+    required_resources: ClassVar[tuple[str, ...]] = ()
+    owned_resources: ClassVar[tuple[ResourceSpec, ...]] = ()
 
     @classmethod
     def from_stack(cls, config: StackConfig) -> "PackageConfigBase":
         """Load this package's section from a :class:`StackConfig`.
 
-        If no ``[tools.<tool_name>]`` section exists the class is instantiated
-        with all defaults, which lets packages work with a minimal config.
+        Validates that all :attr:`required_resources` (or the
+        ``default_resource`` override) are present in the config before
+        instantiating. Alias resolution via ``config.resource_aliases`` is
+        applied before the existence check. Raises :exc:`ConfigurationError`
+        with an actionable message if any are missing.
         """
         tool = config.tools.get(cls.tool_name)
+        override = tool.default_resource if tool else None
+        check_name = override or (cls.required_resources[0] if cls.required_resources else None)
+
+        if check_name:
+            available: set[str] = set(config.resource_names())
+            if config.active_profile and config.active_profile in config.profiles:
+                available |= set(config.profiles[config.active_profile].resources)
+            resolved_check = config.resource_aliases.get(check_name, check_name)
+            if resolved_check not in available:
+                alias_hint = (
+                    f"\nTip: if you named your resource differently, add:\n"
+                    f"  [resource_aliases]\n  {check_name} = \"your-resource-name\""
+                )
+                raise ConfigurationError(
+                    f"{cls.__name__} requires resource {check_name!r} "
+                    f"but it is not configured.\n"
+                    f"Available: {sorted(available) or '(none)'}\n"
+                    f"Run 'omop-config configure {cls.tool_name}' to set up your configuration."
+                    + alias_hint
+                )
+
         return cls.model_validate(tool.extra if tool else {})
 
     def to_extra_dict(self) -> dict[str, Any]:

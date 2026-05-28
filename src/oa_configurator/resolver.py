@@ -267,9 +267,10 @@ class Resolver:
 
     def _effective_resource(self, name: str) -> ResourceConfig:
         profile = self._active_profile()
-        if profile and name in profile.resources:
-            return profile.resources[name]
-        return _get_named(self.config.resources, "resource", name)
+        actual_name = self.config.resource_aliases.get(name, name)
+        if profile and actual_name in profile.resources:
+            return profile.resources[actual_name]
+        return _get_named(self.config.resources, "resource", actual_name)
 
     def _effective_tool(self, name: str) -> ToolConfig:
         profile = self._active_profile()

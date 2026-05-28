@@ -6,15 +6,21 @@
 pip install oa-configurator
 ```
 
-## 2. Create `~/.config/omop/config.toml`
+## 2. Configure your first package
 
-Run the interactive setup wizard:
+After installing a package that supports oa_configurator, run its configure command:
+
+```bash
+omop-config configure <package>   # e.g. omop_alchemy, omop_emb
+```
+
+This prompts for any database connections and package-specific settings that package declares, then writes `~/.config/omop/config.toml`. Packages that own a database resource (such as a CDM database) will prompt for connection details and schema names as part of this step.
+
+To create an empty config file without prompts (useful for scripted setups), use:
 
 ```bash
 omop-config init
 ```
-
-This prompts for a connection (host, dialect, credentials) and a resource (schema names), then writes `~/.config/omop/config.toml`.
 
 > **Note**: Passwords are stored in plaintext. Keep the file readable only by your user:
 > `chmod 600 ~/.config/omop/config.toml`.

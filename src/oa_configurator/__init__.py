@@ -10,15 +10,17 @@ from .models import (
     StackConfig,
     ToolConfig,
 )
-from .package_base import PackageConfigBase
+from .package_base import ConfigurationError, PackageConfigBase, ResourceSpec
 from .resolver import Resolver, ResolvedDatabaseTarget, ResolvedResource, ResolvedToolConfig
 
 __all__ = [
+    "ConfigurationError",
     "DEFAULT_CONFIG_PATH",
     "FLAT_ENV_PATH",
     "ConnectionConfig",
     "LoggingConfig",
     "PackageConfigBase",
+    "ResourceSpec",
     "ProfileOverrideConfig",
     "ResourceConfig",
     "Resolver",

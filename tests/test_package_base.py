@@ -6,7 +6,7 @@ from typing import ClassVar
 
 import pytest
 
-from oa_configurator import PackageConfigBase, StackConfig
+from oa_configurator import ConfigurationError, PackageConfigBase, StackConfig
 
 
 class SampleConfig(PackageConfigBase):
@@ -64,3 +64,71 @@ class TestPackageConfigBase:
                 pass
             # Accessing tool_name on an instance should fail
             BadConfig().tool_name  # type: ignore[attr-defined]
+
+
+class RequiredConfig(PackageConfigBase):
+    tool_name: ClassVar[str] = "required_tool"
+    required_resources: ClassVar[tuple[str, ...]] = ("cdm_db",)
+    value: str = "default_value"
+
+
+class TestRequiredResources:
+    def test_passes_when_resource_present(self):
+        cfg = StackConfig.for_session(
+            connections={"db": {"dialect": "sqlite", "database": ":memory:"}},
+            resources={"cdm_db": {"primary_db": "db", "cdm_schema": "main"}},
+        )
+        result = RequiredConfig.from_stack(cfg)
+        assert result.value == "default_value"
+
+    def test_raises_when_resource_missing(self):
+        cfg = StackConfig.for_session()
+        with pytest.raises(ConfigurationError) as exc_info:
+            RequiredConfig.from_stack(cfg)
+        msg = str(exc_info.value)
+        assert "cdm_db" in msg
+        assert "omop-config configure required_tool" in msg
+
+    def test_raises_includes_alias_hint(self):
+        cfg = StackConfig.for_session()
+        with pytest.raises(ConfigurationError) as exc_info:
+            RequiredConfig.from_stack(cfg)
+        msg = str(exc_info.value)
+        assert "[resource_aliases]" in msg
+        assert 'cdm_db = "your-resource-name"' in msg
+
+    def test_passes_when_resource_aliased(self):
+        cfg = StackConfig.for_session(
+            connections={"db": {"dialect": "sqlite", "database": ":memory:"}},
+            resources={"my_prod": {"primary_db": "db", "cdm_schema": "main"}},
+            resource_aliases={"cdm_db": "my_prod"},
+        )
+        result = RequiredConfig.from_stack(cfg)
+        assert result.value == "default_value"
+
+    def test_respects_default_resource_override(self):
+        cfg = StackConfig.for_session(
+            connections={"db": {"dialect": "sqlite", "database": ":memory:"}},
+            resources={"my_custom": {"primary_db": "db", "cdm_schema": "main"}},
+            tools={"required_tool": {"default_resource": "my_custom"}},
+        )
+        result = RequiredConfig.from_stack(cfg)
+        assert result.value == "default_value"
+
+    def test_recognises_profile_resources(self):
+        cfg = StackConfig.for_session(
+            connections={"db": {"dialect": "sqlite", "database": ":memory:"}},
+            profiles={
+                "test": {
+                    "resources": {"cdm_db": {"primary_db": "db", "cdm_schema": "test_schema"}}
+                }
+            },
+            active_profile="test",
+        )
+        result = RequiredConfig.from_stack(cfg)
+        assert result.value == "default_value"
+
+    def test_empty_required_resources_always_passes(self):
+        cfg = StackConfig.for_session()
+        result = SampleConfig.from_stack(cfg)
+        assert result.backend == "default_backend"

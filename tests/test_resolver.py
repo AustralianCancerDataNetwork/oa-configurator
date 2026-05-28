@@ -182,6 +182,43 @@ class TestWithOverrides:
         assert r.resolve_connection("db").url == "sqlite:///:memory:"
 
 
+class TestResourceAliases:
+    def test_alias_resolves_resource(self):
+        cfg = StackConfig.for_session(
+            connections={"db": {"dialect": "sqlite", "database": ":memory:"}},
+            resources={"my_prod": {"primary_db": "db", "cdm_schema": "main"}},
+            resource_aliases={"cdm_db": "my_prod"},
+        )
+        r = Resolver(cfg)
+        res = r.resolve_resource("cdm_db")
+        assert res.cdm_schema == "main"
+        assert res.primary_db.name == "db"
+
+    def test_alias_with_profile_override(self):
+        cfg = StackConfig.for_session(
+            connections={"db": {"dialect": "sqlite", "database": ":memory:"}},
+            resources={"my_prod": {"primary_db": "db", "cdm_schema": "base"}},
+            profiles={
+                "test": {
+                    "resources": {"my_prod": {"primary_db": "db", "cdm_schema": "test_schema"}}
+                }
+            },
+            resource_aliases={"cdm_db": "my_prod"},
+            active_profile="test",
+        )
+        r = Resolver(cfg)
+        res = r.resolve_resource("cdm_db")
+        assert res.cdm_schema == "test_schema"
+
+    def test_unknown_alias_target_raises_at_construction(self):
+        with pytest.raises(ValueError, match="resource_aliases"):
+            StackConfig.for_session(
+                connections={"db": {"dialect": "sqlite", "database": ":memory:"}},
+                resources={},
+                resource_aliases={"cdm_db": "does_not_exist"},
+            )
+
+
 class TestDiscovery:
     def test_connection_names(self, minimal_stack):
         r = Resolver(minimal_stack)

@@ -169,6 +169,15 @@ class StackConfig(BaseModel):
         default_factory=dict,
         description="Named environment overlays.",
     )
+    resource_aliases: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Maps semantic resource names to user-chosen resource names. "
+            "Example: cdm_db = 'my_production_cdm' — all packages that look "
+            "for 'cdm_db' automatically resolve to 'my_production_cdm'. "
+            "Note: alias targets must exist at the base config level, not only inside a profile."
+        ),
+    )
     logging: LoggingConfig = Field(
         default_factory=LoggingConfig,
         description="Logging configuration. Optional; defaults to WARNING level with no handler.",
@@ -189,6 +198,12 @@ class StackConfig(BaseModel):
                 _check_resource_refs(resource, effective_conns, f"profiles.{pname}.resources.{rname}")
             for tname, tool in profile.tools.items():
                 _check_tool_refs(tool, effective_res, f"profiles.{pname}.tools.{tname}")
+        for alias_key, alias_target in self.resource_aliases.items():
+            if alias_target not in self.resources:
+                raise ValueError(
+                    f"resource_aliases.{alias_key!r} references unknown resource {alias_target!r}. "
+                    "Note: alias targets must exist at the base config level, not only inside a profile."
+                )
         return self
 
     @classmethod
@@ -200,6 +215,7 @@ class StackConfig(BaseModel):
         tools: dict | None = None,
         profiles: dict | None = None,
         active_profile: str | None = None,
+        resource_aliases: dict[str, str] | None = None,
     ) -> "StackConfig":
         """Build a config in memory without a TOML file.
 
@@ -212,6 +228,7 @@ class StackConfig(BaseModel):
             resources=resources or {},
             tools=tools or {},
             profiles=profiles or {},
+            resource_aliases=resource_aliases or {},
         )
 
     def bind_loaded_path(self, path: Path) -> None:

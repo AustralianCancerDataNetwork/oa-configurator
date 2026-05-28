@@ -13,7 +13,7 @@ _OWN_NAMESPACE = "oa_configurator"
 _FORMAT = "%(asctime)s | %(name)s | %(levelname)s | %(message)s"
 _DATEFMT = "%Y-%m-%d %H:%M:%S"
 
-_VERBOSITY_LEVELS = {0: "WARNING", 1: "INFO"}
+_VERBOSITY_LEVELS = {0: "WARNING", 1: "INFO", 2: "DEBUG"}
 
 
 def _coerce_level(value: str) -> str:
@@ -95,7 +95,7 @@ def configure_logging(
             )
         logging_config = config.logging
 
-    effective_level = logging_config.level or _VERBOSITY_LEVELS.get(verbosity, "DEBUG")
+    effective_level = logging_config.level or _VERBOSITY_LEVELS.get(verbosity, "INFO")
 
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(logging.Formatter(_FORMAT, datefmt=_DATEFMT))

@@ -109,8 +109,8 @@ def _prompt_resource_config(
         "Connection name  (a short label, e.g. 'cdm' or 'prod')",
         default=spec.connection_name_hint or "cdm",
     )
-    dialect = typer.prompt("Dialect  (SQLAlchemy driver string, e.g. postgresql+psycopg2, sqlite)")
-    host = typer.prompt("Host  (leave blank for SQLite or socket connections)", default="localhost") or None
+    dialect = typer.prompt("Dialect  (SQLAlchemy driver string, e.g. postgresql+psycopg, sqlite)", default="postgresql+psycopg")
+    host = typer.prompt("Host  (e.g. Docker container name; leave blank for SQLite or socket connections)", default="localhost") or None
     port_str = typer.prompt("Port  (leave blank to use the dialect default)", default="")
     port: int | None = int(port_str) if port_str.strip() else None
     user = typer.prompt("User  (leave blank if not required)", default="") or None

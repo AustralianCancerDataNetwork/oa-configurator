@@ -11,7 +11,7 @@ A profile defines connections, resources, and/or tools that **replace** the base
 ```toml
 # Base config
 [connections.cdm]
-dialect  = "postgresql+psycopg2"
+dialect  = "postgresql+psycopg"
 host     = "prod.example.com"
 port     = 5432
 user     = "omop"
@@ -24,7 +24,7 @@ cdm_schema = "omop"
 
 # Test profile — only what changes
 [profiles.test.connections.cdm]
-dialect  = "postgresql+psycopg2"
+dialect  = "postgresql+psycopg"
 host     = "localhost"
 port     = 5433
 user     = "test_user"

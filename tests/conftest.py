@@ -36,7 +36,7 @@ def pg_stack() -> StackConfig:
     return StackConfig.for_session(
         connections={
             "cdm": {
-                "dialect": "postgresql+psycopg2",
+                "dialect": "postgresql+psycopg",
                 "host": "localhost",
                 "port": 5432,
                 "user": "omop",

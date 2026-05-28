@@ -22,7 +22,7 @@ class ConnectionConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     dialect: str = Field(
-        description="SQLAlchemy dialect string, e.g. 'postgresql+psycopg2', 'mssql+pyodbc', 'sqlite'."
+        description="SQLAlchemy dialect string, e.g. 'postgresql+psycopg', 'mssql+pyodbc', 'sqlite'."
     )
     host: str | None = Field(default=None, description="Hostname or IP address.")
     port: int | None = Field(default=None, description="Port number.")

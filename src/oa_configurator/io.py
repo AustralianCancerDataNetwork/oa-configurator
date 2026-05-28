@@ -11,7 +11,7 @@ import tomli_w
 from .loader import DEFAULT_CONFIG_PATH
 from .resolver import Resolver
 
-FLAT_ENV_PATH = Path("~/.config/omop/config.env").expanduser()
+FLAT_ENV_PATH = DEFAULT_CONFIG_PATH.parent / DEFAULT_CONFIG_PATH.stem.replace(".toml", ".env")
 
 
 # ---------------------------------------------------------------------------

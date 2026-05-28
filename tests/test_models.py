@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from oa_configurator import ConnectionConfig, ResourceConfig, StackConfig, ToolConfig
-from oa_configurator.models import ProfileOverrideConfig
 
 
 class TestConnectionConfig:
@@ -19,7 +18,7 @@ class TestConnectionConfig:
 
     def test_pg_build_url_includes_password(self):
         conn = ConnectionConfig(
-            dialect="postgresql+psycopg2",
+            dialect="postgresql+psycopg",
             host="localhost",
             port=5432,
             user="admin",
@@ -33,7 +32,7 @@ class TestConnectionConfig:
 
     def test_pg_safe_url_redacts_password(self):
         conn = ConnectionConfig(
-            dialect="postgresql+psycopg2",
+            dialect="postgresql+psycopg",
             host="localhost",
             user="admin",
             password="s3cret",
@@ -45,11 +44,11 @@ class TestConnectionConfig:
 
     def test_dialect_required(self):
         with pytest.raises(Exception):
-            ConnectionConfig()  # dialect missing
+            ConnectionConfig()  # type: ignore
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(Exception):
-            ConnectionConfig(dialect="sqlite", unknown_field="x")
+            ConnectionConfig(dialect="sqlite", unknown_field="x") # type: ignore
 
     def test_read_only_flag(self):
         conn = ConnectionConfig(dialect="sqlite", database=":memory:", read_only=True)
@@ -65,11 +64,11 @@ class TestResourceConfig:
 
     def test_cdm_schema_required(self):
         with pytest.raises(Exception):
-            ResourceConfig(primary_db="db")  # cdm_schema missing
+            ResourceConfig(primary_db="db")  # type: ignore
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(Exception):
-            ResourceConfig(primary_db="db", cdm_schema="omop", unknown="x")
+            ResourceConfig(primary_db="db", cdm_schema="omop", unknown="x") # type: ignore
 
 
 class TestToolConfig:
@@ -154,4 +153,4 @@ class TestStackConfig:
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(Exception):
-            StackConfig(unknown_top_level="x")
+            StackConfig(unknown_top_level="x")  # type: ignore

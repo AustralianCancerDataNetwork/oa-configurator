@@ -14,7 +14,7 @@ def _make_cdm_stack() -> StackConfig:
     return StackConfig.for_session(
         connections={
             "cdm": {
-                "dialect": "postgresql+psycopg2",
+                "dialect": "postgresql+psycopg",
                 "host": "db.example.com",
                 "port": 5432,
                 "user": "omop_user",
@@ -55,7 +55,7 @@ class TestWriteEnvFile:
         write_env_file(Resolver(_make_cdm_stack()), path=out)
         content = out.read_text()
         assert "DEFAULT_DB_NAME=omop_cdm" in content
-        assert "DEFAULT_DB_DRIVER=postgresql+psycopg2" in content
+        assert "DEFAULT_DB_DRIVER=postgresql+psycopg" in content
 
     def test_default_resource_url_written(self, tmp_path):
         out = tmp_path / "config.env"
@@ -72,9 +72,9 @@ class TestWriteEnvFile:
     def test_generic_resource_prefix(self, tmp_path):
         cfg = StackConfig.for_session(
             connections={
-                "cdm": {"dialect": "postgresql+psycopg2", "host": "cdm.host",
+                "cdm": {"dialect": "postgresql+psycopg", "host": "cdm.host",
                         "port": 5432, "user": "u", "password": "p", "database": "cdm"},
-                "emb": {"dialect": "postgresql+psycopg2", "host": "emb.host",
+                "emb": {"dialect": "postgresql+psycopg", "host": "emb.host",
                         "port": 5433, "user": "eu", "password": "ep", "database": "embeddings"},
             },
             resources={
@@ -121,7 +121,7 @@ class TestSaveStackConfig:
     def test_round_trip(self, tmp_path):
         cfg = StackConfig.for_session(
             connections={
-                "cdm": {"dialect": "postgresql+psycopg2", "host": "localhost",
+                "cdm": {"dialect": "postgresql+psycopg", "host": "localhost",
                         "port": 5432, "user": "omop", "password": "pass", "database": "omop_cdm"}
             },
             resources={"default": {"primary_db": "cdm", "cdm_schema": "omop"}},

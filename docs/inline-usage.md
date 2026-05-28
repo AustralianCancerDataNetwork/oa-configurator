@@ -18,7 +18,7 @@ from oa_configurator import StackConfig, ConnectionConfig, ResourceConfig, Resol
 config = StackConfig.for_session(
     connections={
         "local": ConnectionConfig(
-            dialect="postgresql+psycopg2",
+            dialect="postgresql+psycopg",
             host="localhost",
             database="omop",
             user="omop",

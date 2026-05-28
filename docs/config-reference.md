@@ -19,7 +19,7 @@ One section per named database connection. The name is referenced by resources a
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `dialect` | string | **yes** | SQLAlchemy dialect string, e.g. `postgresql+psycopg2`, `mssql+pyodbc`, `sqlite` |
+| `dialect` | string | **yes** | SQLAlchemy dialect string, e.g. `postgresql+psycopg`, `mssql+pyodbc`, `sqlite` |
 | `host` | string | no | Hostname or IP |
 | `port` | int | no | Port number |
 | `user` | string | no | Database username |
@@ -34,7 +34,7 @@ One section per named database connection. The name is referenced by resources a
 
 ```toml
 [connections.cdm]
-dialect  = "postgresql+psycopg2"
+dialect  = "postgresql+psycopg"
 host     = "localhost"
 port     = 5432
 user     = "omop"
@@ -138,7 +138,7 @@ Profile entries use the same field definitions as the base sections above.
 
 ```toml
 [profiles.test.connections.cdm]
-dialect  = "postgresql+psycopg2"
+dialect  = "postgresql+psycopg"
 host     = "localhost"
 port     = 5433
 user     = "test_user"

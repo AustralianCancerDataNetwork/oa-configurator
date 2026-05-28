@@ -20,7 +20,7 @@ A future `secret_source` field on `ConnectionConfig` will support indirect crede
 ```toml
 # Not yet supported — planned for a future release
 [connections.prod]
-dialect       = "postgresql+psycopg2"
+dialect       = "postgresql+psycopg"
 host          = "prod.hospital.org"
 database      = "omop_cdm"
 user          = "omop_prod"

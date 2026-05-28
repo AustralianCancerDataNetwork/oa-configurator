@@ -30,7 +30,7 @@ In ``pyproject.toml``::
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Self
 
 from pydantic import BaseModel
 
@@ -83,7 +83,7 @@ class PackageConfigBase(BaseModel):
     owned_resources: ClassVar[tuple[ResourceSpec, ...]] = ()
 
     @classmethod
-    def from_stack(cls, config: StackConfig) -> "PackageConfigBase":
+    def from_stack(cls, config: StackConfig) -> Self:
         """Load this package's section from a :class:`StackConfig`.
 
         Validates that all :attr:`required_resources` (or the

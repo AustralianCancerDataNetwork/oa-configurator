@@ -26,8 +26,8 @@ class ResolvedDatabaseTarget:
     """Concrete database connection ready for engine creation."""
 
     name: str
-    url: str        # full URL including password — keep internal / do not log
-    safe_url: str   # password redacted — safe for logs and display
+    url: str        # full URL including password: keep internal / do not log!
+    safe_url: str   # password redacted: safe for logs and display
 
     def create_engine(self, **kwargs: Any) -> Engine:
         """Create a SQLAlchemy engine for this connection."""
@@ -175,38 +175,6 @@ class Resolver:
         )
         logger.debug("Resolved tool %r with default_resource=%r", name, resolved.default_resource)
         return resolved
-
-    def resolve_api_connection(self, name: str) -> ResolvedApiTarget:
-        """Resolve one configured API connection name into a concrete API target.
-
-        Secret sources are resolved on each call rather than memoized so
-        callers can pick up environment or file rotations.
-        """
-
-        connection = _get_named_config(self.config.connections, kind="connection", name=name)
-        if connection.kind != "api":
-            raise ValueError(
-                f"connection {name!r} has kind {connection.kind!r}, not 'api'; "
-                "use resolve_connection() for database and file connections"
-            )
-
-        api_key: str | None = connection.api_key
-        if connection.secret_source is not None:
-            api_key = resolve_secret_value(
-                connection.secret_source,
-                configuration_base_path=self.configuration_base_path,
-                secrets_dir=self.config.secrets_dir,
-            )
-
-        target = ResolvedApiTarget(
-            name=name,
-            base_url=connection.base_url,  # type: ignore[arg-type]  # guaranteed by validate_shape
-            api_key=api_key,
-            provider=connection.provider,
-            safe_base_url=connection.base_url,  # type: ignore[arg-type]
-        )
-        logger.debug("Resolved api_connection %r to base_url=%s", name, target.safe_base_url)
-        return target
 
     def with_overrides(
         self,

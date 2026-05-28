@@ -66,14 +66,15 @@ plugins:
 nav:
   - Home: index.md
   - Getting Started: quickstart.md
+  - Architecture: architecture.md
+
   - User Guide:
       - Config File Reference: config-reference.md
       - Secrets: secrets.md
       - Profiles & Overlays: profiles.md
       - Inline & Session Usage: inline-usage.md
       - Logging: logging.md
-  - Integration: integration.md
-  - Architecture: architecture.md
+      - Integration: integration.md
   - API Reference:
       - Loader: api/loader.md
       - Models: api/models.md

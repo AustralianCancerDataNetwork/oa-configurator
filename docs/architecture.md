@@ -2,7 +2,7 @@
 
 ## Purpose
 
-OA_Configurator is a shared configuration layer for the OMOP-oriented Python stack:
+`oa-configurator` is a shared configuration layer for the OMOP-oriented Python stack:
 
 - `omop-alchemy`
 - `orm-loader`
@@ -78,7 +78,7 @@ Consuming packages subclass `PackageConfigBase` and register via a `pyproject.to
 my_package = "my_package.config:MyPackageConfig"
 ```
 
-`omop-config configure my_package` discovers the class at runtime via `importlib.metadata.entry_points(group="omop.config")`, presents the typed fields for interactive configuration, and writes the result to `[tools.my_package.extra]`. OA_Configurator itself has no knowledge of any consuming package.
+`omop-config configure my_package` discovers the class at runtime via `importlib.metadata.entry_points(group="omop.config")`, presents the typed fields for interactive configuration, and writes the result to `[tools.my_package.extra]`. `oa-configurator` itself has no knowledge of any consuming package.
 
 ---
 

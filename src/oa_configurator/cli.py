@@ -85,7 +85,7 @@ def init(
 def _prompt_resource_config(
     spec: ResourceSpec,
     config: StackConfig,
-) -> "tuple[str, ConnectionConfig, ResourceConfig] | None":
+) -> tuple[str, ConnectionConfig, ResourceConfig] | None:
     """Prompt to create or update a connection + resource for a ResourceSpec.
 
     Returns ``(conn_name, conn, resource)`` if the user provides new values,

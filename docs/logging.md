@@ -1,6 +1,6 @@
 # Logging
 
-OA_Configurator provides a unified logging setup for the OMOP Python stack. All packages configure their loggers through the same call and formatter.
+This package provides a unified logging setup for the OMOP Python stack. All packages configure their loggers through the same call and formatter.
 
 ---
 
@@ -51,7 +51,7 @@ Output always goes to **stderr**. There are no alternative handlers or JSON form
 
 ## `extra_namespaces`
 
-OA_Configurator never hardcodes downstream package names. Each consuming package passes its own namespace:
+`oa-configurator` never hardcodes downstream package names. Each consuming package passes its own namespace:
 
 ```python
 configure_logging(verbosity=1, extra_namespaces=["omop_graph", "omop_emb"])

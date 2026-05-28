@@ -1,6 +1,7 @@
 # Config Reference
 
-Configuration lives at `~/.config/omop/config.toml`. The path is fixed and cannot be overridden. Use `OA_ACTIVE_PROFILE` to switch profiles at runtime without editing the file.
+!!! note
+    Configuration lives at `~/.config/omop/config.toml`. The path is fixed and cannot be overridden. Use environment variable `OA_ACTIVE_PROFILE` to switch profiles at runtime without editing the file.
 
 ---
 
@@ -26,7 +27,8 @@ One section per named database connection. The name is referenced by resources a
 | `database` | string | no | Database name. For SQLite, use `:memory:` or an absolute path. |
 | `read_only` | bool | `false` | Hint only; enforcement depends on the dialect |
 
-**Security note**: passwords are stored in plaintext in this file. Restrict permissions with `chmod 600 ~/.config/omop/config.toml`. Secret-management support (env-backed passwords, Vault, etc.) is planned for a future release.
+!!! warning "Security note"
+    Passwords are stored in plaintext in this file. Restrict permissions with `chmod 600 ~/.config/omop/config.toml`. Secret-management support (env-backed passwords, Vault, etc.) is planned for a future release.
 
 **Example — PostgreSQL**:
 

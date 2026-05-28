@@ -1,6 +1,7 @@
 # Secrets
 
-> **Not yet implemented.** Secret management is planned for a future release.
+!!! info "Not yet implemented." 
+    Secret management is planned for a future release.
 
 In the current version, passwords are stored as plaintext in `~/.config/omop/config.toml`. Restrict file permissions to limit exposure:
 

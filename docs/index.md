@@ -8,12 +8,13 @@ A shared configuration layer for the OMOP-oriented Python stack.
 
 ## Key Concepts
 - **Connection**: A concrete database endpoint (host, dialect, credentials)
-- **Resource**:  A logical role bundle — primary OMOP DB, vocab DB, results DB, artifact paths
+- **Resource**:  A logical role bundle, e.g. primary OMOP CDM DB, embedding DB, artficat paths
 - **Profile**: A named environment (e.g. `local`, `prod`) that patches resources and tools
-- **Tool**:  Per-tool defaults — backend, default resource, storage roots
+- **Tool**:  Per-tool defaults, e.g. backend, default resource, storage roots
 - **Logging**: One call configures consistent log output for the entire OMOP Python stack
 
-Configuration lives in one TOML file (default `~/.config/omop/config.toml`) and is loaded once. The **Resolver** turns logical names into typed, credential-resolved handles ready for use.
+!!! info
+    Configuration lives in one TOML file (default **`~/.config/omop/config.toml`**) and is loaded once. The Resolver turns logical names into typed, credential-resolved handles ready for use.
 
 ## Quick Example
 

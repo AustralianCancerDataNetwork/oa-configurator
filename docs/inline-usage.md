@@ -1,6 +1,6 @@
 # Inline & Session Usage
 
-OA_Configurator works without a TOML file. Two patterns cover the main use cases.
+`oa-configurator` works without a TOML file. Two patterns cover the main use cases.
 
 ---
 

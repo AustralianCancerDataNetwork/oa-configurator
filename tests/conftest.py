@@ -1,4 +1,4 @@
-"""Shared fixtures for OA_Configurator tests.
+"""Shared fixtures for `oa-configurator` tests.
 
 Rule: no test reads from or writes to ~/.config/omop/.
 All tests use StackConfig.for_session() or tmp_path.

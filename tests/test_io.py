@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import tomllib
 
-import pytest
-
 from oa_configurator import Resolver, StackConfig
 from oa_configurator.io import patch_active_profile, save_stack_config, write_env_file
 

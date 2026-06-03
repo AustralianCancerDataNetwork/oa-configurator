@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import stat
 import tomllib
 from pathlib import Path
 
 from .models import StackConfig
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIG_PATH = Path("~/.config/omop/config.toml").expanduser()
 
@@ -36,6 +40,14 @@ def _load_from_path(path: str | Path) -> StackConfig:
 
     if not resolved_path.exists():
         raise FileNotFoundError(f"Config file not found: {resolved_path}")
+
+    file_mode = stat.S_IMODE(resolved_path.stat().st_mode)
+    if file_mode & 0o044:
+        logger.warning(
+            "Config file %s has loose permissions (mode %04o). "
+            "It may contain passwords — run 'chmod 600 %s' to restrict access.",
+            resolved_path, file_mode, resolved_path,
+        )
 
     try:
         data = tomllib.loads(resolved_path.read_text(encoding="utf-8"))

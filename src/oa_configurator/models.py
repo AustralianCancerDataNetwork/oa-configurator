@@ -40,8 +40,7 @@ class ConnectionConfig(BaseModel):
         description="Hint only; enforcement depends on the dialect.",
     )
 
-    def build_url(self) -> str:
-        """Full connection URL including plaintext password."""
+    def _build_url(self, hide_password: bool) -> str:
         if self.dialect.startswith("sqlite"):
             db = self.database or ":memory:"
             return f"sqlite:///{db}"
@@ -52,20 +51,15 @@ class ConnectionConfig(BaseModel):
             host=self.host or "localhost",
             port=self.port,
             database=self.database or "",
-        ).render_as_string(hide_password=False)
+        ).render_as_string(hide_password=hide_password)
+
+    def build_url(self) -> str:
+        """Full connection URL including plaintext password."""
+        return self._build_url(hide_password=False)
 
     def safe_url(self) -> str:
         """Connection URL with password redacted; safe for logs and display."""
-        if self.dialect.startswith("sqlite"):
-            return self.build_url()
-        return URL.create(
-            drivername=self.dialect,
-            username=self.user,
-            password=self.password,
-            host=self.host or "localhost",
-            port=self.port,
-            database=self.database or "",
-        ).render_as_string(hide_password=True)
+        return self._build_url(hide_password=True)
 
 
 class ResourceConfig(BaseModel):
@@ -188,16 +182,16 @@ class StackConfig(BaseModel):
     def validate_references(self) -> "StackConfig":
         """Ensure all named cross-references point at configured objects."""
         for rname, resource in self.resources.items():
-            _check_resource_refs(resource, self.connections, f"resources.{rname}")
+            self._check_resource_refs(resource, self.connections, f"resources.{rname}")
         for tname, tool in self.tools.items():
-            _check_tool_refs(tool, self.resources, f"tools.{tname}")
+            self._check_tool_refs(tool, self.resources, f"tools.{tname}")
         for pname, profile in self.profiles.items():
             effective_conns = {**self.connections, **profile.connections}
             effective_res = {**self.resources, **profile.resources}
             for rname, resource in profile.resources.items():
-                _check_resource_refs(resource, effective_conns, f"profiles.{pname}.resources.{rname}")
+                self._check_resource_refs(resource, effective_conns, f"profiles.{pname}.resources.{rname}")
             for tname, tool in profile.tools.items():
-                _check_tool_refs(tool, effective_res, f"profiles.{pname}.tools.{tname}")
+                self._check_tool_refs(tool, effective_res, f"profiles.{pname}.tools.{tname}")
         for alias_key, alias_target in self.resource_aliases.items():
             if alias_target not in self.resources:
                 raise ValueError(
@@ -205,6 +199,29 @@ class StackConfig(BaseModel):
                     "Note: alias targets must exist at the base config level, not only inside a profile."
                 )
         return self
+
+    @staticmethod
+    def _check_resource_refs(
+        resource: "ResourceConfig",
+        connections: "dict[str, ConnectionConfig]",
+        location: str,
+    ) -> None:
+        for field, name in (("primary_db", resource.primary_db), ("vocab_db", resource.vocab_db)):
+            if name is not None and name not in connections:
+                raise ValueError(
+                    f"{location}.{field} references unknown connection {name!r}"
+                )
+
+    @staticmethod
+    def _check_tool_refs(
+        tool: "ToolConfig",
+        resources: "dict[str, ResourceConfig]",
+        location: str,
+    ) -> None:
+        if tool.default_resource is not None and tool.default_resource not in resources:
+            raise ValueError(
+                f"{location}.default_resource references unknown resource {tool.default_resource!r}"
+            )
 
     @classmethod
     def for_session(
@@ -253,24 +270,3 @@ class StackConfig(BaseModel):
         return tuple(sorted(self.profiles))
 
 
-def _check_resource_refs(
-    resource: ResourceConfig,
-    connections: dict[str, ConnectionConfig],
-    location: str,
-) -> None:
-    for field, name in (("primary_db", resource.primary_db), ("vocab_db", resource.vocab_db)):
-        if name is not None and name not in connections:
-            raise ValueError(
-                f"{location}.{field} references unknown connection {name!r}"
-            )
-
-
-def _check_tool_refs(
-    tool: ToolConfig,
-    resources: dict[str, ResourceConfig],
-    location: str,
-) -> None:
-    if tool.default_resource is not None and tool.default_resource not in resources:
-        raise ValueError(
-            f"{location}.default_resource references unknown resource {tool.default_resource!r}"
-        )

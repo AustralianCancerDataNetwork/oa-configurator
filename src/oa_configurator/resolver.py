@@ -20,7 +20,6 @@ from .models import (
 T = TypeVar("T")
 logger = logging.getLogger(__name__)
 
-
 @dataclass(frozen=True)
 class ResolvedDatabaseTarget:
     """Concrete database connection ready for engine creation."""
@@ -130,7 +129,7 @@ class Resolver:
 
         Profile overlay connections take precedence over base connections.
         """
-        conn = self._effective_connection(name)
+        conn = self.effective_connection(name)
         target = ResolvedDatabaseTarget(
             name=name,
             url=conn.build_url(),
@@ -227,7 +226,7 @@ class Resolver:
             return None
         return self.config.profiles.get(self.config.active_profile)
 
-    def _effective_connection(self, name: str) -> ConnectionConfig:
+    def effective_connection(self, name: str) -> ConnectionConfig:
         profile = self._active_profile()
         if profile and name in profile.connections:
             return profile.connections[name]

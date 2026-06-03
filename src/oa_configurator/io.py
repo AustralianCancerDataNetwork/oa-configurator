@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ import tomli_w
 from .loader import DEFAULT_CONFIG_PATH
 from .resolver import Resolver
 
+logger = logging.getLogger(__name__)
 FLAT_ENV_PATH = DEFAULT_CONFIG_PATH.parent / DEFAULT_CONFIG_PATH.stem.replace(".toml", ".env")
 
 
@@ -43,8 +45,9 @@ def write_env_file(resolver: Resolver, path: Path = FLAT_ENV_PATH) -> Path:
         prefix = f"{resource_name.upper().replace('-', '_')}_DB"
         try:
             resolved = resolver.resolve_resource(resource_name)
-            conn = resolver._effective_connection(resolved.primary_db.name)
-        except Exception:
+            conn = resolver.effective_connection(resolved.primary_db.name)
+        except Exception as exc:
+            logger.warning("Skipping resource %r in env export: %s", resource_name, exc)
             continue
 
         if conn.host:
@@ -66,7 +69,8 @@ def write_env_file(resolver: Resolver, path: Path = FLAT_ENV_PATH) -> Path:
         prefix = tool_name.upper().replace("-", "_")
         try:
             tool = resolver.resolve_tool(tool_name)
-        except Exception:
+        except Exception as exc:
+            logger.warning("Skipping tool %r in env export: %s", tool_name, exc)
             continue
         wrote_any = False
         for k, v in tool.extra.items():

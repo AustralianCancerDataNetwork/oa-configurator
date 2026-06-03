@@ -9,7 +9,7 @@ This package provides a unified logging setup for the OMOP Python stack. All pac
 ```python
 from oa_configurator import configure_logging
 
-# Minimal — WARNING level (default)
+# WARNING level (default)
 configure_logging(extra_namespaces=["my_package"])
 
 # From a loaded config file (uses [logging] block)
@@ -17,7 +17,7 @@ from oa_configurator import load_stack_config
 configure_logging(load_stack_config(), extra_namespaces=["my_package"])
 ```
 
-`configure_logging` is idempotent — safe to call multiple times with the same arguments.
+`configure_logging` is idempotent: it is safe to call multiple times with the same arguments.
 
 ---
 
@@ -45,7 +45,7 @@ All log records use a single fixed format:
 2026-01-15 14:32:01 | my_package | INFO | Connected to database
 ```
 
-Output always goes to **stderr**. There are no alternative handlers or JSON formatters — route stderr to a log aggregator if needed.
+Output always goes to **stderr**. There are no alternative handlers or JSON formatters -> route stderr to a log aggregator if needed.
 
 ---
 
@@ -87,4 +87,4 @@ logger = get_logger("my_package.module")
 logger.info("Hello from my package")
 ```
 
-Thin wrapper around `logging.getLogger()` — a single import point for all packages.
+Thin wrapper around `logging.getLogger()` as a single import point for all packages.

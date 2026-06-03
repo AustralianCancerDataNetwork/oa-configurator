@@ -1,4 +1,4 @@
-"""Tests for resolver.py — Resolver, ResolvedDatabaseTarget, ResolvedResource."""
+"""Tests for resolver.py: Resolver, ResolvedDatabaseTarget, ResolvedResource."""
 
 from __future__ import annotations
 

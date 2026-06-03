@@ -1,4 +1,4 @@
-"""Tests for package_base.py — PackageConfigBase factory interface."""
+"""Tests for package_base.py: PackageConfigBase factory interface."""
 
 from __future__ import annotations
 

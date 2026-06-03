@@ -1,4 +1,4 @@
-"""Tests for models.py — ConnectionConfig, ResourceConfig, ToolConfig, StackConfig."""
+"""Tests for models.py: ConnectionConfig, ResourceConfig, ToolConfig, StackConfig."""
 
 from __future__ import annotations
 

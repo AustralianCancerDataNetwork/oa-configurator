@@ -4,7 +4,7 @@
 
 ---
 
-## `StackConfig.for_session()` — pure inline construction
+## `StackConfig.for_session()`: pure inline construction
 
 Equivalent to loading a TOML file, but the config is built in code. Useful for:
 
@@ -59,7 +59,7 @@ StackConfig.for_session(
 
 ### In tests
 
-`for_session()` is the recommended pattern for package tests — no file I/O, fully isolated:
+`for_session()` is the recommended pattern for package tests. No file I/O, fully isolated:
 
 ```python
 from oa_configurator import StackConfig, Resolver
@@ -77,7 +77,7 @@ def test_something():
 
 ---
 
-## `Resolver.with_overrides()` — session-level override
+## `Resolver.with_overrides()`: session-level override
 
 Loads the shared config file, then replaces specific connections or resources for this session without touching the file. Useful for:
 

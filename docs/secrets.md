@@ -18,7 +18,6 @@ chmod 600 ~/.config/omop/config.toml
 A future `secret_source` field on `ConnectionConfig` will support indirect credential lookup, keeping passwords out of the TOML file entirely:
 
 ```toml
-# Not yet supported — planned for a future release
 [connections.prod]
 dialect       = "postgresql+psycopg"
 host          = "prod.hospital.org"
@@ -33,4 +32,4 @@ Planned source formats:
 |--------|-------------|
 | `env:VARIABLE_NAME` | Read from environment variable at resolution time |
 | `file:PATH` | Read from file (absolute path or relative to config dir) |
-| Vault / cloud | AWS Secrets Manager, GCP Secret Manager, Azure Key Vault — under consideration |
+| Vault / cloud (under consideration) | AWS Secrets Manager, GCP Secret Manager, Azure Key Vault |

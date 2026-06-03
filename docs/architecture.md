@@ -18,17 +18,17 @@ It replaces per-package `.env` files, inconsistent env var lookups, and duplicat
 
 ### Connection
 
-A concrete database endpoint — dialect, host, credentials, database name. Stored in `[connections.<name>]`.
+A concrete database endpoint: dialect, host, credentials, database name. Stored in `[connections.<name>]`.
 
 ### Resource
 
 A logical role bundle that maps OMOP CDM roles to connections and schema names:
 
-- `primary_db` — the CDM server connection
-- `vocab_db` — optional separate connection for vocabulary (falls back to `primary_db`)
-- `cdm_schema` — schema where CDM clinical tables live (required)
-- `vocab_schema` — optional; falls back to `cdm_schema`
-- `results_schema` — optional; Achilles/Atlas results
+- `primary_db`: the CDM server connection
+- `vocab_db`: optional separate connection for vocabulary (falls back to `primary_db`)
+- `cdm_schema`: schema where CDM clinical tables live (required)
+- `vocab_schema` (optional): falls back to `cdm_schema`
+- `results_schema` (optional): Achilles/Atlas results
 
 ### Tool
 
@@ -36,7 +36,7 @@ Per-package configuration in `[tools.<name>]`. The core model stores only `defau
 
 ### Profile
 
-A named overlay (`[profiles.<name>]`) that replaces specific connections, resources, or tools when active. Full model replacement — not a partial patch. Activate via `omop-config use <profile>` (persists to TOML) or `OA_ACTIVE_PROFILE=<profile>` (per-session).
+A named overlay (`[profiles.<name>]`) that replaces specific connections, resources, or tools when active. Full model replacement, not a partial patch. Activate via `omop-config use <profile>` (persists to TOML) or `OA_ACTIVE_PROFILE=<profile>` (per-session).
 
 ---
 
@@ -118,6 +118,6 @@ Always `~/.config/omop/config.toml`. The path is not configurable. Use `OA_ACTIV
 
 ## Future work
 
-- `secret_source` on `ConnectionConfig` — `env:VARNAME`, `file:PATH`, Vault, cloud secret managers
+- `secret_source` on `ConnectionConfig`: `env:VARNAME`, `file:PATH`, Vault, cloud secret managers
 - Async engine factory (`ResolvedDatabaseTarget.create_async_engine()`)
 - Project-local overlay (`./oa-config.toml`) layered over user config

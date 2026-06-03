@@ -111,7 +111,7 @@ configure_logging(load_stack_config(), verbosity=verbose, extra_namespaces=["my_
 
 Tests fall into two tiers with different requirements.
 
-### Unit tests — `StackConfig.for_session()`
+### Unit tests: `StackConfig.for_session()`
 
 Unit and mock-based tests must never touch `~/.config/omop/config.toml`. Use
 `StackConfig.for_session()` with `monkeypatch` to inject a fully in-memory config:
@@ -131,10 +131,10 @@ def test_something(monkeypatch):
 
 This covers the vast majority of tests. No file I/O, no environment-specific setup needed.
 
-### Integration tests — dedicated test resource
+### Integration tests: dedicated test resource
 
 For tests that exercise a real database (e.g. PostgreSQL-specific SQL, bulk loading, trigger
-management), use a **dedicated named resource** in the user's config — never a profile override
+management), use a **dedicated named resource** in the user's config and never a profile override
 of the production resource.
 
 The canonical resource name is `test_<package>_db` (e.g. `test_cdm_db` for omop-alchemy).
@@ -148,12 +148,12 @@ _TEST_RESOURCE = "test_cdm_db"
 
 @pytest.fixture(scope="session")
 def pg_engine():
-    # Path 1: CI sets ENGINE_CDM env var — no file I/O needed
+    # CI: sets ENGINE_CDM env var no file I/O needed
     url = os.getenv("ENGINE_CDM")
     if url:
         return sa.create_engine(url, future=True)
 
-    # Path 2: local dev — read dedicated test resource from config
+    # Local Dev:  read dedicated test resource from config
     from oa_configurator import Resolver, load_stack_config
     from oa_configurator.package_base import ConfigurationError
     try:
@@ -200,7 +200,7 @@ cdm_schema = "public"
 
 `~/.config/omop/config.toml` lives on the host (or in a container's home directory) and is
 the single source of truth.  Docker Compose is only needed to provide **database credentials**
-at container startup — the app itself always reads from the TOML file, never from environment
+at container startup. The app itself always reads from the TOML file, never from environment
 variables at runtime.
 
 The workflow:
@@ -208,7 +208,7 @@ The workflow:
 1. A gitignored `.env` file holds secrets that Docker Compose substitutes into its YAML.
 2. The container's startup command calls `omop-config configure <package>` with `--flags`,
    writing those values into `config.toml` **once at startup**.
-3. After that, the app reads `config.toml` normally — no environment variables involved.
+3. After that, the app reads `config.toml` normally without any environment variables involved.
 
 The `.env` file is a Docker Compose concern only. It is never loaded by the Python app.
 
@@ -272,7 +272,7 @@ command: >
   "
 ```
 
-Each call is scoped to its own package — the `--host` flag for `omop_alchemy configure`
+Each call is scoped to its own package. The `--host` flag for `omop_alchemy configure`
 configures the CDM database; the `--host` flag for `my_package configure` configures that
 package's database.  No prefix is needed because the package name is the namespace.
 

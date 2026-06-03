@@ -22,7 +22,7 @@ database = "omop_cdm"
 primary_db = "cdm"
 cdm_schema = "omop"
 
-# Test profile — only what changes
+# Test profile (only what changes)
 [profiles.test.connections.cdm]
 dialect  = "postgresql+psycopg"
 host     = "localhost"
@@ -42,14 +42,14 @@ When the `test` profile is active, `resolver.resolve_connection("cdm")` returns 
 
 ## Switching profiles
 
-**Persistent** — writes `active_profile` to the TOML file and re-exports `config.env`:
+**Persistent**: writes `active_profile` to the TOML file and re-exports `config.env`:
 
 ```bash
 omop-config use test
 omop-config use local
 ```
 
-**Per-session** — env var override, does not modify the file:
+**Per-session**: env var override, does not modify the file:
 
 ```bash
 OA_ACTIVE_PROFILE=test omop-config doctor

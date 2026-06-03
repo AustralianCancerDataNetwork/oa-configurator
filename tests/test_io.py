@@ -1,4 +1,4 @@
-"""Tests for io.py — write_env_file, save_stack_config, patch_active_profile."""
+"""Tests for io.py: write_env_file, save_stack_config, patch_active_profile."""
 
 from __future__ import annotations
 

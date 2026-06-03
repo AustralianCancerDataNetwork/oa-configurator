@@ -65,6 +65,6 @@ omop-config -vv show      # DEBUG level
 
 ## Next steps
 
-- Switch profiles: `omop-config use <profile>` — see [Profiles](profiles.md)
-- Configure a package interactively: `omop-config configure omop_alchemy` — see [Integration](integration.md)
+- Switch profiles: `omop-config use <profile>` (see [Profiles](profiles.md))
+- Configure a package interactively: `omop-config configure omop_alchemy` (see [Integration](integration.md))
 - All TOML fields: [Config reference](config-reference.md)

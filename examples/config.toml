@@ -1,4 +1,5 @@
-# ~/.config/omop/config.toml — OMOP stack shared configuration
+# ~/.config/omop/config.toml 
+# OMOP stack shared configuration
 #
 # Manage with:   omop-config configure <package>
 # Verify:        omop-config verify
@@ -7,7 +8,7 @@
 active_profile = "local"   # override at runtime: OA_ACTIVE_PROFILE=prod omop-config show
 
 # ---------------------------------------------------------------------------
-# Connections — one entry per physical database endpoint
+# Connections with one entry per physical database endpoint
 # Restrict file permissions: chmod 600 ~/.config/omop/config.toml
 # ---------------------------------------------------------------------------
 
@@ -36,7 +37,7 @@ password = "changeme"
 database = "omop_vocab"
 
 # ---------------------------------------------------------------------------
-# Resources — map logical OMOP roles to connections and schema names
+# Resources: map logical OMOP roles to connections and schema names
 # ---------------------------------------------------------------------------
 
 [resources.cdm_db]
@@ -47,7 +48,7 @@ cdm_schema     = "omop"
 # results_schema = "results"   # optional; used by Achilles / Atlas
 
 # ---------------------------------------------------------------------------
-# Tools — per-package config, managed via `omop-config configure <package>`
+# Tools: per-package config, managed via `omop-config configure <package>`
 # ---------------------------------------------------------------------------
 
 [tools.omop_alchemy]
@@ -57,13 +58,13 @@ default_resource = "cdm_db"
 # athena_source_path = "/data/athena"   # path to Athena vocabulary CSVs
 
 # ---------------------------------------------------------------------------
-# Profiles — named overlays; activate with `omop-config use <profile>`
+# Profiles: named overlays; activate with `omop-config use <profile>`
 # Each entry fully replaces the base entry with the same name.
 # Entries not listed here are inherited from the base config unchanged.
 # ---------------------------------------------------------------------------
 
 [profiles.local]
-# empty: no overrides — base connections/resources are used as-is
+# empty: no overrides -> base connections/resources are used as-is
 
 [profiles.prod.connections.local_cdm]
 dialect  = "postgresql+psycopg"
@@ -81,7 +82,7 @@ vocab_schema   = "vocab"
 results_schema = "results"
 
 # ---------------------------------------------------------------------------
-# Resource aliases — let packages use semantic names independent of your
+# Resource aliases: let packages use semantic names independent of your
 # resource naming convention. Alias targets must exist at the base level.
 # ---------------------------------------------------------------------------
 
@@ -89,7 +90,7 @@ results_schema = "results"
 # cdm_db = "my_production_cdm"   # uncomment if your resource is named differently
 
 # ---------------------------------------------------------------------------
-# Logging — optional; omit for WARNING-level defaults
+# Logging (optional): omit for WARNING-level defaults
 # ---------------------------------------------------------------------------
 
 [logging]

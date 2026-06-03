@@ -45,7 +45,7 @@ def _load_from_path(path: str | Path) -> StackConfig:
     if file_mode & 0o044:
         logger.warning(
             "Config file %s has loose permissions (mode %04o). "
-            "It may contain passwords — run 'chmod 600 %s' to restrict access.",
+            "It may contain passwords. Run 'chmod 600 %s' to restrict access.",
             resolved_path, file_mode, resolved_path,
         )
 

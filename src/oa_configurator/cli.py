@@ -64,7 +64,7 @@ def init(
         for ep in sorted(eps, key=lambda e: e.name):
             console.print(f"  omop-config configure {ep.name}")
     else:
-        console.print("\nNo packages registered yet — install a package that supports oa_configurator.")
+        console.print("\nNo packages registered yet. Install a package that supports oa_configurator.")
 
 
 def _prompt_resource_config(
@@ -108,7 +108,7 @@ def _prompt_resource_config(
     if not non_interactive:
         console.print(f"\n[bold]{spec.display_name}[/bold]")
         console.print(f"[dim]{spec.description}[/dim]")
-        console.print("[dim]Tip: the value shown in [brackets] is the default — press Enter to accept it.[/dim]\n")
+        console.print("[dim]Tip: the value shown in [brackets] is the default. Press Enter to accept it.[/dim]\n")
 
     def _v(key: str, label: str, default: str, *, hide_input: bool = False) -> str:
         val = flags.get(key)
@@ -176,7 +176,7 @@ def use(
 
     if profile not in config.profiles and profile != "default":
         err_console.print(
-            f"[yellow]Warning:[/yellow] profile {profile!r} not found in config — "
+            f"[yellow]Warning:[/yellow] profile {profile!r} not found in config.toml, but"
             "it will be set anyway. Add connections/resources to it when ready."
         )
 
@@ -346,7 +346,7 @@ def configure(  # noqa: PLR0913
         if resolved not in config.resources:
             console.print(
                 f"\n[yellow]Warning:[/yellow] Required resource {rname!r} is not configured. "
-                f"It may be provided by another package — run that package's configure command."
+                f"It may be provided by another package. Run that package's configure command."
             )
 
     # Load current extras gracefully (resource may not exist yet on a fresh install)

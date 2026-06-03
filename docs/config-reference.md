@@ -30,7 +30,7 @@ One section per named database connection. The name is referenced by resources a
 !!! warning "Security note"
     Passwords are stored in plaintext in this file. Restrict permissions with `chmod 600 ~/.config/omop/config.toml`. Secret-management support (env-backed passwords, Vault, etc.) is planned for a future release.
 
-**Example — PostgreSQL**:
+### Example: PostgreSQL
 
 ```toml
 [connections.cdm]
@@ -42,7 +42,7 @@ password = "changeme"
 database = "omop_cdm"
 ```
 
-**Example — SQLite in-memory (for tests)**:
+### Example: SQLite in-memory (for tests)
 
 ```toml
 [connections.test_db]
@@ -64,7 +64,7 @@ A resource maps logical OMOP CDM roles to named connections and schema names.
 | `vocab_schema` | string | no | Vocabulary schema. Falls back to `cdm_schema` when not set. |
 | `results_schema` | string | no | Achilles / Atlas results schema |
 
-**Example — all in one schema**:
+### Example: all in one schema
 
 ```toml
 [resources.default]
@@ -72,7 +72,7 @@ primary_db = "cdm"
 cdm_schema = "omop"
 ```
 
-**Example — separate vocab and results schemas**:
+### Example: separate vocab and results schemas
 
 ```toml
 [resources.default]
@@ -82,7 +82,7 @@ vocab_schema   = "omop_vocab"
 results_schema = "results"
 ```
 
-**Example — vocabulary on a separate server**:
+### Example vocabulary on a separate server
 
 ```toml
 [resources.default]
@@ -102,7 +102,7 @@ Per-package configuration. The `name` must match the package's `tool_name` class
 | `default_resource` | string | `null` | Resource name this tool uses when none is specified |
 | `extra` | table | `{}` | Package-specific key/value pairs. Each package defines its own typed fields that map here. |
 
-**Example — omop_emb**:
+### Example: omop_emb
 
 ```toml
 [tools.omop_emb]
@@ -111,13 +111,6 @@ default_resource = "default"
 [tools.omop_emb.extra]
 backend             = "sqlitevec"
 embedding_file_root = "/data/embeddings"
-```
-
-**Example — omop_spires**:
-
-```toml
-[tools.omop_spires.extra]
-ollama_api_base = "http://localhost:11434"
 ```
 
 ---
@@ -134,7 +127,7 @@ A profile overlays connections, resources, and tools over the base config when a
 
 Profile entries use the same field definitions as the base sections above.
 
-**Example — test profile pointing to a local test database**:
+**Exampl test profile pointing to a local test database**:
 
 ```toml
 [profiles.test.connections.cdm]
@@ -156,7 +149,7 @@ Activate it: `omop-config use test` or `OA_ACTIVE_PROFILE=test`.
 
 ## `[logging]`
 
-Controls log output for `oa_configurator` and any consuming packages. Optional — defaults to library preset (WARNING, no handler).
+Controls log output for `oa_configurator` and any consuming packages. Defaults to library preset (WARNING, no handler).
 
 | Field | Type | Default | Description |
 |---|---|---|---|

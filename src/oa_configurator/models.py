@@ -54,11 +54,28 @@ class ConnectionConfig(BaseModel):
         ).render_as_string(hide_password=hide_password)
 
     def build_url(self) -> str:
-        """Full connection URL including plaintext password."""
+        """Build the full connection URL, including the plaintext password.
+
+        Returns
+        -------
+        str
+            SQLAlchemy-compatible connection URL. For SQLite, returns
+            ``sqlite:///<database>`` (or ``sqlite:///:memory:`` when
+            ``database`` is not set).
+        """
         return self._build_url(hide_password=False)
 
     def safe_url(self) -> str:
-        """Connection URL with password redacted; safe for logs and display."""
+        """Build the connection URL with the password redacted.
+
+        Safe for logging and display. Identical to ``build_url()`` for SQLite
+        connections, which carry no password.
+
+        Returns
+        -------
+        str
+            Connection URL with ``***`` substituted for the password field.
+        """
         return self._build_url(hide_password=True)
 
 
@@ -167,9 +184,9 @@ class StackConfig(BaseModel):
         default_factory=dict,
         description=(
             "Maps semantic resource names to user-chosen resource names. "
-            "Example: cdm_db = 'my_production_cdm' — all packages that look "
+            "Example: cdm_db = 'my_production_cdm'; all packages that look "
             "for 'cdm_db' automatically resolve to 'my_production_cdm'. "
-            "Note: alias targets must exist at the base config level, not only inside a profile."
+            "Alias targets must exist at the base config level, not only inside a profile."
         ),
     )
     logging: LoggingConfig = Field(
@@ -258,15 +275,19 @@ class StackConfig(BaseModel):
         return self._loaded_path
 
     def connection_names(self) -> tuple[str, ...]:
+        """Return a sorted tuple of configured connection names."""
         return tuple(sorted(self.connections))
 
     def resource_names(self) -> tuple[str, ...]:
+        """Return a sorted tuple of configured resource names."""
         return tuple(sorted(self.resources))
 
     def tool_names(self) -> tuple[str, ...]:
+        """Return a sorted tuple of configured tool names."""
         return tuple(sorted(self.tools))
 
     def profile_names(self) -> tuple[str, ...]:
+        """Return a sorted tuple of configured profile names."""
         return tuple(sorted(self.profiles))
 
 

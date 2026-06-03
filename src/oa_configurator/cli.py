@@ -1,4 +1,4 @@
-"""CLI for omop-config — initialise, inspect, switch profiles, test connections, configure packages."""
+"""CLI for omop-config: initialise, inspect, switch profiles, test connections, configure packages."""
 
 from __future__ import annotations
 
@@ -23,11 +23,6 @@ console = Console()
 err_console = Console(stderr=True)
 
 
-# ---------------------------------------------------------------------------
-# Global callback — verbosity
-# ---------------------------------------------------------------------------
-
-
 @app.callback()
 def _main(
     verbose: Annotated[
@@ -40,11 +35,6 @@ def _main(
     ] = 0,
 ) -> None:
     configure_logging(verbosity=verbose)
-
-
-# ---------------------------------------------------------------------------
-# init
-# ---------------------------------------------------------------------------
 
 
 @app.command()
@@ -75,11 +65,6 @@ def init(
             console.print(f"  omop-config configure {ep.name}")
     else:
         console.print("\nNo packages registered yet — install a package that supports oa_configurator.")
-
-
-# ---------------------------------------------------------------------------
-# _prompt_resource_config (private helper)
-# ---------------------------------------------------------------------------
 
 
 def _prompt_resource_config(
@@ -159,11 +144,6 @@ def _prompt_resource_config(
     return conn_name, conn, resource
 
 
-# ---------------------------------------------------------------------------
-# show
-# ---------------------------------------------------------------------------
-
-
 @app.command()
 def show(
     profile: Annotated[
@@ -181,11 +161,6 @@ def show(
     if profile is not None:
         config.active_profile = profile
     rich.print_json(config.model_dump_json(exclude_none=True, indent=2))
-
-
-# ---------------------------------------------------------------------------
-# use
-# ---------------------------------------------------------------------------
 
 
 @app.command()
@@ -214,11 +189,6 @@ def use(
         console.print(f"[green]✓[/green] Exported [dim]{env_path}[/dim]")
     except Exception as exc:
         err_console.print(f"[yellow]Warning:[/yellow] Could not export config.env: {exc}")
-
-
-# ---------------------------------------------------------------------------
-# verify
-# ---------------------------------------------------------------------------
 
 
 @app.command()
@@ -264,11 +234,6 @@ def verify(
         raise typer.Exit(1)
 
 
-# ---------------------------------------------------------------------------
-# export-env
-# ---------------------------------------------------------------------------
-
-
 @app.command("export-env")
 def export_env(
     profile: Annotated[
@@ -288,11 +253,6 @@ def export_env(
 
     env_path = write_env_file(Resolver(config))
     console.print(f"[green]✓[/green] Wrote [dim]{env_path}[/dim]")
-
-
-# ---------------------------------------------------------------------------
-# configure
-# ---------------------------------------------------------------------------
 
 
 @app.command()
@@ -315,7 +275,7 @@ def configure(  # noqa: PLR0913
     """Configure a package's [tools.<name>] section.
 
     Run without flags for interactive prompts (local dev).  Pass connection
-    flags to skip all prompts — useful for scripted / Docker Compose use:
+    flags to skip all prompts; useful for scripted / Docker Compose use:
 
         omop-config configure omop_alchemy \\
             --conn-name cdm --dialect postgresql+psycopg \\
@@ -369,7 +329,7 @@ def configure(  # noqa: PLR0913
     console.print(f"\n[bold]Configuring [cyan]{package}[/cyan][/bold]")
     console.print(f"[dim]TOML section: [tools.{cls.tool_name}][/dim]")
 
-    # 1. Configure each resource this package owns (connection + schema setup)
+    # Configure each resource this package owns (connection + schema setup)
     for spec in cls.owned_resources:
         result = _prompt_resource_config(spec, config, flags=flags_arg)
         if result is not None:
@@ -377,7 +337,7 @@ def configure(  # noqa: PLR0913
             config.connections[r_conn_name] = new_conn
             config.resources[spec.semantic_name] = new_resource
 
-    # 2. Warn about required resources that are neither owned nor yet configured
+    # Warn about required resources that are neither owned nor yet configured
     owned_names = {spec.semantic_name for spec in cls.owned_resources}
     for rname in cls.required_resources:
         if rname in owned_names:
@@ -389,14 +349,14 @@ def configure(  # noqa: PLR0913
                 f"It may be provided by another package — run that package's configure command."
             )
 
-    # 3. Load current extras gracefully (resource may not exist yet on a fresh install)
+    # Load current extras gracefully (resource may not exist yet on a fresh install)
     try:
         current = cls.from_stack(config)
         current_dict = current.to_extra_dict()
     except ConfigurationError:
         current_dict = {}
 
-    # 4. Prompt for package-specific extra fields (skipped in non-interactive mode)
+    # Prompt for package-specific extra fields (skipped in non-interactive mode)
     model_fields = {k: v for k, v in cls.model_fields.items() if k != "tool_name"}
     if model_fields and flags_arg is None:
         console.print()
@@ -416,12 +376,10 @@ def configure(  # noqa: PLR0913
 
         extra = {k: v for k, v in updated.items() if v is not None}
     else:
-        extra = current_dict  # keep existing values in non-interactive mode
+        extra = current_dict
 
-    # 5. Prompt for default_resource only when there is ambiguity: more than
-    #    one resource is configured, or an explicit override already exists.
-    #    In the normal happy path, owned_resources stored under the canonical
-    #    name — no override needed.  Skipped entirely in non-interactive mode.
+    # Prompt for default_resource only when ambiguous: more than one resource is
+    # configured, or an explicit override already exists. Skipped when non-interactive.
     existing_tool = config.tools.get(cls.tool_name)
     available_resources = sorted(config.resource_names())
     existing_default = existing_tool.default_resource if existing_tool else None
@@ -438,7 +396,6 @@ def configure(  # noqa: PLR0913
             or None
         )
 
-    # 6. Save
     config.tools[cls.tool_name] = ToolConfig(default_resource=new_default_resource, extra=extra)
     save_stack_config(config)
     console.print(f"\n[green]✓[/green] Saved [tools.{cls.tool_name}] to [dim]{DEFAULT_CONFIG_PATH}[/dim]")

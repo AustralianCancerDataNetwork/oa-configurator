@@ -29,7 +29,19 @@ class ResolvedDatabaseTarget:
     safe_url: str   # password redacted: safe for logs and display
 
     def create_engine(self, **kwargs: Any) -> Engine:
-        """Create a SQLAlchemy engine for this connection."""
+        """Create a SQLAlchemy engine for this connection.
+
+        Parameters
+        ----------
+        **kwargs
+            Forwarded to ``sqlalchemy.create_engine``. The ``read_only``
+            keyword is silently removed for SQLite connections, which do
+            not support it.
+
+        Returns
+        -------
+        sqlalchemy.engine.Engine
+        """
         if self.url.startswith("sqlite") and "read_only" in kwargs:
             kwargs.pop("read_only", None)
         return sa.create_engine(self.url, **kwargs)
@@ -51,7 +63,25 @@ class ResolvedResource:
     vocab_db_is_primary_fallback: bool
 
     def database_target(self, role: Literal["primary", "vocab"] = "primary") -> ResolvedDatabaseTarget:
-        """Return the resolved target for a given role."""
+        """Return the resolved database target for a given role.
+
+        Parameters
+        ----------
+        role : {"primary", "vocab"}, optional
+            Which database target to return. Defaults to ``"primary"``.
+            When ``vocab_db`` was not configured, ``"vocab"`` returns the
+            same target as ``"primary"``.
+
+        Returns
+        -------
+        ResolvedDatabaseTarget
+            The concrete database target for *role*.
+
+        Raises
+        ------
+        ValueError
+            If *role* is not ``"primary"`` or ``"vocab"``.
+        """
         if role == "primary":
             return self.primary_db
         if role == "vocab":
@@ -81,7 +111,29 @@ class ResolvedResource:
         execution_options: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> Engine:
-        """Create an engine for a role with schema_translate_map applied."""
+        """Create a SQLAlchemy engine with the schema translate map applied.
+
+        The schema translate map routes OMOP ORM models to the correct schemas
+        automatically (``None`` -> cdm_schema, ``"vocab"`` -> vocab_schema,
+        ``"results"`` -> results_schema when configured).
+
+        Parameters
+        ----------
+        role : {"primary", "vocab"}, optional
+            Which database target to create an engine for. Defaults to
+            ``"primary"``.
+        execution_options : dict, optional
+            Additional execution options merged into the engine. The
+            ``schema_translate_map`` key is set automatically and must
+            not be supplied here.
+        **kwargs
+            Forwarded to ``sqlalchemy.create_engine``.
+
+        Returns
+        -------
+        sqlalchemy.engine.Engine
+            Engine configured with ``schema_translate_map`` for OMOP ORM routing.
+        """
         engine = self.database_target(role).create_engine(**kwargs)
         stm = self.schema_translate_map()
         merged_opts = dict(execution_options or {})
@@ -120,10 +172,6 @@ class Resolver:
     def __init__(self, config: StackConfig) -> None:
         self.config = config
 
-    # ------------------------------------------------------------------
-    # Resolution methods
-    # ------------------------------------------------------------------
-
     def resolve_connection(self, name: str) -> ResolvedDatabaseTarget:
         """Resolve a connection name to a concrete target.
 
@@ -139,7 +187,29 @@ class Resolver:
         return target
 
     def resolve_resource(self, name: str) -> ResolvedResource:
-        """Resolve a resource name to a concrete bundle of DB targets and schemas."""
+        """Resolve a resource name to a concrete bundle of DB targets and schemas.
+
+        Applies profile overlays and resource aliases. The vocab DB falls back
+        to the primary DB when not explicitly configured; the vocab schema falls
+        back to the CDM schema under the same condition.
+
+        Parameters
+        ----------
+        name : str
+            Resource name or alias as declared in ``[resources]`` or
+            ``[resource_aliases]``.
+
+        Returns
+        -------
+        ResolvedResource
+            Fully resolved resource with concrete database targets and
+            effective schema names.
+
+        Raises
+        ------
+        KeyError
+            If *name* (after alias resolution) does not exist in the config.
+        """
         resource = self._effective_resource(name)
 
         primary = self.resolve_connection(resource.primary_db)
@@ -165,7 +235,24 @@ class Resolver:
         return resolved
 
     def resolve_tool(self, name: str) -> ResolvedToolConfig:
-        """Resolve a tool name to its configuration with extra dict intact."""
+        """Resolve a tool name to its configuration.
+
+        Parameters
+        ----------
+        name : str
+            Tool name as declared in ``[tools]``.
+
+        Returns
+        -------
+        ResolvedToolConfig
+            Resolved config with the raw extra dict intact for consumption
+            by ``PackageConfigBase.from_stack``.
+
+        Raises
+        ------
+        KeyError
+            If *name* does not exist in the config.
+        """
         tool = self._effective_tool(name)
         resolved = ResolvedToolConfig(
             name=name,
@@ -198,28 +285,25 @@ class Resolver:
             new_config.bind_loaded_path(self.config.loaded_path)
         return Resolver(new_config)
 
-    # ------------------------------------------------------------------
-    # Discovery helpers
-    # ------------------------------------------------------------------
-
     def connection_names(self) -> tuple[str, ...]:
+        """Return a sorted tuple of configured connection names."""
         return self.config.connection_names()
 
     def resource_names(self) -> tuple[str, ...]:
+        """Return a sorted tuple of configured resource names."""
         return self.config.resource_names()
 
     def tool_names(self) -> tuple[str, ...]:
+        """Return a sorted tuple of configured tool names."""
         return self.config.tool_names()
 
     def profile_names(self) -> tuple[str, ...]:
+        """Return a sorted tuple of configured profile names."""
         return self.config.profile_names()
 
     def active_profile_name(self) -> str | None:
+        """Return the name of the currently active profile, or None."""
         return self.config.active_profile
-
-    # ------------------------------------------------------------------
-    # Internals
-    # ------------------------------------------------------------------
 
     def _active_profile(self) -> ProfileOverrideConfig | None:
         if self.config.active_profile is None:
@@ -227,6 +311,29 @@ class Resolver:
         return self.config.profiles.get(self.config.active_profile)
 
     def effective_connection(self, name: str) -> ConnectionConfig:
+        """Return the active ConnectionConfig for a connection name.
+
+        Profile overlay connections take precedence over base connections.
+        Unlike ``resolve_connection``, this returns the raw config object
+        rather than a resolved target; useful when individual fields (host,
+        port, etc.) are needed directly.
+
+        Parameters
+        ----------
+        name : str
+            Connection name as it appears in ``[connections]`` or a profile
+            overlay.
+
+        Returns
+        -------
+        ConnectionConfig
+            The effective connection config for the active profile.
+
+        Raises
+        ------
+        KeyError
+            If *name* does not exist in the base config or the active profile.
+        """
         profile = self._active_profile()
         if profile and name in profile.connections:
             return profile.connections[name]

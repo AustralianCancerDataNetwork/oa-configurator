@@ -121,5 +121,5 @@ def configure_logging(
 
 
 def get_logger(name: str) -> logging.Logger:
-    """Return a named logger — single import point for consuming packages."""
+    """Return a named logger; single import point for consuming packages."""
     return logging.getLogger(name)

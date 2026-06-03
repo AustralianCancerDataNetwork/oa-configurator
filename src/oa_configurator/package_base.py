@@ -47,7 +47,7 @@ class ResourceSpec:
     reads this tuple and invokes the connection + schema prompts for each
     spec before asking for package-specific extras.
 
-    ``owned_resources`` is a CLI-only concern — it has no effect at runtime.
+    ``owned_resources`` is a CLI-only concern; it has no effect at runtime.
     """
 
     semantic_name: str

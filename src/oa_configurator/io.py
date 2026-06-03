@@ -16,11 +16,6 @@ logger = logging.getLogger(__name__)
 FLAT_ENV_PATH = DEFAULT_CONFIG_PATH.parent / DEFAULT_CONFIG_PATH.stem.replace(".toml", ".env")
 
 
-# ---------------------------------------------------------------------------
-# Environment file export
-# ---------------------------------------------------------------------------
-
-
 def write_env_file(resolver: Resolver, path: Path = FLAT_ENV_PATH) -> Path:
     """Write a flat KEY=VALUE file from the active resolved config.
 
@@ -83,11 +78,6 @@ def write_env_file(resolver: Resolver, path: Path = FLAT_ENV_PATH) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines), encoding="utf-8")
     return path
-
-
-# ---------------------------------------------------------------------------
-# TOML config persistence
-# ---------------------------------------------------------------------------
 
 
 def save_stack_config(config: Any, path: Path = DEFAULT_CONFIG_PATH) -> Path:

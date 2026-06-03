@@ -1,83 +1,99 @@
-[settings]
-active_profile = "prod"
-configuration_base_path = "."
-secrets_dir = "secrets"
+# ~/.config/omop/config.toml — OMOP stack shared configuration
+#
+# Manage with:   omop-config configure <package>
+# Verify:        omop-config verify
+# Export env:    omop-config export-env   (Docker Compose only)
 
-[profiles.local]
-description = "everything local"
+active_profile = "local"   # override at runtime: OA_ACTIVE_PROFILE=prod omop-config show
 
-[profiles.prod]
-description = "remote OMOP source with local derived artifacts"
-
-[profiles.prod.resource_overrides.default]
-primary_db = "prod_cdm"
-vocab_db = "prod_vocab"
-results_db = "prod_cdm"
-vocab_schema = "vocab"
-artifact_root = "artifacts/prod"
-embedding_file_root = "artifacts/prod/embeddings"
-analytic_db_file_root = "artifacts/prod/databases"
-
-[profiles.prod.tool_overrides.omop_emb]
-embedding_file_root = "artifacts/prod/embeddings"
-
-[profiles.prod.tool_overrides.orm_loader]
-database_file_root = "artifacts/prod/databases"
+# ---------------------------------------------------------------------------
+# Connections — one entry per physical database endpoint
+# Restrict file permissions: chmod 600 ~/.config/omop/config.toml
+# ---------------------------------------------------------------------------
 
 [connections.local_cdm]
-dialect = "postgresql"
-host = "localhost"
-port = 5432
-user = "omop"
+dialect  = "postgresql+psycopg"
+host     = "localhost"
+port     = 5432
+user     = "omop"
 password = "omop"
-database = "omop"
+database = "omop_cdm"
 
 [connections.prod_cdm]
-dialect = "postgresql"
-host = "prod.hospital.org"
-port = 5432
-user = "omop_prod"
-secret_source = "file:prod_cdm.password"
+dialect  = "postgresql+psycopg"
+host     = "prod.hospital.org"
+port     = 5432
+user     = "omop_prod"
+password = "changeme"
 database = "omop_cdm"
 
 [connections.prod_vocab]
-dialect = "postgresql"
-host = "prod.hospital.org"
-port = 5432
-user = "omop_vocab"
-secret_source = "file:prod_vocab.password"
+dialect  = "postgresql+psycopg"
+host     = "prod.hospital.org"
+port     = 5432
+user     = "omop_vocab"
+password = "changeme"
 database = "omop_vocab"
 
-[resources.default]
-primary_db = "local_cdm"
-vocab_db = "local_cdm"
-results_db = "local_cdm"
-omop_schema = "cdm"
-vocab_schema = "cdm"
+# ---------------------------------------------------------------------------
+# Resources — map logical OMOP roles to connections and schema names
+# ---------------------------------------------------------------------------
+
+[resources.cdm_db]
+primary_db     = "local_cdm"
+cdm_schema     = "omop"
+# vocab_db     = "local_cdm"   # omit to fall back to primary_db
+# vocab_schema = "omop"        # omit to fall back to cdm_schema
+# results_schema = "results"   # optional; used by Achilles / Atlas
+
+# ---------------------------------------------------------------------------
+# Tools — per-package config, managed via `omop-config configure <package>`
+# ---------------------------------------------------------------------------
+
+[tools.omop_alchemy]
+default_resource = "cdm_db"
+
+[tools.omop_alchemy.extra]
+# athena_source_path = "/data/athena"   # path to Athena vocabulary CSVs
+
+# ---------------------------------------------------------------------------
+# Profiles — named overlays; activate with `omop-config use <profile>`
+# Each entry fully replaces the base entry with the same name.
+# Entries not listed here are inherited from the base config unchanged.
+# ---------------------------------------------------------------------------
+
+[profiles.local]
+# empty: no overrides — base connections/resources are used as-is
+
+[profiles.prod.connections.local_cdm]
+dialect  = "postgresql+psycopg"
+host     = "prod.hospital.org"
+port     = 5432
+user     = "omop_prod"
+password = "changeme"
+database = "omop_cdm"
+
+[profiles.prod.resources.cdm_db]
+primary_db     = "prod_cdm"
+vocab_db       = "prod_vocab"
+cdm_schema     = "omop"
+vocab_schema   = "vocab"
 results_schema = "results"
-artifact_root = "artifacts"
-embedding_file_root = "artifacts/embeddings"
-analytic_db_file_root = "artifacts/databases"
 
-[resources.local_all_in_one]
-primary_db = "local_cdm"
-vocab_db = "local_cdm"
-results_db = "local_cdm"
-omop_schema = "cdm"
-vocab_schema = "cdm"
-results_schema = "results"
-artifact_root = "artifacts/local"
-embedding_file_root = "artifacts/local/embeddings"
-analytic_db_file_root = "artifacts/local/databases"
+# ---------------------------------------------------------------------------
+# Resource aliases — let packages use semantic names independent of your
+# resource naming convention. Alias targets must exist at the base level.
+# ---------------------------------------------------------------------------
 
-[tools.omop_emb]
-default_resource = "default"
-backend = "pgvector"
-embedding_file_root = "artifacts/embeddings"
+[resource_aliases]
+# cdm_db = "my_production_cdm"   # uncomment if your resource is named differently
 
-[tools.orm_loader]
-default_resource = "default"
-database_file_root = "artifacts/databases"
+# ---------------------------------------------------------------------------
+# Logging — optional; omit for WARNING-level defaults
+# ---------------------------------------------------------------------------
 
-[tools.omop_graph]
-default_resource = "default"
+[logging]
+level = "INFO"
+
+[logging.loggers]
+"sqlalchemy.engine" = "WARNING"

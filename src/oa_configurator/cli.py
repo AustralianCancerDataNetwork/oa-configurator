@@ -85,57 +85,75 @@ def init(
 def _prompt_resource_config(
     spec: ResourceSpec,
     config: StackConfig,
+    *,
+    flags: dict[str, str | int | None] | None = None,
 ) -> tuple[str, ConnectionConfig, ResourceConfig] | None:
     """Prompt to create or update a connection + resource for a ResourceSpec.
 
-    Returns ``(conn_name, conn, resource)`` if the user provides new values,
-    or ``None`` if they choose to keep an existing configuration unchanged.
+    When *flags* is provided, flag values skip the corresponding prompts and
+    the "keep existing?" confirmation is suppressed. This is the non-interactive
+    configuration of the package and is suitable for scripted /
+    Docker Compose use.  Omitting *flags* preserves fully-interactive behaviour.
+
+    Parameters
+    ----------
+    spec
+        The ResourceSpec describing the resource to configure.  
+        Its *semantic_name* is used to look up existing config and determine the default value for prompts.
+    config
+        The current StackConfig, used to look up existing config and determine defaults.
+    flags
+        Optional dict of flag values to override prompts.  
+        Keys correspond to the fields of ConnectionConfig and ResourceConfig
+
+    Returns ``(conn_name, conn, resource)`` or ``None`` to keep existing config.
     """
+    non_interactive = flags is not None
+    flags = flags or {}
     resolved = config.resource_aliases.get(spec.semantic_name, spec.semantic_name)
     existing = config.resources.get(resolved)
-    if existing:
-        keep = typer.confirm(
+
+    if existing and not non_interactive:
+        if typer.confirm(
             f"{spec.display_name} is already configured (resource: {resolved!r}). Keep it?",
             default=True,
-        )
-        if keep:
+        ):
             return None
 
-    console.print(f"\n[bold]{spec.display_name}[/bold]")
-    console.print(f"[dim]{spec.description}[/dim]")
-    console.print("[dim]Tip: the value shown in [brackets] is the default — press Enter to accept it.[/dim]\n")
+    if not non_interactive:
+        console.print(f"\n[bold]{spec.display_name}[/bold]")
+        console.print(f"[dim]{spec.description}[/dim]")
+        console.print("[dim]Tip: the value shown in [brackets] is the default — press Enter to accept it.[/dim]\n")
 
-    conn_name = typer.prompt(
-        "Connection name  (a short label, e.g. 'cdm' or 'prod')",
-        default=spec.connection_name_hint or "cdm",
-    )
-    dialect = typer.prompt("Dialect  (SQLAlchemy driver string, e.g. postgresql+psycopg, sqlite)", default="postgresql+psycopg")
-    host = typer.prompt("Host  (e.g. Docker container name; leave blank for SQLite or socket connections)", default="localhost") or None
-    port_str = typer.prompt("Port  (leave blank to use the dialect default)", default="")
+    def _v(key: str, label: str, default: str, *, hide_input: bool = False) -> str:
+        val = flags.get(key)
+        return str(val) if val is not None else typer.prompt(label, default=default, hide_input=hide_input)
+
+    conn_name = _v("conn_name", "Connection name  (a short label, e.g. 'cdm' or 'prod')", spec.connection_name_hint or "cdm")
+    dialect = _v("dialect", "Dialect  (SQLAlchemy driver string, e.g. postgresql+psycopg, sqlite)", "postgresql+psycopg")
+    host = _v("host", "Host  (e.g. Docker container name; leave blank for SQLite or socket connections)", "localhost") or None
+
+    port_str = _v("port", "Port  (leave blank to use the dialect default)", "")
     port: int | None = int(port_str) if port_str.strip() else None
-    user = typer.prompt("User  (leave blank if not required)", default="") or None
-    password = typer.prompt("Password  (leave blank if not required)", default="", hide_input=True) or None
-    database = typer.prompt("Database  (database name, or file path for SQLite)", default="") or None
 
-    conn = ConnectionConfig(
-        dialect=dialect,
-        host=host,
-        port=port,
-        user=user,
-        password=password,
-        database=database,
-    )
+    user = _v("user", "User  (leave blank if not required)", "") or None
+    password = _v("password", "Password  (leave blank if not required)", "", hide_input=True) or None
+    database = _v("database", "Database  (database name, or file path for SQLite)", "") or None
 
-    console.print("\n[dim]Schema configuration[/dim]\n")
-    cdm_schema = typer.prompt("CDM schema  (schema containing the OMOP tables)", default="omop")
-    vocab_schema_str = typer.prompt("Vocab schema  (leave blank to share the CDM schema)", default="")
-    results_schema_str = typer.prompt("Results schema  (leave blank to skip)", default="")
+    conn = ConnectionConfig(dialect=dialect, host=host, port=port, user=user, password=password, database=database)
+
+    if not non_interactive:
+        console.print("\n[dim]Schema configuration[/dim]\n")
+
+    cdm_schema = _v("cdm_schema", "CDM schema  (schema containing the OMOP tables)", "omop")
+    vocab_schema = _v("vocab_schema", "Vocab schema  (leave blank to share the CDM schema)", "") or None
+    results_schema = _v("results_schema", "Results schema  (leave blank to skip)", "") or None
 
     resource = ResourceConfig(
         primary_db=conn_name,
         cdm_schema=cdm_schema,
-        vocab_schema=vocab_schema_str or None,
-        results_schema=results_schema_str or None,
+        vocab_schema=vocab_schema,
+        results_schema=results_schema,
     )
 
     return conn_name, conn, resource
@@ -278,21 +296,46 @@ def export_env(
 
 
 @app.command()
-def configure(
+def configure(  # noqa: PLR0913
     package: Annotated[
         str,
-        typer.Argument(
-            help="Package name to configure, e.g. omop_emb. Omit to list registered packages."
-        ),
+        typer.Argument(help="Package name to configure, e.g. omop_alchemy. Omit to list registered packages."),
     ] = "",
+    conn_name: Annotated[str | None, typer.Option("--conn-name", help="Connection label (skips prompt).")] = None,
+    dialect: Annotated[str | None, typer.Option("--dialect", help="SQLAlchemy dialect, e.g. postgresql+psycopg (skips prompt).")] = None,
+    host: Annotated[str | None, typer.Option("--host", help="Database host (skips prompt).")] = None,
+    port: Annotated[int | None, typer.Option("--port", help="Database port (skips prompt).")] = None,
+    user: Annotated[str | None, typer.Option("--user", help="Database user (skips prompt).")] = None,
+    password: Annotated[str | None, typer.Option("--password", help="Database password (skips prompt).")] = None,
+    database: Annotated[str | None, typer.Option("--database", help="Database name (skips prompt).")] = None,
+    cdm_schema: Annotated[str | None, typer.Option("--cdm-schema", help="CDM schema name (skips prompt).")] = None,
+    vocab_schema: Annotated[str | None, typer.Option("--vocab-schema", help="Vocab schema; omit to share CDM schema (skips prompt).")] = None,
+    results_schema: Annotated[str | None, typer.Option("--results-schema", help="Results schema; omit if unused (skips prompt).")] = None,
 ) -> None:
-    """Interactively configure a package's [tools.<name>] section.
+    """Configure a package's [tools.<name>] section.
+
+    Run without flags for interactive prompts (local dev).  Pass connection
+    flags to skip all prompts — useful for scripted / Docker Compose use:
+
+        omop-config configure omop_alchemy \\
+            --conn-name cdm --dialect postgresql+psycopg \\
+            --host db --port 5432 --user omop --password secret \\
+            --database omop_cdm --cdm-schema omop
 
     Packages register support via the 'omop.config' entry-point group in their
     pyproject.toml.
     """
     eps = entry_points(group="omop.config")
     registered = {ep.name: ep for ep in eps}
+
+    raw_flags = {
+        "conn_name": conn_name, "dialect": dialect, "host": host, "port": port,
+        "user": user, "password": password, "database": database,
+        "cdm_schema": cdm_schema, "vocab_schema": vocab_schema, "results_schema": results_schema,
+    }
+    flags_arg: dict[str, str | int | None] | None = (
+        {k: v for k, v in raw_flags.items() if v is not None} or None
+    )
 
     if not package:
         if not registered:
@@ -326,12 +369,12 @@ def configure(
     console.print(f"\n[bold]Configuring [cyan]{package}[/cyan][/bold]")
     console.print(f"[dim]TOML section: [tools.{cls.tool_name}][/dim]")
 
-    # 1. Prompt for each resource this package owns (connection + schema setup)
+    # 1. Configure each resource this package owns (connection + schema setup)
     for spec in cls.owned_resources:
-        result = _prompt_resource_config(spec, config)
+        result = _prompt_resource_config(spec, config, flags=flags_arg)
         if result is not None:
-            conn_name, new_conn, new_resource = result
-            config.connections[conn_name] = new_conn
+            r_conn_name, new_conn, new_resource = result
+            config.connections[r_conn_name] = new_conn
             config.resources[spec.semantic_name] = new_resource
 
     # 2. Warn about required resources that are neither owned nor yet configured
@@ -353,9 +396,9 @@ def configure(
     except ConfigurationError:
         current_dict = {}
 
-    # 4. Prompt for package-specific extra fields
+    # 4. Prompt for package-specific extra fields (skipped in non-interactive mode)
     model_fields = {k: v for k, v in cls.model_fields.items() if k != "tool_name"}
-    if model_fields:
+    if model_fields and flags_arg is None:
         console.print()
         if current_dict:
             console.print("[dim]Current values:[/dim]")
@@ -373,19 +416,19 @@ def configure(
 
         extra = {k: v for k, v in updated.items() if v is not None}
     else:
-        extra = {}
+        extra = current_dict  # keep existing values in non-interactive mode
 
     # 5. Prompt for default_resource only when there is ambiguity: more than
     #    one resource is configured, or an explicit override already exists.
     #    In the normal happy path, owned_resources stored under the canonical
-    #    name — no override needed.
+    #    name — no override needed.  Skipped entirely in non-interactive mode.
     existing_tool = config.tools.get(cls.tool_name)
     available_resources = sorted(config.resource_names())
     existing_default = existing_tool.default_resource if existing_tool else None
     needs_prompt = len(available_resources) > 1 or existing_default is not None
 
     new_default_resource: str | None = existing_default
-    if cls.required_resources and needs_prompt:
+    if cls.required_resources and needs_prompt and flags_arg is None:
         console.print(f"\n[dim]Available resources: {', '.join(available_resources)}[/dim]")
         new_default_resource = (
             typer.prompt(

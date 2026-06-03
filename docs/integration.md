@@ -24,7 +24,7 @@ In your `pyproject.toml`:
 
 ```toml
 [project.dependencies]
-"oa-configurator>=0.2.0". # version may vary
+"oa-configurator>=0.2.0"  # version may vary
 ```
 
 ---
@@ -189,6 +189,103 @@ cdm_schema = "public"
 > If your test session drops and recreates schemas, add a runtime guard that compares the
 > resolved URL of `test_cdm_db` against all other configured resources and calls
 > `pytest.fail()` on any match.
+
+---
+
+---
+
+## Docker Compose
+
+### How it works
+
+`~/.config/omop/config.toml` lives on the host (or in a container's home directory) and is
+the single source of truth.  Docker Compose is only needed to provide **database credentials**
+at container startup — the app itself always reads from the TOML file, never from environment
+variables at runtime.
+
+The workflow:
+
+1. A gitignored `.env` file holds secrets that Docker Compose substitutes into its YAML.
+2. The container's startup command calls `omop-config configure <package>` with `--flags`,
+   writing those values into `config.toml` **once at startup**.
+3. After that, the app reads `config.toml` normally — no environment variables involved.
+
+The `.env` file is a Docker Compose concern only. It is never loaded by the Python app.
+
+### Example
+
+`.env` (gitignored):
+
+```bash
+POSTGRES_USER=omop
+POSTGRES_PASSWORD=secret
+POSTGRES_DB=omop_cdm
+```
+
+`docker-compose.yml`:
+
+```yaml
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+
+  app:
+    build: .
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    command: >
+      bash -c "
+        omop-config configure my_package
+          --conn-name cdm --dialect postgresql+psycopg
+          --host db --port 5432
+          --user $$POSTGRES_USER --password $$POSTGRES_PASSWORD
+          --database $$POSTGRES_DB --cdm-schema omop &&
+        exec my_app_entrypoint
+      "
+```
+
+!!! note "$$VAR escaping"
+    Use `$$VAR` (double dollar) inside a `command:` string so Docker Compose passes the
+    literal variable name to the shell rather than substituting it at YAML-parse time.
+
+If your stack has more than one package (e.g., `my_package` and `omop_alchemy`), add a
+separate `omop-config configure` call for each, chained with `&&`:
+
+```yaml
+command: >
+  bash -c "
+    omop-config configure omop_alchemy
+      --conn-name cdm --dialect postgresql+psycopg
+      --host db --port 5432 --user $$POSTGRES_USER --password $$POSTGRES_PASSWORD
+      --database $$POSTGRES_DB --cdm-schema omop &&
+    omop-config configure my_package
+      --conn-name cdm --dialect postgresql+psycopg
+      --host db --port 5432 --user $$POSTGRES_USER --password $$POSTGRES_PASSWORD
+      --database $$POSTGRES_DB --cdm-schema omop &&
+    exec my_app_entrypoint
+  "
+```
+
+Each call is scoped to its own package — the `--host` flag for `omop_alchemy configure`
+configures the CDM database; the `--host` flag for `my_package configure` configures that
+package's database.  No prefix is needed because the package name is the namespace.
+
+### Security note
+
+The `config.toml` written by the container will contain the database password in plaintext.
+This is acceptable for local development containers.  Restrict the file permissions:
+
+```bash
+chmod 600 ~/.config/omop/config.toml
+```
+
+`omop-config` will warn at load time if the file has looser permissions.
 
 ---
 

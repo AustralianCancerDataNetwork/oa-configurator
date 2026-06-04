@@ -192,6 +192,47 @@ cdm_schema = "public"
 
 ---
 
+## Multiple environments
+
+### Adding a second resource of the same type
+
+The `omop-config configure` command creates one resource per semantic name by default
+(e.g. `cdm_db` for omop-alchemy). To add a second — for example a production CDM
+alongside a local development one — use `--resource-name`:
+
+```bash
+omop-config configure omop_alchemy --resource-name cdm_db_prod
+```
+
+This creates `cdm_db_prod` without touching the existing `cdm_db`. Run
+`omop-config configure omop_alchemy` afterwards to select which one each tool uses
+as its default, or set `default_resource` directly in `config.toml`:
+
+```toml
+[tools.omop_alchemy]
+default_resource = "cdm_db_prod"
+```
+
+### When does default_resource matter?
+
+`default_resource` is only consulted when you have multiple resources of the same type
+configured. With a single CDM resource and a single EMB resource, it is set
+automatically by configure and you never need to think about it.
+
+### resource_aliases — a naming compatibility tool
+
+`resource_aliases` is NOT for switching environments. It solves a different problem:
+if your resource is named differently from what packages expect (e.g. `my_hospital_cdm`
+instead of `cdm_db`), aliases let packages find it without renaming your resource:
+
+```toml
+[resource_aliases]
+cdm_db = "my_hospital_cdm"   # packages asking for cdm_db get my_hospital_cdm
+```
+
+For multi-environment use, create multiple named resources and use `default_resource`
+instead.
+
 ---
 
 ## Docker Compose

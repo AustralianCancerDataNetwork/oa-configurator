@@ -72,6 +72,7 @@ def _prompt_resource_config(
     config: StackConfig,
     *,
     flags: dict[str, str | int | None] | None = None,
+    semantic_name_override: str | None = None,
 ) -> tuple[str, ConnectionConfig, ResourceConfig] | None:
     """Prompt to create or update a connection + resource for a ResourceSpec.
 
@@ -83,24 +84,28 @@ def _prompt_resource_config(
     Parameters
     ----------
     spec
-        The ResourceSpec describing the resource to configure.  
-        Its *semantic_name* is used to look up existing config and determine the default value for prompts.
+        The ResourceSpec describing the resource to configure.
     config
         The current StackConfig, used to look up existing config and determine defaults.
     flags
-        Optional dict of flag values to override prompts.  
-        Keys correspond to the fields of ConnectionConfig and ResourceConfig
+        Optional dict of flag values to override prompts.
+        Keys correspond to the fields of ConnectionConfig and ResourceConfig.
+    semantic_name_override
+        When provided, the resource is created/updated under this name instead
+        of ``spec.semantic_name``. Used by ``--resource-name`` to create a
+        second instance of the same resource type (e.g. ``cdm_db_prod``).
 
     Returns ``(conn_name, conn, resource)`` or ``None`` to keep existing config.
     """
     non_interactive = flags is not None
     flags = flags or {}
-    resolved = config.resource_aliases.get(spec.semantic_name, spec.semantic_name)
+    resource_name = semantic_name_override or spec.semantic_name
+    resolved = config.resource_aliases.get(resource_name, resource_name)
     existing = config.resources.get(resolved)
 
     if existing and not non_interactive:
         if typer.confirm(
-            f"{spec.display_name} is already configured (resource: {resolved!r}). Keep it?",
+            f"{spec.display_name} is already configured (resource: {resource_name!r}). Keep it?",
             default=True,
         ):
             return None
@@ -130,9 +135,14 @@ def _prompt_resource_config(
     if not non_interactive:
         console.print("\n[dim]Schema configuration[/dim]\n")
 
-    cdm_schema = _v("cdm_schema", "CDM schema  (schema containing the OMOP tables)", "omop")
-    vocab_schema = _v("vocab_schema", "Vocab schema  (leave blank to share the CDM schema)", "") or None
-    results_schema = _v("results_schema", "Results schema  (leave blank to skip)", "") or None
+    if spec.is_cdm_database:
+        cdm_schema = _v("cdm_schema", "CDM schema  (schema containing the OMOP tables)", spec.cdm_schema_default)
+        vocab_schema = _v("vocab_schema", "Vocab schema  (blank = same schema as CDM; set only if vocabulary lives in a separate schema)", "") or None
+        results_schema = _v("results_schema", "Results schema  (for Achilles/Atlas results tables; blank = not used)", "") or None
+    else:
+        cdm_schema = _v("cdm_schema", "Schema  (leave blank for public/default)", spec.cdm_schema_default)
+        vocab_schema = None
+        results_schema = None
 
     resource = ResourceConfig(
         primary_db=conn_name,
@@ -271,6 +281,21 @@ def configure(  # noqa: PLR0913
     cdm_schema: Annotated[str | None, typer.Option("--cdm-schema", help="CDM schema name (skips prompt).")] = None,
     vocab_schema: Annotated[str | None, typer.Option("--vocab-schema", help="Vocab schema; omit to share CDM schema (skips prompt).")] = None,
     results_schema: Annotated[str | None, typer.Option("--results-schema", help="Results schema; omit if unused (skips prompt).")] = None,
+    resource_name: Annotated[
+        str | None,
+        typer.Option(
+            "--resource-name",
+            help=(
+                "Create or update the resource under this name instead of the package default. "
+                "Use to add a second instance of the same resource type, e.g. "
+                "'omop-config configure omop_alchemy --resource-name cdm_db_prod'."
+            ),
+        ),
+    ] = None,
+    skip_if_configured: Annotated[
+        bool,
+        typer.Option("--skip-if-configured", "-s", help="Skip without prompting if the package is already configured. Safe to use on every container restart."),
+    ] = False,
 ) -> None:
     """Configure a package's [tools.<name>] section.
 
@@ -281,6 +306,11 @@ def configure(  # noqa: PLR0913
             --conn-name cdm --dialect postgresql+psycopg \\
             --host db --port 5432 --user omop --password secret \\
             --database omop_cdm --cdm-schema omop
+
+    To add a second resource of the same type (e.g. a production CDM alongside
+    a local one) use --resource-name:
+
+        omop-config configure omop_alchemy --resource-name cdm_db_prod
 
     Packages register support via the 'omop.config' entry-point group in their
     pyproject.toml.
@@ -326,16 +356,36 @@ def configure(  # noqa: PLR0913
         DEFAULT_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         config = StackConfig()
 
+    if skip_if_configured:
+        if cls.owned_resources:
+            # When --resource-name is given, check that specific name; otherwise check all owned names.
+            if resource_name:
+                check_names = {resource_name}
+            else:
+                check_names = {spec.semantic_name for spec in cls.owned_resources}
+            resolved_check = {config.resource_aliases.get(n, n) for n in check_names}
+            if resolved_check.issubset(config.resources):
+                console.print(f"[dim]{cls.tool_name} already configured, skipping.[/dim]")
+                return
+        else:
+            if cls.tool_name in config.tools:
+                console.print(f"[dim]{cls.tool_name} already configured, skipping.[/dim]")
+                return
+
     console.print(f"\n[bold]Configuring [cyan]{package}[/cyan][/bold]")
     console.print(f"[dim]TOML section: [tools.{cls.tool_name}][/dim]")
 
-    # Configure each resource this package owns (connection + schema setup)
+    # Configure each resource this package owns (connection + schema setup).
+    # When --resource-name is given and the package owns exactly one resource,
+    # that resource is created under the override name instead of the default.
     for spec in cls.owned_resources:
-        result = _prompt_resource_config(spec, config, flags=flags_arg)
+        effective_name = resource_name if (resource_name and len(cls.owned_resources) == 1) else None
+        result = _prompt_resource_config(spec, config, flags=flags_arg, semantic_name_override=effective_name)
         if result is not None:
             r_conn_name, new_conn, new_resource = result
             config.connections[r_conn_name] = new_conn
-            config.resources[spec.semantic_name] = new_resource
+            save_name = effective_name or spec.semantic_name
+            config.resources[save_name] = new_resource
 
     # Warn about required resources that are neither owned nor yet configured
     owned_names = {spec.semantic_name for spec in cls.owned_resources}
@@ -378,23 +428,31 @@ def configure(  # noqa: PLR0913
     else:
         extra = current_dict
 
-    # Prompt for default_resource only when ambiguous: more than one resource is
-    # configured, or an explicit override already exists. Skipped when non-interactive.
+    # Resolve default_resource: only prompt when genuinely ambiguous (multiple matching resources).
+    # Filter to resources this package actually uses (owned + required) to avoid showing
+    # unrelated resources (e.g. emb_db when configuring a CDM-only package).
     existing_tool = config.tools.get(cls.tool_name)
-    available_resources = sorted(config.resource_names())
     existing_default = existing_tool.default_resource if existing_tool else None
-    needs_prompt = len(available_resources) > 1 or existing_default is not None
+    available_resources = sorted(config.resource_names())
+    relevant_names = {s.semantic_name for s in cls.owned_resources} | set(cls.required_resources)
+    relevant_resources = [r for r in available_resources if r in relevant_names]
 
-    new_default_resource: str | None = existing_default
-    if cls.required_resources and needs_prompt and flags_arg is None:
-        console.print(f"\n[dim]Available resources: {', '.join(available_resources)}[/dim]")
+    if cls.owned_resources:
+        # Package owns a resource — that is the primary resource, no question needed.
+        new_default_resource = existing_default or cls.owned_resources[0].semantic_name
+    elif len(relevant_resources) > 1 and flags_arg is None:
+        # Multiple matching resources — ask which one to use.
+        console.print(f"\n[dim]Available resources for this package: {', '.join(relevant_resources)}[/dim]")
         new_default_resource = (
             typer.prompt(
-                "Resource  (which resource should this package use)",
-                default=existing_default or cls.required_resources[0],
+                "Default resource  (which resource should this package use)",
+                default=existing_default or relevant_resources[0],
             )
             or None
         )
+    else:
+        # Only one (or zero) relevant resource — set silently.
+        new_default_resource = existing_default or (relevant_resources[0] if relevant_resources else None)
 
     config.tools[cls.tool_name] = ToolConfig(default_resource=new_default_resource, extra=extra)
     save_stack_config(config)

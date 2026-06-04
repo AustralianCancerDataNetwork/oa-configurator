@@ -48,12 +48,25 @@ class ResourceSpec:
     spec before asking for package-specific extras.
 
     ``owned_resources`` is a CLI-only concern; it has no effect at runtime.
+
+    Attributes
+    ----------
+    cdm_schema_default
+        Default value for the schema prompt. Defaults to ``"omop"`` for OMOP
+        CDM databases. Set to ``"public"`` for non-CDM databases (e.g. the
+        pgvector embedding database).
+    is_cdm_database
+        When ``False``, the configure prompt skips the vocab schema and
+        results schema questions — those are OMOP CDM-specific concepts that
+        do not apply to other databases such as the pgvector embedding store.
     """
 
     semantic_name: str
     display_name: str
     description: str
     connection_name_hint: str = ""
+    cdm_schema_default: str = "omop"
+    is_cdm_database: bool = True
 
 
 class ConfigurationError(ValueError):

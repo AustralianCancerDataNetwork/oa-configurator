@@ -428,30 +428,33 @@ def configure(  # noqa: PLR0913
     else:
         extra = current_dict
 
-    # Resolve default_resource: only prompt when genuinely ambiguous (multiple matching resources).
-    # Filter to resources this package actually uses (owned + required) to avoid showing
-    # unrelated resources (e.g. emb_db when configuring a CDM-only package).
+    # Resolve default_resource: prompt when genuinely ambiguous (multiple relevant resources).
+    # Filter to resources this package actually uses (owned + required + any --resource-name
+    # override) to avoid showing unrelated resources.
     existing_tool = config.tools.get(cls.tool_name)
     existing_default = existing_tool.default_resource if existing_tool else None
     available_resources = sorted(config.resource_names())
     relevant_names = {s.semantic_name for s in cls.owned_resources} | set(cls.required_resources)
+    if resource_name:
+        relevant_names.add(resource_name)
     relevant_resources = [r for r in available_resources if r in relevant_names]
 
-    if cls.owned_resources:
-        # Package owns a resource — that is the primary resource, no question needed.
-        new_default_resource = existing_default or cls.owned_resources[0].semantic_name
-    elif len(relevant_resources) > 1 and flags_arg is None:
-        # Multiple matching resources — ask which one to use.
+    if len(relevant_resources) > 1 and flags_arg is None:
+        # Multiple relevant resources in interactive mode — ask which one to use.
         console.print(f"\n[dim]Available resources for this package: {', '.join(relevant_resources)}[/dim]")
+        prompt_default = resource_name or existing_default or relevant_resources[0]
         new_default_resource = (
             typer.prompt(
                 "Default resource  (which resource should this package use)",
-                default=existing_default or relevant_resources[0],
+                default=prompt_default,
             )
             or None
         )
+    elif len(relevant_resources) > 1 and flags_arg is not None:
+        # Non-interactive with multiple resources: honour explicit --resource-name, else keep existing.
+        new_default_resource = resource_name or existing_default or relevant_resources[0]
     else:
-        # Only one (or zero) relevant resource — set silently.
+        # Single (or zero) relevant resource — set silently.
         new_default_resource = existing_default or (relevant_resources[0] if relevant_resources else None)
 
     config.tools[cls.tool_name] = ToolConfig(default_resource=new_default_resource, extra=extra)

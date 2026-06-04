@@ -204,9 +204,11 @@ alongside a local development one — use `--resource-name`:
 omop-config configure omop_alchemy --resource-name cdm_db_prod
 ```
 
-This creates `cdm_db_prod` without touching the existing `cdm_db`. Run
-`omop-config configure omop_alchemy` afterwards to select which one each tool uses
-as its default, or set `default_resource` directly in `config.toml`:
+This creates `cdm_db_prod` without touching the existing `cdm_db`. Because two
+resources now exist for the same package, configure automatically prompts you to
+choose the default at the end of the same run — no second invocation needed.
+
+To change the default later, edit `config.toml` directly:
 
 ```toml
 [tools.omop_alchemy]

@@ -296,6 +296,10 @@ def configure(  # noqa: PLR0913
         bool,
         typer.Option("--skip-if-configured", "-s", help="Skip without prompting if the package is already configured. Safe to use on every container restart."),
     ] = False,
+    set_fields: Annotated[
+        list[str],
+        typer.Option("--set", help="Set an extra field as key=value (e.g. --set ollama_api_base=http://ollama:11434/v1). Repeatable. Forces non-interactive mode for extras."),
+    ] = [],
 ) -> None:
     """Configure a package's [tools.<name>] section.
 
@@ -326,6 +330,11 @@ def configure(  # noqa: PLR0913
     flags_arg: dict[str, str | int | None] | None = (
         {k: v for k, v in raw_flags.items() if v is not None} or None
     )
+    set_dict: dict[str, str] = {}
+    for kv in set_fields:
+        k, _, v = kv.partition("=")
+        if k.strip():
+            set_dict[k.strip()] = v
 
     if not package:
         if not registered:
@@ -356,21 +365,16 @@ def configure(  # noqa: PLR0913
         DEFAULT_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         config = StackConfig()
 
+    # --skip-if-configured only gates the resource/connection prompt step.
+    # --set and tool extras always run so environment values stay current on every restart.
+    _skip_resource_config = False
     if skip_if_configured:
         if cls.owned_resources:
-            # When --resource-name is given, check that specific name; otherwise check all owned names.
-            if resource_name:
-                check_names = {resource_name}
-            else:
-                check_names = {spec.semantic_name for spec in cls.owned_resources}
+            check_names = {resource_name} if resource_name else {s.semantic_name for s in cls.owned_resources}
             resolved_check = {config.resource_aliases.get(n, n) for n in check_names}
-            if resolved_check.issubset(config.resources):
-                console.print(f"[dim]{cls.tool_name} already configured, skipping.[/dim]")
-                return
+            _skip_resource_config = resolved_check.issubset(config.resources)
         else:
-            if cls.tool_name in config.tools:
-                console.print(f"[dim]{cls.tool_name} already configured, skipping.[/dim]")
-                return
+            _skip_resource_config = cls.tool_name in config.tools
 
     console.print(f"\n[bold]Configuring [cyan]{package}[/cyan][/bold]")
     console.print(f"[dim]TOML section: [tools.{cls.tool_name}][/dim]")
@@ -378,7 +382,12 @@ def configure(  # noqa: PLR0913
     # Configure each resource this package owns (connection + schema setup).
     # When --resource-name is given and the package owns exactly one resource,
     # that resource is created under the override name instead of the default.
+    if _skip_resource_config:
+        console.print(f"[dim]Resource already configured — skipping connection setup.[/dim]")
+
     for spec in cls.owned_resources:
+        if _skip_resource_config:
+            continue
         effective_name = resource_name if (resource_name and len(cls.owned_resources) == 1) else None
         result = _prompt_resource_config(spec, config, flags=flags_arg, semantic_name_override=effective_name)
         if result is not None:
@@ -408,7 +417,7 @@ def configure(  # noqa: PLR0913
 
     # Prompt for package-specific extra fields (skipped in non-interactive mode)
     model_fields = {k: v for k, v in cls.model_fields.items() if k != "tool_name"}
-    if model_fields and flags_arg is None:
+    if model_fields and flags_arg is None and not set_dict and not _skip_resource_config:
         console.print()
         if current_dict:
             console.print("[dim]Current values:[/dim]")
@@ -426,7 +435,7 @@ def configure(  # noqa: PLR0913
 
         extra = {k: v for k, v in updated.items() if v is not None}
     else:
-        extra = current_dict
+        extra = {**current_dict, **set_dict}
 
     # Resolve default_resource: prompt when genuinely ambiguous (multiple relevant resources).
     # Filter to resources this package actually uses (owned + required + any --resource-name

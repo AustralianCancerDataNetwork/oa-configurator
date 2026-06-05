@@ -115,9 +115,23 @@ def _prompt_resource_config(
         console.print(f"[dim]{spec.description}[/dim]")
         console.print("[dim]Tip: the value shown in [brackets] is the default. Press Enter to accept it.[/dim]\n")
 
+    # Collect already-stored values so re-running configure never re-prompts for
+    # fields that are already configured and not explicitly overridden by a flag.
+    # Resolution order: explicit flag > stored config > prompt.
+    _stored: dict[str, str] = {}
+    if existing:
+        _stored.update({k: str(v) for k, v in existing.model_dump(exclude_none=True).items()})
+        _stored["conn_name"] = existing.primary_db
+        _ec = config.connections.get(existing.primary_db)
+        if _ec:
+            _stored.update({k: str(v) for k, v in _ec.model_dump(exclude_none=True).items()})
+
     def _v(key: str, label: str, default: str, *, hide_input: bool = False) -> str:
-        val = flags.get(key)
-        return str(val) if val is not None else typer.prompt(label, default=default, hide_input=hide_input)
+        if (val := flags.get(key)) is not None:
+            return str(val)
+        if key in _stored:
+            return _stored[key]
+        return typer.prompt(label, default=default, hide_input=hide_input)
 
     conn_name = _v("conn_name", "Connection name  (a short label, e.g. 'cdm' or 'prod')", spec.connection_name_hint or "cdm")
     dialect = _v("dialect", "Dialect  (SQLAlchemy driver string, e.g. postgresql+psycopg, sqlite)", "postgresql+psycopg")
@@ -292,10 +306,6 @@ def configure(  # noqa: PLR0913
             ),
         ),
     ] = None,
-    skip_if_configured: Annotated[
-        bool,
-        typer.Option("--skip-if-configured", "-s", help="Skip without prompting if the package is already configured. Safe to use on every container restart."),
-    ] = False,
     set_fields: Annotated[
         list[str],
         typer.Option("--set", help="Set an extra field as key=value (e.g. --set ollama_api_base=http://ollama:11434/v1). Repeatable. Forces non-interactive mode for extras."),
@@ -365,29 +375,13 @@ def configure(  # noqa: PLR0913
         DEFAULT_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         config = StackConfig()
 
-    # --skip-if-configured only gates the resource/connection prompt step.
-    # --set and tool extras always run so environment values stay current on every restart.
-    _skip_resource_config = False
-    if skip_if_configured:
-        if cls.owned_resources:
-            check_names = {resource_name} if resource_name else {s.semantic_name for s in cls.owned_resources}
-            resolved_check = {config.resource_aliases.get(n, n) for n in check_names}
-            _skip_resource_config = resolved_check.issubset(config.resources)
-        else:
-            _skip_resource_config = cls.tool_name in config.tools
-
     console.print(f"\n[bold]Configuring [cyan]{package}[/cyan][/bold]")
     console.print(f"[dim]TOML section: [tools.{cls.tool_name}][/dim]")
 
     # Configure each resource this package owns (connection + schema setup).
     # When --resource-name is given and the package owns exactly one resource,
     # that resource is created under the override name instead of the default.
-    if _skip_resource_config:
-        console.print(f"[dim]Resource already configured — skipping connection setup.[/dim]")
-
     for spec in cls.owned_resources:
-        if _skip_resource_config:
-            continue
         effective_name = resource_name if (resource_name and len(cls.owned_resources) == 1) else None
         result = _prompt_resource_config(spec, config, flags=flags_arg, semantic_name_override=effective_name)
         if result is not None:
@@ -417,7 +411,7 @@ def configure(  # noqa: PLR0913
 
     # Prompt for package-specific extra fields (skipped in non-interactive mode)
     model_fields = {k: v for k, v in cls.model_fields.items() if k != "tool_name"}
-    if model_fields and flags_arg is None and not set_dict and not _skip_resource_config:
+    if model_fields and flags_arg is None and not set_dict:
         console.print()
         if current_dict:
             console.print("[dim]Current values:[/dim]")

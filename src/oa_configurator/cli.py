@@ -67,19 +67,20 @@ def init(
         console.print("\nNo packages registered yet. Install a package that supports oa_configurator.")
 
 
-def _prompt_resource_config(
+def _resolve_resource(
     spec: ResourceSpec,
     config: StackConfig,
     *,
     flags: dict[str, str | int | None] | None = None,
     semantic_name_override: str | None = None,
 ) -> tuple[str, ConnectionConfig, ResourceConfig] | None:
-    """Prompt to create or update a connection + resource for a ResourceSpec.
+    """Resolve or create a connection + resource for a ResourceSpec.
 
-    When *flags* is provided, flag values skip the corresponding prompts and
-    the "keep existing?" confirmation is suppressed. This is the non-interactive
-    configuration of the package and is suitable for scripted /
-    Docker Compose use.  Omitting *flags* preserves fully-interactive behaviour.
+    Resolution order for each field: explicit flag > stored config > prompt.
+
+    When *flags* is provided, the "keep existing?" confirmation is suppressed.
+    This is the non-interactive path suitable for scripted / Docker Compose use.
+    Omitting *flags* preserves fully-interactive behaviour.
 
     Parameters
     ----------
@@ -279,6 +280,37 @@ def export_env(
     console.print(f"[green]✓[/green] Wrote [dim]{env_path}[/dim]")
 
 
+def _resolve_extra_fields(
+    cls,
+    config: StackConfig,
+    *,
+    set_dict: dict[str, str],
+    interactive: bool,
+) -> dict:
+    """Resolve package-specific extra fields using flag (--set) → stored → prompt."""
+    try:
+        current = cls.from_stack(config)
+        current_dict = current.to_extra_dict()
+    except ConfigurationError:
+        current_dict = {}
+
+    extra: dict = {}
+    for field_name, field_info in cls.model_fields.items():
+        if field_name == "tool_name":
+            continue
+        if field_name in set_dict:
+            extra[field_name] = set_dict[field_name]
+        elif field_name in current_dict:
+            extra[field_name] = current_dict[field_name]
+        elif interactive:
+            desc = field_info.description or ""
+            label = f"{field_name}" + (f"  ({desc})" if desc else "")
+            raw = typer.prompt(label, default=str(field_info.default) if field_info.default is not None else "")
+            if raw and raw != "None":
+                extra[field_name] = raw
+    return extra
+
+
 @app.command()
 def configure(  # noqa: PLR0913
     package: Annotated[
@@ -383,7 +415,7 @@ def configure(  # noqa: PLR0913
     # that resource is created under the override name instead of the default.
     for spec in cls.owned_resources:
         effective_name = resource_name if (resource_name and len(cls.owned_resources) == 1) else None
-        result = _prompt_resource_config(spec, config, flags=flags_arg, semantic_name_override=effective_name)
+        result = _resolve_resource(spec, config, flags=flags_arg, semantic_name_override=effective_name)
         if result is not None:
             r_conn_name, new_conn, new_resource = result
             config.connections[r_conn_name] = new_conn
@@ -402,34 +434,7 @@ def configure(  # noqa: PLR0913
                 f"It may be provided by another package. Run that package's configure command."
             )
 
-    # Load current extras gracefully (resource may not exist yet on a fresh install)
-    try:
-        current = cls.from_stack(config)
-        current_dict = current.to_extra_dict()
-    except ConfigurationError:
-        current_dict = {}
-
-    # Prompt for package-specific extra fields (skipped in non-interactive mode)
-    model_fields = {k: v for k, v in cls.model_fields.items() if k != "tool_name"}
-    if model_fields and flags_arg is None and not set_dict:
-        console.print()
-        if current_dict:
-            console.print("[dim]Current values:[/dim]")
-            for k, v in current_dict.items():
-                console.print(f"  {k} = {v!r}")
-            console.print()
-
-        updated: dict = {}
-        for field_name, field_info in model_fields.items():
-            default = current_dict.get(field_name, field_info.default)
-            desc = field_info.description or ""
-            prompt_label = f"{field_name}" + (f" ({desc})" if desc else "")
-            raw = typer.prompt(prompt_label, default=str(default) if default is not None else "")
-            updated[field_name] = None if raw in ("", "None") else raw
-
-        extra = {k: v for k, v in updated.items() if v is not None}
-    else:
-        extra = {**current_dict, **set_dict}
+    extra = _resolve_extra_fields(cls, config, set_dict=set_dict, interactive=flags_arg is None)
 
     # Resolve default_resource: prompt when genuinely ambiguous (multiple relevant resources).
     # Filter to resources this package actually uses (owned + required + any --resource-name

@@ -24,7 +24,7 @@ def write_env_file(resolver: Resolver, path: Path = FLAT_ENV_PATH) -> Path:
 
     Naming convention
     -----------------
-    - Resource ``<name>`` primary_db → ``<NAME>_DB_{HOST,PORT,USER,PASSWORD,NAME,DRIVER,URL}``
+    - Resource ``<name>`` database → ``<NAME>_DB_{DIALECT,HOST,PORT,USER,PASSWORD,DATABASE_NAME,URL}``
     - Tool ``<name>`` scalar extra fields → ``<NAME>_{KEY}``
 
     All resource names and tool names are uppercased with hyphens replaced by
@@ -40,13 +40,13 @@ def write_env_file(resolver: Resolver, path: Path = FLAT_ENV_PATH) -> Path:
         prefix = f"{resource_name.upper().replace('-', '_')}_DB"
         try:
             resolved = resolver.resolve_resource(resource_name)
-            conn = resolver.effective_connection(resolved.primary_db.name)
+            db = resolver.effective_database(resolved.database.name)
         except Exception as exc:
             logger.warning("Skipping resource %r in env export: %s", resource_name, exc)
             continue
 
-        lines.extend(conn.to_env_pairs(prefix))
-        lines.append(f"{prefix}_URL={resolved.primary_db.url}")
+        lines.extend(db.to_env_pairs(prefix))
+        lines.append(f"{prefix}_URL={resolved.database.url}")
         lines.append("")
 
     for tool_name in resolver.config.tools:

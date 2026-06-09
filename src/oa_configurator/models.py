@@ -11,11 +11,11 @@ from sqlalchemy.engine import URL
 from .logging_config import LoggingConfig
 
 
-class ConnectionConfig(BaseModel):
-    """Credentials and endpoint for one named database server.
+class DatabaseConfig(BaseModel):
+    """Complete specification of one named database: server address, credentials, and target database.
 
-    Referenced by :attr:`ResourceConfig.primary_db` and
-    :attr:`ResourceConfig.vocab_db`. Each entry under ``[connections]``
+    Referenced by :attr:`ResourceConfig.database` and
+    :attr:`ResourceConfig.vocab_database`. Each entry under ``[databases]``
     in ``config.toml`` maps to one instance of this model.
 
     Passwords are stored in plaintext for now; secret management support
@@ -34,9 +34,9 @@ class ConnectionConfig(BaseModel):
         default=None,
         description="Plaintext password. Secret management support is planned for a future release.",
     )
-    database: str | None = Field(
+    database_name: str | None = Field(
         default=None,
-        description="Database name. For SQLite use ':memory:' or an absolute path.",
+        description="Database name on the server. For SQLite use ':memory:' or an absolute path.",
     )
     read_only: bool = Field(
         default=False,
@@ -59,7 +59,7 @@ class ConnectionConfig(BaseModel):
 
     def _build_url(self, hide_password: bool) -> str:
         if self.dialect.startswith("sqlite"):
-            db = self.database or ":memory:"
+            db = self.database_name or ":memory:"
             return f"sqlite:///{db}"
         return URL.create(
             drivername=self.dialect,
@@ -67,7 +67,7 @@ class ConnectionConfig(BaseModel):
             password=self.password,
             host=self.host or "localhost",
             port=self.port,
-            database=self.database or "",
+            database=self.database_name or "",
         ).render_as_string(hide_password=hide_password)
 
     def build_url(self) -> str:
@@ -97,7 +97,7 @@ class ConnectionConfig(BaseModel):
 
 
 class ResourceConfig(BaseModel):
-    """Maps the OMOP logical roles (CDM, vocab, results) to named connections and schema names.
+    """Maps the OMOP logical roles (CDM, vocab, results) to named databases and schema names.
 
     The unit that consuming packages configure once and reference by name.
     Most packages only need a single ``cdm_db`` resource. Each entry under
@@ -106,12 +106,12 @@ class ResourceConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    primary_db: str = Field(
-        description="Name of the connection used for the CDM server."
+    database: str = Field(
+        description="Name of the database entry (from [databases]) used as the primary CDM server."
     )
-    vocab_db: str | None = Field(
+    vocab_database: str | None = Field(
         default=None,
-        description="Name of the connection for vocabulary tables. Falls back to primary_db when not set.",
+        description="Name of the database entry for vocabulary tables. Falls back to database when not set.",
     )
     cdm_schema: str = Field(
         description="Schema where CDM clinical tables live."
@@ -157,9 +157,9 @@ class ProfileOverrideConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    connections: dict[str, ConnectionConfig] = Field(
+    databases: dict[str, DatabaseConfig] = Field(
         default_factory=dict,
-        description="Connection configs that replace or extend the base connections.",
+        description="Database configs that replace or extend the base databases.",
     )
     resources: dict[str, ResourceConfig] = Field(
         default_factory=dict,
@@ -187,13 +187,13 @@ class StackConfig(BaseModel):
         default=None,
         description="Name of the profile to activate. Can be overridden by the OA_ACTIVE_PROFILE env var.",
     )
-    connections: dict[str, ConnectionConfig] = Field(
+    databases: dict[str, DatabaseConfig] = Field(
         default_factory=dict,
-        description="Named database connection endpoints.",
+        description="Named database configurations (server address, credentials, target database).",
     )
     resources: dict[str, ResourceConfig] = Field(
         default_factory=dict,
-        description="Named logical role bundles mapping CDM roles to connections and schemas.",
+        description="Named logical role bundles mapping CDM roles to databases and schemas.",
     )
     tools: dict[str, ToolConfig] = Field(
         default_factory=dict,
@@ -222,14 +222,14 @@ class StackConfig(BaseModel):
     def validate_references(self) -> "StackConfig":
         """Ensure all named cross-references point at configured objects."""
         for rname, resource in self.resources.items():
-            self._check_resource_refs(resource, self.connections, f"resources.{rname}")
+            self._check_resource_refs(resource, self.databases, f"resources.{rname}")
         for tname, tool in self.tools.items():
             self._check_tool_refs(tool, self.resources, f"tools.{tname}")
         for pname, profile in self.profiles.items():
-            effective_conns = {**self.connections, **profile.connections}
+            effective_dbs = {**self.databases, **profile.databases}
             effective_res = {**self.resources, **profile.resources}
             for rname, resource in profile.resources.items():
-                self._check_resource_refs(resource, effective_conns, f"profiles.{pname}.resources.{rname}")
+                self._check_resource_refs(resource, effective_dbs, f"profiles.{pname}.resources.{rname}")
             for tname, tool in profile.tools.items():
                 self._check_tool_refs(tool, effective_res, f"profiles.{pname}.tools.{tname}")
         for alias_key, alias_target in self.resource_aliases.items():
@@ -242,20 +242,20 @@ class StackConfig(BaseModel):
 
     @staticmethod
     def _check_resource_refs(
-        resource: "ResourceConfig",
-        connections: "dict[str, ConnectionConfig]",
+        resource: ResourceConfig,
+        databases: dict[str, DatabaseConfig],
         location: str,
     ) -> None:
-        for field, name in (("primary_db", resource.primary_db), ("vocab_db", resource.vocab_db)):
-            if name is not None and name not in connections:
+        for field, name in (("database", resource.database), ("vocab_database", resource.vocab_database)):
+            if name is not None and name not in databases:
                 raise ValueError(
-                    f"{location}.{field} references unknown connection {name!r}"
+                    f"{location}.{field} references unknown database {name!r}"
                 )
 
     @staticmethod
     def _check_tool_refs(
-        tool: "ToolConfig",
-        resources: "dict[str, ResourceConfig]",
+        tool: ToolConfig,
+        resources: dict[str, ResourceConfig],
         location: str,
     ) -> None:
         if tool.default_resource is not None and tool.default_resource not in resources:
@@ -267,7 +267,7 @@ class StackConfig(BaseModel):
     def for_session(
         cls,
         *,
-        connections: dict | None = None,
+        databases: dict[str, DatabaseConfig] | None = None,
         resources: dict | None = None,
         tools: dict | None = None,
         profiles: dict | None = None,
@@ -281,7 +281,7 @@ class StackConfig(BaseModel):
         """
         return cls(
             active_profile=active_profile,
-            connections=connections or {},
+            databases=databases or {},
             resources=resources or {},
             tools=tools or {},
             profiles=profiles or {},
@@ -297,9 +297,9 @@ class StackConfig(BaseModel):
         """Path of the TOML file this config was loaded from, if any."""
         return self._loaded_path
 
-    def connection_names(self) -> tuple[str, ...]:
-        """Return a sorted tuple of configured connection names."""
-        return tuple(sorted(self.connections))
+    def database_names(self) -> tuple[str, ...]:
+        """Return a sorted tuple of configured database names."""
+        return tuple(sorted(self.databases))
 
     def resource_names(self) -> tuple[str, ...]:
         """Return a sorted tuple of configured resource names."""

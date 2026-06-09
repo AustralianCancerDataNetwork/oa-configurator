@@ -10,33 +10,33 @@ A profile defines connections, resources, and/or tools that **replace** the base
 
 ```toml
 # Base config
-[connections.cdm]
-dialect  = "postgresql+psycopg"
-host     = "prod.example.com"
-port     = 5432
-user     = "omop"
-password = "prod_secret"
-database = "omop_cdm"
+[databases.cdm]
+dialect       = "postgresql+psycopg"
+host          = "prod.example.com"
+port          = 5432
+user          = "omop"
+password      = "prod_secret"
+database_name = "omop_cdm"
 
 [resources.default]
-primary_db = "cdm"
+database   = "cdm"
 cdm_schema = "omop"
 
 # Test profile (only what changes)
-[profiles.test.connections.cdm]
-dialect  = "postgresql+psycopg"
-host     = "localhost"
-port     = 5433
-user     = "test_user"
-password = "test_pass"
-database = "omop_test"
+[profiles.test.databases.cdm]
+dialect       = "postgresql+psycopg"
+host          = "localhost"
+port          = 5433
+user          = "test_user"
+password      = "test_pass"
+database_name = "omop_test"
 
 [profiles.test.resources.default]
-primary_db = "cdm"
+database   = "cdm"
 cdm_schema = "test_omop"
 ```
 
-When the `test` profile is active, `resolver.resolve_connection("cdm")` returns the test host/database.
+When the `test` profile is active, `resolver.resolve_database("cdm")` returns the test host/database.
 
 ---
 
@@ -83,14 +83,14 @@ This requires a `[profiles.test]` section in `~/.config/omop/config.toml` pointi
 Profiles can introduce new connections not present in the base config:
 
 ```toml
-[profiles.local_only.connections.local_vocab]
-dialect  = "sqlite"
-database = "/data/vocab.db"
+[profiles.local_only.databases.local_vocab]
+dialect       = "sqlite"
+database_name = "/data/vocab.db"
 
 [profiles.local_only.resources.default]
-primary_db = "cdm"          # uses base cdm connection
-vocab_db   = "local_vocab"  # new connection defined in this profile
-cdm_schema = "omop"
+database       = "cdm"         # uses base cdm database
+vocab_database = "local_vocab"  # new database defined in this profile
+cdm_schema     = "omop"
 ```
 
-Cross-references in profile resources are validated against both base and profile connections at load time.
+Cross-references in profile resources are validated against both base and profile databases at load time.

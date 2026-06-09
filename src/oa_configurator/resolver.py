@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy.engine import Engine
 
 from .models import (
-    ConnectionConfig,
+    DatabaseConfig,
     ProfileOverrideConfig,
     ResourceConfig,
     StackConfig,
@@ -71,11 +71,11 @@ class ResolvedResource:
     ----------
     name : str
         Logical name of the resource as declared in the config or an alias.
-    primary_db : ResolvedDatabaseTarget
+    database : ResolvedDatabaseTarget
         Resolved primary database target for this resource.
-    vocab_db : ResolvedDatabaseTarget
+    vocab_database : ResolvedDatabaseTarget
         Resolved vocabulary database target for this resource. May be the same as
-        *primary_db* if no separate vocab DB is configured.
+        *database* if no separate vocab database is configured.
     cdm_schema : str
         Effective CDM schema name for this resource.
     vocab_schema : str
@@ -86,8 +86,8 @@ class ResolvedResource:
     """
 
     name: str
-    primary_db: ResolvedDatabaseTarget
-    vocab_db: ResolvedDatabaseTarget
+    database: ResolvedDatabaseTarget
+    vocab_database: ResolvedDatabaseTarget
     cdm_schema: str
     vocab_schema: str
     results_schema: str | None
@@ -99,7 +99,7 @@ class ResolvedResource:
         ----------
         role : {"primary", "vocab"}, optional
             Which database target to return. Defaults to ``"primary"``.
-            When ``vocab_db`` was not configured, ``"vocab"`` returns the
+            When ``vocab_database`` was not configured, ``"vocab"`` returns the
             same target as ``"primary"``.
 
         Returns
@@ -113,9 +113,9 @@ class ResolvedResource:
             If *role* is not ``"primary"`` or ``"vocab"``.
         """
         if role == "primary":
-            return self.primary_db
+            return self.database
         if role == "vocab":
-            return self.vocab_db
+            return self.vocab_database
         raise ValueError(f"Unknown role: {role!r}. Valid roles: 'primary', 'vocab'")
 
     def schema_translate_map(self) -> dict[str | None, str | None]:
@@ -173,7 +173,7 @@ class ResolvedResource:
     def __repr__(self) -> str:
         return (
             f"ResolvedResource(name={self.name!r}, "
-            f"primary_db={self.primary_db.name!r}, "
+            f"database={self.database.name!r}, "
             f"cdm_schema={self.cdm_schema!r}, "
             f"vocab_schema={self.vocab_schema!r}, "
             f"results_schema={self.results_schema!r})"
@@ -202,18 +202,18 @@ class Resolver:
     def __init__(self, config: StackConfig) -> None:
         self.config = config
 
-    def resolve_connection(self, name: str) -> ResolvedDatabaseTarget:
-        """Resolve a connection name to a concrete target.
+    def resolve_database(self, name: str) -> ResolvedDatabaseTarget:
+        """Resolve a database name to a concrete target.
 
-        Profile overlay connections take precedence over base connections.
+        Profile overlay databases take precedence over base databases.
         """
-        conn = self.effective_connection(name)
+        db = self.effective_database(name)
         target = ResolvedDatabaseTarget(
             name=name,
-            url=conn.build_url(),
-            safe_url=conn.safe_url(),
+            url=db.build_url(),
+            safe_url=db.safe_url(),
         )
-        logger.debug("Resolved connection %r → %s", name, target.safe_url)
+        logger.debug("Resolved database %r → %s", name, target.safe_url)
         return target
 
     def resolve_resource(self, name: str) -> ResolvedResource:
@@ -242,22 +242,22 @@ class Resolver:
         """
         resource = self._effective_resource(name)
 
-        primary = self.resolve_connection(resource.primary_db)
-        vocab = self.resolve_connection(resource.vocab_db or resource.primary_db)
+        primary = self.resolve_database(resource.database)
+        vocab = self.resolve_database(resource.vocab_database or resource.database)
         effective_vocab_schema = resource.vocab_schema or resource.cdm_schema
 
         resolved = ResolvedResource(
             name=name,
-            primary_db=primary,
-            vocab_db=vocab,
+            database=primary,
+            vocab_database=vocab,
             cdm_schema=resource.cdm_schema,
             vocab_schema=effective_vocab_schema,
             results_schema=resource.results_schema,
         )
         logger.debug(
-            "Resolved resource %r → primary=%s cdm_schema=%r",
+            "Resolved resource %r → database=%s cdm_schema=%r",
             name,
-            resolved.primary_db.safe_url,
+            resolved.database.safe_url,
             resolved.cdm_schema,
         )
         return resolved
@@ -293,9 +293,9 @@ class Resolver:
     def with_overrides(
         self,
         *,
-        connections: "dict[str, ConnectionConfig] | None" = None,
-        resources: "dict[str, ResourceConfig] | None" = None,
-        tools: "dict[str, ToolConfig] | None" = None,
+        databases: dict[str, DatabaseConfig] | None = None,
+        resources: dict[str, ResourceConfig] | None = None,
+        tools: dict[str, ToolConfig] | None = None,
     ) -> "Resolver":
         """Return a new Resolver with entries merged over the current config.
 
@@ -304,7 +304,7 @@ class Resolver:
         new_config = StackConfig(
             active_profile=self.config.active_profile,
             profiles=self.config.profiles,
-            connections={**self.config.connections, **(connections or {})},
+            databases={**self.config.databases, **(databases or {})},
             resources={**self.config.resources, **(resources or {})},
             tools={**self.config.tools, **(tools or {})},
             logging=self.config.logging,
@@ -313,9 +313,9 @@ class Resolver:
             new_config.bind_loaded_path(self.config.loaded_path)
         return Resolver(new_config)
 
-    def connection_names(self) -> tuple[str, ...]:
-        """Return a sorted tuple of configured connection names."""
-        return self.config.connection_names()
+    def database_names(self) -> tuple[str, ...]:
+        """Return a sorted tuple of configured database names."""
+        return self.config.database_names()
 
     def resource_names(self) -> tuple[str, ...]:
         """Return a sorted tuple of configured resource names."""
@@ -338,24 +338,23 @@ class Resolver:
             return None
         return self.config.profiles.get(self.config.active_profile)
 
-    def effective_connection(self, name: str) -> ConnectionConfig:
-        """Return the active ConnectionConfig for a connection name.
+    def effective_database(self, name: str) -> DatabaseConfig:
+        """Return the active DatabaseConfig for a database name.
 
-        Profile overlay connections take precedence over base connections.
-        Unlike ``resolve_connection``, this returns the raw config object
+        Profile overlay databases take precedence over base databases.
+        Unlike ``resolve_database``, this returns the raw config object
         rather than a resolved target; useful when individual fields (host,
         port, etc.) are needed directly.
 
         Parameters
         ----------
         name : str
-            Connection name as it appears in ``[connections]`` or a profile
-            overlay.
+            Database name as it appears in ``[databases]`` or a profile overlay.
 
         Returns
         -------
-        ConnectionConfig
-            The effective connection config for the active profile.
+        DatabaseConfig
+            The effective database config for the active profile.
 
         Raises
         ------
@@ -363,9 +362,9 @@ class Resolver:
             If *name* does not exist in the base config or the active profile.
         """
         profile = self._active_profile()
-        if profile and name in profile.connections:
-            return profile.connections[name]
-        return _get_named(self.config.connections, "connection", name)
+        if profile and name in profile.databases:
+            return profile.databases[name]
+        return _get_named(self.config.databases, "database", name)
 
     def _effective_resource(self, name: str) -> ResourceConfig:
         profile = self._active_profile()
@@ -380,10 +379,16 @@ class Resolver:
             return profile.tools[name]
         return _get_named(self.config.tools, "tool", name)
 
+    @classmethod
+    def from_active_config(cls) -> "Resolver":
+        """Create a Resolver from the currently active stack config file."""
+        from .loader import load_stack_config
+        return cls(load_stack_config())
+
     def __repr__(self) -> str:
         return (
             f"Resolver(active_profile={self.config.active_profile!r}, "
-            f"connections={len(self.config.connections)}, "
+            f"databases={len(self.config.databases)}, "
             f"resources={len(self.config.resources)}, "
             f"tools={len(self.config.tools)})"
         )

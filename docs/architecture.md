@@ -16,16 +16,16 @@ It replaces per-package `.env` files, inconsistent env var lookups, and duplicat
 
 ## Core concepts
 
-### Connection
+### Database
 
-A concrete database endpoint: dialect, host, credentials, database name. Stored in `[connections.<name>]`.
+A concrete database endpoint: dialect, host, credentials, database name. Stored in `[databases.<name>]`.
 
 ### Resource
 
-A logical role bundle that maps OMOP CDM roles to connections and schema names:
+A logical role bundle that maps OMOP CDM roles to databases and schema names:
 
-- `primary_db`: the CDM server connection
-- `vocab_db`: optional separate connection for vocabulary (falls back to `primary_db`)
+- `database`: the CDM server database
+- `vocab_database`: optional separate database for vocabulary (falls back to `database`)
 - `cdm_schema`: schema where CDM clinical tables live (required)
 - `vocab_schema` (optional): falls back to `cdm_schema`
 - `results_schema` (optional): Achilles/Atlas results
@@ -52,13 +52,13 @@ A named overlay (`[profiles.<name>]`) that replaces specific connections, resour
          ▼
        Resolver
          │
-         ├─ resolve_connection(name)  → ResolvedDatabaseTarget
+         ├─ resolve_database(name)   → ResolvedDatabaseTarget
          │                               .url  (plaintext, internal)
          │                               .safe_url  (redacted, for logs)
          │                               .create_engine()
          │
          ├─ resolve_resource(name)   → ResolvedResource
-         │                               .primary_db / .vocab_db  (ResolvedDatabaseTarget)
+         │                               .database / .vocab_database  (ResolvedDatabaseTarget)
          │                               .cdm_schema / .vocab_schema / .results_schema
          │                               .schema_translate_map()
          │                               .create_engine(role="primary"|"vocab")
@@ -118,6 +118,6 @@ Always `~/.config/omop/config.toml`. The path is not configurable. Use `OA_ACTIV
 
 ## Future work
 
-- `secret_source` on `ConnectionConfig`: `env:VARNAME`, `file:PATH`, Vault, cloud secret managers
+- `secret_source` on `DatabaseConfig`: `env:VARNAME`, `file:PATH`, Vault, cloud secret managers
 - Async engine factory (`ResolvedDatabaseTarget.create_async_engine()`)
 - Project-local overlay (`./oa-config.toml`) layered over user config

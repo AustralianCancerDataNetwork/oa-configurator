@@ -4,7 +4,7 @@ from .io import FLAT_ENV_PATH, patch_active_profile, save_stack_config, write_en
 from .loader import DEFAULT_CONFIG_PATH, load_stack_config
 from .logging_config import LoggingConfig, configure_logging, get_logger
 from .models import (
-    ConnectionConfig,
+    DatabaseConfig,
     ProfileOverrideConfig,
     ResourceConfig,
     StackConfig,
@@ -17,7 +17,7 @@ __all__ = [
     "ConfigurationError",
     "DEFAULT_CONFIG_PATH",
     "FLAT_ENV_PATH",
-    "ConnectionConfig",
+    "DatabaseConfig",
     "LoggingConfig",
     "PackageConfigBase",
     "ResourceSpec",

@@ -13,9 +13,9 @@
 
 ---
 
-## `[connections.<name>]`
+## `[databases.<name>]`
 
-One section per named database connection. The name is referenced by resources and profiles.
+One section per named database endpoint. The name is referenced by resources and profiles.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -24,7 +24,7 @@ One section per named database connection. The name is referenced by resources a
 | `port` | int | no | Port number |
 | `user` | string | no | Database username |
 | `password` | string | no | Plaintext password *(see security note below)* |
-| `database` | string | no | Database name. For SQLite, use `:memory:` or an absolute path. |
+| `database_name` | string | no | Database name on the server. For SQLite, use `:memory:` or an absolute path. |
 | `read_only` | bool | `false` | Hint only; enforcement depends on the dialect |
 
 !!! warning "Security note"
@@ -33,21 +33,21 @@ One section per named database connection. The name is referenced by resources a
 ### Example: PostgreSQL
 
 ```toml
-[connections.cdm]
-dialect  = "postgresql+psycopg"
-host     = "localhost"
-port     = 5432
-user     = "omop"
-password = "changeme"
-database = "omop_cdm"
+[databases.cdm]
+dialect       = "postgresql+psycopg"
+host          = "localhost"
+port          = 5432
+user          = "omop"
+password      = "changeme"
+database_name = "omop_cdm"
 ```
 
 ### Example: SQLite in-memory (for tests)
 
 ```toml
-[connections.test_db]
-dialect  = "sqlite"
-database = ":memory:"
+[databases.test_db]
+dialect       = "sqlite"
+database_name = ":memory:"
 ```
 
 ---
@@ -58,8 +58,8 @@ A resource maps logical OMOP CDM roles to named connections and schema names.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `primary_db` | string | **yes** | Connection name for the CDM server |
-| `vocab_db` | string | no | Separate connection if vocabulary lives on a different server. Falls back to `primary_db`. |
+| `database` | string | **yes** | Database name (from `[databases.*]`) for the CDM server |
+| `vocab_database` | string | no | Separate database if vocabulary lives on a different server. Falls back to `database`. |
 | `cdm_schema` | string | **yes** | Schema where CDM clinical tables live |
 | `vocab_schema` | string | no | Vocabulary schema. Falls back to `cdm_schema` when not set. |
 | `results_schema` | string | no | Achilles / Atlas results schema |
@@ -68,7 +68,7 @@ A resource maps logical OMOP CDM roles to named connections and schema names.
 
 ```toml
 [resources.default]
-primary_db = "cdm"
+database   = "cdm"
 cdm_schema = "omop"
 ```
 
@@ -76,7 +76,7 @@ cdm_schema = "omop"
 
 ```toml
 [resources.default]
-primary_db     = "cdm"
+database       = "cdm"
 cdm_schema     = "omop"
 vocab_schema   = "omop_vocab"
 results_schema = "results"
@@ -86,9 +86,9 @@ results_schema = "results"
 
 ```toml
 [resources.default]
-primary_db = "cdm"
-vocab_db   = "central_vocab"
-cdm_schema = "omop"
+database      = "cdm"
+vocab_database = "central_vocab"
+cdm_schema    = "omop"
 ```
 
 ---
@@ -121,25 +121,25 @@ A profile overlays connections, resources, and tools over the base config when a
 
 | Field | Type | Description |
 |---|---|---|
-| `connections` | table | Connection configs that replace base connections with the same name, or add new ones |
+| `databases` | table | Database configs that replace base databases with the same name, or add new ones |
 | `resources` | table | Resource configs that replace base resources with the same name, or add new ones |
 | `tools` | table | Tool configs that replace base tools with the same name, or add new ones |
 
 Profile entries use the same field definitions as the base sections above.
 
-**Exampl test profile pointing to a local test database**:
+**Example test profile pointing to a local test database**:
 
 ```toml
-[profiles.test.connections.cdm]
-dialect  = "postgresql+psycopg"
-host     = "localhost"
-port     = 5433
-user     = "test_user"
-password = "test_pass"
-database = "omop_test"
+[profiles.test.databases.cdm]
+dialect       = "postgresql+psycopg"
+host          = "localhost"
+port          = 5433
+user          = "test_user"
+password      = "test_pass"
+database_name = "omop_test"
 
 [profiles.test.resources.default]
-primary_db = "cdm"
+database   = "cdm"
 cdm_schema = "test_omop"
 ```
 

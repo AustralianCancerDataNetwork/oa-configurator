@@ -6,15 +6,17 @@ import time
 from importlib.metadata import entry_points
 from typing import Annotated
 
+import click
 import rich
 import typer
+from typer.core import TyperGroup
 from rich.console import Console
 from rich.table import Table
 
 from .io import patch_active_profile, save_stack_config, write_env_file
 from .loader import DEFAULT_CONFIG_PATH, load_stack_config
 from .logging_config import configure_logging
-from .models import ConnectionConfig, ResourceConfig, StackConfig, ToolConfig
+from .models import DatabaseConfig, ResourceConfig, StackConfig, ToolConfig
 from .package_base import ConfigurationError, ResourceSpec
 from .resolver import Resolver
 
@@ -73,8 +75,8 @@ def _resolve_resource(
     *,
     flags: dict[str, str] | None = None,
     semantic_name_override: str | None = None,
-) -> tuple[str, ConnectionConfig, ResourceConfig] | None:
-    """Resolve or create a connection + resource for a ResourceSpec.
+) -> tuple[str, DatabaseConfig, ResourceConfig] | None:
+    """Resolve or create a database config + resource for a ResourceSpec.
 
     Resolution order for each field: explicit flag > stored config > prompt.
 
@@ -90,13 +92,13 @@ def _resolve_resource(
         The current StackConfig, used to look up existing config and determine defaults.
     flags
         Optional dict of flag values to override prompts.
-        Keys correspond to the fields of ConnectionConfig and ResourceConfig.
+        Keys correspond to the fields of DatabaseConfig and ResourceConfig.
     semantic_name_override
         When provided, the resource is created/updated under this name instead
         of ``spec.semantic_name``. Used by ``--resource-name`` to create a
         second instance of the same resource type (e.g. ``cdm_db_prod``).
 
-    Returns ``(conn_name, conn, resource)`` or ``None`` to keep existing config.
+    Returns ``(db_name, db_config, resource)`` or ``None`` to keep existing config.
     """
     non_interactive = flags is not None
     flags = flags or {}
@@ -123,10 +125,9 @@ def _resolve_resource(
     _stored: dict[str, str] = {}
     if existing:
         _stored.update({k: str(v) if v is not None else "" for k, v in existing.model_dump().items()})
-        _stored["conn_name"] = existing.primary_db
-        _ec = config.connections.get(existing.primary_db)
-        if _ec:
-            _stored.update({k: str(v) if v is not None else "" for k, v in _ec.model_dump().items()})
+        _edb = config.databases.get(existing.database)
+        if _edb:
+            _stored.update({k: str(v) if v is not None else "" for k, v in _edb.model_dump().items()})
 
     def _v(key: str, label: str, default: str, *, hide_input: bool = False) -> str:
         if (val := flags.get(key)) is not None:
@@ -135,7 +136,7 @@ def _resolve_resource(
             return _stored[key]
         return typer.prompt(label, default=default, hide_input=hide_input)
 
-    conn_name = _v("conn_name", "Connection name  (a short label, e.g. 'cdm' or 'prod')", spec.connection_name_hint or "cdm")
+    database = _v("database", "Database label  (short name for this database entry, e.g. 'cdm')", spec.connection_name_hint or "cdm")
     dialect = _v("dialect", "Dialect  (SQLAlchemy driver string, e.g. postgresql+psycopg, sqlite)", "postgresql+psycopg")
     host = _v("host", "Host  (e.g. Docker container name; leave blank for SQLite or socket connections)", "localhost") or None
 
@@ -144,9 +145,9 @@ def _resolve_resource(
 
     user = _v("user", "User  (leave blank if not required)", "") or None
     password = _v("password", "Password  (leave blank if not required)", "", hide_input=True) or None
-    database = _v("database", "Database  (database name, or file path for SQLite)", "") or None
+    database_name = _v("database_name", "Database name  (name of the database on the server, or file path for SQLite)", "") or None
 
-    conn = ConnectionConfig(dialect=dialect, host=host, port=port, user=user, password=password, database=database)
+    db_config = DatabaseConfig(dialect=dialect, host=host, port=port, user=user, password=password, database_name=database_name)
 
     if not non_interactive:
         console.print("\n[dim]Schema configuration[/dim]\n")
@@ -161,13 +162,13 @@ def _resolve_resource(
         results_schema = None
 
     resource = ResourceConfig(
-        primary_db=conn_name,
+        database=database,
         cdm_schema=cdm_schema,
         vocab_schema=vocab_schema,
         results_schema=results_schema,
     )
 
-    return conn_name, conn, resource
+    return database, db_config, resource
 
 
 @app.command()
@@ -234,16 +235,16 @@ def verify(
     if profile is not None:
         config.active_profile = profile
 
-    if not config.connections:
-        console.print("[yellow]No connections configured.[/yellow]")
+    if not config.databases:
+        console.print("[yellow]No databases configured.[/yellow]")
         return
 
     resolver = Resolver(config)
-    table = Table("Connection", "URL", "Status", "Latency")
+    table = Table("Database", "URL", "Status", "Latency")
     all_ok = True
 
-    for name in sorted(config.connections):
-        target = resolver.resolve_connection(name)
+    for name in sorted(config.databases):
+        target = resolver.resolve_database(name)
         try:
             t0 = time.monotonic()
             engine = target.create_engine()
@@ -312,154 +313,138 @@ def _resolve_extra_fields(
     return extra
 
 
+class _DynamicConfigureGroup(TyperGroup):
+    def __init__(self, **kwargs):
+        kwargs.setdefault("invoke_without_command", True)
+        super().__init__(**kwargs)
 
-def _print_configure_summary(cls) -> None:
-    """Print the expected --resource-set and --set fields for a package class."""
+    def list_commands(self, ctx):
+        return sorted(ep.name for ep in entry_points(group="omop.config"))
 
-    _RESOURCE_CONN_FIELDS = ("conn_name", "dialect", "host", "port", "user", "password", "database")
-    _RESOURCE_SCHEMA_NON_CDM = ("cdm_schema",)
-    _RESOURCE_SCHEMA_CDM = _RESOURCE_SCHEMA_NON_CDM + ("vocab_schema", "results_schema")
-
-    if cls.owned_resources:
-        console.print("\n[dim]Resource fields (--resource-set key=value):[/dim]")
-        for spec in cls.owned_resources:
-            schema_fields = _RESOURCE_SCHEMA_CDM if spec.is_cdm_database else _RESOURCE_SCHEMA_NON_CDM
-            fields = ", ".join(_RESOURCE_CONN_FIELDS + schema_fields)
-            console.print(f"  [bold]{spec.display_name}[/bold] ({spec.semantic_name})")
-            console.print(f"  [dim]{fields}[/dim]")
-
-    extras = [(k, fi) for k, fi in cls.model_fields.items() if k != "tool_name"]
-    if extras:
-        console.print("\n[dim]Package extras (--set key=value):[/dim]")
-        for field_name, field_info in extras:
-            desc = field_info.description or ""
-            suffix = f"  [dim]— {desc}[/dim]" if desc else ""
-            console.print(f"  {field_name}{suffix}")
+    def get_command(self, ctx, cmd_name):
+        eps = {ep.name: ep for ep in entry_points(group="omop.config")}
+        ep = eps.get(cmd_name)
+        return _build_package_command(cmd_name, ep.load()) if ep else None
 
 
-@app.command()
-def configure(
-    package: Annotated[
-        str,
-        typer.Argument(help="Package name to configure, e.g. omop_alchemy. Omit to list registered packages."),
-    ] = "",
-    resource_fields: Annotated[
-        list[str],
-        typer.Option(
-            "--resource-set",
-            help=(
-                "Set a connection or resource field as key=value "
-                "(e.g. --resource-set host=localhost). Repeatable. "
-                "Providing any --resource-set skips all resource prompts."
-            ),
+def _build_resource_params(spec: ResourceSpec) -> list[click.Parameter]:
+    """Generate Click options for one resource from DatabaseConfig + ResourceConfig fields."""
+    params: list[click.Parameter] = []
+    for name, info in DatabaseConfig.model_fields.items():
+        if name == "read_only":
+            continue
+        params.append(click.Option(
+            [f"--{name.replace('_', '-')}"],
+            default=None,
+            type=click.STRING,
+            help=info.description or "",
+        ))
+    resource_field_names = ["database", "cdm_schema"]
+    if spec.is_cdm_database:
+        resource_field_names += ["vocab_schema", "results_schema"]
+    for name in resource_field_names:
+        info = ResourceConfig.model_fields[name]
+        params.append(click.Option(
+            [f"--{name.replace('_', '-')}"],
+            default=None,
+            type=click.STRING,
+            help=info.description or "",
+        ))
+    return params
+
+
+def _build_extra_params(cls) -> list[click.Parameter]:
+    """Generate Click options for a package's extra fields from its model_fields."""
+    return [
+        click.Option(
+            [f"--{name.replace('_', '-')}"],
+            default=None,
+            type=click.STRING,
+            help=info.description or "",
+        )
+        for name, info in cls.model_fields.items()
+    ]
+
+
+def _build_package_command(ep_name: str, cls) -> click.Command:
+    """Build a Click command for one registered package entry point."""
+    resource_params = [p for spec in cls.owned_resources for p in _build_resource_params(spec)]
+    extra_params = _build_extra_params(cls)
+    resource_names = {p.name for p in resource_params}
+    extra_names = {p.name for p in extra_params}
+
+    resource_name_opt = click.Option(
+        ["--resource-name"],
+        default=None,
+        help=(
+            "Create or update the resource under this name instead of the package default. "
+            "Use to add a second instance (e.g. --resource-name cdm_db_prod)."
         ),
-    ] = [],
-    resource_name: Annotated[
-        str | None,
-        typer.Option(
-            "--resource-name",
-            help=(
-                "Create or update the resource under this name instead of the package default. "
-                "Use to add a second instance of the same resource type, e.g. "
-                "'omop-config configure omop_alchemy --resource-name cdm_db_prod'."
-            ),
-        ),
-    ] = None,
-    set_fields: Annotated[
-        list[str],
-        typer.Option(
-            "--set",
-            help="Set a package extra field as key=value (e.g. --set ollama_api_base=http://ollama:11434/v1). Repeatable.",
-        ),
-    ] = [],
-) -> None:
-    """Configure a package's [tools.<name>] section.
+    )
 
-    Run without flags for interactive prompts (local dev). Pass --resource-set
-    flags to skip all resource prompts; useful for scripted / Docker Compose use:
+    def callback(**kwargs):
+        flags_arg = {k: str(v) for k, v in kwargs.items()
+                     if k in resource_names and v is not None} or None
+        set_dict = {k: str(v) for k, v in kwargs.items()
+                    if k in extra_names and v is not None}
+        _run_configure_package(cls, flags_arg, set_dict, kwargs.get("resource_name"))
 
-        omop-config configure my-package \\
-            --resource-set conn_name=cdm --resource-set dialect=postgresql+psycopg \\
-            --resource-set host=db --resource-set port=5432 --resource-set user=omop \\
-            --resource-set password=secret --resource-set database=omop_cdm \\
-            --resource-set cdm_schema=omop
+    return click.Command(
+        name=ep_name,
+        callback=callback,
+        params=resource_params + extra_params + [resource_name_opt],
+        help=f"Configure {cls.tool_name} settings in config.toml.",
+    )
 
-    Run without flags to see a summary of what fields the package expects before
-    the interactive prompts begin.
 
-    To add a second resource of the same type (e.g. a production CDM alongside
-    a local one) use --resource-name:
-
-        omop-config configure my-package --resource-name cdm_db_prod
-
-    Packages register support via the 'omop.config' entry-point group in their
-    pyproject.toml.
-    """
+def _list_packages() -> None:
     eps = entry_points(group="omop.config")
     registered = {ep.name: ep for ep in eps}
-
-    # Build flags_arg from --resource-set key=value pairs.
-    # None → interactive mode (prompts); non-None dict → non-interactive (no prompts).
-    flags_arg: dict[str, str] | None = (
-        {k.strip(): v for kv in resource_fields for k, _, v in [kv.partition("=")]} or None
-    )
-    set_dict: dict[str, str] = {}
-    for kv in set_fields:
-        k, _, v = kv.partition("=")
-        if k.strip():
-            set_dict[k.strip()] = v
-
-    if not package:
-        if not registered:
-            console.print("[yellow]No packages registered under 'omop.config' entry points.[/yellow]")
-            console.print(
-                "\nPackages add support in their pyproject.toml:\n"
-                '  [project.entry-points."omop.config"]\n'
-                '  omop_emb = "omop_emb.config:OmopEmbConfig"'
-            )
-        else:
-            console.print("[bold]Registered packages:[/bold]")
-            for name in sorted(registered):
-                console.print(f"  • {name}")
-        return
-
-    if package not in registered:
-        err_console.print(
-            f"[red]Package {package!r} not registered.[/red] "
-            f"Available: {', '.join(sorted(registered)) or 'none'}"
+    if not registered:
+        console.print("[yellow]No packages registered under 'omop.config' entry points.[/yellow]")
+        console.print(
+            "\nPackages add support in their pyproject.toml:\n"
+            '  [project.entry-points."omop.config"]\n'
+            '  my-package = "my-package.config:MyPackageConfig"'
         )
-        raise typer.Exit(1)
+    else:
+        console.print("[bold]Registered packages:[/bold]")
+        for name in sorted(registered):
+            console.print(f"  • {name}")
 
-    cls = registered[package].load()
 
+def _run_configure_package(
+    cls,
+    flags_arg: dict[str, str] | None,
+    set_dict: dict[str, str],
+    resource_name: str | None,
+) -> None:
+    """Run the configure flow for one package."""
     try:
         config = load_stack_config()
     except FileNotFoundError:
         DEFAULT_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         config = StackConfig()
 
-    console.print(f"\n[bold]Configuring [cyan]{package}[/cyan][/bold]")
-    console.print(f"[dim]TOML section: [tools.{cls.tool_name}][/dim]")
-    _print_configure_summary(cls)
+    tool_name = cls.tool_name
+    console.print(f"\n[bold]Configuring [cyan]{tool_name}[/cyan][/bold]")
+    console.print(f"[dim]TOML section: \\[tools.{tool_name}][/dim]")
 
-    # Only packages with owned_resources trigger connection + schema prompts.
-    # Packages that only consume resources (e.g. omop_graph) skip this loop entirely.
     for spec in cls.owned_resources:
         effective_name = resource_name if (resource_name and len(cls.owned_resources) == 1) else None
         result = _resolve_resource(spec, config, flags=flags_arg, semantic_name_override=effective_name)
         if result is not None:
-            r_conn_name, new_conn, new_resource = result
-            config.connections[r_conn_name] = new_conn
+            db_label, new_db, new_resource = result
+            config.databases[db_label] = new_db
             save_name = effective_name or spec.semantic_name
             config.resources[save_name] = new_resource
 
-    # Warn about required resources that are neither owned nor yet configured
     owned_names = {spec.semantic_name for spec in cls.owned_resources}
     for rname in cls.required_resources:
         if rname in owned_names:
             continue
-        resolved = config.resource_aliases.get(rname, rname)
-        if resolved not in config.resources:
+        resolved_rname = config.resource_aliases.get(rname, rname)
+        if resolved_rname not in config.resources:
             console.print(
                 f"\n[yellow]Warning:[/yellow] Required resource {rname!r} is not configured. "
                 f"It may be provided by another package. Run that package's configure command."
@@ -467,10 +452,7 @@ def configure(
 
     extra = _resolve_extra_fields(cls, config, set_dict=set_dict, interactive=flags_arg is None)
 
-    # Resolve default_resource: prompt when genuinely ambiguous (multiple relevant resources).
-    # Filter to resources this package actually uses (owned + required + any --resource-name
-    # override) to avoid showing unrelated resources.
-    existing_tool = config.tools.get(cls.tool_name)
+    existing_tool = config.tools.get(tool_name)
     existing_default = existing_tool.default_resource if existing_tool else None
     available_resources = sorted(config.resource_names())
     relevant_names = {s.semantic_name for s in cls.owned_resources} | set(cls.required_resources)
@@ -479,7 +461,6 @@ def configure(
     relevant_resources = [r for r in available_resources if r in relevant_names]
 
     if len(relevant_resources) > 1 and flags_arg is None:
-        # Multiple relevant resources in interactive mode — ask which one to use.
         console.print(f"\n[dim]Available resources for this package: {', '.join(relevant_resources)}[/dim]")
         prompt_default = resource_name or existing_default or relevant_resources[0]
         new_default_resource = (
@@ -490,12 +471,21 @@ def configure(
             or None
         )
     elif len(relevant_resources) > 1 and flags_arg is not None:
-        # Non-interactive with multiple resources: honour explicit --resource-name, else keep existing.
         new_default_resource = resource_name or existing_default or relevant_resources[0]
     else:
-        # Single (or zero) relevant resource — set silently.
         new_default_resource = existing_default or (relevant_resources[0] if relevant_resources else None)
 
-    config.tools[cls.tool_name] = ToolConfig(default_resource=new_default_resource, extra=extra)
+    config.tools[tool_name] = ToolConfig(default_resource=new_default_resource, extra=extra)
     save_stack_config(config)
-    console.print(f"\n[green]✓[/green] Saved [tools.{cls.tool_name}] to [dim]{DEFAULT_CONFIG_PATH}[/dim]")
+    console.print(f"\n[green]✓[/green] Saved \\[tools.{tool_name}] to [dim]{DEFAULT_CONFIG_PATH}[/dim]")
+
+
+@app.command(name="configure", cls=_DynamicConfigureGroup)  # type: ignore[arg-type]
+def configure(ctx: typer.Context) -> None:
+    r"""Configure a package's \[tools.<name>] section.
+
+    Run 'omop-config configure <package> --help' to see that package's flags.
+    Packages register support via the 'omop.config' entry-point group.
+    """
+    if ctx.invoked_subcommand is None:
+        _list_packages()

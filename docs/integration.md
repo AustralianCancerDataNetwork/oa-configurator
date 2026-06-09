@@ -11,8 +11,8 @@ Each package that integrates with `oa-configurator`:
 
 1. Subclasses `PackageConfigBase` with its typed config fields
 2. Registers the class via an entry point in `pyproject.toml`
-3. Calls `PackageConfigBase.from_stack(load_stack_config())` to read its config
-4. Uses `Resolver(load_stack_config()).resolve_resource("default").create_engine()` for SQLAlchemy
+3. Calls `MyPackageConfig.get_config()` to read its config
+4. Uses `Resolver.from_active_config().resolve_resource("default").create_engine()` for SQLAlchemy
 5. Calls `configure_logging(verbosity=verbose, extra_namespaces=["<package>"])` at startup
 
 ---
@@ -36,7 +36,7 @@ In `src/<package>/config.py`:
 ```python
 from typing import ClassVar
 from pydantic import Field
-from oa_configurator import PackageConfigBase, Resolver, load_stack_config
+from oa_configurator import PackageConfigBase
 
 
 class MyPackageConfig(PackageConfigBase):
@@ -45,17 +45,9 @@ class MyPackageConfig(PackageConfigBase):
     # Declare typed fields; they're backed by ToolConfig.extra in the TOML
     backend: str = Field(default="default", description="Backend to use.")
     data_path: str | None = Field(default=None, description="Path to local data files.")
-
-
-def get_resolver() -> Resolver:
-    return Resolver(load_stack_config())
-
-
-def get_config() -> MyPackageConfig:
-    return MyPackageConfig.from_stack(load_stack_config())
 ```
 
-`from_stack()` reads the `[tools.my_package.extra]` section and validates it against your typed fields. If the section is missing, fields fall back to their defaults.
+`get_config()` is inherited from `PackageConfigBase` — call `MyPackageConfig.get_config()` to load from the active stack config. `from_stack()` reads the `[tools.my_package.extra]` section and validates it against your typed fields. If the section is missing, fields fall back to their defaults.
 
 ---
 
@@ -73,9 +65,9 @@ After installing your package, `omop-config configure my_package` will find and 
 ### 4. Engine creation
 
 ```python
-from my_package.config import get_resolver
+from oa_configurator import Resolver
 
-engine = get_resolver().resolve_resource("default").create_engine()
+engine = Resolver.from_active_config().resolve_resource("default").create_engine()
 ```
 
 `create_engine()` applies the `schema_translate_map` automatically so OMOP ORM models route to the right schemas without changes.
@@ -83,7 +75,7 @@ engine = get_resolver().resolve_resource("default").create_engine()
 For the vocabulary database:
 
 ```python
-vocab_engine = get_resolver().resolve_resource("default").create_engine(role="vocab")
+vocab_engine = Resolver.from_active_config().resolve_resource("default").create_engine(role="vocab")
 ```
 
 ---
@@ -121,8 +113,8 @@ from oa_configurator import StackConfig, Resolver
 
 def test_something(monkeypatch):
     cfg = StackConfig.for_session(
-        connections={"db": {"dialect": "sqlite", "database": ":memory:"}},
-        resources={"default": {"primary_db": "db", "cdm_schema": "omop"}},
+        databases={"db": {"dialect": "sqlite", "database_name": ":memory:"}},
+        resources={"default": {"database": "db", "cdm_schema": "omop"}},
         tools={"my_package": {"extra": {"backend": "test_backend"}}},
     )
     monkeypatch.setattr("my_package.module.load_stack_config", lambda: cfg)
@@ -172,16 +164,16 @@ leaves `cdm_db` unambiguously pointing at production data throughout the test se
 Add the test resource to `~/.config/omop/config.toml`:
 
 ```toml
-[connections.pg_test]
-dialect  = "postgresql+psycopg"
-host     = "localhost"
-port     = 5432
-user     = "test"
-password = "test"
-database = "test_db"
+[databases.pg_test]
+dialect       = "postgresql+psycopg"
+host          = "localhost"
+port          = 5432
+user          = "test"
+password      = "test"
+database_name = "test_db"
 
 [resources.test_cdm_db]
-primary_db = "pg_test"
+database   = "pg_test"
 cdm_schema = "public"
 ```
 
@@ -285,10 +277,10 @@ services:
     command: >
       bash -c "
         omop-config configure my_package
-          --resource-set conn_name=cdm --resource-set dialect=postgresql+psycopg
-          --resource-set host=db --resource-set port=5432
-          --resource-set user=$$POSTGRES_USER --resource-set password=$$POSTGRES_PASSWORD
-          --resource-set database=$$POSTGRES_DB --resource-set cdm_schema=omop &&
+          --database cdm --dialect postgresql+psycopg
+          --host db --port 5432
+          --user $$POSTGRES_USER --password $$POSTGRES_PASSWORD
+          --database-name $$POSTGRES_DB --cdm-schema omop &&
         exec my_app_entrypoint
       "
 ```
@@ -304,21 +296,21 @@ separate `omop-config configure` call for each, chained with `&&`:
 command: >
   bash -c "
     omop-config configure omop_alchemy
-      --resource-set conn_name=cdm --resource-set dialect=postgresql+psycopg
-      --resource-set host=db --resource-set port=5432
-      --resource-set user=$$POSTGRES_USER --resource-set password=$$POSTGRES_PASSWORD
-      --resource-set database=$$POSTGRES_DB --resource-set cdm_schema=omop &&
+      --database cdm --dialect postgresql+psycopg
+      --host db --port 5432
+      --user $$POSTGRES_USER --password $$POSTGRES_PASSWORD
+      --database-name $$POSTGRES_DB --cdm-schema omop &&
     omop-config configure my_package
-      --resource-set conn_name=cdm --resource-set dialect=postgresql+psycopg
-      --resource-set host=db --resource-set port=5432
-      --resource-set user=$$POSTGRES_USER --resource-set password=$$POSTGRES_PASSWORD
-      --resource-set database=$$POSTGRES_DB --resource-set cdm_schema=omop &&
+      --database cdm --dialect postgresql+psycopg
+      --host db --port 5432
+      --user $$POSTGRES_USER --password $$POSTGRES_PASSWORD
+      --database-name $$POSTGRES_DB --cdm-schema omop &&
     exec my_app_entrypoint
   "
 ```
 
-Each call is scoped to its own package. The `--resource-set host=` value for `omop_alchemy`
-configures the CDM database; the `--resource-set host=` value for `my_package` configures that
+Each call is scoped to its own package. The `--host` value for `omop_alchemy`
+configures the CDM database; the `--host` value for `my_package` configures that
 package's database.  No prefix is needed because the package name is the namespace.
 
 ### Security note

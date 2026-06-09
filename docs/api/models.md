@@ -8,9 +8,9 @@ Root configuration object. Also the entry point for programmatic construction vi
 
 ::: oa_configurator.models.StackConfig
 
-## ConnectionConfig
+## DatabaseConfig
 
-::: oa_configurator.models.ConnectionConfig
+::: oa_configurator.models.DatabaseConfig
 
 ## ResourceConfig
 

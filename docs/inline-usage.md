@@ -13,21 +13,21 @@ Equivalent to loading a TOML file, but the config is built in code. Useful for:
 - Programmatic config generation (e.g. CI pipelines)
 
 ```python
-from oa_configurator import StackConfig, ConnectionConfig, ResourceConfig, Resolver
+from oa_configurator import StackConfig, DatabaseConfig, ResourceConfig, Resolver
 
 config = StackConfig.for_session(
-    connections={
-        "local": ConnectionConfig(
+    databases={
+        "local": DatabaseConfig(
             dialect="postgresql+psycopg",
             host="localhost",
-            database="omop",
+            database_name="omop",
             user="omop",
             password="omop",
         )
     },
     resources={
         "default": ResourceConfig(
-            primary_db="local",
+            database="local",
             cdm_schema="cdm",
             vocab_schema="vocab",
         )
@@ -40,7 +40,7 @@ engine = Resolver(config).resolve_resource("default").create_engine()
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `connections` | dict \| None | `{}` | Named `ConnectionConfig` objects or raw dicts |
+| `databases` | dict \| None | `{}` | Named `DatabaseConfig` objects or raw dicts |
 | `resources` | dict \| None | `{}` | Named `ResourceConfig` objects or raw dicts |
 | `tools` | dict \| None | `{}` | Named `ToolConfig` objects or raw dicts |
 | `profiles` | dict \| None | `{}` | Named `ProfileOverrideConfig` objects or raw dicts |
@@ -52,8 +52,8 @@ Cross-references are validated at construction time, same as for file-loaded con
 
 ```python
 StackConfig.for_session(
-    connections={"local": ConnectionConfig(dialect="sqlite", database=":memory:")},
-    resources={"default": ResourceConfig(primary_db="typo", cdm_schema="omop")},  # raises ValueError
+    databases={"local": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
+    resources={"default": ResourceConfig(database="typo", cdm_schema="omop")},  # raises ValueError
 )
 ```
 
@@ -66,8 +66,8 @@ from oa_configurator import StackConfig, Resolver
 
 def test_something():
     cfg = StackConfig.for_session(
-        connections={"db": {"dialect": "sqlite", "database": ":memory:"}},
-        resources={"default": {"primary_db": "db", "cdm_schema": "omop"}},
+        databases={"db": {"dialect": "sqlite", "database_name": ":memory:"}},
+        resources={"default": {"database": "db", "cdm_schema": "omop"}},
         tools={"my_package": {"extra": {"backend": "test_backend"}}},
     )
     resolver = Resolver(cfg)
@@ -86,16 +86,16 @@ Loads the shared config file, then replaces specific connections or resources fo
 - Sharing a team config but running with personal credentials locally
 
 ```python
-from oa_configurator import load_stack_config, ConnectionConfig, ResourceConfig, Resolver
+from oa_configurator import load_stack_config, DatabaseConfig, ResourceConfig, Resolver
 
 engine = (
     Resolver(load_stack_config())
     .with_overrides(
-        connections={
-            "local": ConnectionConfig(dialect="sqlite", database=":memory:")
+        databases={
+            "local": DatabaseConfig(dialect="sqlite", database_name=":memory:")
         },
         resources={
-            "default": ResourceConfig(primary_db="local", cdm_schema="omop")
+            "default": ResourceConfig(database="local", cdm_schema="omop")
         },
     )
     .resolve_resource("default")
@@ -123,7 +123,7 @@ Cross-references are checked against the **merged** result. A resource override 
 
 ```python
 Resolver(load_stack_config()).with_overrides(
-    resources={"default": ResourceConfig(primary_db="nonexistent", cdm_schema="omop")}  # raises
+    resources={"default": ResourceConfig(database="nonexistent", cdm_schema="omop")}  # raises
 )
 ```
 

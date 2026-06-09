@@ -18,10 +18,10 @@ chmod 600 ~/.config/omop/config.toml
 A future `secret_source` field on `ConnectionConfig` will support indirect credential lookup, keeping passwords out of the TOML file entirely:
 
 ```toml
-[connections.prod]
+[databases.prod]
 dialect       = "postgresql+psycopg"
 host          = "prod.hospital.org"
-database      = "omop_cdm"
+database_name = "omop_cdm"
 user          = "omop_prod"
 secret_source = "env:PROD_DB_PASSWORD"   # or "file:/run/secrets/prod.password"
 ```

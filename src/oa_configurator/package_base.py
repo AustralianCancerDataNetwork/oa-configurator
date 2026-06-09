@@ -16,9 +16,7 @@ In ``<my-package>/config.py``::
         required_resources: ClassVar[tuple[str, ...]] = ("cdm_db",)
         <additional typed fields here>
 
-    def get_config() -> MyPackageConfig:
-        from oa_configurator import load_stack_config
-        return MyPackageConfig.from_stack(load_stack_config())
+    config = MyPackageConfig.get_config()
 
 In ``pyproject.toml``::
 
@@ -127,6 +125,12 @@ class PackageConfigBase(BaseModel):
                 )
 
         return cls.model_validate(tool.extra if tool else {})
+
+    @classmethod
+    def get_config(cls) -> Self:
+        """Load this package's config from the active stack config file."""
+        from .loader import load_stack_config
+        return cls.from_stack(load_stack_config())
 
     def to_extra_dict(self) -> dict[str, Any]:
         """Serialize back to the dict stored in ``ToolConfig.extra``."""

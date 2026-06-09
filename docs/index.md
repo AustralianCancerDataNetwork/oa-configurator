@@ -33,12 +33,12 @@ A shared configuration layer for the OMOP-oriented Python stack.
 === "Inline (no file)"
 
     ```python
-    from oa_configurator import StackConfig, ConnectionConfig, ResourceConfig, Resolver
+    from oa_configurator import StackConfig, DatabaseConfig, ResourceConfig, Resolver
 
     config = StackConfig.for_session(
-        connections={"local": ConnectionConfig(dialect="postgresql", host="localhost",
-                                               database="omop", password="omop")},
-        resources={"default": ResourceConfig(primary_db="local", cdm_schema="cdm")},
+        databases={"local": DatabaseConfig(dialect="postgresql", host="localhost",
+                                           database_name="omop", password="omop")},
+        resources={"default": ResourceConfig(database="local", cdm_schema="cdm")},
     )
     engine = Resolver(config).resolve_resource("default").create_engine()
     ```
@@ -46,14 +46,14 @@ A shared configuration layer for the OMOP-oriented Python stack.
 === "Session override"
 
     ```python
-    from oa_configurator import load_stack_config, ConnectionConfig, ResourceConfig, Resolver
+    from oa_configurator import load_stack_config, DatabaseConfig, ResourceConfig, Resolver
 
     # Load shared team config, redirect one resource to a local SQLite database
     engine = (
         Resolver(load_stack_config())
         .with_overrides(
-            connections={"local": ConnectionConfig(dialect="sqlite", database="/data/local.db")},
-            resources={"default": ResourceConfig(primary_db="local", cdm_schema="omop")},
+            databases={"local": DatabaseConfig(dialect="sqlite", database_name="/data/local.db")},
+            resources={"default": ResourceConfig(database="local", cdm_schema="omop")},
         )
         .resolve_resource("default")
         .create_engine()

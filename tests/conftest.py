@@ -15,15 +15,15 @@ from oa_configurator import StackConfig
 def minimal_stack() -> StackConfig:
     """Minimal in-memory config with one SQLite connection and one resource."""
     return StackConfig.for_session(
-        connections={
+        databases={
             "db": {
                 "dialect": "sqlite",
-                "database": ":memory:",
+                "database_name": ":memory:",
             }
         },
         resources={
             "default": {
-                "primary_db": "db",
+                "database": "db",
                 "cdm_schema": "omop",
             }
         },
@@ -34,19 +34,19 @@ def minimal_stack() -> StackConfig:
 def pg_stack() -> StackConfig:
     """In-memory config simulating a PostgreSQL CDM setup."""
     return StackConfig.for_session(
-        connections={
+        databases={
             "cdm": {
                 "dialect": "postgresql+psycopg",
                 "host": "localhost",
                 "port": 5432,
                 "user": "omop",
                 "password": "secret",
-                "database": "omop_cdm",
+                "database_name": "omop_cdm",
             }
         },
         resources={
             "default": {
-                "primary_db": "cdm",
+                "database": "cdm",
                 "cdm_schema": "omop",
                 "vocab_schema": "omop_vocab",
                 "results_schema": "results",

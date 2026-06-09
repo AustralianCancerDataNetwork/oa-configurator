@@ -25,50 +25,6 @@ console = Console()
 err_console = Console(stderr=True)
 
 
-@app.callback()  # required by Typer to attach global --verbose/-v before any subcommand
-def _main(
-    verbose: Annotated[
-        int,
-        typer.Option(
-            "--verbose", "-v",
-            count=True,
-            help="Increase log verbosity (-v INFO, -vv DEBUG).",
-        ),
-    ] = 0,
-) -> None:
-    configure_logging(verbosity=verbose)
-
-
-@app.command()
-def init(
-    force: Annotated[
-        bool,
-        typer.Option("--force", "-f", help="Overwrite existing config without prompting."),
-    ] = False,
-) -> None:
-    """Create ~/.config/omop/config.toml (empty). Use 'omop-config configure <pkg>' to populate it."""
-    if DEFAULT_CONFIG_PATH.exists() and not force:
-        overwrite = typer.confirm(
-            f"Config already exists at {DEFAULT_CONFIG_PATH}. Overwrite?",
-            default=False,
-        )
-        if not overwrite:
-            console.print("[yellow]Aborted.[/yellow]")
-            raise typer.Exit(0)
-
-    DEFAULT_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    save_stack_config(StackConfig())
-    console.print(f"[green]✓[/green] Created [dim]{DEFAULT_CONFIG_PATH}[/dim]")
-
-    eps = entry_points(group="omop.config")
-    if eps:
-        console.print("\nRun configure for each installed package:")
-        for ep in sorted(eps, key=lambda e: e.name):
-            console.print(f"  omop-config configure {ep.name}")
-    else:
-        console.print("\nNo packages registered yet. Install a package that supports oa_configurator.")
-
-
 def _resolve_resource(
     spec: ResourceSpec,
     config: StackConfig,
@@ -171,117 +127,6 @@ def _resolve_resource(
     return database, db_config, resource
 
 
-@app.command()
-def show(
-    profile: Annotated[
-        str | None,
-        typer.Option("--profile", "-p", help="Activate this profile for the shown output."),
-    ] = None,
-) -> None:
-    """Print the resolved configuration as JSON."""
-    try:
-        config = load_stack_config()
-    except FileNotFoundError:
-        err_console.print(f"[red]Config file not found:[/red] {DEFAULT_CONFIG_PATH}")
-        err_console.print("Run [bold]omop-config init[/bold] to create it.")
-        raise typer.Exit(1)
-    if profile is not None:
-        config.active_profile = profile
-    rich.print_json(config.model_dump_json(exclude_none=True, indent=2))
-
-
-@app.command()
-def use(
-    profile: Annotated[str, typer.Argument(help="Profile name to activate.")],
-) -> None:
-    """Set the active profile in config.toml and re-export config.env."""
-    try:
-        config = load_stack_config()
-    except FileNotFoundError:
-        err_console.print(f"[red]Config file not found:[/red] {DEFAULT_CONFIG_PATH}")
-        raise typer.Exit(1)
-
-    if profile not in config.profiles and profile != "default":
-        err_console.print(
-            f"[yellow]Warning:[/yellow] profile {profile!r} not found in config.toml, but"
-            "it will be set anyway. Add connections/resources to it when ready."
-        )
-
-    patch_active_profile(profile)
-    console.print(f"[green]✓[/green] Active profile set to [bold]{profile}[/bold]")
-
-    config.active_profile = profile
-    try:
-        env_path = write_env_file(Resolver(config))
-        console.print(f"[green]✓[/green] Exported [dim]{env_path}[/dim]")
-    except Exception as exc:
-        err_console.print(f"[yellow]Warning:[/yellow] Could not export config.env: {exc}")
-
-
-@app.command()
-def verify(
-    profile: Annotated[
-        str | None,
-        typer.Option("--profile", "-p", help="Profile to test."),
-    ] = None,
-) -> None:
-    """Test all configured connections and report status."""
-    try:
-        config = load_stack_config()
-    except FileNotFoundError:
-        err_console.print(f"[red]Config file not found:[/red] {DEFAULT_CONFIG_PATH}")
-        raise typer.Exit(1)
-
-    if profile is not None:
-        config.active_profile = profile
-
-    if not config.databases:
-        console.print("[yellow]No databases configured.[/yellow]")
-        return
-
-    resolver = Resolver(config)
-    table = Table("Database", "URL", "Status", "Latency")
-    all_ok = True
-
-    for name in sorted(config.databases):
-        target = resolver.resolve_database(name)
-        try:
-            t0 = time.monotonic()
-            engine = target.create_engine()
-            with engine.connect():
-                pass
-            elapsed = (time.monotonic() - t0) * 1000
-            table.add_row(name, target.safe_url, "[green]OK[/green]", f"{elapsed:.0f} ms")
-        except Exception as exc:
-            table.add_row(name, target.safe_url, "[red]FAIL[/red]", str(exc)[:60])
-            all_ok = False
-
-    console.print(table)
-    if not all_ok:
-        raise typer.Exit(1)
-
-
-@app.command("export-env")
-def export_env(
-    profile: Annotated[
-        str | None,
-        typer.Option("--profile", "-p", help="Profile to use for export."),
-    ] = None,
-) -> None:
-    """Write ~/.config/omop/config.env for Docker Compose env_file:."""
-    try:
-        config = load_stack_config()
-    except FileNotFoundError:
-        err_console.print(f"[red]Config file not found:[/red] {DEFAULT_CONFIG_PATH}")
-        raise typer.Exit(1)
-
-    if profile is not None:
-        config.active_profile = profile
-
-    env_path = write_env_file(Resolver(config))
-    console.print(f"[green]✓[/green] Wrote [dim]{env_path}[/dim]")
-
-
 def _resolve_extra_fields(
     cls,
     config: StackConfig,
@@ -312,6 +157,9 @@ def _resolve_extra_fields(
                 extra[field_name] = raw
     return extra
 
+# ------------------
+# Dynamic configure command that discovers packages via entry points and generates a subcommand for each.
+# ------------------
 
 class _DynamicConfigureGroup(TyperGroup):
     def __init__(self, **kwargs):
@@ -478,6 +326,159 @@ def _run_configure_package(
     config.tools[tool_name] = ToolConfig(default_resource=new_default_resource, extra=extra)
     save_stack_config(config)
     console.print(f"\n[green]✓[/green] Saved \\[tools.{tool_name}] to [dim]{DEFAULT_CONFIG_PATH}[/dim]")
+
+@app.callback()  # required by Typer to attach global --verbose/-v before any subcommand
+def _main(
+    verbose: Annotated[
+        int,
+        typer.Option(
+            "--verbose", "-v",
+            count=True,
+            help="Increase log verbosity (-v INFO, -vv DEBUG).",
+        ),
+    ] = 0,
+) -> None:
+    configure_logging(verbosity=verbose)
+
+
+@app.command()
+def init(
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Overwrite existing config without prompting."),
+    ] = False,
+) -> None:
+    """Create ~/.config/omop/config.toml (empty). Use 'omop-config configure <pkg>' to populate it."""
+    if DEFAULT_CONFIG_PATH.exists() and not force:
+        overwrite = typer.confirm(
+            f"Config already exists at {DEFAULT_CONFIG_PATH}. Overwrite?",
+            default=False,
+        )
+        if not overwrite:
+            console.print("[yellow]Aborted.[/yellow]")
+            raise typer.Exit(0)
+
+    DEFAULT_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    save_stack_config(StackConfig())
+    console.print(f"[green]✓[/green] Created [dim]{DEFAULT_CONFIG_PATH}[/dim]")
+
+    eps = entry_points(group="omop.config")
+    if eps:
+        console.print("\nRun configure for each installed package:")
+        for ep in sorted(eps, key=lambda e: e.name):
+            console.print(f"  omop-config configure {ep.name}")
+    else:
+        console.print("\nNo packages registered yet. Install a package that supports oa_configurator.")
+
+@app.command()
+def show(
+    profile: Annotated[
+        str | None,
+        typer.Option("--profile", "-p", help="Activate this profile for the shown output."),
+    ] = None,
+) -> None:
+    """Print the resolved configuration as JSON."""
+    try:
+        config = load_stack_config()
+    except FileNotFoundError:
+        err_console.print(f"[red]Config file not found:[/red] {DEFAULT_CONFIG_PATH}")
+        err_console.print("Run [bold]omop-config init[/bold] to create it.")
+        raise typer.Exit(1)
+    if profile is not None:
+        config.active_profile = profile
+    rich.print_json(config.model_dump_json(exclude_none=True, indent=2))
+
+
+@app.command()
+def use(
+    profile: Annotated[str, typer.Argument(help="Profile name to activate.")],
+) -> None:
+    """Set the active profile in config.toml and re-export config.env."""
+    try:
+        config = load_stack_config()
+    except FileNotFoundError:
+        err_console.print(f"[red]Config file not found:[/red] {DEFAULT_CONFIG_PATH}")
+        raise typer.Exit(1)
+
+    if profile not in config.profiles and profile != "default":
+        err_console.print(
+            f"[yellow]Warning:[/yellow] profile {profile!r} not found in config.toml, but"
+            "it will be set anyway. Add connections/resources to it when ready."
+        )
+
+    patch_active_profile(profile)
+    console.print(f"[green]✓[/green] Active profile set to [bold]{profile}[/bold]")
+
+    config.active_profile = profile
+    try:
+        env_path = write_env_file(Resolver(config))
+        console.print(f"[green]✓[/green] Exported [dim]{env_path}[/dim]")
+    except Exception as exc:
+        err_console.print(f"[yellow]Warning:[/yellow] Could not export config.env: {exc}")
+
+
+@app.command()
+def verify(
+    profile: Annotated[
+        str | None,
+        typer.Option("--profile", "-p", help="Profile to test."),
+    ] = None,
+) -> None:
+    """Test all configured connections and report status."""
+    try:
+        config = load_stack_config()
+    except FileNotFoundError:
+        err_console.print(f"[red]Config file not found:[/red] {DEFAULT_CONFIG_PATH}")
+        raise typer.Exit(1)
+
+    if profile is not None:
+        config.active_profile = profile
+
+    if not config.databases:
+        console.print("[yellow]No databases configured.[/yellow]")
+        return
+
+    resolver = Resolver(config)
+    table = Table("Database", "URL", "Status", "Latency")
+    all_ok = True
+
+    for name in sorted(config.databases):
+        target = resolver.resolve_database(name)
+        try:
+            t0 = time.monotonic()
+            engine = target.create_engine()
+            with engine.connect():
+                pass
+            elapsed = (time.monotonic() - t0) * 1000
+            table.add_row(name, target.safe_url, "[green]OK[/green]", f"{elapsed:.0f} ms")
+        except Exception as exc:
+            table.add_row(name, target.safe_url, "[red]FAIL[/red]", str(exc)[:60])
+            all_ok = False
+
+    console.print(table)
+    if not all_ok:
+        raise typer.Exit(1)
+
+
+@app.command("export-env")
+def export_env(
+    profile: Annotated[
+        str | None,
+        typer.Option("--profile", "-p", help="Profile to use for export."),
+    ] = None,
+) -> None:
+    """Write ~/.config/omop/config.env for Docker Compose env_file:."""
+    try:
+        config = load_stack_config()
+    except FileNotFoundError:
+        err_console.print(f"[red]Config file not found:[/red] {DEFAULT_CONFIG_PATH}")
+        raise typer.Exit(1)
+
+    if profile is not None:
+        config.active_profile = profile
+
+    env_path = write_env_file(Resolver(config))
+    console.print(f"[green]✓[/green] Wrote [dim]{env_path}[/dim]")
 
 
 @app.command(name="configure", cls=_DynamicConfigureGroup)  # type: ignore[arg-type]

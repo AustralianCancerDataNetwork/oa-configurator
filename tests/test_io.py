@@ -52,8 +52,8 @@ class TestWriteEnvFile:
         out = tmp_path / "config.env"
         write_env_file(Resolver(_make_cdm_stack()), path=out)
         content = out.read_text()
-        assert "DEFAULT_DB_NAME=omop_cdm" in content
-        assert "DEFAULT_DB_DRIVER=postgresql+psycopg" in content
+        assert "DEFAULT_DB_DATABASE=omop_cdm" in content
+        assert "DEFAULT_DB_DIALECT=postgresql+psycopg" in content
 
     def test_default_resource_url_written(self, tmp_path):
         out = tmp_path / "config.env"

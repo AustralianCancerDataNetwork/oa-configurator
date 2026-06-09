@@ -6,25 +6,24 @@ the ``omop.config`` entry-point group in its ``pyproject.toml``.
 
 Example
 -------
-In ``omop_emb/config.py``::
+In ``<my-package>/config.py``::
 
     from oa_configurator import PackageConfigBase
     from typing import ClassVar
 
-    class OmopEmbConfig(PackageConfigBase):
-        tool_name: ClassVar[str] = "omop_emb"
+    class MyPackageConfig(PackageConfigBase):
+        tool_name: ClassVar[str] = "<my-package>"
         required_resources: ClassVar[tuple[str, ...]] = ("cdm_db",)
-        backend: str = "sqlitevec"
-        embedding_file_root: str | None = None
+        <additional typed fields here>
 
-    def get_config() -> OmopEmbConfig:
+    def get_config() -> MyPackageConfig:
         from oa_configurator import load_stack_config
-        return OmopEmbConfig.from_stack(load_stack_config())
+        return MyPackageConfig.from_stack(load_stack_config())
 
 In ``pyproject.toml``::
 
     [project.entry-points."omop.config"]
-    omop_emb = "omop_emb.config:OmopEmbConfig"
+    <my-package> = "<my-package>.config:<MyPackageConfig>"
 """
 
 from __future__ import annotations

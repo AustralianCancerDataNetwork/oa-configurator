@@ -12,9 +12,12 @@ from .logging_config import LoggingConfig
 
 
 class ConnectionConfig(BaseModel):
-    """Named database connection endpoint.
+    """Credentials and endpoint for one named database server.
 
-    Stores all parameters needed to build a SQLAlchemy connection URL.
+    Referenced by :attr:`ResourceConfig.primary_db` and
+    :attr:`ResourceConfig.vocab_db`. Each entry under ``[connections]``
+    in ``config.toml`` maps to one instance of this model.
+
     Passwords are stored in plaintext for now; secret management support
     is planned for a future release.
     """
@@ -39,6 +42,20 @@ class ConnectionConfig(BaseModel):
         default=False,
         description="Hint only; enforcement depends on the dialect.",
     )
+
+    def to_env_pairs(self, prefix: str) -> list[str]:
+        """Return ``PREFIX_FIELD=value`` strings for each non-None field.
+
+        Used by :func:`~oa_configurator.io.write_env_file` to emit env vars for
+        Docker Compose ``env_file:``. Field names are uppercased directly
+        (e.g. ``host`` → ``PREFIX_HOST``), so adding a new field here
+        automatically appears in the export without touching ``io.py``.
+        """
+        return [
+            f"{prefix}_{k.upper()}={v}"
+            for k, v in self.model_dump().items()
+            if v is not None
+        ]
 
     def _build_url(self, hide_password: bool) -> str:
         if self.dialect.startswith("sqlite"):
@@ -80,10 +97,11 @@ class ConnectionConfig(BaseModel):
 
 
 class ResourceConfig(BaseModel):
-    """Maps logical OMOP CDM roles to named connections and schema names.
+    """Maps the OMOP logical roles (CDM, vocab, results) to named connections and schema names.
 
-    A resource is the unit of database targeting that consuming packages
-    interact with. Most packages only need the ``default`` resource.
+    The unit that consuming packages configure once and reference by name.
+    Most packages only need a single ``cdm_db`` resource. Each entry under
+    ``[resources]`` in ``config.toml`` maps to one instance of this model.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -109,11 +127,11 @@ class ResourceConfig(BaseModel):
 
 
 class ToolConfig(BaseModel):
-    """Per-package configuration section.
+    """Per-package section in ``config.toml`` (``[tools.<name>]``).
 
-    Package-specific fields are declared on a ``PackageConfigBase`` subclass
-    and stored in ``extra``. The core model only knows about
-    ``default_resource``.
+    ``default_resource`` names which resource this package reads from.
+    ``extra`` holds the package-specific typed fields declared on the
+    package's :class:`~oa_configurator.PackageConfigBase` subclass.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -129,10 +147,12 @@ class ToolConfig(BaseModel):
 
 
 class ProfileOverrideConfig(BaseModel):
-    """Profile overlay: connections, resources, and tools that replace base entries when the profile is active.
+    """Named environment overlay (``[profiles.<name>]`` in ``config.toml``).
 
-    Entries in a profile completely replace the base entry with the same name.
-    Entries not mentioned in the profile are inherited from the base config unchanged.
+    Entries replace base entries with the same name when the profile is active.
+    Anything not mentioned in the profile is inherited from the base config unchanged.
+    Useful for switching between local-dev and production databases without
+    editing the base config.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -152,10 +172,13 @@ class ProfileOverrideConfig(BaseModel):
 
 
 class StackConfig(BaseModel):
-    """Root configuration for the OMOP stack.
+    """Root model for ``~/.config/omop/config.toml``.
 
-    Loaded from ``~/.config/omop/config.toml`` by :func:`~oa_configurator.loader.load_stack_config`.
-    Can also be constructed in memory via :meth:`for_session` (no file I/O).
+    Holds the entire OMOP stack configuration in one object: named database
+    connections, logical resources, per-package tool sections, and environment
+    profiles. Loaded from disk by
+    :func:`~oa_configurator.loader.load_stack_config`; constructed in memory
+    via :meth:`for_session` for tests and scripts (no file I/O).
     """
 
     model_config = ConfigDict(extra="forbid")

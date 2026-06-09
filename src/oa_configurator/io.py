@@ -45,18 +45,7 @@ def write_env_file(resolver: Resolver, path: Path = FLAT_ENV_PATH) -> Path:
             logger.warning("Skipping resource %r in env export: %s", resource_name, exc)
             continue
 
-        if conn.host:
-            lines.append(f"{prefix}_HOST={conn.host}")
-        if conn.port:
-            lines.append(f"{prefix}_PORT={conn.port}")
-        if conn.user:
-            lines.append(f"{prefix}_USER={conn.user}")
-        if conn.password:
-            lines.append(f"{prefix}_PASSWORD={conn.password}")
-        if conn.database:
-            lines.append(f"{prefix}_NAME={conn.database}")
-        if conn.dialect:
-            lines.append(f"{prefix}_DRIVER={conn.dialect}")
+        lines.extend(conn.to_env_pairs(prefix))
         lines.append(f"{prefix}_URL={resolved.primary_db.url}")
         lines.append("")
 

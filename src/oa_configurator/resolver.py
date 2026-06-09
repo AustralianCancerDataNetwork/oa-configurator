@@ -22,11 +22,24 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class ResolvedDatabaseTarget:
-    """Concrete database connection ready for engine creation."""
+    """Concrete database connection ready for engine creation.
+
+    Attributes
+    ----------
+    name : str
+        Logical name of the connection as declared in the config.
+    url : str
+        Full database URL including credentials.
+        TODO: make this a private attribute to avoid accidental password exposure;
+        requires a factory method or ``__post_init__`` since dataclass field
+        visibility can't be changed without breaking callers.
+    safe_url : str
+        Database URL with credentials redacted, safe for logging and display.
+    """
 
     name: str
-    url: str        # full URL including password: keep internal / do not log!
-    safe_url: str   # password redacted: safe for logs and display
+    url: str
+    safe_url: str
 
     def create_engine(self, **kwargs: Any) -> Engine:
         """Create a SQLAlchemy engine for this connection.
@@ -52,15 +65,32 @@ class ResolvedDatabaseTarget:
 
 @dataclass(frozen=True)
 class ResolvedResource:
-    """Resolved logical resource with concrete DB targets and effective schema names."""
+    """Resolved logical resource with concrete DB targets and effective schema names.
+    
+    Attributes
+    ----------
+    name : str
+        Logical name of the resource as declared in the config or an alias.
+    primary_db : ResolvedDatabaseTarget
+        Resolved primary database target for this resource.
+    vocab_db : ResolvedDatabaseTarget
+        Resolved vocabulary database target for this resource. May be the same as
+        *primary_db* if no separate vocab DB is configured.
+    cdm_schema : str
+        Effective CDM schema name for this resource.
+    vocab_schema : str
+        Effective vocabulary schema name for this resource. May be the same as
+        *cdm_schema* if no separate vocab schema is configured.
+    results_schema : str | None
+        Effective results schema name for this resource, or None if not configured.
+    """
 
     name: str
     primary_db: ResolvedDatabaseTarget
-    vocab_db: ResolvedDatabaseTarget       # equals primary_db when vocab_db not configured
+    vocab_db: ResolvedDatabaseTarget
     cdm_schema: str
-    vocab_schema: str                      # equals cdm_schema when vocab_schema not set
+    vocab_schema: str
     results_schema: str | None
-    vocab_db_is_primary_fallback: bool
 
     def database_target(self, role: Literal["primary", "vocab"] = "primary") -> ResolvedDatabaseTarget:
         """Return the resolved database target for a given role.
@@ -213,7 +243,6 @@ class Resolver:
         resource = self._effective_resource(name)
 
         primary = self.resolve_connection(resource.primary_db)
-        vocab_fallback = resource.vocab_db is None
         vocab = self.resolve_connection(resource.vocab_db or resource.primary_db)
         effective_vocab_schema = resource.vocab_schema or resource.cdm_schema
 
@@ -224,7 +253,6 @@ class Resolver:
             cdm_schema=resource.cdm_schema,
             vocab_schema=effective_vocab_schema,
             results_schema=resource.results_schema,
-            vocab_db_is_primary_fallback=vocab_fallback,
         )
         logger.debug(
             "Resolved resource %r → primary=%s cdm_schema=%r",

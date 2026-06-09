@@ -285,10 +285,10 @@ services:
     command: >
       bash -c "
         omop-config configure my_package
-          --conn-name cdm --dialect postgresql+psycopg
-          --host db --port 5432
-          --user $$POSTGRES_USER --password $$POSTGRES_PASSWORD
-          --database $$POSTGRES_DB --cdm-schema omop &&
+          --resource-set conn_name=cdm --resource-set dialect=postgresql+psycopg
+          --resource-set host=db --resource-set port=5432
+          --resource-set user=$$POSTGRES_USER --resource-set password=$$POSTGRES_PASSWORD
+          --resource-set database=$$POSTGRES_DB --resource-set cdm_schema=omop &&
         exec my_app_entrypoint
       "
 ```
@@ -304,19 +304,21 @@ separate `omop-config configure` call for each, chained with `&&`:
 command: >
   bash -c "
     omop-config configure omop_alchemy
-      --conn-name cdm --dialect postgresql+psycopg
-      --host db --port 5432 --user $$POSTGRES_USER --password $$POSTGRES_PASSWORD
-      --database $$POSTGRES_DB --cdm-schema omop &&
+      --resource-set conn_name=cdm --resource-set dialect=postgresql+psycopg
+      --resource-set host=db --resource-set port=5432
+      --resource-set user=$$POSTGRES_USER --resource-set password=$$POSTGRES_PASSWORD
+      --resource-set database=$$POSTGRES_DB --resource-set cdm_schema=omop &&
     omop-config configure my_package
-      --conn-name cdm --dialect postgresql+psycopg
-      --host db --port 5432 --user $$POSTGRES_USER --password $$POSTGRES_PASSWORD
-      --database $$POSTGRES_DB --cdm-schema omop &&
+      --resource-set conn_name=cdm --resource-set dialect=postgresql+psycopg
+      --resource-set host=db --resource-set port=5432
+      --resource-set user=$$POSTGRES_USER --resource-set password=$$POSTGRES_PASSWORD
+      --resource-set database=$$POSTGRES_DB --resource-set cdm_schema=omop &&
     exec my_app_entrypoint
   "
 ```
 
-Each call is scoped to its own package. The `--host` flag for `omop_alchemy configure`
-configures the CDM database; the `--host` flag for `my_package configure` configures that
+Each call is scoped to its own package. The `--resource-set host=` value for `omop_alchemy`
+configures the CDM database; the `--resource-set host=` value for `my_package` configures that
 package's database.  No prefix is needed because the package name is the namespace.
 
 ### Security note

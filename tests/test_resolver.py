@@ -6,6 +6,7 @@ import pytest
 
 from oa_configurator import Resolver, StackConfig
 from oa_configurator.resolver import ResolvedDatabaseTarget, ResolvedResource
+from oa_configurator.models import ConnectionConfig
 
 
 class TestResolveConnection:
@@ -55,7 +56,6 @@ class TestResolveResource:
     def test_vocab_fallback_to_primary(self, minimal_stack):
         r = Resolver(minimal_stack)
         res = r.resolve_resource("default")
-        assert res.vocab_db_is_primary_fallback is True
         assert res.vocab_db.name == res.primary_db.name
 
     def test_vocab_db_separate(self):
@@ -74,7 +74,6 @@ class TestResolveResource:
         )
         r = Resolver(cfg)
         res = r.resolve_resource("default")
-        assert res.vocab_db_is_primary_fallback is False
         assert res.vocab_db.name == "vocab"
 
     def test_vocab_schema_falls_back_to_cdm_schema(self, minimal_stack):
@@ -172,13 +171,13 @@ class TestWithOverrides:
     def test_override_connection(self, minimal_stack):
         r = Resolver(minimal_stack)
         r2 = r.with_overrides(
-            connections={"db": {"dialect": "sqlite", "database": "/other.db"}}
+            connections={"db": ConnectionConfig(dialect="sqlite", database="/other.db")}
         )
         assert r2.resolve_connection("db").url == "sqlite:////other.db"
 
     def test_original_unchanged(self, minimal_stack):
         r = Resolver(minimal_stack)
-        r.with_overrides(connections={"db": {"dialect": "sqlite", "database": "/other.db"}})
+        r.with_overrides(connections={"db": ConnectionConfig(dialect="sqlite", database="/other.db")})
         assert r.resolve_connection("db").url == "sqlite:///:memory:"
 
 

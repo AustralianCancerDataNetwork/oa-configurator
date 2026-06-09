@@ -13,6 +13,7 @@ from .models import StackConfig
 logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIG_PATH = Path("~/.config/omop/config.toml").expanduser()
+ENV_ACTIVE_PROFILE = "OA_ACTIVE_PROFILE"
 
 
 def load_stack_config() -> StackConfig:
@@ -56,7 +57,7 @@ def _load_from_path(path: str | Path) -> StackConfig:
 
     config = StackConfig.model_validate(data)
 
-    active_profile = os.environ.get("OA_ACTIVE_PROFILE")
+    active_profile = os.environ.get(ENV_ACTIVE_PROFILE)
     if active_profile:
         config.active_profile = active_profile
 

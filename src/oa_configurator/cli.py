@@ -23,7 +23,7 @@ console = Console()
 err_console = Console(stderr=True)
 
 
-@app.callback()
+@app.callback()  # required by Typer to attach global --verbose/-v before any subcommand
 def _main(
     verbose: Annotated[
         int,
@@ -71,7 +71,7 @@ def _resolve_resource(
     spec: ResourceSpec,
     config: StackConfig,
     *,
-    flags: dict[str, str | int | None] | None = None,
+    flags: dict[str, str] | None = None,
     semantic_name_override: str | None = None,
 ) -> tuple[str, ConnectionConfig, ResourceConfig] | None:
     """Resolve or create a connection + resource for a ResourceSpec.
@@ -116,9 +116,10 @@ def _resolve_resource(
         console.print(f"[dim]{spec.description}[/dim]")
         console.print("[dim]Tip: the value shown in [brackets] is the default. Press Enter to accept it.[/dim]\n")
 
-    # Collect already-stored values so re-running configure never re-prompts for
-    # fields that are already configured and not explicitly overridden by a flag.
     # Resolution order: explicit flag > stored config > prompt.
+    # _stored holds every field from the existing config as strings ("" for None)
+    # so _v can find them and skip the prompt. Callers do `_v(...) or None` to
+    # convert empty-string back to None for optional fields.
     _stored: dict[str, str] = {}
     if existing:
         _stored.update({k: str(v) if v is not None else "" for k, v in existing.model_dump().items()})
@@ -311,22 +312,48 @@ def _resolve_extra_fields(
     return extra
 
 
+
+def _print_configure_summary(cls) -> None:
+    """Print the expected --resource-set and --set fields for a package class."""
+
+    _RESOURCE_CONN_FIELDS = ("conn_name", "dialect", "host", "port", "user", "password", "database")
+    _RESOURCE_SCHEMA_NON_CDM = ("cdm_schema",)
+    _RESOURCE_SCHEMA_CDM = _RESOURCE_SCHEMA_NON_CDM + ("vocab_schema", "results_schema")
+
+    if cls.owned_resources:
+        console.print("\n[dim]Resource fields (--resource-set key=value):[/dim]")
+        for spec in cls.owned_resources:
+            schema_fields = _RESOURCE_SCHEMA_CDM if spec.is_cdm_database else _RESOURCE_SCHEMA_NON_CDM
+            fields = ", ".join(_RESOURCE_CONN_FIELDS + schema_fields)
+            console.print(f"  [bold]{spec.display_name}[/bold] ({spec.semantic_name})")
+            console.print(f"  [dim]{fields}[/dim]")
+
+    extras = [(k, fi) for k, fi in cls.model_fields.items() if k != "tool_name"]
+    if extras:
+        console.print("\n[dim]Package extras (--set key=value):[/dim]")
+        for field_name, field_info in extras:
+            desc = field_info.description or ""
+            suffix = f"  [dim]— {desc}[/dim]" if desc else ""
+            console.print(f"  {field_name}{suffix}")
+
+
 @app.command()
-def configure(  # noqa: PLR0913
+def configure(
     package: Annotated[
         str,
         typer.Argument(help="Package name to configure, e.g. omop_alchemy. Omit to list registered packages."),
     ] = "",
-    conn_name: Annotated[str | None, typer.Option("--conn-name", help="Connection label (skips prompt).")] = None,
-    dialect: Annotated[str | None, typer.Option("--dialect", help="SQLAlchemy dialect, e.g. postgresql+psycopg (skips prompt).")] = None,
-    host: Annotated[str | None, typer.Option("--host", help="Database host (skips prompt).")] = None,
-    port: Annotated[int | None, typer.Option("--port", help="Database port (skips prompt).")] = None,
-    user: Annotated[str | None, typer.Option("--user", help="Database user (skips prompt).")] = None,
-    password: Annotated[str | None, typer.Option("--password", help="Database password (skips prompt).")] = None,
-    database: Annotated[str | None, typer.Option("--database", help="Database name (skips prompt).")] = None,
-    cdm_schema: Annotated[str | None, typer.Option("--cdm-schema", help="CDM schema name (skips prompt).")] = None,
-    vocab_schema: Annotated[str | None, typer.Option("--vocab-schema", help="Vocab schema; omit to share CDM schema (skips prompt).")] = None,
-    results_schema: Annotated[str | None, typer.Option("--results-schema", help="Results schema; omit if unused (skips prompt).")] = None,
+    resource_fields: Annotated[
+        list[str],
+        typer.Option(
+            "--resource-set",
+            help=(
+                "Set a connection or resource field as key=value "
+                "(e.g. --resource-set host=localhost). Repeatable. "
+                "Providing any --resource-set skips all resource prompts."
+            ),
+        ),
+    ] = [],
     resource_name: Annotated[
         str | None,
         typer.Option(
@@ -340,23 +367,30 @@ def configure(  # noqa: PLR0913
     ] = None,
     set_fields: Annotated[
         list[str],
-        typer.Option("--set", help="Set an extra field as key=value (e.g. --set ollama_api_base=http://ollama:11434/v1). Repeatable. Forces non-interactive mode for extras."),
+        typer.Option(
+            "--set",
+            help="Set a package extra field as key=value (e.g. --set ollama_api_base=http://ollama:11434/v1). Repeatable.",
+        ),
     ] = [],
 ) -> None:
     """Configure a package's [tools.<name>] section.
 
-    Run without flags for interactive prompts (local dev).  Pass connection
-    flags to skip all prompts; useful for scripted / Docker Compose use:
+    Run without flags for interactive prompts (local dev). Pass --resource-set
+    flags to skip all resource prompts; useful for scripted / Docker Compose use:
 
-        omop-config configure omop_alchemy \\
-            --conn-name cdm --dialect postgresql+psycopg \\
-            --host db --port 5432 --user omop --password secret \\
-            --database omop_cdm --cdm-schema omop
+        omop-config configure my-package \\
+            --resource-set conn_name=cdm --resource-set dialect=postgresql+psycopg \\
+            --resource-set host=db --resource-set port=5432 --resource-set user=omop \\
+            --resource-set password=secret --resource-set database=omop_cdm \\
+            --resource-set cdm_schema=omop
+
+    Run without flags to see a summary of what fields the package expects before
+    the interactive prompts begin.
 
     To add a second resource of the same type (e.g. a production CDM alongside
     a local one) use --resource-name:
 
-        omop-config configure omop_alchemy --resource-name cdm_db_prod
+        omop-config configure my-package --resource-name cdm_db_prod
 
     Packages register support via the 'omop.config' entry-point group in their
     pyproject.toml.
@@ -364,13 +398,10 @@ def configure(  # noqa: PLR0913
     eps = entry_points(group="omop.config")
     registered = {ep.name: ep for ep in eps}
 
-    raw_flags = {
-        "conn_name": conn_name, "dialect": dialect, "host": host, "port": port,
-        "user": user, "password": password, "database": database,
-        "cdm_schema": cdm_schema, "vocab_schema": vocab_schema, "results_schema": results_schema,
-    }
-    flags_arg: dict[str, str | int | None] | None = (
-        {k: v for k, v in raw_flags.items() if v is not None} or None
+    # Build flags_arg from --resource-set key=value pairs.
+    # None → interactive mode (prompts); non-None dict → non-interactive (no prompts).
+    flags_arg: dict[str, str] | None = (
+        {k.strip(): v for kv in resource_fields for k, _, v in [kv.partition("=")]} or None
     )
     set_dict: dict[str, str] = {}
     for kv in set_fields:
@@ -409,10 +440,10 @@ def configure(  # noqa: PLR0913
 
     console.print(f"\n[bold]Configuring [cyan]{package}[/cyan][/bold]")
     console.print(f"[dim]TOML section: [tools.{cls.tool_name}][/dim]")
+    _print_configure_summary(cls)
 
-    # Configure each resource this package owns (connection + schema setup).
-    # When --resource-name is given and the package owns exactly one resource,
-    # that resource is created under the override name instead of the default.
+    # Only packages with owned_resources trigger connection + schema prompts.
+    # Packages that only consume resources (e.g. omop_graph) skip this loop entirely.
     for spec in cls.owned_resources:
         effective_name = resource_name if (resource_name and len(cls.owned_resources) == 1) else None
         result = _resolve_resource(spec, config, flags=flags_arg, semantic_name_override=effective_name)

@@ -121,11 +121,11 @@ def _resolve_resource(
     # Resolution order: explicit flag > stored config > prompt.
     _stored: dict[str, str] = {}
     if existing:
-        _stored.update({k: str(v) for k, v in existing.model_dump(exclude_none=True).items()})
+        _stored.update({k: str(v) if v is not None else "" for k, v in existing.model_dump().items()})
         _stored["conn_name"] = existing.primary_db
         _ec = config.connections.get(existing.primary_db)
         if _ec:
-            _stored.update({k: str(v) for k, v in _ec.model_dump(exclude_none=True).items()})
+            _stored.update({k: str(v) if v is not None else "" for k, v in _ec.model_dump().items()})
 
     def _v(key: str, label: str, default: str, *, hide_input: bool = False) -> str:
         if (val := flags.get(key)) is not None:

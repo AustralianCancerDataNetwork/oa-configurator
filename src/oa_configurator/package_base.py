@@ -73,24 +73,32 @@ class ConfigurationError(ValueError):
 class PackageConfigBase(BaseModel):
     """Typed view over a package's ``[tools.<tool_name>]`` TOML section.
 
-    Subclass this and set ``tool_name`` to the key used in
-    ``[tools.<name>]``. Declare ``required_resources`` with the canonical
-    resource name(s) the package depends on (e.g. ``("cdm_db",)``).  If the
-    resource is missing when :meth:`from_stack` is called, a
-    :exc:`ConfigurationError` is raised with an actionable message.
+    Subclass this and declare the class variables below. Users who name their
+    resource differently can add a ``[resource_aliases]`` section to
+    config.toml (e.g. ``cdm_db = "my_prod"``) so all packages resolve
+    correctly without per-package ``default_resource`` overrides.
 
-    Declare ``owned_resources`` with :class:`ResourceSpec` instances for any
-    resources this package is responsible for configuring (connection + schema).
-    The ``omop-config configure`` command prompts for these before extras.
-
-    Users who name their resource differently can add a ``[resource_aliases]``
-    section to config.toml (e.g. ``cdm_db = "my_prod"``) so all packages
-    resolve correctly without per-package ``default_resource`` overrides.
+    Attributes
+    ----------
+    tool_name : str
+        Key used in ``[tools.<name>]``. Must be set on every subclass.
+    required_resources : tuple[str, ...]
+        Canonical resource names this package depends on. A missing resource
+        at :meth:`from_stack` time raises :exc:`ConfigurationError`.
+    owned_resources : tuple[ResourceSpec, ...]
+        Resources this package is responsible for configuring interactively.
+        ``omop-config configure`` prompts for these before package extras.
+    extra_logging_namespaces : tuple[str, ...]
+        Logger namespaces of transitive dependencies to configure alongside
+        this package. The package's own ``tool_name``
+        are always included -> only list additional roots here, e.g.
+        ``("<my_extra_package_to_log",)``. Missing namespaces are harmless.
     """
 
-    tool_name: ClassVar[str]  # must be set on every subclass
+    tool_name: ClassVar[str]
     required_resources: ClassVar[tuple[str, ...]] = ()
     owned_resources: ClassVar[tuple[ResourceSpec, ...]] = ()
+    extra_logging_namespaces: ClassVar[tuple[str, ...]] = ()
 
     @classmethod
     def from_stack(cls, config: StackConfig) -> Self:
@@ -131,6 +139,16 @@ class PackageConfigBase(BaseModel):
         """Load this package's config from the active stack config file."""
         from .loader import load_stack_config
         return cls.from_stack(load_stack_config())
+
+    @classmethod
+    def configure_logging(cls, config=None, *, verbosity: int = 0) -> None:
+        """Configure logging for this package and its declared transitive dependencies."""
+        from .logging_config import configure_logging as _configure_logging
+        _configure_logging(
+            config,
+            verbosity=verbosity,
+            extra_namespaces=list(cls.extra_logging_namespaces) + [cls.tool_name],
+        )
 
     def to_extra_dict(self) -> dict[str, Any]:
         """Serialize back to the dict stored in ``ToolConfig.extra``."""

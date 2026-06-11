@@ -31,11 +31,11 @@ class TestResolveDatabase:
 
     def test_profile_database_takes_precedence(self):
         cfg = StackConfig.for_session(
-            databases={"db": {"dialect": "sqlite", "database_name": "/base.db"}},
+            databases={"db": DatabaseConfig(dialect="sqlite", database_name="/base.db")},
             resources={"default": {"database": "db", "cdm_schema": "omop"}},
             profiles={
                 "test": {
-                    "databases": {"db": {"dialect": "sqlite", "database_name": ":memory:"}},
+                    "databases": {"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
                 }
             },
             active_profile="test",
@@ -61,8 +61,8 @@ class TestResolveResource:
     def test_vocab_database_separate(self):
         cfg = StackConfig.for_session(
             databases={
-                "cdm": {"dialect": "sqlite", "database_name": ":memory:"},
-                "vocab": {"dialect": "sqlite", "database_name": ":memory:"},
+                "cdm": DatabaseConfig(dialect="sqlite", database_name=":memory:"),
+                "vocab": DatabaseConfig(dialect="sqlite", database_name=":memory:"),
             },
             resources={
                 "default": {
@@ -94,7 +94,7 @@ class TestResolveResource:
 
     def test_profile_resource_takes_precedence(self):
         cfg = StackConfig.for_session(
-            databases={"db": {"dialect": "sqlite", "database_name": ":memory:"}},
+            databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
             resources={"default": {"database": "db", "cdm_schema": "base_schema"}},
             profiles={
                 "test": {
@@ -136,7 +136,7 @@ class TestSchemaTranslateMap:
 class TestResolveTool:
     def test_tool_extra_dict(self):
         cfg = StackConfig.for_session(
-            databases={"db": {"dialect": "sqlite"}},
+            databases={"db": DatabaseConfig(dialect="sqlite")},
             resources={"default": {"database": "db", "cdm_schema": "omop"}},
             tools={"omop_emb": {"extra": {"backend": "sqlitevec", "path": "/data"}}},
         )
@@ -184,7 +184,7 @@ class TestWithOverrides:
 class TestResourceAliases:
     def test_alias_resolves_resource(self):
         cfg = StackConfig.for_session(
-            databases={"db": {"dialect": "sqlite", "database_name": ":memory:"}},
+            databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
             resources={"my_prod": {"database": "db", "cdm_schema": "main"}},
             resource_aliases={"cdm_db": "my_prod"},
         )
@@ -195,7 +195,7 @@ class TestResourceAliases:
 
     def test_alias_with_profile_override(self):
         cfg = StackConfig.for_session(
-            databases={"db": {"dialect": "sqlite", "database_name": ":memory:"}},
+            databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
             resources={"my_prod": {"database": "db", "cdm_schema": "base"}},
             profiles={
                 "test": {
@@ -212,7 +212,7 @@ class TestResourceAliases:
     def test_unknown_alias_target_raises_at_construction(self):
         with pytest.raises(ValueError, match="resource_aliases"):
             StackConfig.for_session(
-                databases={"db": {"dialect": "sqlite", "database_name": ":memory:"}},
+                databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
                 resources={},
                 resource_aliases={"cdm_db": "does_not_exist"},
             )

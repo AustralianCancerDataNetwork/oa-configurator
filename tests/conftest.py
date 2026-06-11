@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from oa_configurator import StackConfig
+from oa_configurator import StackConfig, DatabaseConfig
 
 
 @pytest.fixture
@@ -16,10 +16,10 @@ def minimal_stack() -> StackConfig:
     """Minimal in-memory config with one SQLite connection and one resource."""
     return StackConfig.for_session(
         databases={
-            "db": {
-                "dialect": "sqlite",
-                "database_name": ":memory:",
-            }
+            "db": DatabaseConfig(
+                dialect="sqlite",
+                database_name=":memory:",
+            )
         },
         resources={
             "default": {
@@ -35,14 +35,14 @@ def pg_stack() -> StackConfig:
     """In-memory config simulating a PostgreSQL CDM setup."""
     return StackConfig.for_session(
         databases={
-            "cdm": {
-                "dialect": "postgresql+psycopg",
-                "host": "localhost",
-                "port": 5432,
-                "user": "omop",
-                "password": "secret",
-                "database_name": "omop_cdm",
-            }
+            "cdm": DatabaseConfig(
+                dialect="postgresql+psycopg",
+                host="localhost",
+                port=5432,
+                user="omop",
+                password="secret",
+                database_name="omop_cdm",
+            )
         },
         resources={
             "default": {

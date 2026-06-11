@@ -6,7 +6,7 @@ from typing import ClassVar
 
 import pytest
 
-from oa_configurator import ConfigurationError, PackageConfigBase, StackConfig
+from oa_configurator import ConfigurationError, PackageConfigBase, StackConfig, DatabaseConfig
 
 
 class SampleConfig(PackageConfigBase):
@@ -75,7 +75,7 @@ class RequiredConfig(PackageConfigBase):
 class TestRequiredResources:
     def test_passes_when_resource_present(self):
         cfg = StackConfig.for_session(
-            databases={"db": {"dialect": "sqlite", "database_name": ":memory:"}},
+            databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
             resources={"cdm_db": {"database": "db", "cdm_schema": "main"}},
         )
         result = RequiredConfig.from_stack(cfg)
@@ -99,7 +99,7 @@ class TestRequiredResources:
 
     def test_passes_when_resource_aliased(self):
         cfg = StackConfig.for_session(
-            databases={"db": {"dialect": "sqlite", "database_name": ":memory:"}},
+            databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
             resources={"my_prod": {"database": "db", "cdm_schema": "main"}},
             resource_aliases={"cdm_db": "my_prod"},
         )
@@ -108,7 +108,7 @@ class TestRequiredResources:
 
     def test_respects_default_resource_override(self):
         cfg = StackConfig.for_session(
-            databases={"db": {"dialect": "sqlite", "database_name": ":memory:"}},
+            databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
             resources={"my_custom": {"database": "db", "cdm_schema": "main"}},
             tools={"required_tool": {"default_resource": "my_custom"}},
         )
@@ -117,7 +117,7 @@ class TestRequiredResources:
 
     def test_recognises_profile_resources(self):
         cfg = StackConfig.for_session(
-            databases={"db": {"dialect": "sqlite", "database_name": ":memory:"}},
+            databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
             profiles={
                 "test": {
                     "resources": {"cdm_db": {"database": "db", "cdm_schema": "test_schema"}}

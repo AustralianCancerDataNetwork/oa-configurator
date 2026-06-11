@@ -89,7 +89,7 @@ class TestStackConfig:
 
     def test_for_session_accepts_raw_dicts(self):
         cfg = StackConfig.for_session(
-            databases={"c": {"dialect": "sqlite", "database_name": ":memory:"}},
+            databases={"c": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
             resources={"r": {"database": "c", "cdm_schema": "s"}},
         )
         assert isinstance(cfg.databases["c"], DatabaseConfig)
@@ -105,7 +105,7 @@ class TestStackConfig:
     def test_cross_ref_validation_unknown_resource_in_tool(self):
         with pytest.raises(ValueError, match="unknown resource"):
             StackConfig.for_session(
-                databases={"c": {"dialect": "sqlite"}},
+                databases={"c": DatabaseConfig(dialect="sqlite")},
                 resources={},
                 tools={"t": {"default_resource": "missing"}},
             )
@@ -113,27 +113,27 @@ class TestStackConfig:
     def test_cross_ref_validation_vocab_database(self):
         with pytest.raises(ValueError, match="unknown database"):
             StackConfig.for_session(
-                databases={"c": {"dialect": "sqlite"}},
+                databases={"c": DatabaseConfig(dialect="sqlite")},
                 resources={"r": {"database": "c", "vocab_database": "missing", "cdm_schema": "s"}},
             )
 
     def test_profile_overlay_cross_ref(self):
         cfg = StackConfig.for_session(
-            databases={"c": {"dialect": "sqlite"}},
+            databases={"c": DatabaseConfig(dialect="sqlite")},
             resources={"r": {"database": "c", "cdm_schema": "s"}},
             profiles={
                 "test": {
-                    "databases": {"tc": {"dialect": "sqlite", "database_name": ":memory:"}},
+                    "databases": {"tc": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
                     "resources": {"r": {"database": "tc", "cdm_schema": "s"}},
                 }
-            },
+            }
         )
         assert "tc" in cfg.profiles["test"].databases
 
     def test_profile_overlay_invalid_cross_ref(self):
         with pytest.raises(ValueError, match="unknown database"):
             StackConfig.for_session(
-                databases={"c": {"dialect": "sqlite"}},
+                databases={"c": DatabaseConfig(dialect="sqlite")},
                 resources={"r": {"database": "c", "cdm_schema": "s"}},
                 profiles={
                     "bad": {

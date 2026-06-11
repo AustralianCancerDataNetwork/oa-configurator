@@ -576,6 +576,7 @@ name = "oa-configurator"
 version = "0.0.1"
 source = { editable = "." }
 dependencies = [
+    { name = "click" },
     { name = "pydantic" },
     { name = "rich" },
     { name = "sqlalchemy" },
@@ -599,6 +600,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "click" },
     { name = "ipython", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "mkdocs", marker = "extra == 'dev'", specifier = ">=1.6.1" },
     { name = "mkdocs-material", marker = "extra == 'dev'", specifier = ">=9.7.1" },

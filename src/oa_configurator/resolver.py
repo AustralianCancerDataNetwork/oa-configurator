@@ -307,6 +307,7 @@ class Resolver:
             databases={**self.config.databases, **(databases or {})},
             resources={**self.config.resources, **(resources or {})},
             tools={**self.config.tools, **(tools or {})},
+            resource_aliases=self.config.resource_aliases,
             logging=self.config.logging,
         )
         if self.config.loaded_path is not None:

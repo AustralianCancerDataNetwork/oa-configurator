@@ -235,14 +235,14 @@ class StackConfig(BaseModel):
         for rname, resource in self.resources.items():
             self._check_resource_refs(resource, self.databases, f"resources.{rname}")
         for tname, tool in self.tools.items():
-            self._check_tool_refs(tool, self.resources, f"tools.{tname}")
+            self._check_tool_refs(tool, self.resources, self.resource_aliases, f"tools.{tname}")
         for pname, profile in self.profiles.items():
             effective_dbs = {**self.databases, **profile.databases}
             effective_res = {**self.resources, **profile.resources}
             for rname, resource in profile.resources.items():
                 self._check_resource_refs(resource, effective_dbs, f"profiles.{pname}.resources.{rname}")
             for tname, tool in profile.tools.items():
-                self._check_tool_refs(tool, effective_res, f"profiles.{pname}.tools.{tname}")
+                self._check_tool_refs(tool, effective_res, self.resource_aliases, f"profiles.{pname}.tools.{tname}")
         for alias_key, alias_target in self.resource_aliases.items():
             if alias_target not in self.resources:
                 raise ValueError(
@@ -267,12 +267,15 @@ class StackConfig(BaseModel):
     def _check_tool_refs(
         tool: ToolConfig,
         resources: dict[str, ResourceConfig],
+        resource_aliases: dict[str, str],
         location: str,
     ) -> None:
-        if tool.default_resource is not None and tool.default_resource not in resources:
-            raise ValueError(
-                f"{location}.default_resource references unknown resource {tool.default_resource!r}"
-            )
+        if tool.default_resource is not None:
+            effective = resource_aliases.get(tool.default_resource, tool.default_resource)
+            if effective not in resources:
+                raise ValueError(
+                    f"{location}.default_resource references unknown resource {tool.default_resource!r}"
+                )
 
     @classmethod
     def for_session(

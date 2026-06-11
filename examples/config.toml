@@ -1,4 +1,4 @@
-# ~/.config/omop/config.toml 
+# ~/.config/omop/config.toml
 # OMOP stack shared configuration
 #
 # Manage with:   omop-config configure <package>
@@ -8,44 +8,68 @@
 active_profile = "local"   # override at runtime: OA_ACTIVE_PROFILE=prod omop-config show
 
 # ---------------------------------------------------------------------------
-# Connections with one entry per physical database endpoint
+# Databases: one entry per physical database endpoint.
 # Restrict file permissions: chmod 600 ~/.config/omop/config.toml
 # ---------------------------------------------------------------------------
 
-[connections.local_cdm]
-dialect  = "postgresql+psycopg"
-host     = "localhost"
-port     = 5432
-user     = "omop"
-password = "omop"
-database = "omop_cdm"
+[databases.local_cdm]
+dialect       = "postgresql+psycopg"
+host          = "localhost"
+port          = 5432
+user          = "omop"
+password      = "omop"
+database_name = "omop_cdm"
+read_only     = false
+test_only     = false
 
-[connections.prod_cdm]
-dialect  = "postgresql+psycopg"
-host     = "prod.hospital.org"
-port     = 5432
-user     = "omop_prod"
-password = "changeme"
-database = "omop_cdm"
+[databases.local_cdm_test]
+dialect       = "postgresql+psycopg"
+host          = "localhost"
+port          = 5432
+user          = "test"
+password      = "test"
+database_name = "test_db"
+read_only     = false
+test_only     = true
 
-[connections.prod_vocab]
-dialect  = "postgresql+psycopg"
-host     = "prod.hospital.org"
-port     = 5432
-user     = "omop_vocab"
-password = "changeme"
-database = "omop_vocab"
+[databases.prod_cdm]
+dialect       = "postgresql+psycopg"
+host          = "prod.hospital.org"
+port          = 5432
+user          = "omop_prod"
+password      = "changeme"
+database_name = "omop_cdm"
+read_only     = false
+test_only     = false
+
+[databases.prod_emb]
+dialect       = "postgresql+psycopg"
+host          = "prod.hospital.org"
+port          = 5432
+user          = "omop_emb"
+password      = "changeme"
+database_name = "omop_emb"
+read_only     = false
+test_only     = false
 
 # ---------------------------------------------------------------------------
-# Resources: map logical OMOP roles to connections and schema names
+# Resources: map logical OMOP roles to databases and schema names.
 # ---------------------------------------------------------------------------
 
 [resources.cdm_db]
-primary_db     = "local_cdm"
-cdm_schema     = "omop"
-# vocab_db     = "local_cdm"   # omit to fall back to primary_db
-# vocab_schema = "omop"        # omit to fall back to cdm_schema
-# results_schema = "results"   # optional; used by Achilles / Atlas
+database   = "local_cdm"
+cdm_schema = "omop"
+# vocab_database  = "local_cdm"   # omit to fall back to database
+# vocab_schema    = "omop"        # omit to fall back to cdm_schema
+# results_schema  = "results"     # optional; used by Achilles / Atlas
+
+[resources.test_cdm_db]
+database   = "local_cdm_test"
+cdm_schema = "public"
+
+[resources.emb_db]
+database   = "prod_emb"
+cdm_schema = "public"
 
 # ---------------------------------------------------------------------------
 # Tools: per-package config, managed via `omop-config configure <package>`
@@ -57,6 +81,32 @@ default_resource = "cdm_db"
 [tools.omop_alchemy.extra]
 # athena_source_path = "/data/athena"   # path to Athena vocabulary CSVs
 
+[tools.omop_emb]
+default_resource = "cdm_db"
+
+[tools.omop_emb.extra]
+backend                   = "pgvector"
+document_embedding_prefix = ""
+query_embedding_prefix    = ""
+ollama_api_base           = "http://ollama:11434/v1"
+api_key                   = "ollama"
+
+[tools.omop_graph]
+default_resource = "cdm_db"
+
+[tools.omop_graph.extra]
+max_depth = 6
+max_paths = 20
+
+[tools.omop_spires]
+default_resource = "cdm_db"
+
+[tools.omop_spires.extra]
+ollama_api_base  = "http://ollama:11434/v1"
+instructor_model = "mistral-small3.2"
+embedding_model  = "qwen3-embedding:0.6b"
+api_key          = "ollama"
+
 # ---------------------------------------------------------------------------
 # Profiles: named overlays; activate with `omop-config use <profile>`
 # Each entry fully replaces the base entry with the same name.
@@ -64,19 +114,20 @@ default_resource = "cdm_db"
 # ---------------------------------------------------------------------------
 
 [profiles.local]
-# empty: no overrides -> base connections/resources are used as-is
+# empty: no overrides → base databases/resources are used as-is
 
-[profiles.prod.connections.local_cdm]
-dialect  = "postgresql+psycopg"
-host     = "prod.hospital.org"
-port     = 5432
-user     = "omop_prod"
-password = "changeme"
-database = "omop_cdm"
+[profiles.prod.databases.local_cdm]
+dialect       = "postgresql+psycopg"
+host          = "prod.hospital.org"
+port          = 5432
+user          = "omop_prod"
+password      = "changeme"
+database_name = "omop_cdm"
+read_only     = false
+test_only     = false
 
 [profiles.prod.resources.cdm_db]
-primary_db     = "prod_cdm"
-vocab_db       = "prod_vocab"
+database       = "prod_cdm"
 cdm_schema     = "omop"
 vocab_schema   = "vocab"
 results_schema = "results"

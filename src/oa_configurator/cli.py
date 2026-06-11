@@ -64,12 +64,14 @@ def _resolve_resource(
     resolved = config.resource_aliases.get(resource_name, resource_name)
     existing = config.resources.get(resolved)
 
+    declined = False
     if existing and not non_interactive:
         if typer.confirm(
             f"{spec.display_name} is already configured (resource: {resource_name!r}). Keep it?",
             default=True,
         ):
             return None
+        declined = True
 
     if not non_interactive:
         console.print(f"\n[bold]{spec.display_name}[/bold]")
@@ -80,8 +82,10 @@ def _resolve_resource(
     # _stored holds every field from the existing config as strings ("" for None)
     # so _v can find them and skip the prompt. Callers do `_v(...) or None` to
     # convert empty-string back to None for optional fields.
+    # When the user explicitly declined to keep the existing config, we don't
+    # pre-fill _stored — they should be prompted for every field afresh.
     _stored: dict[str, str] = {}
-    if existing:
+    if existing and not declined:
         _stored.update({k: str(v) if v is not None else "" for k, v in existing.model_dump().items()})
         _edb = config.databases.get(existing.database)
         if _edb:

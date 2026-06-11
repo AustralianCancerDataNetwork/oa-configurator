@@ -42,6 +42,15 @@ class DatabaseConfig(BaseModel):
         default=False,
         description="Hint only; enforcement depends on the dialect.",
     )
+    test_only: bool = Field(
+        default=False,
+        description=(
+            "Marks this connection as intended for testing only. "
+            "It will be excluded from production resource prompts and "
+            "used as a safety check to prevent accidental test operations "
+            "on production data."
+        ),
+    )
 
     def to_env_pairs(self, prefix: str) -> list[str]:
         """Return ``PREFIX_FIELD=value`` strings for each non-None field.
@@ -50,11 +59,13 @@ class DatabaseConfig(BaseModel):
         Docker Compose ``env_file:``. Field names are uppercased directly
         (e.g. ``host`` → ``PREFIX_HOST``), so adding a new field here
         automatically appears in the export without touching ``io.py``.
+        Config-only flags (``read_only``, ``test_only``) are excluded — they
+        are not database connection parameters.
         """
         return [
             f"{prefix}_{k.upper()}={v}"
             for k, v in self.model_dump().items()
-            if v is not None
+            if v is not None and k not in {"read_only", "test_only"}
         ]
 
     def _build_url(self, hide_password: bool) -> str:
@@ -219,7 +230,7 @@ class StackConfig(BaseModel):
     _loaded_path: Path | None = PrivateAttr(default=None)
 
     @model_validator(mode="after")
-    def validate_references(self) -> "StackConfig":
+    def validate_references(self) -> StackConfig:
         """Ensure all named cross-references point at configured objects."""
         for rname, resource in self.resources.items():
             self._check_resource_refs(resource, self.databases, f"resources.{rname}")
@@ -273,7 +284,7 @@ class StackConfig(BaseModel):
         profiles: dict | None = None,
         active_profile: str | None = None,
         resource_aliases: dict[str, str] | None = None,
-    ) -> "StackConfig":
+    ) -> StackConfig:
         """Build a config in memory without a TOML file.
 
         Intended for tests and scripts. Cross-references are validated at

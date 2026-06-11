@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+import re
 import sys
-from typing import Protocol
+from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -14,6 +15,21 @@ _FORMAT = "%(asctime)s | %(name)s | %(levelname)s | %(message)s"
 _DATEFMT = "%Y-%m-%d %H:%M:%S"
 
 _VERBOSITY_LEVELS = {0: "WARNING", 1: "INFO", 2: "DEBUG"}
+
+SENSITIVE_KEYS: frozenset[str] = frozenset({
+    "dsn", "key", "passwd", "password", "secret", "token", "uri", "url",
+})
+
+_REDACT_RE = re.compile(
+    r"(?i)(\b(?:" + "|".join(re.escape(k) for k in sorted(SENSITIVE_KEYS)) + r")\b\s*[:=]\s*)\S+"
+)
+
+
+class RedactingFormatter(logging.Formatter):
+    """Logging formatter that redacts sensitive key=value pairs from log messages."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        return _REDACT_RE.sub(r"\1<REDACTED>", super().format(record))
 
 
 def _coerce_level(value: str) -> str:
@@ -60,10 +76,11 @@ class _HasLoggingConfig(Protocol):
 
 
 def configure_logging(
-    config: "LoggingConfig | _HasLoggingConfig | None" = None,
+    config: LoggingConfig | _HasLoggingConfig | None = None,
     *,
     verbosity: int = 0,
     extra_namespaces: list[str] | None = None,
+    console: Any = None,
 ) -> None:
     """Configure Python logging for the OMOP stack.
 
@@ -97,8 +114,12 @@ def configure_logging(
 
     effective_level = logging_config.level or _VERBOSITY_LEVELS.get(verbosity, "INFO")
 
-    handler = logging.StreamHandler(sys.stderr)
-    handler.setFormatter(logging.Formatter(_FORMAT, datefmt=_DATEFMT))
+    if console is not None:
+        from rich.logging import RichHandler
+        handler: logging.Handler = RichHandler(console=console, show_path=False, rich_tracebacks=True)
+    else:
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(RedactingFormatter(_FORMAT, datefmt=_DATEFMT))
 
     namespaces = (_OWN_NAMESPACE,) + tuple(extra_namespaces or [])
     stale: list[logging.Handler] = []

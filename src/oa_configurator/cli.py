@@ -31,7 +31,8 @@ def _resolve_resource(
     *,
     flags: dict[str, str] | None = None,
     semantic_name_override: str | None = None,
-) -> tuple[str, DatabaseConfig, ResourceConfig] | None:
+    is_test_resource: bool = False,
+) -> tuple[str, DatabaseConfig | None, ResourceConfig] | None:
     """Resolve or create a database config + resource for a ResourceSpec.
 
     Resolution order for each field: explicit flag > stored config > prompt.
@@ -55,6 +56,7 @@ def _resolve_resource(
         second instance of the same resource type (e.g. ``cdm_db_prod``).
 
     Returns ``(db_name, db_config, resource)`` or ``None`` to keep existing config.
+    When an existing connection is reused, ``db_config`` is ``None`` (no new entry needed).
     """
     non_interactive = flags is not None
     flags = flags or {}
@@ -90,7 +92,46 @@ def _resolve_resource(
             return str(val)
         if key in _stored:
             return _stored[key]
+        if spec.defaults and (pre := spec.defaults.get(key)) is not None:
+            default = str(pre)
         return typer.prompt(label, default=default, hide_input=hide_input)
+
+    # Offer reuse of an existing connection when none is configured yet.
+    reuse_label: str | None = None
+    if not existing and not non_interactive and config.databases:
+        if is_test_resource:
+            candidates = [n for n, db in config.databases.items() if db.test_only]
+        else:
+            candidates = [n for n, db in config.databases.items() if not db.test_only]
+        if candidates:
+            hint = spec.connection_name_hint or ""
+            suggested = hint if hint in candidates else candidates[0]
+            console.print(f"  Existing connections: {', '.join(candidates)}")
+            choice = typer.prompt(
+                "  Point to an existing connection, or 'new' to create one",
+                default=suggested,
+            )
+            if choice != "new" and choice in candidates:
+                reuse_label = choice
+
+    if reuse_label:
+        if not non_interactive:
+            console.print("\n[dim]Schema configuration[/dim]\n")
+        if spec.is_cdm_database:
+            cdm_schema = _v("cdm_schema", "CDM schema  (schema containing the OMOP tables)", spec.cdm_schema_default)
+            vocab_schema = _v("vocab_schema", "Vocab schema  (blank = same schema as CDM; set only if vocabulary lives in a separate schema)", "") or None
+            results_schema = _v("results_schema", "Results schema  (for Achilles/Atlas results tables; blank = not used)", "") or None
+        else:
+            cdm_schema = _v("cdm_schema", "Schema  (leave blank for public/default)", spec.cdm_schema_default)
+            vocab_schema = None
+            results_schema = None
+        resource = ResourceConfig(
+            database=reuse_label,
+            cdm_schema=cdm_schema,
+            vocab_schema=vocab_schema,
+            results_schema=results_schema,
+        )
+        return reuse_label, None, resource
 
     database = _v("database", "Database label  (short name for this database entry, e.g. 'cdm')", spec.connection_name_hint or "cdm")
     dialect = _v("dialect", "Dialect  (SQLAlchemy driver string, e.g. postgresql+psycopg, sqlite)", "postgresql+psycopg")
@@ -179,7 +220,7 @@ def _build_resource_params(spec: ResourceSpec) -> list[click.Parameter]:
     """Generate Click options for one resource from DatabaseConfig + ResourceConfig fields."""
     params: list[click.Parameter] = []
     for name, info in DatabaseConfig.model_fields.items():
-        if name == "read_only":
+        if name in ("read_only", "test_only"):
             continue
         params.append(click.Option(
             [f"--{name.replace('_', '-')}"],
@@ -283,7 +324,8 @@ def _run_configure_package(
         result = _resolve_resource(spec, config, flags=flags_arg, semantic_name_override=effective_name)
         if result is not None:
             db_label, new_db, new_resource = result
-            config.databases[db_label] = new_db
+            if new_db is not None:
+                config.databases[db_label] = new_db
             save_name = effective_name or spec.semantic_name
             config.resources[save_name] = new_resource
 
@@ -327,6 +369,61 @@ def _run_configure_package(
     save_stack_config(config)
     console.print(f"\n[green]✓[/green] Saved \\[tools.{tool_name}] to [dim]{DEFAULT_CONFIG_PATH}[/dim]")
 
+    if cls.test_resources:
+        console.print("\n[dim]─── Test database (optional) ───[/dim]")
+        console.print(
+            "[yellow]⚠[/yellow]  Test resources are used by the test suite, which runs"
+            " DROP SCHEMA CASCADE on every run.\n"
+            "   Point to a [bold]dedicated test_only connection[/bold], never to real data.\n"
+            "   Existing test_only connections will be offered for reuse."
+        )
+        want_test = typer.confirm("Configure a test database resource?", default=False)
+        if want_test:
+            test_names = {s.semantic_name for s in cls.test_resources}
+            for spec in cls.test_resources:
+                result = _resolve_resource(spec, config, flags=None, is_test_resource=True)
+                if result is None:
+                    continue
+                db_label, new_db, new_resource = result
+
+                if new_db is not None:
+                    # New connection: set test_only flag and check for production collision.
+                    new_db.test_only = True
+                    for res_name, existing_res in config.resources.items():
+                        if res_name in test_names:
+                            continue
+                        existing_conn = config.databases.get(existing_res.database)
+                        if existing_conn is None or existing_conn.test_only:
+                            continue
+                        if (
+                            existing_conn.host == new_db.host
+                            and existing_conn.database_name == new_db.database_name
+                        ):
+                            err_console.print(
+                                f"\n[red bold]DANGER[/red bold]: these connection details match the"
+                                f" [bold]{res_name!r}[/bold] resource (same host and database name).\n"
+                                f"Tests run DROP SCHEMA CASCADE — this would destroy your data.\n"
+                                f"Use a different [bold]host[/bold] or [bold]database name[/bold]."
+                            )
+                            raise typer.Exit(1)
+                    config.databases[db_label] = new_db
+                else:
+                    # Reuse: verify the referenced connection is actually test_only.
+                    existing_db = config.databases.get(db_label)
+                    if existing_db is not None and not existing_db.test_only:
+                        err_console.print(
+                            f"\n[red bold]DANGER[/red bold]: the connection {db_label!r} is not"
+                            f" marked test_only=true. Point test resources only to test_only"
+                            f" connections.\n"
+                        )
+                        raise typer.Exit(1)
+
+                config.resources[spec.semantic_name] = new_resource
+                save_stack_config(config)
+                console.print(
+                    f"[green]✓[/green] Test resource [bold]{spec.semantic_name!r}[/bold] written."
+                )
+
 @app.callback()  # required by Typer to attach global --verbose/-v before any subcommand
 def _main(
     verbose: Annotated[
@@ -334,7 +431,7 @@ def _main(
         typer.Option(
             "--verbose", "-v",
             count=True,
-            help="Increase log verbosity (-v INFO, -vv DEBUG).",
+            help="Increase log verbosity (-v INFO, -vv DEBUG). Must come before the subcommand name.",
         ),
     ] = 0,
 ) -> None:

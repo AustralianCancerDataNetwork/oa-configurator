@@ -26,7 +26,7 @@ In ``pyproject.toml``::
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, ClassVar, Self
 
 from pydantic import BaseModel
@@ -56,6 +56,12 @@ class ResourceSpec:
         When ``False``, the configure prompt skips the vocab schema and
         results schema questions — those are OMOP CDM-specific concepts that
         do not apply to other databases such as the pgvector embedding store.
+    defaults
+        Optional pre-fill values for connection prompts. Keys match
+        ``DatabaseConfig`` and ``ResourceConfig`` field names (``dialect``,
+        ``host``, ``port``, ``user``, ``password``, ``database_name``,
+        ``cdm_schema``). Applied when there is no stored config for a field
+        — lower priority than an existing stored value.
     """
 
     semantic_name: str
@@ -64,6 +70,7 @@ class ResourceSpec:
     connection_name_hint: str = ""
     cdm_schema_default: str = "omop"
     is_cdm_database: bool = True
+    defaults: dict[str, Any] | None = field(default=None, compare=False)
 
 
 class ConfigurationError(ValueError):
@@ -88,6 +95,11 @@ class PackageConfigBase(BaseModel):
     owned_resources : tuple[ResourceSpec, ...]
         Resources this package is responsible for configuring interactively.
         ``omop-config configure`` prompts for these before package extras.
+    test_resources : tuple[ResourceSpec, ...]
+        Optional test-only resources. ``omop-config configure`` presents a
+        Y/N prompt for these after the main resource flow. Marked with a
+        DROP SCHEMA warning; a collision check prevents pointing at any
+        already-configured non-test resource.
     extra_logging_namespaces : tuple[str, ...]
         Logger namespaces of transitive dependencies to configure alongside
         this package. The package's own ``tool_name``
@@ -98,6 +110,7 @@ class PackageConfigBase(BaseModel):
     tool_name: ClassVar[str]
     required_resources: ClassVar[tuple[str, ...]] = ()
     owned_resources: ClassVar[tuple[ResourceSpec, ...]] = ()
+    test_resources: ClassVar[tuple[ResourceSpec, ...]] = ()
     extra_logging_namespaces: ClassVar[tuple[str, ...]] = ()
 
     @classmethod
@@ -141,13 +154,14 @@ class PackageConfigBase(BaseModel):
         return cls.from_stack(load_stack_config())
 
     @classmethod
-    def configure_logging(cls, config=None, *, verbosity: int = 0) -> None:
+    def configure_logging(cls, config=None, *, verbosity: int = 0, console=None) -> None:
         """Configure logging for this package and its declared transitive dependencies."""
         from .logging_config import configure_logging as _configure_logging
         _configure_logging(
             config,
             verbosity=verbosity,
             extra_namespaces=list(cls.extra_logging_namespaces) + [cls.tool_name],
+            console=console,
         )
 
     def to_extra_dict(self) -> dict[str, Any]:

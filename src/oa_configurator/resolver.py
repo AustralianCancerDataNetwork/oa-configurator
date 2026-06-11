@@ -296,7 +296,7 @@ class Resolver:
         databases: dict[str, DatabaseConfig] | None = None,
         resources: dict[str, ResourceConfig] | None = None,
         tools: dict[str, ToolConfig] | None = None,
-    ) -> "Resolver":
+    ) -> Resolver:
         """Return a new Resolver with entries merged over the current config.
 
         Useful for session-level overrides without touching the TOML file.
@@ -380,7 +380,7 @@ class Resolver:
         return _get_named(self.config.tools, "tool", name)
 
     @classmethod
-    def from_active_config(cls) -> "Resolver":
+    def from_active_config(cls) -> Resolver:
         """Create a Resolver from the currently active stack config file."""
         from .loader import load_stack_config
         return cls(load_stack_config())

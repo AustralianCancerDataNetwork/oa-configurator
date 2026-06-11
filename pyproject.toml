@@ -10,6 +10,7 @@ dependencies = [
   "sqlalchemy>=2.0,<3",
   "tomli-w>=1,<2",
   "typer>=0.12,<1",
+  "click"
 ]
 
 [project.optional-dependencies]
@@ -28,6 +29,9 @@ dev = [
 
 [project.scripts]
 omop-config = "oa_configurator.cli:app"
+
+[project.entry-points.pytest11]
+oa_configurator = "oa_configurator.pytest_plugin"
 
 [build-system]
 requires = ["hatchling"]

@@ -165,6 +165,34 @@ class PackageConfigBase(BaseModel):
             console=console,
         )
 
+    @classmethod
+    def get_engine(cls, resource_name: str | None = None, **engine_kwargs: Any) -> Any:
+        """Create a SQLAlchemy engine for a resource.
+
+        Parameters
+        ----------
+        resource_name:
+            Resource to resolve. If ``None``, uses ``tool.default_resource``
+            from the config file, or falls back to ``required_resources[0]``.
+        **engine_kwargs:
+            Forwarded to :meth:`~oa_configurator.resolver.ResolvedResource.create_engine`.
+
+        Raises
+        ------
+        ConfigurationError
+            If no resource name can be determined.
+        """
+        from .loader import load_stack_config
+        from .resolver import Resolver
+        stack = load_stack_config()
+        tool = stack.tools.get(cls.tool_name)
+        name = resource_name or (tool.default_resource if tool else None) or (
+            cls.required_resources[0] if cls.required_resources else None
+        )
+        if name is None:
+            raise ConfigurationError(f"{cls.__name__} has no resources to resolve.")
+        return Resolver(stack).resolve_resource(name).create_engine(**engine_kwargs)
+
     def to_extra_dict(self) -> dict[str, Any]:
         """Serialize back to the dict stored in ``ToolConfig.extra``."""
         return self.model_dump(exclude_none=True)

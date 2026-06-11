@@ -125,12 +125,13 @@ class PackageConfigBase(BaseModel):
         """
         tool = config.tools.get(cls.tool_name)
         override = tool.default_resource if tool else None
-        check_name = override or (cls.required_resources[0] if cls.required_resources else None)
 
-        if check_name:
-            available: set[str] = set(config.resource_names())
-            if config.active_profile and config.active_profile in config.profiles:
-                available |= set(config.profiles[config.active_profile].resources)
+        available: set[str] = set(config.resource_names())
+        if config.active_profile and config.active_profile in config.profiles:
+            available |= set(config.profiles[config.active_profile].resources)
+
+        names_to_check: list[str] = [override] if override else list(cls.required_resources)
+        for check_name in names_to_check:
             resolved_check = config.resource_aliases.get(check_name, check_name)
             if resolved_check not in available:
                 alias_hint = (

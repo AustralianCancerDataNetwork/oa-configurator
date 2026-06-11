@@ -74,6 +74,9 @@ def save_stack_config(config: Any, path: Path = DEFAULT_CONFIG_PATH) -> Path:
 
     Does NOT preserve comments or original formatting. The ``logging`` section
     is omitted when it equals the default (no custom logging configured).
+
+    TODO: adopt ``tomlkit`` for round-trip serialisation that preserves comments
+    and original ordering.
     """
     from .logging_config import LoggingConfig
 

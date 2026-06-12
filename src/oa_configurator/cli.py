@@ -8,6 +8,7 @@ from typing import Annotated
 
 import click
 import rich
+import sqlalchemy as sa
 import typer
 from typer.core import TyperGroup
 from rich.console import Console
@@ -549,8 +550,8 @@ def verify(
         try:
             t0 = time.monotonic()
             engine = target.create_engine()
-            with engine.connect():
-                pass
+            with engine.connect() as conn:
+                conn.execute(sa.text("SELECT 1"))
             elapsed = (time.monotonic() - t0) * 1000
             table.add_row(name, target.safe_url, "[green]OK[/green]", f"{elapsed:.0f} ms")
         except Exception as exc:

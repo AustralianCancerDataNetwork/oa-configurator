@@ -504,7 +504,7 @@ def use(
     if profile not in config.profiles and profile != "default":
         err_console.print(
             f"[yellow]Warning:[/yellow] profile {profile!r} not found in config.toml, but"
-            "it will be set anyway. Add connections/resources to it when ready."
+            " it will be set anyway. Add connections/resources to it when ready."
         )
 
     patch_active_profile(profile)

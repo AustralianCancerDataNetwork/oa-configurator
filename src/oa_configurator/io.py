@@ -13,7 +13,7 @@ from .loader import DEFAULT_CONFIG_PATH
 from .resolver import Resolver
 
 logger = logging.getLogger(__name__)
-FLAT_ENV_PATH = DEFAULT_CONFIG_PATH.parent / DEFAULT_CONFIG_PATH.stem.replace(".toml", ".env")
+FLAT_ENV_PATH = DEFAULT_CONFIG_PATH.with_suffix(".env")
 
 
 def write_env_file(resolver: Resolver, path: Path = FLAT_ENV_PATH) -> Path:

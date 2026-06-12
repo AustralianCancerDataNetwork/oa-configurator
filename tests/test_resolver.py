@@ -156,15 +156,13 @@ class TestCreateEngine:
         r = Resolver(minimal_stack)
         target = r.resolve_database("db")
         engine = target.create_engine()
-        with engine.connect():
-            pass  # just verify it works
+        assert engine.dialect.name == "sqlite"
 
     def test_resource_create_engine(self, minimal_stack):
         r = Resolver(minimal_stack)
         res = r.resolve_resource("default")
         engine = res.create_engine()
-        with engine.connect():
-            pass
+        assert engine.dialect.name == "sqlite"
 
 
 class TestWithOverrides:

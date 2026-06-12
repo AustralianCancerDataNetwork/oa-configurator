@@ -1,11 +1,22 @@
 """OA_Configurator pytest plugin — auto-loaded via the ``pytest11`` entry point.
 
+# NOTE: This is currently pgvector heavy. A future feature request will support other backends.
+
 Provides the ``requires_resource`` marker, the ``resolve_test_resource`` fixture
 helper, and standalone PostgreSQL database lifecycle utilities:
 
 - ``ensure_test_db_exists(url)`` — create the target database if absent
 - ``create_fresh_test_db(url)`` — drop and recreate (used by omop-emb)
 - ``drop_test_db(url)`` — terminate connections and drop the database
+- ``require_pg_extension(url, ext)`` — skip if a required extension is absent
+
+All DDL-construction uses ``psycopg.sql.Identifier`` / ``Literal`` for safe
+quoting. Admin credentials are sourced from the stack config (non-test-only DB
+on the same host); the admin account owns/creates the databases. Test users are
+created with ``SUPERUSER LOGIN`` (SUPERUSER is required by orm-loader's FK
+bypass via ``session_replication_role``; CREATEDB and REPLICATION are not
+granted). A fallback to the test user's own credentials is used when no admin
+DB is found (standalone containers where the test user is the superuser).
 
 Accepts two forms for the resource argument to ``requires_resource``:
 
@@ -21,59 +32,146 @@ applies the mark to it rather than forwarding it as a marker arg.  Use the named
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import sqlalchemy as sa
 
 
-def _maintenance_engine(url: sa.URL) -> sa.Engine:
-    """Engine connected to the 'postgres' maintenance DB on the same host."""
-    return sa.create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
+def _pg_ident(name: str) -> object:
+    from psycopg.sql import Identifier
+    return Identifier(name)
 
+
+def _pg_lit(value: str) -> object:
+    from psycopg.sql import Literal
+    return Literal(value)  # type: ignore[arg-type]
+
+
+def _pg_ddl(template: str, *parts: object) -> str:
+    """Build a safe DDL string using psycopg.sql quoting (lazy import)."""
+    from psycopg.sql import SQL
+    return SQL(template).format(*parts).as_string(None)  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _find_admin_url(host: str | None) -> sa.URL | None:
+    """Return admin (non-test-only) DB credentials on the same host, or None."""
+    if host is None:
+        return None
+    from .loader import load_stack_config
+    try:
+        config = load_stack_config()
+    except (FileNotFoundError, ValueError):
+        return None
+    admin_db = next(
+        (db for db in config.databases.values()
+         if not db.test_only and db.host == host),
+        None,
+    )
+    if admin_db is None:
+        return None
+    return sa.engine.make_url(admin_db.build_url())
+
+
+def _admin_engine(test_url: sa.URL) -> sa.Engine:
+    """Engine on the 'postgres' maintenance DB.
+
+    Prefers admin credentials from the stack config; falls back to the test
+    user's own credentials when running in a standalone container where the
+    test user is the superuser.
+    """
+    base = _find_admin_url(test_url.host) or test_url
+    return sa.create_engine(base.set(database="postgres"), isolation_level="AUTOCOMMIT")
+
+
+# ---------------------------------------------------------------------------
+# Public lifecycle helpers
+# ---------------------------------------------------------------------------
 
 def ensure_test_db_exists(url: str | sa.URL) -> None:
     """Create the target database if it does not already exist.
 
-    Connects to the ``postgres`` maintenance database (same host/credentials)
-    so the target database can be created without touching anything else.
+    Uses admin credentials (non-test-only DB on same host) to create the
+    database and sets the test user as OWNER, granting them full control
+    within the database without needing CREATEDB or SUPERUSER.
+
+    Falls back to the test user's own credentials when no admin DB is found.
     Safe to call repeatedly — idempotent.
     """
     target = sa.engine.make_url(url)
-    admin = _maintenance_engine(target)
+    db_name = target.database
+    if db_name is None:
+        return
+    admin = _admin_engine(target)
     try:
         with admin.connect() as conn:
             exists = conn.execute(
                 sa.text("SELECT 1 FROM pg_database WHERE datname = :n"),
-                {"n": target.database},
+                {"n": db_name},
             ).scalar()
             if not exists:
-                conn.execute(sa.text(f'CREATE DATABASE "{target.database}"'))
+                owner = target.username or "postgres"
+                conn.execute(sa.text(
+                    _pg_ddl("CREATE DATABASE {} OWNER {}", _pg_ident(db_name), _pg_ident(owner))
+                ))
     finally:
         admin.dispose()
 
 
-def create_fresh_test_db(url: str | sa.URL) -> sa.URL:
+def create_fresh_test_db(url: str | sa.URL, *, extensions: Sequence[str] = ()) -> sa.URL:
     """Drop and recreate the target database; returns the target ``sa.URL``.
 
     Intended for test suites that need a completely clean database for each
     session (e.g. pgvector tests that register custom tables).
+
+    Parameters
+    ----------
+    extensions:
+        PostgreSQL extensions to install in the new database immediately after
+        creation. Uses admin credentials so the test user does not need
+        SUPERUSER. Pass e.g. ``extensions=["vector"]`` to pre-install pgvector
+        rather than relying on template1 or an external init script.
     """
     target = sa.engine.make_url(url)
-    admin = _maintenance_engine(target)
+    db_name = target.database
+    if db_name is None:
+        return target
+    admin = _admin_engine(target)
     try:
         with admin.connect() as conn:
-            conn.execute(sa.text(f'DROP DATABASE IF EXISTS "{target.database}"'))
+            conn.execute(sa.text(_pg_ddl("DROP DATABASE IF EXISTS {}", _pg_ident(db_name))))
             owner = target.username or "postgres"
-            conn.execute(
-                sa.text(f'CREATE DATABASE "{target.database}" OWNER "{owner}"')
-            )
+            conn.execute(sa.text(
+                _pg_ddl("CREATE DATABASE {} OWNER {}", _pg_ident(db_name), _pg_ident(owner))
+            ))
     finally:
         admin.dispose()
+    if extensions:
+        admin_base = _find_admin_url(target.host) or target
+        ext_engine = sa.create_engine(
+            admin_base.set(database=db_name), isolation_level="AUTOCOMMIT"
+        )
+        try:
+            with ext_engine.connect() as conn:
+                for ext in extensions:
+                    conn.execute(sa.text(
+                        _pg_ddl("CREATE EXTENSION IF NOT EXISTS {}", _pg_ident(ext))
+                    ))
+        finally:
+            ext_engine.dispose()
     return target
 
 
 def drop_test_db(url: str | sa.URL) -> None:
     """Terminate open connections and drop the target database."""
     target = sa.engine.make_url(url)
-    admin = _maintenance_engine(target)
+    db_name = target.database
+    if db_name is None:
+        return
+    admin = _admin_engine(target)
     try:
         with admin.connect() as conn:
             conn.execute(
@@ -81,9 +179,9 @@ def drop_test_db(url: str | sa.URL) -> None:
                     "SELECT pg_terminate_backend(pid) FROM pg_stat_activity"
                     " WHERE datname = :n AND pid <> pg_backend_pid()"
                 ),
-                {"n": target.database},
+                {"n": db_name},
             )
-            conn.execute(sa.text(f'DROP DATABASE IF EXISTS "{target.database}"'))
+            conn.execute(sa.text(_pg_ddl("DROP DATABASE IF EXISTS {}", _pg_ident(db_name))))
     finally:
         admin.dispose()
 
@@ -94,77 +192,80 @@ def ensure_test_user_exists(test_url: str | sa.URL) -> None:
     Finds admin credentials by locating a non-test-only database on the same
     host in the stack config. No-op if no matching admin database is found.
 
-    This is PostgreSQL-specific — see plan future work for dialect-agnostic
-    user provisioning.
+    SUPERUSER is granted because orm-loader's bulk FK-bypass path uses
+    ``SET session_replication_role = 'replica'``, which requires SUPERUSER in
+    PostgreSQL (no narrower privilege exists; ``ALTER TABLE ... DISABLE TRIGGER
+    ALL`` has the same requirement for FK constraint triggers). CREATEDB and
+    REPLICATION are not granted — the admin creates databases.
+
+    This is PostgreSQL-specific — see feature request for dialect-agnostic
+    user provisioning and the FK-bypass-without-SUPERUSER feature request for
+    the long-term fix.
     """
     target = sa.engine.make_url(test_url)
-    if not target.username:
+    username = target.username
+    if not username:
         return
 
-    from .loader import load_stack_config
-    config = load_stack_config()
+    admin_url = _find_admin_url(target.host)
+    if admin_url is None:
+        return
 
-    admin_db = next(
-        (db for db in config.databases.values()
-         if not db.test_only and db.host == target.host),
-        None,
+    admin = sa.create_engine(
+        admin_url.set(database="postgres"), isolation_level="AUTOCOMMIT"
     )
-    if admin_db is None:
-        return
-
-    admin_url = sa.engine.make_url(admin_db.build_url()).set(database="postgres")
-    admin = sa.create_engine(admin_url, isolation_level="AUTOCOMMIT")
     try:
         with admin.connect() as conn:
             exists = conn.execute(
                 sa.text("SELECT 1 FROM pg_roles WHERE rolname = :n"),
-                {"n": target.username},
+                {"n": username},
             ).scalar()
-            # DDL doesn't support bound parameters — escape the values directly.
-            username = target.username.replace('"', '""')
-            password = (target.password or "").replace("'", "''")
             if not exists:
                 conn.execute(sa.text(
-                    f'CREATE USER "{username}" WITH SUPERUSER CREATEDB REPLICATION PASSWORD \'{password}\''
+                    _pg_ddl(
+                        "CREATE USER {} WITH SUPERUSER LOGIN PASSWORD {}",
+                        _pg_ident(username), _pg_lit(target.password or ""),
+                    )
                 ))
             else:
                 attrs = conn.execute(
-                    sa.text("SELECT usesuper, usecreatedb, userepl FROM pg_user WHERE usename = :n"),
-                    {"n": target.username},
+                    sa.text("SELECT rolsuper, rolcanlogin FROM pg_roles WHERE rolname = :n"),
+                    {"n": username},
                 ).one_or_none()
-                if attrs and not (attrs.usesuper and attrs.usecreatedb and attrs.userepl):
-                    conn.execute(sa.text(f'ALTER USER "{username}" WITH SUPERUSER CREATEDB REPLICATION'))
+                if attrs and not (attrs.rolsuper and attrs.rolcanlogin):
+                    conn.execute(sa.text(
+                        _pg_ddl("ALTER USER {} WITH SUPERUSER LOGIN", _pg_ident(username))
+                    ))
     finally:
         admin.dispose()
 
 
-def ensure_db_extension_exists(db_url: str | sa.URL, extension: str) -> None:
-    """Ensure a PostgreSQL extension is installed in the target database.
+def require_pg_extension(db_url: str | sa.URL, extension: str) -> None:
+    """Skip the test session if a required PostgreSQL extension is not installed.
 
-    Uses admin credentials (same logic as ``ensure_test_user_exists``) because
-    ``CREATE EXTENSION`` typically requires superuser.  No-op if no admin DB is
-    found on the same host.
+    Extensions must be pre-installed by a DBA or container init script
+    (e.g. an entrypoint that runs ``CREATE EXTENSION`` as the postgres
+    superuser). This function only checks — it never creates.
+
+    Must be called from pytest fixture or conftest code (uses ``pytest.skip``).
     """
     target = sa.engine.make_url(db_url)
-
-    from .loader import load_stack_config
-    config = load_stack_config()
-
-    admin_db = next(
-        (db for db in config.databases.values()
-         if not db.test_only and db.host == target.host),
-        None,
-    )
-    if admin_db is None:
-        return
-
-    admin_url = sa.engine.make_url(admin_db.build_url()).set(database=target.database)
-    admin = sa.create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    engine = sa.create_engine(target)
     try:
-        with admin.connect() as conn:
-            conn.execute(sa.text(f"CREATE EXTENSION IF NOT EXISTS {extension} CASCADE"))
+        with engine.connect() as conn:
+            installed = conn.execute(
+                sa.text("SELECT 1 FROM pg_extension WHERE extname = :n"),
+                {"n": extension},
+            ).scalar()
     finally:
-        admin.dispose()
+        engine.dispose()
+    if not installed:
+        import pytest as _pytest
+        _pytest.skip(
+            f"PostgreSQL extension {extension!r} is not installed in "
+            f"{target.database!r}. Pre-install it via a container init script "
+            f"or run: psql -U postgres -c 'CREATE EXTENSION {extension}'"
+        )
 
 
 try:

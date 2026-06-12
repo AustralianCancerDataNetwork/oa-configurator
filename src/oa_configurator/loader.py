@@ -14,11 +14,27 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIG_PATH = Path("~/.config/omop/config.toml").expanduser()
 ENV_ACTIVE_PROFILE = "OA_ACTIVE_PROFILE"
+ENV_CONFIG_PATH = "OA_CONFIG_PATH"
+
+
+def _resolve_config_path() -> Path:
+    raw = os.environ.get(ENV_CONFIG_PATH)
+    if raw:
+        p = Path(raw).expanduser()
+        if p.suffix != ".toml":
+            raise ValueError(
+                f"{ENV_CONFIG_PATH} must point to a .toml file, got: {raw!r}"
+            )
+        return p
+    return DEFAULT_CONFIG_PATH
+
+
+CONFIG_PATH: Path = _resolve_config_path()
 
 
 def load_stack_config() -> StackConfig:
-    """Load a :class:`StackConfig` from ``DEFAULT_CONFIG_PATH``
-    (``~/.config/omop/config.toml``).
+    """Load a :class:`StackConfig` from ``CONFIG_PATH``
+    (default ``~/.config/omop/config.toml``, overridable via ``OA_CONFIG_PATH``).
 
     The active profile can be overridden via the ``OA_ACTIVE_PROFILE``
     environment variable without modifying the file.
@@ -26,9 +42,9 @@ def load_stack_config() -> StackConfig:
     Raises
     ------
     FileNotFoundError
-        If ``DEFAULT_CONFIG_PATH`` does not exist.
+        If ``CONFIG_PATH`` does not exist.
     """
-    return _load_from_path(DEFAULT_CONFIG_PATH)
+    return _load_from_path(CONFIG_PATH)
 
 
 def _load_from_path(path: str | Path) -> StackConfig:

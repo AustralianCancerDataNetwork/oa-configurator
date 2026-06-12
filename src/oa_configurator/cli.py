@@ -15,7 +15,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .io import patch_active_profile, save_stack_config, write_env_file
-from .loader import DEFAULT_CONFIG_PATH, load_stack_config
+from .loader import CONFIG_PATH, load_stack_config
 from .logging_config import configure_logging
 from .models import DatabaseConfig, ResourceConfig, StackConfig, ToolConfig
 from .package_base import ConfigurationError, ResourceSpec
@@ -317,7 +317,7 @@ def _run_configure_package(
     try:
         config = load_stack_config()
     except FileNotFoundError:
-        DEFAULT_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         config = StackConfig()
 
     tool_name = cls.tool_name
@@ -372,7 +372,7 @@ def _run_configure_package(
 
     config.tools[tool_name] = ToolConfig(default_resource=new_default_resource, extra=extra)
     save_stack_config(config)
-    console.print(f"\n[green]✓[/green] Saved \\[tools.{tool_name}] to [dim]{DEFAULT_CONFIG_PATH}[/dim]")
+    console.print(f"\n[green]✓[/green] Saved \\[tools.{tool_name}] to [dim]{CONFIG_PATH}[/dim]")
 
     if cls.test_resources:
         console.print("\n[dim]─── Test database (optional) ───[/dim]")
@@ -451,19 +451,19 @@ def init(
         typer.Option("--force", "-f", help="Overwrite existing config without prompting."),
     ] = False,
 ) -> None:
-    """Create ~/.config/omop/config.toml (empty). Use 'omop-config configure <pkg>' to populate it."""
-    if DEFAULT_CONFIG_PATH.exists() and not force:
+    """Create the config file at CONFIG_PATH (default ~/.config/omop/config.toml). Set OA_CONFIG_PATH to write elsewhere. Use 'omop-config configure <pkg>' to populate it."""
+    if CONFIG_PATH.exists() and not force:
         overwrite = typer.confirm(
-            f"Config already exists at {DEFAULT_CONFIG_PATH}. Overwrite?",
+            f"Config already exists at {CONFIG_PATH}. Overwrite?",
             default=False,
         )
         if not overwrite:
             console.print("[yellow]Aborted.[/yellow]")
             raise typer.Exit(0)
 
-    DEFAULT_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     save_stack_config(StackConfig())
-    console.print(f"[green]✓[/green] Created [dim]{DEFAULT_CONFIG_PATH}[/dim]")
+    console.print(f"[green]✓[/green] Created [dim]{CONFIG_PATH}[/dim]")
 
     eps = entry_points(group="omop.config")
     if eps:
@@ -484,7 +484,7 @@ def show(
     try:
         config = load_stack_config()
     except FileNotFoundError:
-        err_console.print(f"[red]Config file not found:[/red] {DEFAULT_CONFIG_PATH}")
+        err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
         err_console.print("Run [bold]omop-config init[/bold] to create it.")
         raise typer.Exit(1)
     if profile is not None:
@@ -500,7 +500,7 @@ def use(
     try:
         config = load_stack_config()
     except FileNotFoundError:
-        err_console.print(f"[red]Config file not found:[/red] {DEFAULT_CONFIG_PATH}")
+        err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
         raise typer.Exit(1)
 
     if profile not in config.profiles and profile != "default":
@@ -531,7 +531,7 @@ def verify(
     try:
         config = load_stack_config()
     except FileNotFoundError:
-        err_console.print(f"[red]Config file not found:[/red] {DEFAULT_CONFIG_PATH}")
+        err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
         raise typer.Exit(1)
 
     if profile is not None:
@@ -570,11 +570,11 @@ def export_env(
         typer.Option("--profile", "-p", help="Profile to use for export."),
     ] = None,
 ) -> None:
-    """Write ~/.config/omop/config.env for Docker Compose env_file:."""
+    """Write CONFIG_PATH's sibling .env file (default ~/.config/omop/config.env) for Docker Compose env_file:."""
     try:
         config = load_stack_config()
     except FileNotFoundError:
-        err_console.print(f"[red]Config file not found:[/red] {DEFAULT_CONFIG_PATH}")
+        err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
         raise typer.Exit(1)
 
     if profile is not None:

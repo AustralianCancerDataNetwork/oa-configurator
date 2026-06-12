@@ -9,11 +9,12 @@ from typing import Any
 
 import tomli_w
 
-from .loader import DEFAULT_CONFIG_PATH
+from .loader import CONFIG_PATH, DEFAULT_CONFIG_PATH
 from .resolver import Resolver
+from .models import StackConfig
 
 logger = logging.getLogger(__name__)
-FLAT_ENV_PATH = DEFAULT_CONFIG_PATH.with_suffix(".env")
+FLAT_ENV_PATH = CONFIG_PATH.with_suffix(".env")
 
 
 def write_env_file(resolver: Resolver, path: Path = FLAT_ENV_PATH) -> Path:

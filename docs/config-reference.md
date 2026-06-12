@@ -1,7 +1,9 @@
 # Config Reference
 
 !!! note
-    Configuration lives at `~/.config/omop/config.toml`. The path is fixed and cannot be overridden. Use environment variable `OA_ACTIVE_PROFILE` to switch profiles at runtime without editing the file.
+    Configuration lives at `~/.config/omop/config.toml` by default. Override the path by setting
+    `OA_CONFIG_PATH` to any `.toml` file (e.g. `OA_CONFIG_PATH=~/projects/omop.toml`).
+    Use `OA_ACTIVE_PROFILE` to switch profiles within a file at runtime.
 
 ---
 

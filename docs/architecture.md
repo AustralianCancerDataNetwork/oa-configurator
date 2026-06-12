@@ -112,7 +112,9 @@ chmod 600 ~/.config/omop/config.toml
 
 ## Config path
 
-Always `~/.config/omop/config.toml`. The path is not configurable. Use `OA_ACTIVE_PROFILE` to select environments at runtime without editing the file.
+Default: `~/.config/omop/config.toml`. Override with `OA_CONFIG_PATH=<path/to/config.toml>`
+(must end in `.toml`; `~` is expanded). Resolved once at module load time and stored as
+`CONFIG_PATH`. Use `OA_ACTIVE_PROFILE` to switch profiles within a file without changing the path.
 
 ---
 

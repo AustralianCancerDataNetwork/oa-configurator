@@ -14,7 +14,7 @@ A shared configuration layer for the OMOP-oriented Python stack.
 - **Logging**: One call configures consistent log output for the entire OMOP Python stack
 
 !!! info
-    Configuration lives in one TOML file (default **`~/.config/omop/config.toml`**) and is loaded once. The Resolver turns logical names into typed, credential-resolved handles ready for use.
+    Configuration lives in one TOML file (default **`~/.config/omop/config.toml`**, overridable via `OA_CONFIG_PATH`) and is loaded once. The Resolver turns logical names into typed, credential-resolved handles ready for use.
 
 ## Quick Example
 
@@ -23,7 +23,7 @@ A shared configuration layer for the OMOP-oriented Python stack.
     ```python
     from oa_configurator import load_stack_config, Resolver
 
-    config = load_stack_config()                        # reads ~/.config/omop/config.toml
+    config = load_stack_config()                        # reads CONFIG_PATH (default ~/.config/omop/config.toml)
     resolver = Resolver(config)
 
     resource = resolver.resolve_resource("default")

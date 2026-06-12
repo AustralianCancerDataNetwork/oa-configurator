@@ -402,6 +402,7 @@ def _run_configure_package(
                         if (
                             existing_conn.host == new_db.host
                             and existing_conn.database_name == new_db.database_name
+                            and existing_conn.port == new_db.port
                         ):
                             err_console.print(
                                 f"\n[red bold]DANGER[/red bold]: these connection details match the"

@@ -69,7 +69,7 @@ def write_env_file(resolver: Resolver, path: Path = FLAT_ENV_PATH) -> Path:
     return path
 
 
-def save_stack_config(config: Any, path: Path = DEFAULT_CONFIG_PATH) -> Path:
+def save_stack_config(config: StackConfig, path: Path = DEFAULT_CONFIG_PATH) -> Path:
     """Serialize a :class:`~oa_configurator.models.StackConfig` back to TOML.
 
     Does NOT preserve comments or original formatting. The ``logging`` section

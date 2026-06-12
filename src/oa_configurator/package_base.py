@@ -130,7 +130,12 @@ class PackageConfigBase(BaseModel):
         if config.active_profile and config.active_profile in config.profiles:
             available |= set(config.profiles[config.active_profile].resources)
 
-        names_to_check: list[str] = [override] if override else list(cls.required_resources)
+        # default_resource is a user-level alias for required_resources[0]. Treat it as a
+        # substitute for the first entry but still validate the rest of required_resources.
+        if override and cls.required_resources:
+            names_to_check: list[str] = [override] + list(cls.required_resources[1:])
+        else:
+            names_to_check = list(cls.required_resources)
         for check_name in names_to_check:
             resolved_check = config.resource_aliases.get(check_name, check_name)
             if resolved_check not in available:

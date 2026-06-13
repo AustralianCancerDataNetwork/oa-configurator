@@ -27,6 +27,10 @@ dev = [
   "mkdocs-mermaid2-plugin"
 ]
 
+postgres = [
+  "psycopg[binary]>=3.1",
+]
+
 [project.scripts]
 omop-config = "oa_configurator.cli:app"
 

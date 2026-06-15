@@ -1,189 +1,162 @@
-# Config File Reference
+# Config Reference
 
-Configuration is stored in TOML. The default path is `~/.config/omop/config.toml`; override with `OA_CONFIG_FILE`.
-
-A minimal working file:
-
-```toml
-[connections.local]
-dialect    = "postgresql"
-host       = "localhost"
-database   = "omop"
-user       = "omop"
-password   = "omop"
-
-[resources.default]
-primary_db = "local"
-```
+!!! note
+    Configuration lives at `~/.config/omop/config.toml` by default. Override the path by setting
+    `OA_CONFIG_PATH` to any `.toml` file (e.g. `OA_CONFIG_PATH=~/projects/omop.toml`).
+    Use `OA_ACTIVE_PROFILE` to switch profiles within a file at runtime.
 
 ---
 
-## `[settings]`
-
-Optional top-level block. All fields have defaults.
+## Top-level fields
 
 | Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `active_profile` | string | `"default"` | Name of the profile to apply. Overridable via `OA_ACTIVE_PROFILE`. |
-| `configuration_base_path` | string | `"."` | Base directory for resolving relative paths. `"."` means the directory containing this file. Any other value must be an absolute path. |
-| `secrets_dir` | string \| null | `null` | Optional directory for file-backed secrets. Relative to `configuration_base_path`. |
-
-```toml
-[settings]
-active_profile         = "prod"
-configuration_base_path = "."
-secrets_dir            = "secrets"
-```
+|---|---|---|---|
+| `active_profile` | string | `null` | Name of the profile to activate. Can be overridden by the `OA_ACTIVE_PROFILE` env var. |
 
 ---
 
-## `[connections.<name>]`
+## `[databases.<name>]`
 
-One block per named connection. Referenced by resources via their name.
+One section per named database endpoint. The name is referenced by resources and profiles.
 
 | Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `dialect` | string | yes | SQLAlchemy drivername: `postgresql`, `postgresql+psycopg`, `sqlite`, `duckdb`, etc. |
-| `host` | string | for network DBs | Hostname or IP |
-| `port` | int | no | Port number; driver default used if omitted |
-| `user` | string | for network DBs | Database user |
-| `database` | string | for network DBs | Database name |
-| `password` | string | mutually exclusive with `secret_source` | Inline password (avoid for shared files) |
-| `secret_source` | string | mutually exclusive with `password` | Indirect credential — see [Secrets](secrets.md) |
-| `path` | string | for file-backed DBs | Local file path (SQLite, DuckDB). Relative to `configuration_base_path`. |
-| `kind` | `"database"` \| `"file"` | no | Default: `"database"`. Use `"file"` for local file-backed connections; file connections require `path`. |
-| `read_only` | bool | no | Default: `false`. For PostgreSQL connections, engine creation injects `default_transaction_read_only=on`. Other dialects currently treat this as advisory metadata. |
-| `engine_kwargs` | dict | no | Extra keyword arguments passed through to `sqlalchemy.create_engine()` (e.g. `pool_size`, `echo`). |
+|---|---|---|---|
+| `dialect` | string | **yes** | SQLAlchemy dialect string, e.g. `postgresql+psycopg`, `mssql+pyodbc`, `sqlite` |
+| `host` | string | no | Hostname or IP |
+| `port` | int | no | Port number |
+| `user` | string | no | Database username |
+| `password` | string | no | Plaintext password *(see security note below)* |
+| `database_name` | string | no | Database name on the server. For SQLite, use `:memory:` or an absolute path. |
+| `read_only` | bool | `false` | Hint only; enforcement depends on the dialect |
 
-### Network database
+!!! warning "Security note"
+    Passwords are stored in plaintext in this file. Restrict permissions with `chmod 600 ~/.config/omop/config.toml`. Secret-management support (env-backed passwords, Vault, etc.) is planned for a future release.
+
+### Example: PostgreSQL
 
 ```toml
-[connections.prod_cdm]
-dialect       = "postgresql"
-host          = "prod.hospital.org"
+[databases.cdm]
+dialect       = "postgresql+psycopg"
+host          = "localhost"
 port          = 5432
-user          = "omop_prod"
-secret_source = "file:prod_cdm.password"
-database      = "omop_cdm"
+user          = "omop"
+password      = "changeme"
+database_name = "omop_cdm"
 ```
 
-### SQLite file
+### Example: SQLite in-memory (for tests)
 
 ```toml
-[connections.local_sqlite]
-dialect  = "sqlite"
-path     = "data/omop.sqlite"
-```
-
-### DuckDB file
-
-```toml
-[connections.local_duckdb]
-dialect  = "duckdb"
-kind     = "file"
-path     = "data/omop.duckdb"
-read_only = true
-```
-
-### Engine kwargs
-
-```toml
-[connections.prod_cdm]
-dialect       = "postgresql"
-host          = "prod.hospital.org"
-database      = "omop_cdm"
-user          = "omop_prod"
-secret_source = "env:PROD_CDM_PASSWORD"
-engine_kwargs = { pool_pre_ping = true, pool_size = 5 }
+[databases.test_db]
+dialect       = "sqlite"
+database_name = ":memory:"
 ```
 
 ---
 
 ## `[resources.<name>]`
 
-Maps logical roles to named connections and schema / path settings.
-`primary_db` is the only required field; all others default to `null`.
+A resource maps logical OMOP CDM roles to named connections and schema names.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `primary_db` | string | **Required.** Connection name for the main OMOP/CDM database. |
-| `vocab_db` | string \| null | Connection name for the vocabulary database. Falls back to `primary_db` when omitted. |
-| `results_db` | string \| null | Connection name for the results / cohort database. Falls back to `primary_db` when omitted. |
-| `omop_schema` | string \| null | Schema name for OMOP clinical tables. Maps to SQLAlchemy `schema_translate_map = {None: ...}`. |
-| `vocab_schema` | string \| null | Schema name for vocabulary tables. Maps to `schema_translate_map = {"vocab": ...}`. |
-| `results_schema` | string \| null | Schema name for results tables. Maps to `schema_translate_map = {"results": ...}`. |
-| `athena_source_path` | string \| null | Local path to an Athena OHDSI vocabulary download. |
-| `artifact_root` | string \| null | Root directory for all derived artifacts. |
-| `embedding_file_root` | string \| null | Directory for vector embedding files (FAISS, etc.). |
-| `analytic_db_file_root` | string \| null | Directory for local analytic DB files (DuckDB exports, etc.). |
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `database` | string | **yes** | Database name (from `[databases.*]`) for the CDM server |
+| `vocab_database` | string | no | Separate database if vocabulary lives on a different server. Falls back to `database`. |
+| `cdm_schema` | string | **yes** | Schema where CDM clinical tables live |
+| `vocab_schema` | string | no | Vocabulary schema. Falls back to `cdm_schema` when not set. |
+| `results_schema` | string | no | Achilles / Atlas results schema |
 
-All path fields resolve relative to `configuration_base_path`.
+### Example: all in one schema
 
 ```toml
 [resources.default]
-primary_db             = "local_cdm"
-vocab_db               = "local_cdm"
-results_db             = "local_cdm"
-omop_schema            = "cdm"
-vocab_schema           = "cdm"
-results_schema         = "results"
-artifact_root          = "artifacts"
-embedding_file_root    = "artifacts/embeddings"
-analytic_db_file_root  = "artifacts/databases"
+database   = "cdm"
+cdm_schema = "omop"
+```
+
+### Example: separate vocab and results schemas
+
+```toml
+[resources.default]
+database       = "cdm"
+cdm_schema     = "omop"
+vocab_schema   = "omop_vocab"
+results_schema = "results"
+```
+
+### Example vocabulary on a separate server
+
+```toml
+[resources.default]
+database      = "cdm"
+vocab_database = "central_vocab"
+cdm_schema    = "omop"
 ```
 
 ---
 
 ## `[tools.<name>]`
 
-Per-tool defaults. Tool names are arbitrary — they match whatever name the consuming tool looks for.
+Per-package configuration. The `name` must match the package's `tool_name` class variable on its `PackageConfigBase` subclass.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `default_resource` | string \| null | Name of the resource this tool uses by default. Must reference a key in `resources`. |
-| `backend` | string \| null | Backend identifier for tools that support multiple backends (e.g. `"pgvector"`, `"faiss"`). |
-| `embedding_file_root` | string \| null | Tool-specific override for the embedding directory. |
-| `database_file_root` | string \| null | Tool-specific override for the analytic DB directory. |
-| `extra` | dict[string, string] | Arbitrary key/value pairs for tool-specific options not covered above. |
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `default_resource` | string | `null` | Resource name this tool uses when none is specified |
+| `extra` | table | `{}` | Package-specific key/value pairs. Each package defines its own typed fields that map here. |
+
+### Example: omop_emb
 
 ```toml
 [tools.omop_emb]
-default_resource    = "default"
-backend             = "pgvector"
-embedding_file_root = "artifacts/embeddings"
+default_resource = "default"
 
-[tools.orm_loader]
-default_resource    = "default"
-database_file_root  = "artifacts/databases"
+[tools.omop_emb.extra]
+backend             = "sqlitevec"
+embedding_file_root = "/data/embeddings"
 ```
 
 ---
 
 ## `[profiles.<name>]`
 
-Named environments that patch resources and tools without duplicating full blocks.
-See [Profiles & Overlays](profiles.md) for the full guide.
+A profile overlays connections, resources, and tools over the base config when active.
 
 | Field | Type | Description |
-|-------|------|-------------|
-| `description` | string \| null | Human-readable description. |
-| `resource_overrides.<resource_name>` | partial ResourceConfig | Overrides applied to the named resource when this profile is active. The resource name must already exist in `resources`. |
-| `tool_overrides.<tool_name>` | partial ToolConfig | Overrides applied to the named tool when this profile is active. The tool name must already exist in `tools`. |
+|---|---|---|
+| `databases` | table | Database configs that replace base databases with the same name, or add new ones |
+| `resources` | table | Resource configs that replace base resources with the same name, or add new ones |
+| `tools` | table | Tool configs that replace base tools with the same name, or add new ones |
+
+Profile entries use the same field definitions as the base sections above.
+
+**Example test profile pointing to a local test database**:
 
 ```toml
-[profiles.prod]
-description = "remote OMOP source, local derived artifacts"
+[profiles.test.databases.cdm]
+dialect       = "postgresql+psycopg"
+host          = "localhost"
+port          = 5433
+user          = "test_user"
+password      = "test_pass"
+database_name = "omop_test"
 
-[profiles.prod.resource_overrides.default]
-primary_db  = "prod_cdm"
-vocab_db    = "prod_vocab"
-
-[profiles.prod.tool_overrides.omop_emb]
-embedding_file_root = "artifacts/prod/embeddings"
+[profiles.test.resources.default]
+database   = "cdm"
+cdm_schema = "test_omop"
 ```
+
+Activate it: `omop-config use test` or `OA_ACTIVE_PROFILE=test`.
 
 ---
 
-## Complete annotated example
+## `[logging]`
 
-See [`examples/config.toml`](https://github.com/AustralianCancerDataNetwork/oa-configurator/blob/main/examples/config.toml) in the repository for a full two-profile, multi-connection example.
+Controls log output for `oa_configurator` and any consuming packages. Defaults to library preset (WARNING, no handler).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `preset` | string | `"library"` | One of `library`, `notebook`, `application`, `production` |
+| `level` | string | `null` | Override the preset's level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
+| `loggers` | table | `{}` | Fine-grained level overrides for specific loggers, e.g. `{"sqlalchemy.engine": "INFO"}` |
+
+See [Logging](logging.md) for full details.

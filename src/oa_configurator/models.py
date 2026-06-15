@@ -1,706 +1,330 @@
-"""Typed models describing the human-managed stack configuration."""
+"""Typed Pydantic models for the OMOP stack configuration."""
 
 from __future__ import annotations
 
-from copy import deepcopy
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 from sqlalchemy.engine import URL
 
 from .logging_config import LoggingConfig
-from .paths import resolve_filesystem_path
 
 
-class _UnsetPasswordOverride:
-    """Sentinel for an omitted password override argument."""
+class DatabaseConfig(BaseModel):
+    """Complete specification of one named database: server address, credentials, and target database.
 
-    def __repr__(self) -> str:
-        return "<UNSET_PASSWORD_OVERRIDE>"
+    Referenced by :attr:`ResourceConfig.database` and
+    :attr:`ResourceConfig.vocab_database`. Each entry under ``[databases]``
+    in ``config.toml`` maps to one instance of this model.
 
-
-_PASSWORD_UNSET = _UnsetPasswordOverride()
-PasswordOverride = str | _UnsetPasswordOverride
-
-
-class SettingsConfig(BaseModel):
-    """Top-level lightweight runtime selection settings.
-
-    ``configuration_base_path`` controls how relative filesystem paths are
-    resolved throughout the configuration:
-
-    - ``"."`` means "the fully resolved directory containing the loaded
-      configuration file" after the loaded config path has been bound with
-      ``StackConfig.bind_loaded_path()`` or by loading through
-      ``load_stack_config()``
-    - any other value must be an absolute directory path
+    Passwords are stored in plaintext for now; secret management support
+    is planned for a future release.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    active_profile: str = "default"
-    configuration_base_path: str = "."
-    secrets_dir: str | None = None
+    dialect: str = Field(
+        description="SQLAlchemy dialect string, e.g. 'postgresql+psycopg', 'mssql+pyodbc', 'sqlite'."
+    )
+    host: str | None = Field(default=None, description="Hostname or IP address.")
+    port: int | None = Field(default=None, description="Port number.")
+    user: str | None = Field(default=None, description="Database username.")
+    password: str | None = Field(
+        default=None,
+        description="Plaintext password. Secret management support is planned for a future release.",
+    )
+    database_name: str | None = Field(
+        default=None,
+        description="Database name on the server. For SQLite use ':memory:' or an absolute path.",
+    )
+    read_only: bool = Field(
+        default=False,
+        description="Hint only; enforcement depends on the dialect.",
+    )
+    test_only: bool = Field(
+        default=False,
+        description=(
+            "Marks this connection as intended for testing only. "
+            "It will be excluded from production resource prompts and "
+            "used as a safety check to prevent accidental test operations "
+            "on production data."
+        ),
+    )
 
-    def __repr__(self) -> str:
-        return (
-            "SettingsConfig("
-            f"active_profile={self.active_profile!r}, "
-            f"configuration_base_path={self.configuration_base_path!r}, "
-            f"secrets_dir={self.secrets_dir!r}"
-            ")"
-        )
+    def to_env_pairs(self, prefix: str) -> list[str]:
+        """Return ``PREFIX_FIELD=value`` strings for each non-None field.
 
-
-class ProfileConfig(BaseModel):
-    """Named deployment or usage profile metadata plus optional overlays.
-
-    Profiles can patch named resources and tools without forcing callers to
-    duplicate whole base blocks such as ``resources.default`` or
-    ``tools.omop_emb``.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    description: str | None = None
-    resource_overrides: dict[str, "ResourceOverrideConfig"] = Field(default_factory=dict)
-    tool_overrides: dict[str, "ToolOverrideConfig"] = Field(default_factory=dict)
-
-    def __repr__(self) -> str:
-        return (
-            "ProfileConfig("
-            f"description={self.description!r}, "
-            f"resource_overrides={sorted(self.resource_overrides)!r}, "
-            f"tool_overrides={sorted(self.tool_overrides)!r}"
-            ")"
-        )
-
-
-class ConnectionConfig(BaseModel):
-    """Concrete database, file-backed, or HTTP API connection target.
-
-    This model captures the minimal details needed to render a URL or file
-    reference, while keeping sensitive elements such as passwords out of the
-    default developer-facing representation.
-
-    Three connection kinds are supported:
-
-    - ``"database"`` — network or local SQL database (default)
-    - ``"file"`` — file-backed database (DuckDB, SQLite by path)
-    - ``"api"`` — HTTP API endpoint (Ollama, OpenAI-compatible services)
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    dialect: str | None = None
-    host: str | None = None
-    port: int | None = None
-    user: str | None = None
-    password: str | None = None
-    secret_source: str | None = None
-    database: str | None = None
-    path: str | None = None
-    engine_kwargs: dict[str, Any] = Field(default_factory=dict)
-    read_only: bool = False
-    kind: Literal["database", "file", "api"] = "database"
-    base_url: str | None = None
-    api_key: str | None = None
-    provider: str | None = None
-
-    @model_validator(mode="after")
-    def validate_shape(self) -> "ConnectionConfig":
-        """Validate the minimum fields required by the selected connection type."""
-
-        if self.kind == "api":
-            if self.base_url is None:
-                raise ValueError("api connections require a base_url")
-            if self.api_key is not None and self.secret_source is not None:
-                raise ValueError("api connections may define api_key or secret_source, not both")
-            for field_name in ("dialect", "host", "port", "user", "password", "database", "path"):
-                if getattr(self, field_name) is not None:
-                    raise ValueError(f"api connections may not define {field_name}")
-            return self
-
-        if self.base_url is not None:
-            raise ValueError(f"{self.kind} connections may not define base_url")
-        if self.api_key is not None:
-            raise ValueError(f"{self.kind} connections may not define api_key")
-        if self.provider is not None:
-            raise ValueError(f"{self.kind} connections may not define provider")
-        if self.dialect is None:
-            raise ValueError(f"{self.kind} connections require a dialect")
-        if self.password is not None and self.secret_source is not None:
-            raise ValueError("connections may define password or secret_source, not both")
-        if self.kind == "file":
-            if self.path is None:
-                raise ValueError("file connections require a path")
-            for field_name in ("host", "port", "user", "password", "secret_source"):
-                if getattr(self, field_name) is not None:
-                    raise ValueError(f"file connections may not define {field_name}")
-        if self.kind == "database" and self.dialect != "sqlite":
-            if self.database is None:
-                raise ValueError("database connections require a database name")
-        if self.kind != "file" and self.dialect == "sqlite" and self.path is None and self.database is None:
-            raise ValueError("sqlite connections require either path or database")
-        return self
-
-    def as_url(self) -> str:
-        """Render the full connection URL, including password when configured."""
-
-        if self.kind == "api":
-            raise RuntimeError(
-                "api connections do not have a database URL; "
-                "use Resolver.resolve_api_connection() instead."
-            )
-        if self.secret_source is not None and self.password is None:
-            raise RuntimeError(
-                "ConnectionConfig.as_url() requires a resolved secret when secret_source is configured. "
-                "Use Resolver.resolve_connection(...).url or call as_url_resolved(...) with a resolved secret."
-            )
-        return self.as_url_resolved()
-
-    def as_url_resolved(
-        self,
-        configuration_base_path: Path | None = None,
-        *,
-        password_override: PasswordOverride = _PASSWORD_UNSET,
-    ) -> str:
-        """Render the full connection URL with optional base-path resolution.
-
-        Parameters
-        ----------
-        configuration_base_path
-            Base directory used to resolve relative local file paths. This is
-            especially important for sqlite or other file-backed connections.
+        Used by :func:`~oa_configurator.io.write_env_file` to emit env vars for
+        Docker Compose ``env_file:``. Field names are uppercased directly
+        (e.g. ``host`` → ``PREFIX_HOST``), so adding a new field here
+        automatically appears in the export without touching ``io.py``.
+        Config-only flags (``read_only``, ``test_only``) are excluded — they
+        are not database connection parameters.
         """
+        return [
+            f"{prefix}_{k.upper()}={v}"
+            for k, v in self.model_dump().items()
+            if v is not None and k not in {"read_only", "test_only"}
+        ]
 
-        file_target = self._resolved_file_target(configuration_base_path)
-        if self.kind == "file":
-            if file_target is None:
-                raise RuntimeError("file connections require a resolved path")
-            return f"{self.dialect}:///{file_target}"
-        if self.dialect == "sqlite":
-            if file_target is not None:
-                return f"sqlite:///{file_target}"
-            return f"sqlite:///{self.database}"
-
-        return self._render_network_url(
-            redact_password=False,
-            password_override=password_override,
-        )
-
-    def as_safe_url(self) -> str:
-        """Render a redacted connection URL suitable for logs and reprs."""
-
-        if self.kind == "api":
-            raise RuntimeError(
-                "api connections do not have a database URL; "
-                "use Resolver.resolve_api_connection() instead."
-            )
-        return self.as_safe_url_resolved()
-
-    def as_safe_url_resolved(
-        self,
-        configuration_base_path: Path | None = None,
-        *,
-        password_override: PasswordOverride = _PASSWORD_UNSET,
-    ) -> str:
-        """Render a redacted connection URL with optional base-path resolution."""
-
-        if self.kind == "file" or self.dialect == "sqlite":
-            return self.as_url_resolved(configuration_base_path)
-
-        return self._render_network_url(
-            redact_password=True,
-            password_override=password_override,
-        )
-
-    def engine_create_kwargs(self, **overrides: Any) -> dict[str, Any]:
-        """Return effective kwargs for ``sqlalchemy.create_engine()``.
-
-        ``engine_kwargs`` from configuration are used as the base. Explicit
-        call-site overrides win. When ``read_only`` is enabled for PostgreSQL,
-        a startup ``connect_args.options`` flag is injected unless the caller
-        has already set it.
-        """
-
-        merged = deepcopy(self.engine_kwargs)
-        if self.read_only and self.dialect.startswith("postgresql"):
-            connect_args = merged.get("connect_args")
-            if connect_args is None:
-                connect_args = {}
-                merged["connect_args"] = connect_args
-            if not isinstance(connect_args, dict):
-                raise TypeError(
-                    "connections.<name>.engine_kwargs.connect_args must be a mapping "
-                    "when read_only=true"
-                )
-            options = connect_args.get("options")
-            if options is None:
-                connect_args["options"] = "-c default_transaction_read_only=on"
-            elif "default_transaction_read_only" not in str(options):
-                connect_args["options"] = (
-                    f"{options} -c default_transaction_read_only=on".strip()
-                )
-
-        explicit = dict(overrides)
-        explicit_connect_args = explicit.pop("connect_args", None)
-        if explicit_connect_args is not None and isinstance(merged.get("connect_args"), dict):
-            if not isinstance(explicit_connect_args, dict):
-                raise TypeError("create_engine(..., connect_args=...) must receive a mapping")
-            merged["connect_args"] = {
-                **merged["connect_args"],
-                **explicit_connect_args,
-            }
-        elif explicit_connect_args is not None:
-            merged["connect_args"] = explicit_connect_args
-
-        merged.update(explicit)
-        return merged
-
-    def __repr__(self) -> str:
-        if self.kind == "api":
-            return (
-                "ConnectionConfig("
-                f"kind={self.kind!r}, "
-                f"base_url={self.base_url!r}, "
-                f"provider={self.provider!r}, "
-                f"api_key={'<set>' if self.api_key else '<not set>'}, "
-                f"secret_source={self.secret_source!r}"
-                ")"
-            )
-        path_repr = str(Path(self.path).expanduser()) if self.path is not None else None
-        return (
-            "ConnectionConfig("
-            f"kind={self.kind!r}, "
-            f"dialect={self.dialect!r}, "
-            f"database={self.database!r}, "
-            f"host={self.host!r}, "
-            f"port={self.port!r}, "
-            f"user={self.user!r}, "
-            f"path={path_repr!r}, "
-            f"secret_source={self.secret_source!r}, "
-            f"engine_kwargs_keys={sorted(self.engine_kwargs)!r}, "
-            f"read_only={self.read_only!r}, "
-            f"url={self.as_safe_url()!r}"
-            ")"
-        )
-
-    def _resolved_file_target(self, configuration_base_path: Path | None) -> Path | None:
-        """Resolve the configured local file target, if this connection has one."""
-
-        if self.path is None:
-            return None
-        return resolve_filesystem_path(self.path, configuration_base_path)
-
-    def _render_network_url(
-        self,
-        *,
-        redact_password: bool,
-        password_override: PasswordOverride = _PASSWORD_UNSET,
-    ) -> str:
-        """Render a network-style database URL with optional password redaction."""
-
-        effective_password = self.password if password_override is _PASSWORD_UNSET else password_override
+    def _build_url(self, hide_password: bool) -> str:
+        if self.dialect.startswith("sqlite"):
+            db = self.database_name or ":memory:"
+            return f"sqlite:///{db}"
         return URL.create(
             drivername=self.dialect,
             username=self.user,
-            password=effective_password if effective_password is not None else None,
+            password=self.password,
             host=self.host or "localhost",
             port=self.port,
-            database=self.database or "",
-        ).render_as_string(hide_password=redact_password)
+            database=self.database_name or "",
+        ).render_as_string(hide_password=hide_password)
+
+    def build_url(self) -> str:
+        """Build the full connection URL, including the plaintext password.
+
+        Returns
+        -------
+        str
+            SQLAlchemy-compatible connection URL. For SQLite, returns
+            ``sqlite:///<database>`` (or ``sqlite:///:memory:`` when
+            ``database`` is not set).
+        """
+        return self._build_url(hide_password=False)
+
+    def safe_url(self) -> str:
+        """Build the connection URL with the password redacted.
+
+        Safe for logging and display. Identical to ``build_url()`` for SQLite
+        connections, which carry no password.
+
+        Returns
+        -------
+        str
+            Connection URL with ``***`` substituted for the password field.
+        """
+        return self._build_url(hide_password=True)
 
 
 class ResourceConfig(BaseModel):
-    """Logical resource-role mapping for one stack usage pattern."""
+    """Maps the OMOP logical roles (CDM, vocab, results) to named databases and schema names.
 
-    model_config = ConfigDict(extra="forbid")
-
-    primary_db: str
-    vocab_db: str | None = None
-    results_db: str | None = None
-    omop_schema: str | None = None
-    vocab_schema: str | None = None
-    results_schema: str | None = None
-    athena_source_path: str | None = None
-    artifact_root: str | None = None
-    embedding_file_root: str | None = None
-    analytic_db_file_root: str | None = None
-
-    def __repr__(self) -> str:
-        return (
-            "ResourceConfig("
-            f"primary_db={self.primary_db!r}, "
-            f"vocab_db={self.vocab_db!r}, "
-            f"results_db={self.results_db!r}, "
-            f"omop_schema={self.omop_schema!r}, "
-            f"vocab_schema={self.vocab_schema!r}, "
-            f"results_schema={self.results_schema!r}, "
-            f"embedding_file_root={self.embedding_file_root!r}, "
-            f"analytic_db_file_root={self.analytic_db_file_root!r}"
-            ")"
-        )
-
-
-class ResourceOverrideConfig(BaseModel):
-    """Partial patch for a named :class:`ResourceConfig`.
-
-    Every field is optional. Only explicitly provided values are applied over
-    the base resource during resolution for the active profile.
+    The unit that consuming packages configure once and reference by name.
+    Most packages only need a single ``cdm_db`` resource. Each entry under
+    ``[resources]`` in ``config.toml`` maps to one instance of this model.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    primary_db: str | None = None
-    vocab_db: str | None = None
-    results_db: str | None = None
-    omop_schema: str | None = None
-    vocab_schema: str | None = None
-    results_schema: str | None = None
-    athena_source_path: str | None = None
-    artifact_root: str | None = None
-    embedding_file_root: str | None = None
-    analytic_db_file_root: str | None = None
-
-    def __repr__(self) -> str:
-        keys = sorted(self.model_dump(exclude_none=True))
-        return f"ResourceOverrideConfig(fields={keys!r})"
+    database: str = Field(
+        description="Name of the database entry (from [databases]) used as the primary CDM server."
+    )
+    vocab_database: str | None = Field(
+        default=None,
+        description="Name of the database entry for vocabulary tables. Falls back to database when not set.",
+    )
+    cdm_schema: str = Field(
+        description="Schema where CDM clinical tables live."
+    )
+    vocab_schema: str | None = Field(
+        default=None,
+        description="Vocabulary schema. Falls back to cdm_schema when not set.",
+    )
+    results_schema: str | None = Field(
+        default=None,
+        description="Achilles / Atlas results schema.",
+    )
 
 
 class ToolConfig(BaseModel):
-    """Tool-specific defaults layered on top of shared resources."""
+    """Per-package section in ``config.toml`` (``[tools.<name>]``).
 
-    model_config = ConfigDict(extra="forbid")
-
-    default_resource: str | None = None
-    backend: str | None = None
-    embedding_file_root: str | None = None
-    database_file_root: str | None = None
-    default_model_name: str | None = None
-    vector_index_cache_dir: str | None = None
-    db_filename: str | None = None
-    api_connection: str | None = None
-    extra: dict[str, str] = Field(default_factory=dict)
-
-    def __repr__(self) -> str:
-        return (
-            "ToolConfig("
-            f"default_resource={self.default_resource!r}, "
-            f"backend={self.backend!r}, "
-            f"embedding_file_root={self.embedding_file_root!r}, "
-            f"database_file_root={self.database_file_root!r}, "
-            f"default_model_name={self.default_model_name!r}, "
-            f"vector_index_cache_dir={self.vector_index_cache_dir!r}, "
-            f"db_filename={self.db_filename!r}, "
-            f"api_connection={self.api_connection!r}, "
-            f"extra_keys={sorted(self.extra)!r}"
-            ")"
-        )
-
-
-class ToolOverrideConfig(BaseModel):
-    """Partial patch for a named :class:`ToolConfig`."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    default_resource: str | None = None
-    backend: str | None = None
-    embedding_file_root: str | None = None
-    database_file_root: str | None = None
-    default_model_name: str | None = None
-    vector_index_cache_dir: str | None = None
-    db_filename: str | None = None
-    api_connection: str | None = None
-    extra: dict[str, str] | None = None
-
-    def __repr__(self) -> str:
-        keys = sorted(self.model_dump(exclude_none=True))
-        return f"ToolOverrideConfig(fields={keys!r})"
-
-
-class StackConfig(BaseModel):
-    """Root typed configuration object for the stack.
-
-    This model is intentionally broad enough to describe:
-
-    - named profiles
-    - named concrete connections
-    - named logical resources
-    - per-tool defaults
-
-    It also exposes a few lightweight discovery helpers so interactive use in
-    notebooks and REPLs feels pleasant without exposing sensitive values.
+    ``default_resource`` names which resource this package reads from.
+    ``extra`` holds the package-specific typed fields declared on the
+    package's :class:`~oa_configurator.PackageConfigBase` subclass.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    settings: SettingsConfig = Field(default_factory=SettingsConfig)
-    profiles: dict[str, ProfileConfig] = Field(default_factory=dict)
-    connections: dict[str, ConnectionConfig] = Field(default_factory=dict)
-    resources: dict[str, ResourceConfig] = Field(default_factory=dict)
-    tools: dict[str, ToolConfig] = Field(default_factory=dict)
-    logging: LoggingConfig = Field(default_factory=LoggingConfig)
-    _config_file_path: Path | None = PrivateAttr(default=None)
-    _resolved_configuration_base_path: Path | None = PrivateAttr(default=None)
-    _resolved_secrets_dir: Path | None = PrivateAttr(default=None)
+    default_resource: str | None = Field(
+        default=None,
+        description="Resource name this tool uses when none is specified by the caller.",
+    )
+    extra: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Package-specific key/value pairs. Each package defines its own typed fields that map here.",
+    )
+
+
+class ProfileOverrideConfig(BaseModel):
+    """Named environment overlay (``[profiles.<name>]`` in ``config.toml``).
+
+    Entries replace base entries with the same name when the profile is active.
+    Anything not mentioned in the profile is inherited from the base config unchanged.
+    Useful for switching between local-dev and production databases without
+    editing the base config.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    databases: dict[str, DatabaseConfig] = Field(
+        default_factory=dict,
+        description="Database configs that replace or extend the base databases.",
+    )
+    resources: dict[str, ResourceConfig] = Field(
+        default_factory=dict,
+        description="Resource configs that replace or extend the base resources.",
+    )
+    tools: dict[str, ToolConfig] = Field(
+        default_factory=dict,
+        description="Tool configs that replace or extend the base tool configs.",
+    )
+
+
+class StackConfig(BaseModel):
+    """Root model for ``~/.config/omop/config.toml``.
+
+    Holds the entire OMOP stack configuration in one object: named database
+    connections, logical resources, per-package tool sections, and environment
+    profiles. Loaded from disk by
+    :func:`~oa_configurator.loader.load_stack_config`; constructed in memory
+    via :meth:`for_session` for tests and scripts (no file I/O).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    active_profile: str | None = Field(
+        default=None,
+        description="Name of the profile to activate. Can be overridden by the OA_ACTIVE_PROFILE env var.",
+    )
+    databases: dict[str, DatabaseConfig] = Field(
+        default_factory=dict,
+        description="Named database configurations (server address, credentials, target database).",
+    )
+    resources: dict[str, ResourceConfig] = Field(
+        default_factory=dict,
+        description="Named logical role bundles mapping CDM roles to databases and schemas.",
+    )
+    tools: dict[str, ToolConfig] = Field(
+        default_factory=dict,
+        description="Per-package configuration sections.",
+    )
+    profiles: dict[str, ProfileOverrideConfig] = Field(
+        default_factory=dict,
+        description="Named environment overlays.",
+    )
+    resource_aliases: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Maps semantic resource names to user-chosen resource names. "
+            "Example: cdm_db = 'my_production_cdm'; all packages that look "
+            "for 'cdm_db' automatically resolve to 'my_production_cdm'. "
+            "Alias targets must exist at the base config level, not only inside a profile."
+        ),
+    )
+    logging: LoggingConfig = Field(
+        default_factory=LoggingConfig,
+        description="Logging configuration. Optional; defaults to WARNING level with no handler.",
+    )
+    _loaded_path: Path | None = PrivateAttr(default=None)
 
     @model_validator(mode="after")
-    def validate_references(self) -> "StackConfig":
-        """Validate that named cross-references point at configured objects."""
-
-        for resource_name, resource in self.resources.items():
-            _validate_resource_connections(
-                resource,
-                self.connections,
-                location=f"resources.{resource_name}",
-            )
-
-        for tool_name, tool in self.tools.items():
-            location = f"tools.{tool_name}"
-            _validate_tool_resource(tool, self.resources, location=location)
-            _validate_tool_api_connection(tool, self.connections, location=location)
-
-        for profile_name, profile in self.profiles.items():
-            for resource_name, override in profile.resource_overrides.items():
-                base_resource = self.resources.get(resource_name)
-                if base_resource is None:
-                    raise ValueError(
-                        f"profiles.{profile_name}.resource_overrides references unknown resource "
-                        f"{resource_name!r}"
-                    )
-                merged_resource = base_resource.model_copy(
-                    update=override.model_dump(exclude_none=True)
+    def validate_references(self) -> StackConfig:
+        """Ensure all named cross-references point at configured objects."""
+        for rname, resource in self.resources.items():
+            self._check_resource_refs(resource, self.databases, f"resources.{rname}")
+        for tname, tool in self.tools.items():
+            self._check_tool_refs(tool, self.resources, self.resource_aliases, f"tools.{tname}")
+        for pname, profile in self.profiles.items():
+            effective_dbs = {**self.databases, **profile.databases}
+            effective_res = {**self.resources, **profile.resources}
+            for rname, resource in profile.resources.items():
+                self._check_resource_refs(resource, effective_dbs, f"profiles.{pname}.resources.{rname}")
+            for tname, tool in profile.tools.items():
+                self._check_tool_refs(tool, effective_res, self.resource_aliases, f"profiles.{pname}.tools.{tname}")
+        for alias_key, alias_target in self.resource_aliases.items():
+            if alias_target not in self.resources:
+                raise ValueError(
+                    f"resource_aliases.{alias_key!r} references unknown resource {alias_target!r}. "
+                    "Note: alias targets must exist at the base config level, not only inside a profile."
                 )
-                _validate_resource_connections(
-                    merged_resource,
-                    self.connections,
-                    location=f"profiles.{profile_name}.resource_overrides.{resource_name}",
-                )
-
-            for tool_name, override in profile.tool_overrides.items():
-                base_tool = self.tools.get(tool_name)
-                if base_tool is None:
-                    raise ValueError(
-                        f"profiles.{profile_name}.tool_overrides references unknown tool "
-                        f"{tool_name!r}"
-                    )
-                merged_tool = base_tool.model_copy(
-                    update=override.model_dump(exclude_none=True)
-                )
-                location = f"profiles.{profile_name}.tool_overrides.{tool_name}"
-                _validate_tool_resource(merged_tool, self.resources, location=location)
-                _validate_tool_api_connection(merged_tool, self.connections, location=location)
-
         return self
+
+    @staticmethod
+    def _check_resource_refs(
+        resource: ResourceConfig,
+        databases: dict[str, DatabaseConfig],
+        location: str,
+    ) -> None:
+        for field, name in (("database", resource.database), ("vocab_database", resource.vocab_database)):
+            if name is not None and name not in databases:
+                raise ValueError(
+                    f"{location}.{field} references unknown database {name!r}"
+                )
+
+    @staticmethod
+    def _check_tool_refs(
+        tool: ToolConfig,
+        resources: dict[str, ResourceConfig],
+        resource_aliases: dict[str, str],
+        location: str,
+    ) -> None:
+        if tool.default_resource is not None:
+            effective = resource_aliases.get(tool.default_resource, tool.default_resource)
+            if effective not in resources:
+                raise ValueError(
+                    f"{location}.default_resource references unknown resource {tool.default_resource!r}"
+                )
 
     @classmethod
     def for_session(
         cls,
         *,
-        connections: "dict[str, ConnectionConfig] | None" = None,
-        resources: "dict[str, ResourceConfig] | None" = None,
-        tools: "dict[str, ToolConfig] | None" = None,
-        profiles: "dict[str, ProfileConfig] | None" = None,
-        settings: "SettingsConfig | None" = None,
-        base_path: Path | None = None,
-    ) -> "StackConfig":
-        """Construct a StackConfig programmatically without a TOML file.
+        databases: dict[str, DatabaseConfig] | None = None,
+        resources: dict | None = None,
+        tools: dict | None = None,
+        profiles: dict | None = None,
+        active_profile: str | None = None,
+        resource_aliases: dict[str, str] | None = None,
+    ) -> StackConfig:
+        """Build a config in memory without a TOML file.
 
-        The ``base_path`` (default: ``Path.cwd()``) anchors relative filesystem
-        paths in connections, resources, and tools. Equivalent to loading a TOML
-        file from that directory. Internally this binds a synthetic config file
-        path inside ``base_path`` so that ``configuration_base_path = "."``
-        behaves the same way it would for a loaded TOML file.
-
-        Example::
-
-            config = StackConfig.for_session(
-                connections={"local": ConnectionConfig(dialect="sqlite", database=":memory:")},
-                resources={"default": ResourceConfig(primary_db="local")},
-            )
-            engine = Resolver(config).resolve_resource("default").create_engine()
+        Intended for tests and scripts. Cross-references are validated at
+        construction time, same as for file-loaded configs.
         """
-        config = cls(
-            connections=connections or {},
+        return cls(
+            active_profile=active_profile,
+            databases=databases or {},
             resources=resources or {},
             tools=tools or {},
             profiles=profiles or {},
-            settings=settings or SettingsConfig(),
+            resource_aliases=resource_aliases or {},
         )
-        resolved_base = (base_path or Path.cwd()).expanduser().resolve()
-        config.bind_loaded_path(resolved_base / "_session.toml")
-        return config
 
-    def bind_loaded_path(self, config_file_path: Path) -> None:
-        """Bind the resolved loaded config path and derive path resolution base.
-
-        This should be called by the loader after the TOML file is parsed so
-        that every later filesystem resolution uses a stable directory base
-        rather than the process working directory.
-
-        The method only uses the fully resolved file path and its parent
-        directory; the file itself does not need to exist. ``for_session()``
-        relies on that behavior by binding a synthetic ``_session.toml`` path
-        within the chosen base directory.
-        """
-
-        resolved_file = config_file_path.expanduser().resolve()
-        configured_base = Path(self.settings.configuration_base_path).expanduser()
-        if self.settings.configuration_base_path == ".":
-            resolved_base = resolved_file.parent
-        else:
-            if not configured_base.is_absolute():
-                raise ValueError(
-                    "settings.configuration_base_path must be '.' or an absolute path. "
-                    f"Got {self.settings.configuration_base_path!r}."
-                )
-            resolved_base = configured_base.resolve()
-
-        self._config_file_path = resolved_file
-        self._resolved_configuration_base_path = resolved_base
-        if self.settings.secrets_dir is None:
-            self._resolved_secrets_dir = None
-        else:
-            self._resolved_secrets_dir = resolve_filesystem_path(
-                self.settings.secrets_dir,
-                resolved_base,
-            )
+    def bind_loaded_path(self, path: Path) -> None:
+        """Record the path of the TOML file this config was loaded from."""
+        self._loaded_path = path.expanduser().resolve()
 
     @property
-    def config_file_path(self) -> Path | None:
-        """Return the fully resolved path of the loaded TOML file, if bound."""
+    def loaded_path(self) -> Path | None:
+        """Path of the TOML file this config was loaded from, if any."""
+        return self._loaded_path
 
-        return self._config_file_path
-
-    @property
-    def configuration_base_path(self) -> Path:
-        """Return the fully resolved directory used for relative path expansion."""
-
-        if self._resolved_configuration_base_path is None:
-            configured_base = Path(self.settings.configuration_base_path).expanduser()
-            if self.settings.configuration_base_path == ".":
-                raise RuntimeError(
-                    "configuration_base_path is '.' but no config file has been bound yet. "
-                    "Load configuration through load_stack_config() or call bind_loaded_path()."
-                )
-            if not configured_base.is_absolute():
-                raise RuntimeError(
-                    "configuration_base_path must be '.' or an absolute path."
-                )
-            return configured_base.resolve()
-        return self._resolved_configuration_base_path
-
-    @property
-    def secrets_dir(self) -> Path | None:
-        """Return the fully resolved directory used for file-backed secrets."""
-
-        if self.settings.secrets_dir is None:
-            return None
-        if self._resolved_secrets_dir is None:
-            return resolve_filesystem_path(
-                self.settings.secrets_dir,
-                self.configuration_base_path,
-            )
-        return self._resolved_secrets_dir
-
-    def profile_names(self) -> tuple[str, ...]:
-        """Return known profile names in sorted order."""
-
-        return tuple(sorted(self.profiles))
-
-    def connection_names(self) -> tuple[str, ...]:
-        """Return known non-secret connection names in sorted order."""
-
-        return tuple(sorted(self.connections))
+    def database_names(self) -> tuple[str, ...]:
+        """Return a sorted tuple of configured database names."""
+        return tuple(sorted(self.databases))
 
     def resource_names(self) -> tuple[str, ...]:
-        """Return known logical resource names in sorted order."""
-
+        """Return a sorted tuple of configured resource names."""
         return tuple(sorted(self.resources))
 
     def tool_names(self) -> tuple[str, ...]:
-        """Return known tool-default names in sorted order."""
-
+        """Return a sorted tuple of configured tool names."""
         return tuple(sorted(self.tools))
 
-    def active_profile_config(self) -> ProfileConfig | None:
-        """Return the configured active profile object, if present."""
-
-        return self.profiles.get(self.settings.active_profile)
-
-    def __repr__(self) -> str:
-        if self._resolved_configuration_base_path is not None:
-            config_base_repr = str(self._resolved_configuration_base_path)
-        else:
-            config_base_repr = self.settings.configuration_base_path
-        secrets_dir_repr = str(self._resolved_secrets_dir) if self._resolved_secrets_dir is not None else self.settings.secrets_dir
-        return (
-            "StackConfig("
-            f"active_profile={self.settings.active_profile!r}, "
-            f"configuration_base_path={config_base_repr!r}, "
-            f"secrets_dir={secrets_dir_repr!r}, "
-            f"profiles={len(self.profiles)}, "
-            f"connections={len(self.connections)}, "
-            f"resources={len(self.resources)}, "
-            f"tools={len(self.tools)}"
-            ")"
-        )
+    def profile_names(self) -> tuple[str, ...]:
+        """Return a sorted tuple of configured profile names."""
+        return tuple(sorted(self.profiles))
 
 
-def _validate_resource_connections(
-    resource: ResourceConfig,
-    connections: dict[str, ConnectionConfig],
-    *,
-    location: str,
-) -> None:
-    """Raise when a resource references a missing named connection."""
-
-    for field_name, connection_name in (
-        ("primary_db", resource.primary_db),
-        ("vocab_db", resource.vocab_db),
-        ("results_db", resource.results_db),
-    ):
-        if connection_name is not None and connection_name not in connections:
-            raise ValueError(
-                f"{location}.{field_name} references unknown connection "
-                f"{connection_name!r}"
-            )
-
-
-def _validate_tool_resource(
-    tool: ToolConfig,
-    resources: dict[str, ResourceConfig],
-    *,
-    location: str,
-) -> None:
-    """Raise when a tool references a missing named resource."""
-
-    if tool.default_resource is not None and tool.default_resource not in resources:
-        raise ValueError(
-            f"{location}.default_resource references unknown resource "
-            f"{tool.default_resource!r}"
-        )
-
-
-def _validate_tool_api_connection(
-    tool: ToolConfig,
-    connections: dict[str, ConnectionConfig],
-    *,
-    location: str,
-) -> None:
-    """Raise when a tool references a missing or non-api named connection."""
-
-    if tool.api_connection is None:
-        return
-    if tool.api_connection not in connections:
-        raise ValueError(
-            f"{location}.api_connection references unknown connection "
-            f"{tool.api_connection!r}"
-        )
-    if connections[tool.api_connection].kind != "api":
-        raise ValueError(
-            f"{location}.api_connection references connection {tool.api_connection!r} "
-            f"which has kind {connections[tool.api_connection].kind!r}, not 'api'"
-        )

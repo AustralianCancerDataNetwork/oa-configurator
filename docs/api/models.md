@@ -4,34 +4,22 @@ Typed Pydantic models that represent the human-managed configuration structure. 
 
 ## StackConfig
 
-Root configuration object. Also the entry point for programmatic construction via [`for_session()`](../inline-usage.md).
+Root configuration object. Also the entry point for programmatic construction via `StackConfig.for_session()`.
 
 ::: oa_configurator.models.StackConfig
 
-## SettingsConfig
+## DatabaseConfig
 
-::: oa_configurator.models.SettingsConfig
-
-## ConnectionConfig
-
-::: oa_configurator.models.ConnectionConfig
+::: oa_configurator.models.DatabaseConfig
 
 ## ResourceConfig
 
 ::: oa_configurator.models.ResourceConfig
 
-## ResourceOverrideConfig
-
-::: oa_configurator.models.ResourceOverrideConfig
-
 ## ToolConfig
 
 ::: oa_configurator.models.ToolConfig
 
-## ToolOverrideConfig
+## ProfileOverrideConfig
 
-::: oa_configurator.models.ToolOverrideConfig
-
-## ProfileConfig
-
-::: oa_configurator.models.ProfileConfig
+::: oa_configurator.models.ProfileOverrideConfig

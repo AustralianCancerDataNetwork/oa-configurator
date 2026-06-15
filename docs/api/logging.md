@@ -5,5 +5,6 @@
       members:
         - LoggingConfig
         - LoggingHandlerConfig
+        - RedactingFormatter
         - configure_logging
-        - STACK_LOG_NAMESPACES
+        - get_logger

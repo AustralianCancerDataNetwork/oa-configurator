@@ -1,41 +1,39 @@
 """Public package surface for ``oa-configurator``."""
 
-from .loader import load_stack_config
-from .logging_config import LoggingConfig, LoggingHandlerConfig, configure_logging
+from .io import FLAT_ENV_PATH, patch_active_profile, save_stack_config, write_env_file
+from .loader import DEFAULT_CONFIG_PATH, load_stack_config
+from .logging_config import LoggingConfig, RedactingFormatter, configure_logging, get_logger
 from .models import (
-    ConnectionConfig,
-    ProfileConfig,
+    DatabaseConfig,
+    ProfileOverrideConfig,
     ResourceConfig,
-    ResourceOverrideConfig,
-    SettingsConfig,
     StackConfig,
     ToolConfig,
-    ToolOverrideConfig,
 )
-from .resolver import Resolver, ResolvedApiTarget, ResolvedDatabaseTarget, ResolvedResource, ResolvedToolConfig
-from .schema_helpers import schema_translate_map
-from .secret_sources import SecretSourceResolutionError
-from .settings import DEFAULT_CONFIG_PATH
+from .package_base import ConfigurationError, PackageConfigBase, ResourceSpec
+from .resolver import Resolver, ResolvedDatabaseTarget, ResolvedResource, ResolvedToolConfig
 
 __all__ = [
+    "ConfigurationError",
     "DEFAULT_CONFIG_PATH",
-    "ConnectionConfig",
+    "FLAT_ENV_PATH",
+    "DatabaseConfig",
     "LoggingConfig",
-    "LoggingHandlerConfig",
-    "ProfileConfig",
+    "RedactingFormatter",
+    "PackageConfigBase",
+    "ResourceSpec",
+    "ProfileOverrideConfig",
     "ResourceConfig",
-    "ResourceOverrideConfig",
     "Resolver",
-    "ResolvedApiTarget",
     "ResolvedDatabaseTarget",
     "ResolvedResource",
     "ResolvedToolConfig",
-    "SecretSourceResolutionError",
-    "SettingsConfig",
     "StackConfig",
     "ToolConfig",
-    "ToolOverrideConfig",
     "configure_logging",
+    "get_logger",
     "load_stack_config",
-    "schema_translate_map",
+    "patch_active_profile",
+    "save_stack_config",
+    "write_env_file",
 ]

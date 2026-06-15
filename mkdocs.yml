@@ -14,6 +14,19 @@ theme:
     - content.code.copy
     - content.code.annotate
     - content.tabs.link
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: light-blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
 
 markdown_extensions:
   - admonition
@@ -53,18 +66,19 @@ plugins:
 nav:
   - Home: index.md
   - Getting Started: quickstart.md
+  - Architecture: architecture.md
+
   - User Guide:
       - Config File Reference: config-reference.md
       - Secrets: secrets.md
       - Profiles & Overlays: profiles.md
       - Inline & Session Usage: inline-usage.md
       - Logging: logging.md
-  - Integration: integration.md
-  - Architecture: architecture.md
+      - Integration: integration.md
   - API Reference:
       - Loader: api/loader.md
       - Models: api/models.md
       - Resolver: api/resolver.md
-      - Schema Helpers: api/schema-helpers.md
-      - Persistence: api/persistence.md
+      - PackageConfigBase: api/package-base.md
+      #- Persistence: api/persistence.md
       - Logging: api/logging.md

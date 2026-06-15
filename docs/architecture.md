@@ -2,334 +2,124 @@
 
 ## Purpose
 
-This package is a shared configuration library for the stack around:
+`oa-configurator` is a shared configuration layer for the OMOP-oriented Python stack:
 
 - `omop-alchemy`
 - `orm-loader`
 - `omop-emb`
 - `omop-graph`
-- related tools that need databases, schemas, and local artifact roots
+- `omop-spires`
 
-It is meant to replace the current pattern of:
+It replaces per-package `.env` files, inconsistent env var lookups, and duplicated engine-creation boilerplate with a single typed TOML file and a common resolver interface.
 
-- package-local env var lookups
-- dotenv-heavy setup
-- incompatible config idioms across repos
+---
 
-## Core Model
+## Core concepts
 
-The prototype is organized around four ideas:
+### Database
 
-1. `profile`
-   Which environment is active, for example `local`, `staging`, or `prod`.
+A concrete database endpoint: dialect, host, credentials, database name. Stored in `[databases.<name>]`.
 
-2. `connection`
-   A concrete database or service endpoint.
+### Resource
 
-3. `resource`
-   A logical role mapping, for example:
-   - primary OMOP/CDM database
-   - vocab database
-   - results database
-   - local DuckDB export root
-   - local FAISS root
+A logical role bundle that maps OMOP CDM roles to databases and schema names:
 
-4. `tool`
-   Tool-specific defaults, for example:
-   - `omop_emb` backend and default resource
-   - `orm_loader` database-file export root
-   - `omop_graph` default resource
+- `database`: the CDM server database
+- `vocab_database`: optional separate database for vocabulary (falls back to `database`)
+- `cdm_schema`: schema where CDM clinical tables live (required)
+- `vocab_schema` (optional): falls back to `cdm_schema`
+- `results_schema` (optional): Achilles/Atlas results
 
-## Why This Shape
+### Tool
 
-This package is trying to keep two important truths in view at the same time:
+Per-package configuration in `[tools.<name>]`. The core model stores only `default_resource` and an `extra` dict. Each consuming package defines a typed `PackageConfigBase` subclass that provides a typed view over `extra`.
 
-- humans want one obvious place to manage configuration
-- code wants typed, explicit, role-based resolved settings
+### Profile
 
-That means config must answer both:
+A named overlay (`[profiles.<name>]`) that replaces specific connections, resources, or tools when active. Full model replacement, not a partial patch. Activate via `omop-config use <profile>` (persists to TOML) or `OA_ACTIVE_PROFILE=<profile>` (per-session).
 
-1. What infrastructure do I have?
-2. How does a given tool or workflow map onto it?
+---
 
-## Filesystem Path Convention
+## Data flow
 
-Relative filesystem paths should never be interpreted relative to the process
-working directory.
+```
+~/.config/omop/config.toml
+         │
+         ▼
+    load_stack_config()
+         │  reads TOML → StackConfig
+         │  applies active profile overlay
+         ▼
+       Resolver
+         │
+         ├─ resolve_database(name)   → ResolvedDatabaseTarget
+         │                               .url  (plaintext, internal)
+         │                               .safe_url  (redacted, for logs)
+         │                               .create_engine()
+         │
+         ├─ resolve_resource(name)   → ResolvedResource
+         │                               .database / .vocab_database  (ResolvedDatabaseTarget)
+         │                               .cdm_schema / .vocab_schema / .results_schema
+         │                               .schema_translate_map()
+         │                               .create_engine(role="primary"|"vocab")
+         │
+         └─ resolve_tool(name)       → ResolvedToolConfig
+                                         .extra  (raw dict; typed by PackageConfigBase.from_stack())
+```
 
-That gets too confusing too quickly once:
+---
 
-- multiple runtimes read the same file
-- notebooks and CLIs run from different directories
-- background jobs and services resolve the same configuration in parallel
+## Package integration via entry points
 
-The convention is:
-
-- `settings.configuration_base_path = "."` means "use the fully resolved
-  directory containing this configuration file"
-- any other `configuration_base_path` must be an absolute directory path
-- every other filesystem location in the config is then either:
-  - absolute
-  - or relative to `configuration_base_path`
-
-Path semantics should be easy to explain and predictable across runtimes.
-
-### Example
+Consuming packages subclass `PackageConfigBase` and register via a `pyproject.toml` entry point:
 
 ```toml
-[settings]
-active_profile = "local"
-configuration_base_path = "."
-
-[resources.default]
-artifact_root = "artifacts"
-embedding_file_root = "artifacts/embeddings"
-analytic_db_file_root = "artifacts/databases"
-athena_source_path = "/srv/athena"
+[project.entry-points."omop.config"]
+my_package = "my_package.config:MyPackageConfig"
 ```
 
-If the config file lives at:
+`omop-config configure my_package` discovers the class at runtime via `importlib.metadata.entry_points(group="omop.config")`, presents the typed fields for interactive configuration, and writes the result to `[tools.my_package.extra]`. `oa-configurator` itself has no knowledge of any consuming package.
 
-```text
-/home/alice/.config/omop/config.toml
+---
+
+## Schema translate map
+
+`ResolvedResource.schema_translate_map()` returns the SQLAlchemy-compatible schema translate dict:
+
+```python
+{None: "omop", "vocab": "omop_vocab", "results": "results"}
 ```
 
-then these resolve to:
+OMOP ORM models (omop-alchemy) carry `schema=None` or `schema="vocab"` on their `__table_args__`. The translate map routes them to the correct schema at runtime without changing model definitions.
 
-- `artifact_root` -> `/home/alice/.config/omop/artifacts`
-- `embedding_file_root` -> `/home/alice/.config/omop/artifacts/embeddings`
-- `analytic_db_file_root` -> `/home/alice/.config/omop/artifacts/databases`
-- `athena_source_path` -> `/srv/athena`
+---
 
-## Secret Sources
+## Security
 
-Inline passwords are still allowed for local or throwaway setups, but the
-configuration model now supports indirect secret lookup as well.
+Passwords are stored in plaintext in `~/.config/omop/config.toml`. Restrict permissions:
 
-- `settings.secrets_dir` is an optional filesystem root for file-backed
-  secrets
-- `connections.<name>.secret_source` is an explicit source string
-- `password` and `secret_source` are mutually exclusive on a connection
-
-The sketch currently supports two secret source formats:
-
-- `env:VARIABLE_NAME`
-- `file:relative/or/absolute/path`
-
-Relative `file:` sources resolve from `settings.secrets_dir` when that setting
-is present. Otherwise they resolve from `configuration_base_path`.
-
-### Example
-
-```toml
-[settings]
-active_profile = "prod"
-configuration_base_path = "."
-secrets_dir = "secrets"
-
-[connections.prod_cdm]
-dialect = "postgresql"
-host = "prod.hospital.org"
-port = 5432
-user = "omop_prod"
-secret_source = "file:prod_cdm.password"
-database = "omop_cdm"
-
-[connections.prod_vocab]
-dialect = "postgresql"
-host = "prod.hospital.org"
-port = 5432
-user = "omop_vocab"
-secret_source = "env:OA_PROD_VOCAB_PASSWORD"
-database = "omop_vocab"
+```bash
+chmod 600 ~/.config/omop/config.toml
 ```
 
-## Profile Overlay Shape
+`ResolvedDatabaseTarget.safe_url` and `ResolvedDatabaseTarget.url` are distinct: `safe_url` has the password replaced with `***` and is used for all logging and display. The `.url` value (with plaintext password) is used only for engine creation and never logged by the library.
 
-Profiles now do more than act as labels.
+`RedactingFormatter` (applied by all non-library log presets) scrubs both `key=value` patterns and `://user:password@host` URL patterns from log output.
 
-Right now a profile is mostly metadata plus a selected name:
+**Future work**: `secret_source` support (`env:VAR`, `file:path`, Vault, cloud secret managers) is planned but not implemented in this version.
 
-- `local`
-- `staging`
-- `prod`
+---
 
-The current version allows a profile to act as a structured patch over the
-base configuration. The goal is to avoid copying entire resource or tool blocks
-just because one or two values change between environments.
+## Config path
 
-### Design Intent
+Default: `~/.config/omop/config.toml`. Override with `OA_CONFIG_PATH=<path/to/config.toml>`
+(must end in `.toml`; `~` is expanded). Resolved once at module load time and stored as
+`CONFIG_PATH`. Use `OA_ACTIVE_PROFILE` to switch profiles within a file without changing the path.
 
-The base file should define the stable logical shape:
+---
 
-- named connections
-- named resources
-- named tool defaults
+## Future work
 
-Profiles should then override only the parts that differ for a specific
-environment, such as:
-
-- which connection a resource points at
-- schema names
-- local artifact roots
-- tool backends
-- tool storage roots
-- read-only toggles
-
-### TOML Shape
-
-This is the shape the prototype now supports:
-
-```toml
-[settings]
-active_profile = "local"
-configuration_base_path = "."
-secrets_dir = "secrets"
-
-[connections.local_cdm]
-dialect = "postgresql"
-host = "localhost"
-port = 5432
-user = "omop"
-password = "omop"
-database = "omop"
-
-[connections.prod_cdm]
-dialect = "postgresql"
-host = "prod.hospital.org"
-port = 5432
-user = "omop_prod"
-secret_source = "file:prod_cdm.password"
-database = "omop_cdm"
-
-[connections.prod_vocab]
-dialect = "postgresql"
-host = "prod.hospital.org"
-port = 5432
-user = "omop_vocab"
-secret_source = "file:prod_vocab.password"
-database = "omop_vocab"
-
-[resources.default]
-primary_db = "local_cdm"
-vocab_db = "local_cdm"
-results_db = "local_cdm"
-omop_schema = "cdm"
-vocab_schema = "cdm"
-results_schema = "results"
-artifact_root = "~/.local/share/omop-local"
-embedding_file_root = "~/.local/share/omop-local/embeddings"
-analytic_db_file_root = "~/.local/share/omop-local/databases"
-
-[tools.omop_emb]
-default_resource = "default"
-backend = "pgvector"
-embedding_file_root = "~/.local/share/omop-local/embeddings"
-
-[profiles.prod]
-description = "remote OMOP source with local derived artifacts"
-
-[profiles.prod.resource_overrides.default]
-primary_db = "prod_cdm"
-vocab_db = "prod_vocab"
-results_db = "prod_cdm"
-vocab_schema = "vocab"
-artifact_root = "~/.local/share/omop-prod"
-embedding_file_root = "~/.local/share/omop-prod/embeddings"
-analytic_db_file_root = "~/.local/share/omop-prod/databases"
-
-[profiles.prod.tool_overrides.omop_emb]
-embedding_file_root = "~/.local/share/omop-prod/embeddings"
-
-[profiles.prod.tool_overrides.orm_loader]
-database_file_root = "~/.local/share/omop-prod/databases"
-```
-
-### Merge Semantics
-
-The intended merge rules should be simple and explicit:
-
-1. load the base config
-2. select the active profile
-3. apply `resource_overrides` by resource name
-4. apply `tool_overrides` by tool name
-5. optionally apply `connection_overrides` if we decide that is necessary
-
-This is implemented as a shallow field-level merge for each named object, not a
-free-form recursive patch language.
-
-### Why This Is Better Than Duplicating Resource Blocks
-
-Without overlays, users will quickly end up with:
-
-- `default_local`
-- `default_prod`
-- `default_staging`
-- `default_ci`
-
-and then every tool has to know which duplicated resource to select.
-
-With overlays:
-
-- the logical resource name stays stable
-- the active profile changes the wiring beneath it
-- code can keep asking for `default`
-
-That is the important ergonomic win.
-
-### What Should Probably Be Overridable
-
-Strong candidates:
-
-- `ResourceConfig` fields
-- `ToolConfig` fields
-
-Possible but more debatable:
-
-- selected `ConnectionConfig` fields, for example host or database name
-
-General considerations:
-
-- prefer overriding resource and tool mappings first
-- only add connection-level overlays if there is a real repeated need
-
-That keeps the mental model simpler.
-
-## Implemented
-
-- Typed Pydantic v2 models for all config sections
-- TOML loading with environment-variable overrides (`OA_CONFIG_FILE`, `OA_ACTIVE_PROFILE`)
-- Cross-reference validation at load time (unknown connection/resource names raise immediately)
-- Resolver: logical names → typed, secret-resolved, path-expanded handles
-- Profile overlays: shallow field-level merge for resources and tools
-- Secret sources: `env:VARNAME` and `file:path`
-- `ResolvedDatabaseTarget.create_engine()` and `ResolvedResource.create_engine()`
-- `ResolvedResource.schema_translate_map()` — SQLAlchemy `{None: omop_schema, "vocab": vocab_schema, ...}`
-- `ResolvedResource.vocab_db_is_primary_fallback` / `results_db_is_primary_fallback`
-- `StackConfig.for_session()` — inline construction without a TOML file
-- `Resolver.with_overrides()` — session-level connection/resource replacement
-- Interactive REPL namespaces with tab completion (`resolver.resources.default`)
-- CLI wizards: `add-connection`, `add-resource`, `add-profile`, `show`, `resolve-resource`, `resolve-tool`
-- TOML persistence (`save_stack_config`)
-
-## Possible future additions
-
-- Doctor / validation command that checks connectivity and schema presence
-- Project-local overlay file (`./oa-config.toml`) that merges over the user config
-- Compatibility shims that export resolved config back to legacy env var format
-- Vault / cloud secrets manager sources beyond `env:` and `file:`
-- Async engine factory for asyncpg / greenlet-based stacks
-
-## Design notes
-
-`active_stack` was considered as a way to select a default resource by name but
-was removed — `active_profile` + resource naming covers the use case without
-the extra indirection.
-
-`schema_translate_map` follows the SQLAlchemy convention of mapping `None` to
-the unqualified (default) schema. OMOP clinical tables carry `schema=None` in
-the ORM; the translate map routes them to the configured OMOP schema at runtime
-without changing model definitions.
-
-Inline secrets (`password = "..."`) are allowed but not recommended for shared
-config files. The `secret_source` mechanism keeps the TOML file safe to commit.
+- `secret_source` on `DatabaseConfig`: `env:VARNAME`, `file:PATH`, Vault, cloud secret managers
+- Async engine factory (`ResolvedDatabaseTarget.create_async_engine()`)
+- Project-local overlay (`./oa-config.toml`) layered over user config

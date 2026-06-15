@@ -6,11 +6,11 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "pydantic>=2.7,<3",
-  "pydantic-settings>=2.2,<3",
   "rich>=13,<15",
   "sqlalchemy>=2.0,<3",
   "tomli-w>=1,<2",
   "typer>=0.12,<1",
+  "click>=8.0"
 ]
 
 [project.optional-dependencies]
@@ -27,8 +27,15 @@ dev = [
   "mkdocs-mermaid2-plugin"
 ]
 
+postgres = [
+  "psycopg[binary]>=3.1",
+]
+
 [project.scripts]
-oa-config = "oa_configurator.cli:app"
+omop-config = "oa_configurator.cli:app"
+
+[project.entry-points.pytest11]
+oa_configurator = "oa_configurator.pytest_plugin"
 
 [build-system]
 requires = ["hatchling"]

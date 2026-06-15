@@ -1,568 +1,595 @@
-"""Small CLI surface for inspecting and resolving stack configuration."""
+"""CLI for omop-config: initialise, inspect, switch profiles, test connections, configure packages."""
 
 from __future__ import annotations
 
-from functools import cache
-from pathlib import Path
-from typing import Callable, Literal, TypeVar, cast
-import tomllib
+import time
+from importlib.metadata import entry_points
+from typing import Annotated
 
-import typer
+import click
+import rich
 import sqlalchemy as sa
+import typer
+from typer.core import TyperGroup
 from rich.console import Console
-from rich.json import JSON
-from rich.panel import Panel
-from rich.pretty import Pretty
-from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
 
-from .loader import load_stack_config
-from .models import ConnectionConfig, ProfileConfig, ResourceConfig, SettingsConfig, StackConfig
-from .persistence import save_stack_config
-from .resolver import ResolvedDatabaseTarget, Resolver
-from .settings import DEFAULT_CONFIG_PATH
+from .io import patch_active_profile, save_stack_config, write_env_file
+from .loader import CONFIG_PATH, load_stack_config
+from .logging_config import configure_logging
+from .models import DatabaseConfig, ResourceConfig, StackConfig, ToolConfig
+from .package_base import ConfigurationError, ResourceSpec
+from .resolver import Resolver
 
-app = typer.Typer(help="CLI for inspecting and editing oa_configurator settings.")
+app = typer.Typer(name="omop-config", no_args_is_help=True, add_completion=False)
 console = Console()
-ChoiceT = TypeVar("ChoiceT", bound=str)
+err_console = Console(stderr=True)
 
 
-@app.command("show")
-def show_config(path: Path | None = typer.Option(None, help="Path to config.toml.")) -> None:
-    """Print the validated configuration as formatted JSON."""
+def _resolve_resource(
+    spec: ResourceSpec,
+    config: StackConfig,
+    *,
+    flags: dict[str, str] | None = None,
+    semantic_name_override: str | None = None,
+    is_test_resource: bool = False,
+) -> tuple[str, DatabaseConfig | None, ResourceConfig] | None:
+    """Resolve or create a database config + resource for a ResourceSpec.
 
-    config = load_stack_config(path)
-    _title("Configuration")
-    console.print(JSON.from_data(config.model_dump(mode="json")))
+    Resolution order for each field: explicit flag > stored config > prompt.
 
+    When *flags* is provided, the "keep existing?" confirmation is suppressed.
+    This is the non-interactive path suitable for scripted / Docker Compose use.
+    Omitting *flags* preserves fully-interactive behaviour.
 
-@app.command("resolve-resource")
-def resolve_resource(
-    name: str,
-    path: Path | None = typer.Option(None, help="Path to config.toml."),
-) -> None:
-    """Resolve and print one logical resource bundle."""
+    Parameters
+    ----------
+    spec
+        The ResourceSpec describing the resource to configure.
+    config
+        The current StackConfig, used to look up existing config and determine defaults.
+    flags
+        Optional dict of flag values to override prompts.
+        Keys correspond to the fields of DatabaseConfig and ResourceConfig.
+    semantic_name_override
+        When provided, the resource is created/updated under this name instead
+        of ``spec.semantic_name``. Used by ``--resource-name`` to create a
+        second instance of the same resource type (e.g. ``cdm_db_prod``).
 
-    config = load_stack_config(path)
-    resolved = Resolver(config).resolve_resource(name)
-    _title(f"Resolved Resource: {name}")
-    console.print(Panel.fit(Pretty(resolved), border_style="cyan"))
+    Returns ``(db_name, db_config, resource)`` or ``None`` to keep existing config.
+    When an existing connection is reused, ``db_config`` is ``None`` (no new entry needed).
+    """
+    non_interactive = flags is not None
+    flags = flags or {}
+    resource_name = semantic_name_override or spec.semantic_name
+    resolved = config.resource_aliases.get(resource_name, resource_name)
+    existing = config.resources.get(resolved)
 
+    declined = False
+    if existing and not non_interactive:
+        if typer.confirm(
+            f"{spec.display_name} is already configured (resource: {resource_name!r}). Keep it?",
+            default=True,
+        ):
+            return None
+        declined = True
 
-@app.command("resolve-tool")
-def resolve_tool(
-    name: str,
-    path: Path | None = typer.Option(None, help="Path to config.toml."),
-) -> None:
-    """Resolve and print one tool-default entry."""
+    if not non_interactive:
+        console.print(f"\n[bold]{spec.display_name}[/bold]")
+        console.print(f"[dim]{spec.description}[/dim]")
+        console.print("[dim]Tip: the value shown in [brackets] is the default. Press Enter to accept it.[/dim]\n")
 
-    config = load_stack_config(path)
-    resolved = Resolver(config).resolve_tool(name)
-    _title(f"Resolved Tool: {name}")
-    console.print(Panel.fit(Pretty(resolved), border_style="cyan"))
+    # Resolution order: explicit flag > stored config > prompt.
+    # _stored holds every field from the existing config as strings ("" for None)
+    # so _v can find them and skip the prompt. Callers do `_v(...) or None` to
+    # convert empty-string back to None for optional fields.
+    # When the user explicitly declined to keep the existing config, we don't
+    # pre-fill _stored — they should be prompted for every field afresh.
+    _stored: dict[str, str] = {}
+    if existing and not declined:
+        _stored.update({k: str(v) if v is not None else "" for k, v in existing.model_dump().items()})
+        _edb = config.databases.get(existing.database)
+        if _edb:
+            _stored.update({k: str(v) if v is not None else "" for k, v in _edb.model_dump().items()})
 
+    def _v(key: str, label: str, default: str, *, hide_input: bool = False) -> str:
+        if (val := flags.get(key)) is not None:
+            return str(val)
+        if key in _stored:
+            return _stored[key]
+        if spec.defaults and (pre := spec.defaults.get(key)) is not None:
+            default = str(pre)
+        return typer.prompt(label, default=default, hide_input=hide_input)
 
-@app.command("add-profile")
-def add_profile(
-    name: str | None = typer.Option(None, help="Name of the profile to create."),
-    path: Path | None = typer.Option(None, help="Path to config.toml."),
-) -> None:
-    """Walk through the setup of a new profile."""
-
-    config, resolved_path = _load_or_create_config(path)
-    _title("New Profile")
-    _note(f"Config file: {resolved_path}")
-
-    profile_name = name or _prompt_text("Profile name")
-    if profile_name in config.profiles:
-        raise typer.BadParameter(f"Profile {profile_name!r} already exists.")
-
-    suggested_description = _suggest_profile_description(profile_name)
-    description = _optional_prompt("Description", default=suggested_description or "")
-    config.profiles[profile_name] = ProfileConfig(description=description)
-
-    if _confirm("Make this the active profile?", default=False):
-        config.settings.active_profile = profile_name
-
-    save_stack_config(config, resolved_path)
-    _success(f"Saved profile {profile_name!r} to {resolved_path}")
-
-
-@app.command("add-connection")
-def add_connection(
-    name: str | None = typer.Option(None, help="Name of the connection to create."),
-    path: Path | None = typer.Option(None, help="Path to config.toml."),
-) -> None:
-    """Walk through the setup of a new connection."""
-
-    config, resolved_path = _load_or_create_config(path)
-    _title("New Connection")
-    _note(f"Config file: {resolved_path}")
-
-    connection_name = name or _prompt_text("Connection name")
-    if connection_name in config.connections:
-        raise typer.BadParameter(f"Connection {connection_name!r} already exists.")
-
-    inferred_kind: Literal["database", "file"] = (
-        "file" if any(token in connection_name.lower() for token in ("sqlite", "file", "duckdb")) else "database"
-    )
-    kind = _prompt_choice(
-        "Connection kind",
-        ("database", "file"),
-        default=inferred_kind,
-    )
-    defaults = _suggest_connection_defaults(connection_name, kind)
-    dialect = _prompt_text("Dialect", default=str(defaults["dialect"]))
-
-    if kind == "file":
-        file_path = _prompt_text("Path to the database/file", default=str(defaults["path"]))
-        connection = ConnectionConfig(
-            kind=kind,
-            dialect=dialect,
-            path=file_path,
-            read_only=_confirm("Read only?", default=False),
-        )
-    elif dialect == "sqlite":
-        file_path = _prompt_text("Path to the database/file", default=str(defaults["path"]))
-        database = None
-        if dialect == "sqlite" and _confirm("Store sqlite file path in the 'database' field instead?", default=False):
-            database = file_path
-            file_path = None
-        connection = ConnectionConfig(
-            kind=kind,
-            dialect=dialect,
-            path=file_path,
-            database=database,
-            read_only=_confirm("Read only?", default=False),
-        )
-    else:
-        host = _prompt_text("Host", default=str(defaults["host"]))
-        port = _prompt_int("Port", default=int(defaults["port"]))
-        user = _prompt_text("User", default=str(defaults["user"]))
-        password = _prompt_text("Password", default="", password=True)
-        secret_source = None
-        if password == "":
-            secret_source = _optional_prompt(
-                "Secret source (env:NAME or file:PATH)",
-                default="",
-            )
-        database = _prompt_text("Database name", default=str(defaults["database"]))
-        connection = ConnectionConfig(
-            kind=kind,
-            dialect=dialect,
-            host=host,
-            port=port,
-            user=user or None,
-            password=password or None,
-            secret_source=secret_source,
-            database=database,
-            read_only=_confirm("Read only?", default=False),
-        )
-
-    resolved_connection = _resolve_preview_connection(
-        connection_name,
-        connection,
-        config,
-    )
-    _connection_preview(resolved_connection)
-
-    if _confirm("Test this connection now?", default=True):
-        success, message = _test_connection(resolved_connection)
-        if success:
-            _success(f"Connection test succeeded: {message}")
+    # Offer reuse of an existing connection when none is configured yet.
+    reuse_label: str | None = None
+    if not existing and not non_interactive and config.databases:
+        if is_test_resource:
+            candidates = [n for n, db in config.databases.items() if db.test_only]
         else:
-            _error(f"Connection test failed: {message}")
-            if not _confirm("Save this connection anyway?", default=False):
-                _note("Connection was not saved.")
-                raise typer.Exit(code=1)
+            candidates = [n for n, db in config.databases.items() if not db.test_only]
+        if candidates:
+            hint = spec.connection_name_hint or ""
+            suggested = hint if hint in candidates else candidates[0]
+            console.print(f"  Existing connections: {', '.join(candidates)}")
+            choice = typer.prompt(
+                "  Point to an existing connection, or 'new' to create one",
+                default=suggested,
+            )
+            if choice != "new" and choice in candidates:
+                reuse_label = choice
 
-    config.connections[connection_name] = connection
-    save_stack_config(config, resolved_path)
-    _success(f"Saved connection {connection_name!r} to {resolved_path}")
+    if reuse_label:
+        if not non_interactive:
+            console.print("\n[dim]Schema configuration[/dim]\n")
+        if spec.is_cdm_database:
+            cdm_schema = _v("cdm_schema", "CDM schema  (schema containing the OMOP tables)", spec.cdm_schema_default)
+            vocab_schema = _v("vocab_schema", "Vocab schema  (blank = same schema as CDM; set only if vocabulary lives in a separate schema)", "") or None
+            results_schema = _v("results_schema", "Results schema  (for Achilles/Atlas results tables; blank = not used)", "") or None
+        else:
+            cdm_schema = _v("cdm_schema", "Schema  (leave blank for public/default)", spec.cdm_schema_default)
+            vocab_schema = None
+            results_schema = None
+        resource = ResourceConfig(
+            database=reuse_label,
+            cdm_schema=cdm_schema,
+            vocab_schema=vocab_schema,
+            results_schema=results_schema,
+        )
+        return reuse_label, None, resource
 
+    database = _v("database", "Database label  (short name for this database entry, e.g. 'cdm')", spec.connection_name_hint or "cdm")
+    dialect = _v("dialect", "Dialect  (SQLAlchemy driver string, e.g. postgresql+psycopg, sqlite)", "postgresql+psycopg")
+    host = _v("host", "Host  (e.g. Docker container name; leave blank for SQLite or socket connections)", "localhost") or None
 
-@app.command("add-resource")
-def add_resource(
-    name: str | None = typer.Option(None, help="Name of the resource to create."),
-    path: Path | None = typer.Option(None, help="Path to config.toml."),
-) -> None:
-    """Walk through the setup of a new logical resource."""
+    port_str = _v("port", "Port  (leave blank to use the dialect default)", "")
+    port: int | None = int(port_str) if port_str.strip() else None
 
-    config, resolved_path = _load_or_create_config(path)
-    _title("New Resource")
-    _note(f"Config file: {resolved_path}")
+    user = _v("user", "User  (leave blank if not required)", "") or None
+    password = _v("password", "Password  (leave blank if not required)", "", hide_input=True) or None
+    database_name = _v("database_name", "Database name  (name of the database on the server, or file path for SQLite)", "") or None
 
-    resource_name = name or _prompt_text("Resource name")
-    if resource_name in config.resources:
-        raise typer.BadParameter(f"Resource {resource_name!r} already exists.")
-    if not config.connections:
-        raise typer.BadParameter("Create at least one connection before creating a resource.")
+    db_config = DatabaseConfig(dialect=dialect, host=host, port=port, user=user, password=password, database_name=database_name)
 
-    resolver = Resolver(config)
-    _show_names_table("Known connections", resolver.connection_names())
+    if not non_interactive:
+        console.print("\n[dim]Schema configuration[/dim]\n")
 
-    primary_default = _suggest_primary_connection_default(resolver.connection_names(), resource_name)
-    primary_db = _prompt_existing_name("Primary DB connection", resolver.connection_names, default=primary_default)
-
-    if _confirm("Use the same connection for vocabulary data?", default=True):
-        vocab_db = primary_db
+    if spec.is_cdm_database:
+        cdm_schema = _v("cdm_schema", "CDM schema  (schema containing the OMOP tables)", spec.cdm_schema_default)
+        vocab_schema = _v("vocab_schema", "Vocab schema  (blank = same schema as CDM; set only if vocabulary lives in a separate schema)", "") or None
+        results_schema = _v("results_schema", "Results schema  (for Achilles/Atlas results tables; blank = not used)", "") or None
     else:
-        vocab_db = _prompt_existing_name("Vocab DB connection", resolver.connection_names, default=primary_db)
+        cdm_schema = _v("cdm_schema", "Schema  (leave blank for public/default)", spec.cdm_schema_default)
+        vocab_schema = None
+        results_schema = None
 
-    if _confirm("Use the same connection for results data?", default=True):
-        results_db = primary_db
-    else:
-        results_db = _prompt_existing_name("Results DB connection", resolver.connection_names, default=primary_db)
-
-    resource_defaults = _suggest_resource_defaults(resource_name, primary_db)
-
-    omop_schema = _optional_prompt("OMOP schema", default=resource_defaults["omop_schema"])
-    vocab_schema = _optional_prompt("Vocab schema", default=resource_defaults["vocab_schema"] or omop_schema or "")
-    results_schema = _optional_prompt("Results schema", default=resource_defaults["results_schema"])
-
-    _note(
-        "Filesystem paths may be absolute or relative to settings.configuration_base_path "
-        f"({config.settings.configuration_base_path!r})."
-    )
-    athena_source_path = _optional_prompt("Athena source path", default=resource_defaults["athena_source_path"])
-    artifact_root = _optional_prompt("Artifact root", default=resource_defaults["artifact_root"])
-    embedding_file_root = _optional_prompt("Embedding file root", default=resource_defaults["embedding_file_root"])
-    analytic_db_file_root = _optional_prompt("Analytic DB file root", default=resource_defaults["analytic_db_file_root"])
-
-    config.resources[resource_name] = ResourceConfig(
-        primary_db=primary_db,
-        vocab_db=vocab_db,
-        results_db=results_db,
-        omop_schema=omop_schema,
+    resource = ResourceConfig(
+        database=database,
+        cdm_schema=cdm_schema,
         vocab_schema=vocab_schema,
         results_schema=results_schema,
-        athena_source_path=athena_source_path,
-        artifact_root=artifact_root,
-        embedding_file_root=embedding_file_root,
-        analytic_db_file_root=analytic_db_file_root,
     )
 
-    save_stack_config(config, resolved_path)
-    _success(f"Saved resource {resource_name!r} to {resolved_path}")
+    return database, db_config, resource
 
 
-def _load_or_create_config(path: Path | None) -> tuple[StackConfig, Path]:
-    """Load an existing config or create a minimal new in-memory one."""
-
-    resolved_path = Path(path).expanduser() if path is not None else DEFAULT_CONFIG_PATH
-    if resolved_path.exists():
-        return load_stack_config(resolved_path), resolved_path
-
-    config = StackConfig(settings=SettingsConfig())
-    config.bind_loaded_path(resolved_path)
-    return config, resolved_path
-
-
-def _resolve_preview_connection(
-    name: str,
-    connection: ConnectionConfig,
+def _resolve_extra_fields(
+    cls,
     config: StackConfig,
-) -> ResolvedDatabaseTarget:
-    """Resolve an unsaved connection against the current config context."""
-
-    preview_config = config.model_copy(deep=True)
-    preview_config.connections[name] = connection
-    return Resolver(preview_config).resolve_connection(name)
-
-
-def _optional_prompt(label: str, *, default: str = "") -> str | None:
-    """Prompt for an optional string field and normalize blank input to ``None``."""
-
-    value = _prompt_text(label, default=default).strip()
-    return value or None
-
-
-def _prompt_choice(label: str, choices: tuple[ChoiceT, ...], *, default: ChoiceT | None = None) -> ChoiceT:
-    """Prompt until one of the allowed literal choices is selected."""
-
-    choice_text = ", ".join(choices)
-    while True:
-        value = _prompt_text(f"{label} [{choice_text}]", default=default or choices[0]).strip()
-        if value in choices:
-            return cast(ChoiceT, value)
-        _error(f"Please choose one of: {choice_text}")
-
-
-def _prompt_existing_name(
-    label: str,
-    names_supplier: Callable[[], tuple[str, ...]],
     *,
-    default: str | None = None,
-) -> str:
-    """Prompt until the user selects one of the known configured names."""
-
-    choices = names_supplier()
-    while True:
-        prompt_default = default if default is not None else (choices[0] if len(choices) == 1 else None)
-        value = _prompt_text(label, default=prompt_default).strip()
-        if value in choices:
-            return value
-        _error(f"Unknown name {value!r}. Known values: {', '.join(choices)}")
-
-
-def _suggest_profile_description(name: str) -> str | None:
-    """Return a lightweight suggested description from a profile name."""
-
-    lowered = name.lower()
-    if lowered == "local":
-        return "everything local"
-    if lowered == "prod":
-        return "remote OMOP source with local derived artifacts"
-    if lowered == "staging":
-        return "staging environment for pre-production validation"
-    if lowered in {"dev", "development"}:
-        return "development environment"
-    if lowered == "ci":
-        return "continuous integration environment"
-    if lowered == "test":
-        return "test environment"
-    return None
-
-
-def _suggest_connection_defaults(name: str, kind: str) -> dict[str, str | int]:
-    """Suggest connection defaults from the connection name and example config."""
-
-    lowered = name.lower()
-    example = _load_example_defaults()
-
-    if kind == "file":
-        if "duckdb" in lowered:
-            return {
-                "dialect": "duckdb",
-                "path": f"data/{name}.duckdb",
-            }
-        return {
-            "dialect": "sqlite",
-            "path": f"data/{name}.sqlite",
-        }
-
-    if "local" in lowered:
-        return {
-            "dialect": "postgresql",
-            "host": "localhost",
-            "port": 5432,
-            "user": "omop",
-            "database": "omop",
-        }
-
-    if "prod" in lowered:
-        return {
-            "dialect": "postgresql",
-            "host": "prod.hospital.org",
-            "port": 5432,
-            "user": "omop_prod",
-            "database": "omop_cdm",
-        }
-
-    if "staging" in lowered:
-        return {
-            "dialect": "postgresql",
-            "host": "staging.hospital.org",
-            "port": 5432,
-            "user": "omop_staging",
-            "database": "omop",
-        }
-
-    return {
-        "dialect": str(example.get("connection_dialect", "postgresql")),
-        "host": str(example.get("connection_host", "localhost")),
-        "port": int(example.get("connection_port", 5432)),
-        "user": str(example.get("connection_user", "")),
-        "database": str(example.get("connection_database", "omop")),
-    }
-
-
-def _test_connection(connection: ResolvedDatabaseTarget) -> tuple[bool, str]:
-    """Attempt to connect using SQLAlchemy and return a friendly result tuple.
-
-    The function is intentionally defensive:
-
-    - it catches driver/import problems
-    - it keeps error reporting short
-    - it does not raise on ordinary connectivity failures
-    """
-
-    url = connection.url
+    set_dict: dict[str, str],
+    interactive: bool,
+) -> dict:
+    """Resolve package-specific extra fields using flag (--set) → stored → prompt."""
     try:
-        engine = sa.create_engine(url, future=True)
-    except ModuleNotFoundError as exc:
-        return (
-            False,
-            f"missing database driver dependency ({exc.name}) for dialect {connection.dialect!r}",
+        current = cls.from_stack(config)
+        current_dict = current.to_extra_dict()
+    except ConfigurationError:
+        current_dict = {}
+
+    extra: dict = {}
+    for field_name, field_info in cls.model_fields.items():
+        if field_name == "tool_name":
+            continue
+        if field_name in set_dict:
+            extra[field_name] = set_dict[field_name]
+        elif field_name in current_dict:
+            extra[field_name] = current_dict[field_name]
+        elif interactive:
+            desc = field_info.description or ""
+            label = f"{field_name}" + (f"  ({desc})" if desc else "")
+            raw = typer.prompt(label, default=str(field_info.default) if field_info.default is not None else "")
+            if raw and raw != "None":
+                extra[field_name] = raw
+    return extra
+
+# ------------------
+# Dynamic configure command that discovers packages via entry points and generates a subcommand for each.
+# ------------------
+
+class _DynamicConfigureGroup(TyperGroup):
+    def __init__(self, **kwargs):
+        kwargs.setdefault("invoke_without_command", True)
+        super().__init__(**kwargs)
+
+    def list_commands(self, ctx):
+        return sorted(ep.name for ep in entry_points(group="omop.config"))
+
+    def get_command(self, ctx, cmd_name):
+        eps = {ep.name: ep for ep in entry_points(group="omop.config")}
+        ep = eps.get(cmd_name)
+        return _build_package_command(cmd_name, ep.load()) if ep else None
+
+
+def _build_resource_params(spec: ResourceSpec) -> list[click.Parameter]:
+    """Generate Click options for one resource from DatabaseConfig + ResourceConfig fields."""
+    params: list[click.Parameter] = []
+    for name, info in DatabaseConfig.model_fields.items():
+        if name in ("read_only", "test_only"):
+            continue
+        params.append(click.Option(
+            [f"--{name.replace('_', '-')}"],
+            default=None,
+            type=click.STRING,
+            help=info.description or "",
+        ))
+    resource_field_names = ["database", "cdm_schema"]
+    if spec.is_cdm_database:
+        resource_field_names += ["vocab_schema", "results_schema"]
+    for name in resource_field_names:
+        info = ResourceConfig.model_fields[name]
+        params.append(click.Option(
+            [f"--{name.replace('_', '-')}"],
+            default=None,
+            type=click.STRING,
+            help=info.description or "",
+        ))
+    return params
+
+
+def _build_extra_params(cls) -> list[click.Parameter]:
+    """Generate Click options for a package's extra fields from its model_fields."""
+    return [
+        click.Option(
+            [f"--{name.replace('_', '-')}"],
+            default=None,
+            type=click.STRING,
+            help=info.description or "",
         )
-    except Exception as exc:
-        return False, f"could not build engine for {connection.dialect!r}: {_short_error(exc)}"
+        for name, info in cls.model_fields.items()
+    ]
 
+
+def _build_package_command(ep_name: str, cls) -> click.Command:
+    """Build a Click command for one registered package entry point."""
+    resource_params = [p for spec in cls.owned_resources for p in _build_resource_params(spec)]
+    extra_params = _build_extra_params(cls)
+    resource_names = {p.name for p in resource_params}
+    extra_names = {p.name for p in extra_params}
+
+    resource_name_opt = click.Option(
+        ["--resource-name"],
+        default=None,
+        help=(
+            "Create or update the resource under this name instead of the package default. "
+            "Use to add a second instance (e.g. --resource-name cdm_db_prod)."
+        ),
+    )
+
+    def callback(**kwargs):
+        flags_arg = {k: str(v) for k, v in kwargs.items()
+                     if k in resource_names and v is not None} or None
+        set_dict = {k: str(v) for k, v in kwargs.items()
+                    if k in extra_names and v is not None}
+        _run_configure_package(cls, flags_arg, set_dict, kwargs.get("resource_name"))
+
+    return click.Command(
+        name=ep_name,
+        callback=callback,
+        params=resource_params + extra_params + [resource_name_opt],
+        help=f"Configure {cls.tool_name} settings in config.toml.",
+    )
+
+
+def _list_packages() -> None:
+    eps = entry_points(group="omop.config")
+    registered = {ep.name: ep for ep in eps}
+    if not registered:
+        console.print("[yellow]No packages registered under 'omop.config' entry points.[/yellow]")
+        console.print(
+            "\nPackages add support in their pyproject.toml:\n"
+            '  [project.entry-points."omop.config"]\n'
+            '  my-package = "my-package.config:MyPackageConfig"'
+        )
+    else:
+        console.print("[bold]Registered packages:[/bold]")
+        for name in sorted(registered):
+            console.print(f"  • {name}")
+
+
+def _run_configure_package(
+    cls,
+    flags_arg: dict[str, str] | None,
+    set_dict: dict[str, str],
+    resource_name: str | None,
+) -> None:
+    """Run the configure flow for one package."""
     try:
-        with engine.connect() as conn:
-            conn.execute(sa.text("SELECT 1"))
-        return True, connection.safe_url
+        config = load_stack_config()
+    except FileNotFoundError:
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        config = StackConfig()
+
+    tool_name = cls.tool_name
+    console.print(f"\n[bold]Configuring [cyan]{tool_name}[/cyan][/bold]")
+    console.print(f"[dim]TOML section: \\[tools.{tool_name}][/dim]")
+
+    for spec in cls.owned_resources:
+        effective_name = resource_name if (resource_name and len(cls.owned_resources) == 1) else None
+        result = _resolve_resource(spec, config, flags=flags_arg, semantic_name_override=effective_name)
+        if result is not None:
+            db_label, new_db, new_resource = result
+            if new_db is not None:
+                config.databases[db_label] = new_db
+            save_name = effective_name or spec.semantic_name
+            config.resources[save_name] = new_resource
+
+    owned_names = {spec.semantic_name for spec in cls.owned_resources}
+    for rname in cls.required_resources:
+        if rname in owned_names:
+            continue
+        resolved_rname = config.resource_aliases.get(rname, rname)
+        if resolved_rname not in config.resources:
+            console.print(
+                f"\n[yellow]Warning:[/yellow] Required resource {rname!r} is not configured. "
+                f"It may be provided by another package. Run that package's configure command."
+            )
+
+    extra = _resolve_extra_fields(cls, config, set_dict=set_dict, interactive=flags_arg is None)
+
+    existing_tool = config.tools.get(tool_name)
+    existing_default = existing_tool.default_resource if existing_tool else None
+    available_resources = sorted(config.resource_names())
+    relevant_names = {s.semantic_name for s in cls.owned_resources} | set(cls.required_resources)
+    if resource_name:
+        relevant_names.add(resource_name)
+    relevant_resources = [r for r in available_resources if r in relevant_names]
+
+    if len(relevant_resources) > 1 and flags_arg is None:
+        console.print(f"\n[dim]Available resources for this package: {', '.join(relevant_resources)}[/dim]")
+        prompt_default = resource_name or existing_default or relevant_resources[0]
+        new_default_resource = (
+            typer.prompt(
+                "Default resource  (which resource should this package use)",
+                default=prompt_default,
+            )
+            or None
+        )
+    elif len(relevant_resources) > 1 and flags_arg is not None:
+        new_default_resource = resource_name or existing_default or relevant_resources[0]
+    else:
+        new_default_resource = existing_default or (relevant_resources[0] if relevant_resources else None)
+
+    config.tools[tool_name] = ToolConfig(default_resource=new_default_resource, extra=extra)
+    save_stack_config(config)
+    console.print(f"\n[green]✓[/green] Saved \\[tools.{tool_name}] to [dim]{CONFIG_PATH}[/dim]")
+
+    if cls.test_resources:
+        console.print("\n[dim]─── Test database (optional) ───[/dim]")
+        console.print(
+            "[yellow]⚠[/yellow]  Test resources are used by the test suite, which runs"
+            " DROP SCHEMA CASCADE on every run.\n"
+            "   Point to a [bold]dedicated test_only connection[/bold], never to real data.\n"
+            "   Existing test_only connections will be offered for reuse."
+        )
+        want_test = typer.confirm("Configure a test database resource?", default=False)
+        if want_test:
+            test_names = {s.semantic_name for s in cls.test_resources}
+            for spec in cls.test_resources:
+                result = _resolve_resource(spec, config, flags=None, is_test_resource=True)
+                if result is None:
+                    continue
+                db_label, new_db, new_resource = result
+
+                if new_db is not None:
+                    # New connection: set test_only flag and check for production collision.
+                    new_db.test_only = True
+                    for res_name, existing_res in config.resources.items():
+                        if res_name in test_names:
+                            continue
+                        existing_conn = config.databases.get(existing_res.database)
+                        if existing_conn is None or existing_conn.test_only:
+                            continue
+                        if (
+                            existing_conn.host == new_db.host
+                            and existing_conn.database_name == new_db.database_name
+                            and existing_conn.port == new_db.port
+                        ):
+                            err_console.print(
+                                f"\n[red bold]DANGER[/red bold]: these connection details match the"
+                                f" [bold]{res_name!r}[/bold] resource (same host and database name).\n"
+                                f"Tests run DROP SCHEMA CASCADE — this would destroy your data.\n"
+                                f"Use a different [bold]host[/bold] or [bold]database name[/bold]."
+                            )
+                            raise typer.Exit(1)
+                    config.databases[db_label] = new_db
+                else:
+                    # Reuse: verify the referenced connection is actually test_only.
+                    existing_db = config.databases.get(db_label)
+                    if existing_db is not None and not existing_db.test_only:
+                        err_console.print(
+                            f"\n[red bold]DANGER[/red bold]: the connection {db_label!r} is not"
+                            f" marked test_only=true. Point test resources only to test_only"
+                            f" connections.\n"
+                        )
+                        raise typer.Exit(1)
+
+                config.resources[spec.semantic_name] = new_resource
+                save_stack_config(config)
+                console.print(
+                    f"[green]✓[/green] Test resource [bold]{spec.semantic_name!r}[/bold] written."
+                )
+
+@app.callback()  # required by Typer to attach global --verbose/-v before any subcommand
+def _main(
+    verbose: Annotated[
+        int,
+        typer.Option(
+            "--verbose", "-v",
+            count=True,
+            help="Increase log verbosity (-v INFO, -vv DEBUG). Must come before the subcommand name.",
+        ),
+    ] = 0,
+) -> None:
+    configure_logging(verbosity=verbose)
+
+
+@app.command()
+def init(
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Overwrite existing config without prompting."),
+    ] = False,
+) -> None:
+    """Create the config file at CONFIG_PATH (default ~/.config/omop/config.toml). Set OA_CONFIG_PATH to write elsewhere. Use 'omop-config configure <pkg>' to populate it."""
+    if CONFIG_PATH.exists() and not force:
+        overwrite = typer.confirm(
+            f"Config already exists at {CONFIG_PATH}. Overwrite?",
+            default=False,
+        )
+        if not overwrite:
+            console.print("[yellow]Aborted.[/yellow]")
+            raise typer.Exit(0)
+
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    save_stack_config(StackConfig())
+    console.print(f"[green]✓[/green] Created [dim]{CONFIG_PATH}[/dim]")
+
+    eps = entry_points(group="omop.config")
+    if eps:
+        console.print("\nRun configure for each installed package:")
+        for ep in sorted(eps, key=lambda e: e.name):
+            console.print(f"  omop-config configure {ep.name}")
+    else:
+        console.print("\nNo packages registered yet. Install a package that supports oa_configurator.")
+
+@app.command()
+def show(
+    profile: Annotated[
+        str | None,
+        typer.Option("--profile", "-p", help="Activate this profile for the shown output."),
+    ] = None,
+) -> None:
+    """Print the resolved configuration as JSON."""
+    try:
+        config = load_stack_config()
+    except FileNotFoundError:
+        err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
+        err_console.print("Run [bold]omop-config init[/bold] to create it.")
+        raise typer.Exit(1)
+    if profile is not None:
+        config.active_profile = profile
+    rich.print_json(config.model_dump_json(exclude_none=True, indent=2))
+
+
+@app.command()
+def use(
+    profile: Annotated[str, typer.Argument(help="Profile name to activate.")],
+) -> None:
+    """Set the active profile in config.toml and re-export config.env."""
+    try:
+        config = load_stack_config()
+    except FileNotFoundError:
+        err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
+        raise typer.Exit(1)
+
+    if profile not in config.profiles and profile != "default":
+        err_console.print(
+            f"[yellow]Warning:[/yellow] profile {profile!r} not found in config.toml, but"
+            " it will be set anyway. Add connections/resources to it when ready."
+        )
+
+    patch_active_profile(profile)
+    console.print(f"[green]✓[/green] Active profile set to [bold]{profile}[/bold]")
+
+    config.active_profile = profile
+    try:
+        env_path = write_env_file(Resolver(config))
+        console.print(f"[green]✓[/green] Exported [dim]{env_path}[/dim]")
     except Exception as exc:
-        return False, _short_error(exc)
-    finally:
-        engine.dispose()
+        err_console.print(f"[yellow]Warning:[/yellow] Could not export config.env: {exc}")
 
 
-def _short_error(exc: Exception) -> str:
-    """Convert an exception into a short user-facing message."""
+@app.command()
+def verify(
+    profile: Annotated[
+        str | None,
+        typer.Option("--profile", "-p", help="Profile to test."),
+    ] = None,
+) -> None:
+    """Test all configured connections and report status."""
+    try:
+        config = load_stack_config()
+    except FileNotFoundError:
+        err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
+        raise typer.Exit(1)
 
-    text = str(exc).strip()
-    return text or exc.__class__.__name__
+    if profile is not None:
+        config.active_profile = profile
 
+    if not config.databases:
+        console.print("[yellow]No databases configured.[/yellow]")
+        return
 
-def _title(text: str) -> None:
-    """Render a short section heading."""
+    resolver = Resolver(config)
+    table = Table("Database", "URL", "Status", "Latency")
+    all_ok = True
 
-    console.print(f"[bold cyan]{text}[/bold cyan]")
+    for name in sorted(config.databases):
+        target = resolver.resolve_database(name)
+        try:
+            t0 = time.monotonic()
+            engine = target.create_engine()
+            with engine.connect() as conn:
+                conn.execute(sa.text("SELECT 1"))
+            elapsed = (time.monotonic() - t0) * 1000
+            table.add_row(name, target.safe_url, "[green]OK[/green]", f"{elapsed:.0f} ms")
+        except Exception as exc:
+            table.add_row(name, target.safe_url, "[red]FAIL[/red]", str(exc)[:60])
+            all_ok = False
 
-
-def _success(text: str) -> None:
-    """Render a success message with a tick marker."""
-
-    console.print(f"[bold green]✓[/bold green] {text}")
-
-
-def _error(text: str) -> None:
-    """Render an error message with a cross marker."""
-
-    console.print(f"[bold red]✗[/bold red] {text}")
-
-
-def _note(text: str) -> None:
-    """Render a neutral informational line."""
-
-    console.print(f"[bold blue]•[/bold blue] {text}")
-
-
-def _prompt_text(label: str, default: str | None = None, *, password: bool = False) -> str:
-    """Prompt for a text value using Rich."""
-
-    prompt_label = f"[bold cyan]?[/bold cyan] {label}"
-    value = Prompt.ask(prompt_label, default=default, password=password)
-    if value is None:
-        raise RuntimeError(f"Prompt did not return a value for {label!r}")
-    return value
-
-
-def _prompt_int(label: str, default: int) -> int:
-    """Prompt for an integer value using Rich."""
-
-    prompt_label = f"[bold cyan]?[/bold cyan] {label}"
-    return IntPrompt.ask(prompt_label, default=default)
-
-
-def _confirm(label: str, *, default: bool) -> bool:
-    """Prompt for a yes/no confirmation using Rich."""
-
-    prompt_label = f"[bold cyan]?[/bold cyan] {label}"
-    return Confirm.ask(prompt_label, default=default)
-
-
-def _show_names_table(title: str, names: tuple[str, ...]) -> None:
-    """Render a compact single-column table of known names."""
-
-    table = Table(title=title, show_header=True, header_style="bold magenta")
-    table.add_column("Name", style="white")
-    for name in names:
-        table.add_row(name)
     console.print(table)
+    if not all_ok:
+        raise typer.Exit(1)
 
 
-def _connection_preview(connection: ResolvedDatabaseTarget) -> None:
-    """Render a compact preview of the connection before test/save."""
+@app.command("export-env")
+def export_env(
+    profile: Annotated[
+        str | None,
+        typer.Option("--profile", "-p", help="Profile to use for export."),
+    ] = None,
+) -> None:
+    """Write CONFIG_PATH's sibling .env file (default ~/.config/omop/config.env) for Docker Compose env_file:."""
+    try:
+        config = load_stack_config()
+    except FileNotFoundError:
+        err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
+        raise typer.Exit(1)
 
-    table = Table(title=f"Connection Preview: {connection.name}", show_header=False, box=None)
-    table.add_column("Field", style="bold")
-    table.add_column("Value", style="white")
-    table.add_row("kind", connection.connection.kind)
-    table.add_row("dialect", connection.dialect)
-    table.add_row("url", connection.safe_url)
-    if connection.connection.secret_source is not None:
-        table.add_row("secret_source", connection.connection.secret_source)
-    table.add_row("read_only", str(connection.connection.read_only))
-    console.print(Panel.fit(table, border_style="cyan"))
+    if profile is not None:
+        config.active_profile = profile
 
-
-def _suggest_primary_connection_default(connection_names: tuple[str, ...], resource_name: str) -> str | None:
-    """Pick a sensible default primary connection if one stands out."""
-
-    if len(connection_names) == 1:
-        return connection_names[0]
-
-    lowered = resource_name.lower()
-    if "local" in lowered:
-        for name in connection_names:
-            if "local" in name.lower():
-                return name
-    if "prod" in lowered:
-        for name in connection_names:
-            if "prod" in name.lower():
-                return name
-    return None
+    env_path = write_env_file(Resolver(config))
+    console.print(f"[green]✓[/green] Wrote [dim]{env_path}[/dim]")
 
 
-def _suggest_resource_defaults(resource_name: str, primary_db: str) -> dict[str, str]:
-    """Suggest resource defaults from the example config and selected connection."""
+@app.command(name="configure", cls=_DynamicConfigureGroup)  # type: ignore[arg-type]
+def configure(ctx: typer.Context) -> None:
+    r"""Configure a package's \[tools.<name>] section.
 
-    example = _load_example_defaults()
-    lowered = resource_name.lower()
-    primary_lowered = primary_db.lower()
-
-    if "local" in lowered or "local" in primary_lowered:
-        artifact_root = f"artifacts/{resource_name}" if resource_name != "local_all_in_one" else "artifacts/local"
-        return {
-            "omop_schema": "cdm",
-            "vocab_schema": "cdm",
-            "results_schema": "results",
-            "athena_source_path": "",
-            "artifact_root": artifact_root,
-            "embedding_file_root": f"{artifact_root}/embeddings",
-            "analytic_db_file_root": f"{artifact_root}/databases",
-        }
-
-    artifact_root = "artifacts" if resource_name == "default" else f"artifacts/{resource_name}"
-    return {
-        "omop_schema": str(example.get("resource_omop_schema", "cdm")),
-        "vocab_schema": str(example.get("resource_vocab_schema", "vocab")),
-        "results_schema": str(example.get("resource_results_schema", "results")),
-        "athena_source_path": str(example.get("resource_athena_source_path", "")),
-        "artifact_root": artifact_root,
-        "embedding_file_root": f"{artifact_root}/embeddings",
-        "analytic_db_file_root": f"{artifact_root}/databases",
-    }
-
-
-@cache
-def _load_example_defaults() -> dict[str, str | int]:
-    """Read a few defaults from the packaged example configuration.
-
-    The goal is not to fully interpret the example file, only to reuse a few
-    stable, human-curated defaults when they exist.
+    Run 'omop-config configure <package> --help' to see that package's flags.
+    Packages register support via the 'omop.config' entry-point group.
     """
-
-    example_path = Path(__file__).resolve().parents[2] / "examples" / "config.toml"
-    if not example_path.exists():
-        return {}
-
-    data = tomllib.loads(example_path.read_text(encoding="utf-8"))
-    defaults: dict[str, str | int] = {}
-
-    local_connection = data.get("connections", {}).get("local_cdm", {})
-    defaults["connection_dialect"] = local_connection.get("dialect", "postgresql")
-    defaults["connection_host"] = local_connection.get("host", "localhost")
-    defaults["connection_port"] = local_connection.get("port", 5432)
-    defaults["connection_user"] = local_connection.get("user", "")
-    defaults["connection_database"] = local_connection.get("database", "omop")
-
-    default_resource = data.get("resources", {}).get("default", {})
-    defaults["resource_omop_schema"] = default_resource.get("omop_schema", "cdm")
-    defaults["resource_vocab_schema"] = default_resource.get("vocab_schema", "vocab")
-    defaults["resource_results_schema"] = default_resource.get("results_schema", "results")
-    defaults["resource_athena_source_path"] = default_resource.get("athena_source_path", "")
-
-    return defaults
+    if ctx.invoked_subcommand is None:
+        _list_packages()

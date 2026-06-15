@@ -1,3 +1,10 @@
+## [0.1.1](https://github.com/AustralianCancerDataNetwork/oa-configurator/compare/v0.1.0...v0.1.1) (2026-06-15)
+
+
+### Bug Fixes
+
+* expand Python support to >=3.12 by removing <3.13 upper bound ([ffaac4f](https://github.com/AustralianCancerDataNetwork/oa-configurator/commit/ffaac4f52082885571ec73c4c169b45f0bf2fc05))
+
 # [0.1.0](https://github.com/AustralianCancerDataNetwork/oa-configurator/compare/v0.0.0...v0.1.0) (2026-06-15)
 
 

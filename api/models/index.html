@@ -33,6 +33,9 @@
     
       <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
       
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
       
 
 
@@ -61,7 +64,14 @@
   </head>
   
   
-    <body dir="ltr">
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -112,6 +122,32 @@
         </div>
       </div>
     </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="light-blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
     
     
       <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
@@ -279,6 +315,33 @@
   
   
   
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
     
     
     
@@ -295,10 +358,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
             
   
   
@@ -316,8 +379,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -467,15 +530,8 @@
 
               
             
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
+              
+                
   
   
   
@@ -500,30 +556,11 @@
     </li>
   
 
-    
+              
+            
+          </ul>
+        </nav>
       
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../architecture/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Architecture
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -550,10 +587,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
-          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
             
   
   
@@ -571,8 +608,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_6">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -699,43 +736,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.models.StackConfig.config_file_path" class="md-nav__link">
+  <a href="#oa_configurator.models.StackConfig.loaded_path" class="md-nav__link">
     <span class="md-ellipsis">
       
-        config_file_path
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.models.StackConfig.configuration_base_path" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        configuration_base_path
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.models.StackConfig.secrets_dir" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        secrets_dir
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.models.StackConfig.active_profile_config" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        active_profile_config
+        loaded_path
       
     </span>
   </a>
@@ -754,10 +758,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.models.StackConfig.connection_names" class="md-nav__link">
+  <a href="#oa_configurator.models.StackConfig.database_names" class="md-nav__link">
     <span class="md-ellipsis">
       
-        connection_names
+        database_names
       
     </span>
   </a>
@@ -820,10 +824,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#settingsconfig" class="md-nav__link">
+  <a href="#databaseconfig" class="md-nav__link">
     <span class="md-ellipsis">
       
-        SettingsConfig
+        DatabaseConfig
       
     </span>
   </a>
@@ -831,10 +835,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.models.SettingsConfig" class="md-nav__link">
+  <a href="#oa_configurator.models.DatabaseConfig" class="md-nav__link">
     <span class="md-ellipsis">
       
-        SettingsConfig
+        DatabaseConfig
       
     </span>
   </a>
@@ -842,77 +846,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#connectionconfig" class="md-nav__link">
+  <a href="#oa_configurator.models.DatabaseConfig.build_url" class="md-nav__link">
     <span class="md-ellipsis">
       
-        ConnectionConfig
+        build_url
       
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.models.ConnectionConfig" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        ConnectionConfig
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.models.ConnectionConfig.as_safe_url" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        as_safe_url
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.models.ConnectionConfig.as_safe_url_resolved" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        as_safe_url_resolved
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.models.ConnectionConfig.as_url" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        as_url
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.models.ConnectionConfig.as_url_resolved" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        as_url_resolved
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="as_url_resolved">
+    <nav class="md-nav" aria-label="build_url">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#oa_configurator.models.ConnectionConfig.as_url_resolved--parameters" class="md-nav__link">
+  <a href="#oa_configurator.models.DatabaseConfig.build_url--returns" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Parameters
+        Returns
       
     </span>
   </a>
@@ -925,21 +874,38 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.models.ConnectionConfig.engine_create_kwargs" class="md-nav__link">
+  <a href="#oa_configurator.models.DatabaseConfig.safe_url" class="md-nav__link">
     <span class="md-ellipsis">
       
-        engine_create_kwargs
+        safe_url
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="safe_url">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#oa_configurator.models.DatabaseConfig.safe_url--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
       
     </span>
   </a>
   
 </li>
+        
+      </ul>
+    </nav>
+  
+</li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.models.ConnectionConfig.validate_shape" class="md-nav__link">
+  <a href="#oa_configurator.models.DatabaseConfig.to_env_pairs" class="md-nav__link">
     <span class="md-ellipsis">
       
-        validate_shape
+        to_env_pairs
       
     </span>
   </a>
@@ -969,28 +935,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#resourceoverrideconfig" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        ResourceOverrideConfig
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.models.ResourceOverrideConfig" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        ResourceOverrideConfig
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#toolconfig" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1013,10 +957,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#tooloverrideconfig" class="md-nav__link">
+  <a href="#profileoverrideconfig" class="md-nav__link">
     <span class="md-ellipsis">
       
-        ToolOverrideConfig
+        ProfileOverrideConfig
       
     </span>
   </a>
@@ -1024,32 +968,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.models.ToolOverrideConfig" class="md-nav__link">
+  <a href="#oa_configurator.models.ProfileOverrideConfig" class="md-nav__link">
     <span class="md-ellipsis">
       
-        ToolOverrideConfig
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#profileconfig" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        ProfileConfig
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.models.ProfileConfig" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        ProfileConfig
+        ProfileOverrideConfig
       
     </span>
   </a>
@@ -1100,42 +1022,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../schema-helpers/" class="md-nav__link">
+      <a href="../package-base/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Schema Helpers
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../persistence/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Persistence
+    PackageConfigBase
   
 
     
@@ -1233,43 +1127,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.models.StackConfig.config_file_path" class="md-nav__link">
+  <a href="#oa_configurator.models.StackConfig.loaded_path" class="md-nav__link">
     <span class="md-ellipsis">
       
-        config_file_path
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.models.StackConfig.configuration_base_path" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        configuration_base_path
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.models.StackConfig.secrets_dir" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        secrets_dir
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.models.StackConfig.active_profile_config" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        active_profile_config
+        loaded_path
       
     </span>
   </a>
@@ -1288,10 +1149,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.models.StackConfig.connection_names" class="md-nav__link">
+  <a href="#oa_configurator.models.StackConfig.database_names" class="md-nav__link">
     <span class="md-ellipsis">
       
-        connection_names
+        database_names
       
     </span>
   </a>
@@ -1354,10 +1215,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#settingsconfig" class="md-nav__link">
+  <a href="#databaseconfig" class="md-nav__link">
     <span class="md-ellipsis">
       
-        SettingsConfig
+        DatabaseConfig
       
     </span>
   </a>
@@ -1365,10 +1226,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.models.SettingsConfig" class="md-nav__link">
+  <a href="#oa_configurator.models.DatabaseConfig" class="md-nav__link">
     <span class="md-ellipsis">
       
-        SettingsConfig
+        DatabaseConfig
       
     </span>
   </a>
@@ -1376,77 +1237,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#connectionconfig" class="md-nav__link">
+  <a href="#oa_configurator.models.DatabaseConfig.build_url" class="md-nav__link">
     <span class="md-ellipsis">
       
-        ConnectionConfig
+        build_url
       
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.models.ConnectionConfig" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        ConnectionConfig
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.models.ConnectionConfig.as_safe_url" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        as_safe_url
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.models.ConnectionConfig.as_safe_url_resolved" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        as_safe_url_resolved
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.models.ConnectionConfig.as_url" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        as_url
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.models.ConnectionConfig.as_url_resolved" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        as_url_resolved
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="as_url_resolved">
+    <nav class="md-nav" aria-label="build_url">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#oa_configurator.models.ConnectionConfig.as_url_resolved--parameters" class="md-nav__link">
+  <a href="#oa_configurator.models.DatabaseConfig.build_url--returns" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Parameters
+        Returns
       
     </span>
   </a>
@@ -1459,21 +1265,38 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.models.ConnectionConfig.engine_create_kwargs" class="md-nav__link">
+  <a href="#oa_configurator.models.DatabaseConfig.safe_url" class="md-nav__link">
     <span class="md-ellipsis">
       
-        engine_create_kwargs
+        safe_url
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="safe_url">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#oa_configurator.models.DatabaseConfig.safe_url--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
       
     </span>
   </a>
   
 </li>
+        
+      </ul>
+    </nav>
+  
+</li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.models.ConnectionConfig.validate_shape" class="md-nav__link">
+  <a href="#oa_configurator.models.DatabaseConfig.to_env_pairs" class="md-nav__link">
     <span class="md-ellipsis">
       
-        validate_shape
+        to_env_pairs
       
     </span>
   </a>
@@ -1503,28 +1326,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#resourceoverrideconfig" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        ResourceOverrideConfig
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.models.ResourceOverrideConfig" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        ResourceOverrideConfig
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#toolconfig" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1547,10 +1348,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#tooloverrideconfig" class="md-nav__link">
+  <a href="#profileoverrideconfig" class="md-nav__link">
     <span class="md-ellipsis">
       
-        ToolOverrideConfig
+        ProfileOverrideConfig
       
     </span>
   </a>
@@ -1558,32 +1359,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.models.ToolOverrideConfig" class="md-nav__link">
+  <a href="#oa_configurator.models.ProfileOverrideConfig" class="md-nav__link">
     <span class="md-ellipsis">
       
-        ToolOverrideConfig
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#profileconfig" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        ProfileConfig
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.models.ProfileConfig" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        ProfileConfig
+        ProfileOverrideConfig
       
     </span>
   </a>
@@ -1661,7 +1440,7 @@
 <h1 id="models">Models<a class="headerlink" href="#models" title="Permanent link">&para;</a></h1>
 <p>Typed Pydantic models that represent the human-managed configuration structure. All models are exported from the top-level <code>oa_configurator</code> package.</p>
 <h2 id="stackconfig">StackConfig<a class="headerlink" href="#stackconfig" title="Permanent link">&para;</a></h2>
-<p>Root configuration object. Also the entry point for programmatic construction via <a href="../../inline-usage/"><code>for_session()</code></a>.</p>
+<p>Root configuration object. Also the entry point for programmatic construction via <code>StackConfig.for_session()</code>.</p>
 
 
 <div class="doc doc-object doc-class">
@@ -1675,16 +1454,12 @@
 
 
 
-        <p>Root typed configuration object for the stack.</p>
-<p>This model is intentionally broad enough to describe:</p>
-<ul>
-<li>named profiles</li>
-<li>named concrete connections</li>
-<li>named logical resources</li>
-<li>per-tool defaults</li>
-</ul>
-<p>It also exposes a few lightweight discovery helpers so interactive use in
-notebooks and REPLs feels pleasant without exposing sensitive values.</p>
+        <p>Root model for <code>~/.config/omop/config.toml</code>.</p>
+<p>Holds the entire OMOP stack configuration in one object: named database
+connections, logical resources, per-package tool sections, and environment
+profiles. Loaded from disk by
+:func:<code>~oa_configurator.loader.load_stack_config</code>; constructed in memory
+via :meth:<code>for_session</code> for tests and scripts (no file I/O).</p>
 
 
 
@@ -1708,69 +1483,21 @@ notebooks and REPLs feels pleasant without exposing sensitive values.</p>
 
 
 
-<h2 id="oa_configurator.models.StackConfig.config_file_path" class="doc doc-heading">
-            <span class="doc doc-object-name doc-attribute-name">config_file_path</span>
+<h2 id="oa_configurator.models.StackConfig.loaded_path" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">loaded_path</span>
 
 
   <span class="doc doc-labels">
       <small class="doc doc-label doc-label-property"><code>property</code></small>
   </span>
 
-<a href="#oa_configurator.models.StackConfig.config_file_path" class="headerlink" title="Permanent link">&para;</a></h2>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">config_file_path</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span>
+<a href="#oa_configurator.models.StackConfig.loaded_path" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">loaded_path</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Return the fully resolved path of the loaded TOML file, if bound.</p>
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-attribute">
-
-
-
-<h2 id="oa_configurator.models.StackConfig.configuration_base_path" class="doc doc-heading">
-            <span class="doc doc-object-name doc-attribute-name">configuration_base_path</span>
-
-
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-property"><code>property</code></small>
-  </span>
-
-<a href="#oa_configurator.models.StackConfig.configuration_base_path" class="headerlink" title="Permanent link">&para;</a></h2>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">configuration_base_path</span><span class="p">:</span> <span class="n">Path</span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>Return the fully resolved directory used for relative path expansion.</p>
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-attribute">
-
-
-
-<h2 id="oa_configurator.models.StackConfig.secrets_dir" class="doc doc-heading">
-            <span class="doc doc-object-name doc-attribute-name">secrets_dir</span>
-
-
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-property"><code>property</code></small>
-  </span>
-
-<a href="#oa_configurator.models.StackConfig.secrets_dir" class="headerlink" title="Permanent link">&para;</a></h2>
-<div class="doc-signature highlight"><pre><span></span><code><span class="n">secrets_dir</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>Return the fully resolved directory used for file-backed secrets.</p>
+        <p>Path of the TOML file this config was loaded from, if any.</p>
 
     </div>
 
@@ -1778,26 +1505,6 @@ notebooks and REPLs feels pleasant without exposing sensitive values.</p>
 
 
 
-
-<div class="doc doc-object doc-function">
-
-
-<h2 id="oa_configurator.models.StackConfig.active_profile_config" class="doc doc-heading">
-            <span class="doc doc-object-name doc-function-name">active_profile_config</span>
-
-
-<a href="#oa_configurator.models.StackConfig.active_profile_config" class="headerlink" title="Permanent link">&para;</a></h2>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">active_profile_config</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">ProfileConfig</span> <span class="o">|</span> <span class="kc">None</span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>Return the configured active profile object, if present.</p>
-
-
-    </div>
-
-</div>
 
 <div class="doc doc-object doc-function">
 
@@ -1807,19 +1514,12 @@ notebooks and REPLs feels pleasant without exposing sensitive values.</p>
 
 
 <a href="#oa_configurator.models.StackConfig.bind_loaded_path" class="headerlink" title="Permanent link">&para;</a></h2>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">bind_loaded_path</span><span class="p">(</span><span class="n">config_file_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">bind_loaded_path</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Bind the resolved loaded config path and derive path resolution base.</p>
-<p>This should be called by the loader after the TOML file is parsed so
-that every later filesystem resolution uses a stable directory base
-rather than the process working directory.</p>
-<p>The method only uses the fully resolved file path and its parent
-directory; the file itself does not need to exist. <code>for_session()</code>
-relies on that behavior by binding a synthetic <code>_session.toml</code> path
-within the chosen base directory.</p>
+        <p>Record the path of the TOML file this config was loaded from.</p>
 
 
     </div>
@@ -1829,17 +1529,17 @@ within the chosen base directory.</p>
 <div class="doc doc-object doc-function">
 
 
-<h2 id="oa_configurator.models.StackConfig.connection_names" class="doc doc-heading">
-            <span class="doc doc-object-name doc-function-name">connection_names</span>
+<h2 id="oa_configurator.models.StackConfig.database_names" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">database_names</span>
 
 
-<a href="#oa_configurator.models.StackConfig.connection_names" class="headerlink" title="Permanent link">&para;</a></h2>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">connection_names</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+<a href="#oa_configurator.models.StackConfig.database_names" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">database_names</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Return known non-secret connection names in sorted order.</p>
+        <p>Return a sorted tuple of configured database names.</p>
 
 
     </div>
@@ -1860,30 +1560,20 @@ within the chosen base directory.</p>
 <a href="#oa_configurator.models.StackConfig.for_session" class="headerlink" title="Permanent link">&para;</a></h2>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">for_session</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">connections</span><span class="p">:</span> <span class="s2">&quot;dict[str, ConnectionConfig] | None&quot;</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">resources</span><span class="p">:</span> <span class="s2">&quot;dict[str, ResourceConfig] | None&quot;</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">tools</span><span class="p">:</span> <span class="s2">&quot;dict[str, ToolConfig] | None&quot;</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">profiles</span><span class="p">:</span> <span class="s2">&quot;dict[str, ProfileConfig] | None&quot;</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">settings</span><span class="p">:</span> <span class="s2">&quot;SettingsConfig | None&quot;</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">base_path</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;StackConfig&quot;</span>
+    <span class="n">databases</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">DatabaseConfig</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">resources</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">tools</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">profiles</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">active_profile</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">resource_aliases</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StackConfig</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Construct a StackConfig programmatically without a TOML file.</p>
-<p>The <code>base_path</code> (default: <code>Path.cwd()</code>) anchors relative filesystem
-paths in connections, resources, and tools. Equivalent to loading a TOML
-file from that directory. Internally this binds a synthetic config file
-path inside <code>base_path</code> so that <code>configuration_base_path = "."</code>
-behaves the same way it would for a loaded TOML file.</p>
-<p>Example::</p>
-<div class="highlight"><pre><span></span><code>config = StackConfig.for_session(
-    connections={&quot;local&quot;: ConnectionConfig(dialect=&quot;sqlite&quot;, database=&quot;:memory:&quot;)},
-    resources={&quot;default&quot;: ResourceConfig(primary_db=&quot;local&quot;)},
-)
-engine = Resolver(config).resolve_resource(&quot;default&quot;).create_engine()
-</code></pre></div>
+        <p>Build a config in memory without a TOML file.</p>
+<p>Intended for tests and scripts. Cross-references are validated at
+construction time, same as for file-loaded configs.</p>
 
 
     </div>
@@ -1903,7 +1593,7 @@ engine = Resolver(config).resolve_resource(&quot;default&quot;).create_engine()
 
     <div class="doc doc-contents ">
 
-        <p>Return known profile names in sorted order.</p>
+        <p>Return a sorted tuple of configured profile names.</p>
 
 
     </div>
@@ -1923,7 +1613,7 @@ engine = Resolver(config).resolve_resource(&quot;default&quot;).create_engine()
 
     <div class="doc doc-contents ">
 
-        <p>Return known logical resource names in sorted order.</p>
+        <p>Return a sorted tuple of configured resource names.</p>
 
 
     </div>
@@ -1943,7 +1633,7 @@ engine = Resolver(config).resolve_resource(&quot;default&quot;).create_engine()
 
     <div class="doc doc-contents ">
 
-        <p>Return known tool-default names in sorted order.</p>
+        <p>Return a sorted tuple of configured tool names.</p>
 
 
     </div>
@@ -1958,12 +1648,12 @@ engine = Resolver(config).resolve_resource(&quot;default&quot;).create_engine()
 
 
 <a href="#oa_configurator.models.StackConfig.validate_references" class="headerlink" title="Permanent link">&para;</a></h2>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">validate_references</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="s1">&#39;StackConfig&#39;</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">validate_references</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">StackConfig</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Validate that named cross-references point at configured objects.</p>
+        <p>Ensure all named cross-references point at configured objects.</p>
 
 
     </div>
@@ -1976,82 +1666,26 @@ engine = Resolver(config).resolve_resource(&quot;default&quot;).create_engine()
 
     </div>
 
-</div><h2 id="settingsconfig">SettingsConfig<a class="headerlink" href="#settingsconfig" title="Permanent link">&para;</a></h2>
+</div><h2 id="databaseconfig">DatabaseConfig<a class="headerlink" href="#databaseconfig" title="Permanent link">&para;</a></h2>
 
 
 <div class="doc doc-object doc-class">
 
 
 
-<a id="oa_configurator.models.SettingsConfig"></a>
+<a id="oa_configurator.models.DatabaseConfig"></a>
     <div class="doc doc-contents first">
             <p class="doc doc-class-bases">
               Bases: <code><span title="pydantic.BaseModel">BaseModel</span></code></p>
 
 
 
-        <p>Top-level lightweight runtime selection settings.</p>
-<p><code>configuration_base_path</code> controls how relative filesystem paths are
-resolved throughout the configuration:</p>
-<ul>
-<li><code>"."</code> means "the fully resolved directory containing the loaded
-  configuration file" after the loaded config path has been bound with
-  <code>StackConfig.bind_loaded_path()</code> or by loading through
-  <code>load_stack_config()</code></li>
-<li>any other value must be an absolute directory path</li>
-</ul>
-
-
-
-
-
-
-
-
-
-
-
-<div class="doc doc-children">
-
-
-
-
-
-
-
-
-
-
-
-
-  </div>
-
-    </div>
-
-</div><h2 id="connectionconfig">ConnectionConfig<a class="headerlink" href="#connectionconfig" title="Permanent link">&para;</a></h2>
-
-
-<div class="doc doc-object doc-class">
-
-
-
-<a id="oa_configurator.models.ConnectionConfig"></a>
-    <div class="doc doc-contents first">
-            <p class="doc doc-class-bases">
-              Bases: <code><span title="pydantic.BaseModel">BaseModel</span></code></p>
-
-
-
-        <p>Concrete database, file-backed, or HTTP API connection target.</p>
-<p>This model captures the minimal details needed to render a URL or file
-reference, while keeping sensitive elements such as passwords out of the
-default developer-facing representation.</p>
-<p>Three connection kinds are supported:</p>
-<ul>
-<li><code>"database"</code> — network or local SQL database (default)</li>
-<li><code>"file"</code> — file-backed database (DuckDB, SQLite by path)</li>
-<li><code>"api"</code> — HTTP API endpoint (Ollama, OpenAI-compatible services)</li>
-</ul>
+        <p>Complete specification of one named database: server address, credentials, and target database.</p>
+<p>Referenced by :attr:<code>ResourceConfig.database</code> and
+:attr:<code>ResourceConfig.vocab_database</code>. Each entry under <code>[databases]</code>
+in <code>config.toml</code> maps to one instance of this model.</p>
+<p>Passwords are stored in plaintext for now; secret management support
+is planned for a future release.</p>
 
 
 
@@ -2077,17 +1711,22 @@ default developer-facing representation.</p>
 <div class="doc doc-object doc-function">
 
 
-<h2 id="oa_configurator.models.ConnectionConfig.as_safe_url" class="doc doc-heading">
-            <span class="doc doc-object-name doc-function-name">as_safe_url</span>
+<h2 id="oa_configurator.models.DatabaseConfig.build_url" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">build_url</span>
 
 
-<a href="#oa_configurator.models.ConnectionConfig.as_safe_url" class="headerlink" title="Permanent link">&para;</a></h2>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">as_safe_url</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<a href="#oa_configurator.models.DatabaseConfig.build_url" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">build_url</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Render a redacted connection URL suitable for logs and reprs.</p>
+        <p>Build the full connection URL, including the plaintext password.</p>
+<h4 id="oa_configurator.models.DatabaseConfig.build_url--returns">Returns<a class="headerlink" href="#oa_configurator.models.DatabaseConfig.build_url--returns" title="Permanent link">&para;</a></h4>
+<p>str
+    SQLAlchemy-compatible connection URL. For SQLite, returns
+    <code>sqlite:///&lt;database&gt;</code> (or <code>sqlite:///:memory:</code> when
+    <code>database</code> is not set).</p>
 
 
     </div>
@@ -2097,21 +1736,22 @@ default developer-facing representation.</p>
 <div class="doc doc-object doc-function">
 
 
-<h2 id="oa_configurator.models.ConnectionConfig.as_safe_url_resolved" class="doc doc-heading">
-            <span class="doc doc-object-name doc-function-name">as_safe_url_resolved</span>
+<h2 id="oa_configurator.models.DatabaseConfig.safe_url" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">safe_url</span>
 
 
-<a href="#oa_configurator.models.ConnectionConfig.as_safe_url_resolved" class="headerlink" title="Permanent link">&para;</a></h2>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">as_safe_url_resolved</span><span class="p">(</span>
-    <span class="n">configuration_base_path</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="o">*</span><span class="p">,</span>
-    <span class="n">password_override</span><span class="p">:</span> <span class="n">PasswordOverride</span> <span class="o">=</span> <span class="n">_PASSWORD_UNSET</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<a href="#oa_configurator.models.DatabaseConfig.safe_url" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">safe_url</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Render a redacted connection URL with optional base-path resolution.</p>
+        <p>Build the connection URL with the password redacted.</p>
+<p>Safe for logging and display. Identical to <code>build_url()</code> for SQLite
+connections, which carry no password.</p>
+<h4 id="oa_configurator.models.DatabaseConfig.safe_url--returns">Returns<a class="headerlink" href="#oa_configurator.models.DatabaseConfig.safe_url--returns" title="Permanent link">&para;</a></h4>
+<p>str
+    Connection URL with <code>***</code> substituted for the password field.</p>
 
 
     </div>
@@ -2121,89 +1761,23 @@ default developer-facing representation.</p>
 <div class="doc doc-object doc-function">
 
 
-<h2 id="oa_configurator.models.ConnectionConfig.as_url" class="doc doc-heading">
-            <span class="doc doc-object-name doc-function-name">as_url</span>
+<h2 id="oa_configurator.models.DatabaseConfig.to_env_pairs" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">to_env_pairs</span>
 
 
-<a href="#oa_configurator.models.ConnectionConfig.as_url" class="headerlink" title="Permanent link">&para;</a></h2>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">as_url</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<a href="#oa_configurator.models.DatabaseConfig.to_env_pairs" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">to_env_pairs</span><span class="p">(</span><span class="n">prefix</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Render the full connection URL, including password when configured.</p>
-
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-function">
-
-
-<h2 id="oa_configurator.models.ConnectionConfig.as_url_resolved" class="doc doc-heading">
-            <span class="doc doc-object-name doc-function-name">as_url_resolved</span>
-
-
-<a href="#oa_configurator.models.ConnectionConfig.as_url_resolved" class="headerlink" title="Permanent link">&para;</a></h2>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">as_url_resolved</span><span class="p">(</span>
-    <span class="n">configuration_base_path</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="o">*</span><span class="p">,</span>
-    <span class="n">password_override</span><span class="p">:</span> <span class="n">PasswordOverride</span> <span class="o">=</span> <span class="n">_PASSWORD_UNSET</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>Render the full connection URL with optional base-path resolution.</p>
-<h4 id="oa_configurator.models.ConnectionConfig.as_url_resolved--parameters">Parameters<a class="headerlink" href="#oa_configurator.models.ConnectionConfig.as_url_resolved--parameters" title="Permanent link">&para;</a></h4>
-<p>configuration_base_path
-    Base directory used to resolve relative local file paths. This is
-    especially important for sqlite or other file-backed connections.</p>
-
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-function">
-
-
-<h2 id="oa_configurator.models.ConnectionConfig.engine_create_kwargs" class="doc doc-heading">
-            <span class="doc doc-object-name doc-function-name">engine_create_kwargs</span>
-
-
-<a href="#oa_configurator.models.ConnectionConfig.engine_create_kwargs" class="headerlink" title="Permanent link">&para;</a></h2>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">engine_create_kwargs</span><span class="p">(</span><span class="o">**</span><span class="n">overrides</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>Return effective kwargs for <code>sqlalchemy.create_engine()</code>.</p>
-<p><code>engine_kwargs</code> from configuration are used as the base. Explicit
-call-site overrides win. When <code>read_only</code> is enabled for PostgreSQL,
-a startup <code>connect_args.options</code> flag is injected unless the caller
-has already set it.</p>
-
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-function">
-
-
-<h2 id="oa_configurator.models.ConnectionConfig.validate_shape" class="doc doc-heading">
-            <span class="doc doc-object-name doc-function-name">validate_shape</span>
-
-
-<a href="#oa_configurator.models.ConnectionConfig.validate_shape" class="headerlink" title="Permanent link">&para;</a></h2>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">validate_shape</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="s1">&#39;ConnectionConfig&#39;</span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>Validate the minimum fields required by the selected connection type.</p>
+        <p>Return <code>PREFIX_FIELD=value</code> strings for each non-None field.</p>
+<p>Used by :func:<code>~oa_configurator.io.write_env_file</code> to emit env vars for
+Docker Compose <code>env_file:</code>. Field names are uppercased directly
+(e.g. <code>host</code> → <code>PREFIX_HOST</code>), so adding a new field here
+automatically appears in the export without touching <code>io.py</code>.
+Config-only flags (<code>read_only</code>, <code>test_only</code>) are excluded — they
+are not database connection parameters.</p>
 
 
     </div>
@@ -2230,52 +1804,10 @@ has already set it.</p>
 
 
 
-        <p>Logical resource-role mapping for one stack usage pattern.</p>
-
-
-
-
-
-
-
-
-
-
-
-<div class="doc doc-children">
-
-
-
-
-
-
-
-
-
-
-
-
-  </div>
-
-    </div>
-
-</div><h2 id="resourceoverrideconfig">ResourceOverrideConfig<a class="headerlink" href="#resourceoverrideconfig" title="Permanent link">&para;</a></h2>
-
-
-<div class="doc doc-object doc-class">
-
-
-
-<a id="oa_configurator.models.ResourceOverrideConfig"></a>
-    <div class="doc doc-contents first">
-            <p class="doc doc-class-bases">
-              Bases: <code><span title="pydantic.BaseModel">BaseModel</span></code></p>
-
-
-
-        <p>Partial patch for a named :class:<code>ResourceConfig</code>.</p>
-<p>Every field is optional. Only explicitly provided values are applied over
-the base resource during resolution for the active profile.</p>
+        <p>Maps the OMOP logical roles (CDM, vocab, results) to named databases and schema names.</p>
+<p>The unit that consuming packages configure once and reference by name.
+Most packages only need a single <code>cdm_db</code> resource. Each entry under
+<code>[resources]</code> in <code>config.toml</code> maps to one instance of this model.</p>
 
 
 
@@ -2318,7 +1850,10 @@ the base resource during resolution for the active profile.</p>
 
 
 
-        <p>Tool-specific defaults layered on top of shared resources.</p>
+        <p>Per-package section in <code>config.toml</code> (<code>[tools.&lt;name&gt;]</code>).</p>
+<p><code>default_resource</code> names which resource this package reads from.
+<code>extra</code> holds the package-specific typed fields declared on the
+package's :class:<code>~oa_configurator.PackageConfigBase</code> subclass.</p>
 
 
 
@@ -2347,67 +1882,25 @@ the base resource during resolution for the active profile.</p>
 
     </div>
 
-</div><h2 id="tooloverrideconfig">ToolOverrideConfig<a class="headerlink" href="#tooloverrideconfig" title="Permanent link">&para;</a></h2>
+</div><h2 id="profileoverrideconfig">ProfileOverrideConfig<a class="headerlink" href="#profileoverrideconfig" title="Permanent link">&para;</a></h2>
 
 
 <div class="doc doc-object doc-class">
 
 
 
-<a id="oa_configurator.models.ToolOverrideConfig"></a>
+<a id="oa_configurator.models.ProfileOverrideConfig"></a>
     <div class="doc doc-contents first">
             <p class="doc doc-class-bases">
               Bases: <code><span title="pydantic.BaseModel">BaseModel</span></code></p>
 
 
 
-        <p>Partial patch for a named :class:<code>ToolConfig</code>.</p>
-
-
-
-
-
-
-
-
-
-
-
-<div class="doc doc-children">
-
-
-
-
-
-
-
-
-
-
-
-
-  </div>
-
-    </div>
-
-</div><h2 id="profileconfig">ProfileConfig<a class="headerlink" href="#profileconfig" title="Permanent link">&para;</a></h2>
-
-
-<div class="doc doc-object doc-class">
-
-
-
-<a id="oa_configurator.models.ProfileConfig"></a>
-    <div class="doc doc-contents first">
-            <p class="doc doc-class-bases">
-              Bases: <code><span title="pydantic.BaseModel">BaseModel</span></code></p>
-
-
-
-        <p>Named deployment or usage profile metadata plus optional overlays.</p>
-<p>Profiles can patch named resources and tools without forcing callers to
-duplicate whole base blocks such as <code>resources.default</code> or
-<code>tools.omop_emb</code>.</p>
+        <p>Named environment overlay (<code>[profiles.&lt;name&gt;]</code> in <code>config.toml</code>).</p>
+<p>Entries replace base entries with the same name when the profile is active.
+Anything not mentioned in the profile is inherited from the base config unchanged.
+Useful for switching between local-dev and production databases without
+editing the base config.</p>
 
 
 

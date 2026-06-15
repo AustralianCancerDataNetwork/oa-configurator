@@ -31,6 +31,9 @@
     
       <link rel="stylesheet" href="assets/stylesheets/main.484c7ddc.min.css">
       
+        
+        <link rel="stylesheet" href="assets/stylesheets/palette.ab4e12ef.min.css">
+      
       
 
 
@@ -59,7 +62,14 @@
   </head>
   
   
-    <body dir="ltr">
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -110,6 +120,32 @@
         </div>
       </div>
     </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="light-blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
     
     
       <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
@@ -357,6 +393,33 @@
   
   
   
+    <li class="md-nav__item">
+      <a href="architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
     
     
     
@@ -373,10 +436,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
             
   
   
@@ -394,8 +457,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -545,15 +608,8 @@
 
               
             
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
+              
+                
   
   
   
@@ -578,30 +634,11 @@
     </li>
   
 
-    
+              
+            
+          </ul>
+        </nav>
       
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="architecture/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Architecture
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -628,10 +665,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
         
           
-          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
             
   
   
@@ -649,8 +686,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -751,42 +788,14 @@
   
   
     <li class="md-nav__item">
-      <a href="api/schema-helpers/" class="md-nav__link">
+      <a href="api/package-base/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Schema Helpers
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="api/persistence/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Persistence
+    PackageConfigBase
   
 
     
@@ -925,46 +934,26 @@
 <h1 id="oa-configurator">oa-configurator<a class="headerlink" href="#oa-configurator" title="Permanent link">&para;</a></h1>
 <p>A shared configuration layer for the OMOP-oriented Python stack.</p>
 <hr />
-<p><strong>oa-configurator</strong> gives tools like <code>omop-alchemy</code>, <code>orm-loader</code>, <code>omop-emb</code>, and <code>omop-graph</code> a single typed configuration file instead of a tangle of environment variables and package-local <code>.env</code> files.</p>
+<p><strong>oa-configurator</strong> gives OMOP tools a single typed configuration file instead of a tangle of environment variables and package-local <code>.env</code> files.</p>
 <h2 id="key-concepts">Key Concepts<a class="headerlink" href="#key-concepts" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Concept</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>connection</strong></td>
-<td>A concrete database endpoint (host, dialect, credentials)</td>
-</tr>
-<tr>
-<td><strong>resource</strong></td>
-<td>A logical role bundle — primary OMOP DB, vocab DB, results DB, artifact paths</td>
-</tr>
-<tr>
-<td><strong>profile</strong></td>
-<td>A named environment (e.g. <code>local</code>, <code>prod</code>) that patches resources and tools</td>
-</tr>
-<tr>
-<td><strong>tool</strong></td>
-<td>Per-tool defaults — backend, default resource, storage roots</td>
-</tr>
-<tr>
-<td><strong>logging</strong></td>
-<td>One call configures consistent log output for the entire OMOP Python stack</td>
-</tr>
-</tbody>
-</table>
-<p>Configuration lives in one TOML file (default <code>~/.config/omop/config.toml</code>) and is loaded once. The <strong>Resolver</strong> turns logical names into typed, credential-resolved handles ready for use.</p>
+<ul>
+<li><strong>Connection</strong>: A concrete database endpoint (host, dialect, credentials)</li>
+<li><strong>Resource</strong>:  A logical role bundle, e.g. primary OMOP CDM DB, embedding DB, artficat paths</li>
+<li><strong>Profile</strong>: A named environment (e.g. <code>local</code>, <code>prod</code>) that patches resources and tools</li>
+<li><strong>Tool</strong>:  Per-tool defaults, e.g. backend, default resource, storage roots</li>
+<li><strong>Logging</strong>: One call configures consistent log output for the entire OMOP Python stack</li>
+</ul>
+<div class="admonition info">
+<p class="admonition-title">Info</p>
+<p>Configuration lives in one TOML file (default <strong><code>~/.config/omop/config.toml</code></strong>, overridable via <code>OA_CONFIG_PATH</code>) and is loaded once. The Resolver turns logical names into typed, credential-resolved handles ready for use.</p>
+</div>
 <h2 id="quick-example">Quick Example<a class="headerlink" href="#quick-example" title="Permanent link">&para;</a></h2>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">From a config file</label><label for="__tabbed_1_2">Inline (no file)</label><label for="__tabbed_1_3">Session override</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_stack_config</span><span class="p">,</span> <span class="n">Resolver</span>
 
-<span class="n">config</span> <span class="o">=</span> <span class="n">load_stack_config</span><span class="p">()</span>                        <span class="c1"># reads ~/.config/omop/config.toml</span>
+<span class="n">config</span> <span class="o">=</span> <span class="n">load_stack_config</span><span class="p">()</span>                        <span class="c1"># reads CONFIG_PATH (default ~/.config/omop/config.toml)</span>
 <span class="n">resolver</span> <span class="o">=</span> <span class="n">Resolver</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
 
 <span class="n">resource</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">resolve_resource</span><span class="p">(</span><span class="s2">&quot;default&quot;</span><span class="p">)</span>
@@ -972,25 +961,25 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">StackConfig</span><span class="p">,</span> <span class="n">ConnectionConfig</span><span class="p">,</span> <span class="n">ResourceConfig</span><span class="p">,</span> <span class="n">Resolver</span>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">StackConfig</span><span class="p">,</span> <span class="n">DatabaseConfig</span><span class="p">,</span> <span class="n">ResourceConfig</span><span class="p">,</span> <span class="n">Resolver</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="n">StackConfig</span><span class="o">.</span><span class="n">for_session</span><span class="p">(</span>
-    <span class="n">connections</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;local&quot;</span><span class="p">:</span> <span class="n">ConnectionConfig</span><span class="p">(</span><span class="n">dialect</span><span class="o">=</span><span class="s2">&quot;postgresql&quot;</span><span class="p">,</span> <span class="n">host</span><span class="o">=</span><span class="s2">&quot;localhost&quot;</span><span class="p">,</span>
-                                           <span class="n">database</span><span class="o">=</span><span class="s2">&quot;omop&quot;</span><span class="p">,</span> <span class="n">password</span><span class="o">=</span><span class="s2">&quot;omop&quot;</span><span class="p">)},</span>
-    <span class="n">resources</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;default&quot;</span><span class="p">:</span> <span class="n">ResourceConfig</span><span class="p">(</span><span class="n">primary_db</span><span class="o">=</span><span class="s2">&quot;local&quot;</span><span class="p">,</span> <span class="n">omop_schema</span><span class="o">=</span><span class="s2">&quot;cdm&quot;</span><span class="p">)},</span>
+    <span class="n">databases</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;local&quot;</span><span class="p">:</span> <span class="n">DatabaseConfig</span><span class="p">(</span><span class="n">dialect</span><span class="o">=</span><span class="s2">&quot;postgresql&quot;</span><span class="p">,</span> <span class="n">host</span><span class="o">=</span><span class="s2">&quot;localhost&quot;</span><span class="p">,</span>
+                                       <span class="n">database_name</span><span class="o">=</span><span class="s2">&quot;omop&quot;</span><span class="p">,</span> <span class="n">password</span><span class="o">=</span><span class="s2">&quot;omop&quot;</span><span class="p">)},</span>
+    <span class="n">resources</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;default&quot;</span><span class="p">:</span> <span class="n">ResourceConfig</span><span class="p">(</span><span class="n">database</span><span class="o">=</span><span class="s2">&quot;local&quot;</span><span class="p">,</span> <span class="n">cdm_schema</span><span class="o">=</span><span class="s2">&quot;cdm&quot;</span><span class="p">)},</span>
 <span class="p">)</span>
 <span class="n">engine</span> <span class="o">=</span> <span class="n">Resolver</span><span class="p">(</span><span class="n">config</span><span class="p">)</span><span class="o">.</span><span class="n">resolve_resource</span><span class="p">(</span><span class="s2">&quot;default&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">create_engine</span><span class="p">()</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_stack_config</span><span class="p">,</span> <span class="n">ConnectionConfig</span><span class="p">,</span> <span class="n">ResourceConfig</span><span class="p">,</span> <span class="n">Resolver</span>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_stack_config</span><span class="p">,</span> <span class="n">DatabaseConfig</span><span class="p">,</span> <span class="n">ResourceConfig</span><span class="p">,</span> <span class="n">Resolver</span>
 
-<span class="c1"># Load shared team config, redirect one resource to a local DuckDB</span>
+<span class="c1"># Load shared team config, redirect one resource to a local SQLite database</span>
 <span class="n">engine</span> <span class="o">=</span> <span class="p">(</span>
     <span class="n">Resolver</span><span class="p">(</span><span class="n">load_stack_config</span><span class="p">())</span>
     <span class="o">.</span><span class="n">with_overrides</span><span class="p">(</span>
-        <span class="n">connections</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;local&quot;</span><span class="p">:</span> <span class="n">ConnectionConfig</span><span class="p">(</span><span class="n">dialect</span><span class="o">=</span><span class="s2">&quot;duckdb&quot;</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="s2">&quot;local.duckdb&quot;</span><span class="p">)},</span>
-        <span class="n">resources</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;default&quot;</span><span class="p">:</span> <span class="n">ResourceConfig</span><span class="p">(</span><span class="n">primary_db</span><span class="o">=</span><span class="s2">&quot;local&quot;</span><span class="p">)},</span>
+        <span class="n">databases</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;local&quot;</span><span class="p">:</span> <span class="n">DatabaseConfig</span><span class="p">(</span><span class="n">dialect</span><span class="o">=</span><span class="s2">&quot;sqlite&quot;</span><span class="p">,</span> <span class="n">database_name</span><span class="o">=</span><span class="s2">&quot;/data/local.db&quot;</span><span class="p">)},</span>
+        <span class="n">resources</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;default&quot;</span><span class="p">:</span> <span class="n">ResourceConfig</span><span class="p">(</span><span class="n">database</span><span class="o">=</span><span class="s2">&quot;local&quot;</span><span class="p">,</span> <span class="n">cdm_schema</span><span class="o">=</span><span class="s2">&quot;omop&quot;</span><span class="p">)},</span>
     <span class="p">)</span>
     <span class="o">.</span><span class="n">resolve_resource</span><span class="p">(</span><span class="s2">&quot;default&quot;</span><span class="p">)</span>
     <span class="o">.</span><span class="n">create_engine</span><span class="p">()</span>
@@ -1001,12 +990,12 @@
 </div>
 <h2 id="next-steps">Next Steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
 <ul>
-<li><a href="quickstart/">Quick Start</a> — install and get a working engine in minutes</li>
-<li><a href="config-reference/">Config File Reference</a> — every TOML field documented</li>
-<li><a href="logging/">Logging</a> — consistent log output across the entire OMOP stack</li>
-<li><a href="inline-usage/">Inline &amp; Session Usage</a> — construct config in code without a file</li>
-<li><a href="profiles/">Profiles &amp; Overlays</a> — switch between environments cleanly</li>
-<li><a href="secrets/">Secrets</a> — keep passwords out of the config file</li>
+<li><a href="quickstart/">Quick Start</a>: install and get a working engine in minutes</li>
+<li><a href="config-reference/">Config File Reference</a>: every TOML field documented</li>
+<li><a href="logging/">Logging</a>: consistent log output across the entire OMOP stack</li>
+<li><a href="inline-usage/">Inline &amp; Session Usage</a>: construct config in code without a file</li>
+<li><a href="profiles/">Profiles &amp; Overlays</a>: switch between environments cleanly</li>
+<li><a href="integration/">Integration</a>: add <code>omop-config configure</code> support to your package</li>
 </ul>
 
 

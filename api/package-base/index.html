@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://AustralianCancerDataNetwork.github.io/oa-configurator/api/schema-helpers/">
+        <link rel="canonical" href="https://AustralianCancerDataNetwork.github.io/oa-configurator/api/package-base/">
       
       
         <link rel="prev" href="../resolver/">
       
       
-        <link rel="next" href="../persistence/">
+        <link rel="next" href="../logging/">
       
       
         
@@ -27,11 +27,14 @@
     
     
       
-        <title>Schema Helpers - oa-configurator</title>
+        <title>PackageConfigBase - oa-configurator</title>
       
     
     
       <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -61,7 +64,14 @@
   </head>
   
   
-    <body dir="ltr">
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -70,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#schema-helpers" class="md-skip">
+        <a href="#packageconfigbase-api" class="md-skip">
           Skip to content
         </a>
       
@@ -106,12 +116,38 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Schema Helpers
+              PackageConfigBase
             
           </span>
         </div>
       </div>
     </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="light-blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
     
     
       <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
@@ -279,6 +315,33 @@
   
   
   
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
     
     
     
@@ -295,10 +358,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
             
   
   
@@ -316,8 +379,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -467,15 +530,8 @@
 
               
             
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
+              
+                
   
   
   
@@ -500,30 +556,11 @@
     </li>
   
 
-    
+              
+            
+          </ul>
+        </nav>
       
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../architecture/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Architecture
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -550,10 +587,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
-          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
             
   
   
@@ -571,8 +608,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_6">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -689,7 +726,7 @@
   <span class="md-ellipsis">
     
   
-    Schema Helpers
+    PackageConfigBase
   
 
     
@@ -707,7 +744,7 @@
   <span class="md-ellipsis">
     
   
-    Schema Helpers
+    PackageConfigBase
   
 
     
@@ -733,10 +770,38 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.schema_helpers" class="md-nav__link">
+  <a href="#oa_configurator.package_base.PackageConfigBase" class="md-nav__link">
     <span class="md-ellipsis">
       
-        schema_helpers
+        PackageConfigBase
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="PackageConfigBase">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.PackageConfigBase--attributes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attributes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.PackageConfigBase.configure_logging" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        configure_logging
       
     </span>
   </a>
@@ -744,10 +809,71 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.schema_helpers.schema_translate_map" class="md-nav__link">
+  <a href="#oa_configurator.package_base.PackageConfigBase.from_stack" class="md-nav__link">
     <span class="md-ellipsis">
       
-        schema_translate_map
+        from_stack
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.PackageConfigBase.get_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_config
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.PackageConfigBase.get_engine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_engine
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="get_engine">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.PackageConfigBase.get_engine--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.PackageConfigBase.get_engine--raises" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Raises
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.PackageConfigBase.to_extra_dict" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        to_extra_dict
       
     </span>
   </a>
@@ -758,34 +884,6 @@
   
 </nav>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../persistence/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Persistence
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -853,10 +951,38 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.schema_helpers" class="md-nav__link">
+  <a href="#oa_configurator.package_base.PackageConfigBase" class="md-nav__link">
     <span class="md-ellipsis">
       
-        schema_helpers
+        PackageConfigBase
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="PackageConfigBase">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.PackageConfigBase--attributes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attributes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.PackageConfigBase.configure_logging" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        configure_logging
       
     </span>
   </a>
@@ -864,10 +990,71 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.schema_helpers.schema_translate_map" class="md-nav__link">
+  <a href="#oa_configurator.package_base.PackageConfigBase.from_stack" class="md-nav__link">
     <span class="md-ellipsis">
       
-        schema_translate_map
+        from_stack
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.PackageConfigBase.get_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_config
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.PackageConfigBase.get_engine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_engine
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="get_engine">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.PackageConfigBase.get_engine--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.PackageConfigBase.get_engine--raises" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Raises
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.PackageConfigBase.to_extra_dict" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        to_extra_dict
       
     </span>
   </a>
@@ -942,19 +1129,45 @@
   
 
 
-<h1 id="schema-helpers">Schema Helpers<a class="headerlink" href="#schema-helpers" title="Permanent link">&para;</a></h1>
-<p>Helpers for translating resolved resource schema fields into SQLAlchemy connection options.</p>
-<p><code>ResolvedResource.create_engine()</code> and <code>ResolvedResource.schema_translate_map()</code> call these internally. Use the top-level function directly when you need the map without creating an engine.</p>
+<h1 id="packageconfigbase-api">PackageConfigBase API<a class="headerlink" href="#packageconfigbase-api" title="Permanent link">&para;</a></h1>
 
 
-<div class="doc doc-object doc-module">
+<div class="doc doc-object doc-class">
 
 
 
-<a id="oa_configurator.schema_helpers"></a>
+<a id="oa_configurator.package_base.PackageConfigBase"></a>
     <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="pydantic.BaseModel">BaseModel</span></code></p>
 
-        <p>Helpers for turning resolved resources into SQLAlchemy schema options.</p>
+
+
+        <p>Typed view over a package's <code>[tools.&lt;tool_name&gt;]</code> TOML section.</p>
+<p>Subclass this and declare the class variables below. Users who name their
+resource differently can add a <code>[resource_aliases]</code> section to
+config.toml (e.g. <code>cdm_db = "my_prod"</code>) so all packages resolve
+correctly without per-package <code>default_resource</code> overrides.</p>
+<h3 id="oa_configurator.package_base.PackageConfigBase--attributes">Attributes<a class="headerlink" href="#oa_configurator.package_base.PackageConfigBase--attributes" title="Permanent link">&para;</a></h3>
+<p>tool_name : str
+    Key used in <code>[tools.&lt;name&gt;]</code>. Must be set on every subclass.
+required_resources : tuple[str, ...]
+    Canonical resource names this package depends on. A missing resource
+    at :meth:<code>from_stack</code> time raises :exc:<code>ConfigurationError</code>.
+owned_resources : tuple[ResourceSpec, ...]
+    Resources this package is responsible for configuring interactively.
+    <code>omop-config configure</code> prompts for these before package extras.
+test_resources : tuple[ResourceSpec, ...]
+    Optional test-only resources. <code>omop-config configure</code> presents a
+    Y/N prompt for these after the main resource flow. Marked with a
+    DROP SCHEMA warning; a collision check prevents pointing at any
+    already-configured non-test resource.
+extra_logging_namespaces : tuple[str, ...]
+    Logger namespaces of transitive dependencies to configure alongside
+    this package. The package's own <code>tool_name</code>
+    are always included -&gt; only list additional roots here, e.g.
+    <code>("&lt;my_extra_package_to_log",)</code>. Missing namespaces are harmless.</p>
+
 
 
 
@@ -979,25 +1192,131 @@
 <div class="doc doc-object doc-function">
 
 
-<h2 id="oa_configurator.schema_helpers.schema_translate_map" class="doc doc-heading">
-            <span class="doc doc-object-name doc-function-name">schema_translate_map</span>
+<h2 id="oa_configurator.package_base.PackageConfigBase.configure_logging" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">configure_logging</span>
 
 
-<a href="#oa_configurator.schema_helpers.schema_translate_map" class="headerlink" title="Permanent link">&para;</a></h2>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">schema_translate_map</span><span class="p">(</span>
-    <span class="n">resource</span><span class="p">:</span> <span class="s2">&quot;ResolvedResource&quot;</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span>
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+<a href="#oa_configurator.package_base.PackageConfigBase.configure_logging" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">configure_logging</span><span class="p">(</span>
+    <span class="n">config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">verbosity</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">console</span><span class="o">=</span><span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Return a SQLAlchemy schema translate map for one resolved resource.</p>
-<p>Conventions:</p>
-<ul>
-<li><code>None</code> maps to the primary OMOP schema</li>
-<li><code>"vocab"</code> maps to the vocabulary schema when configured</li>
-<li><code>"results"</code> maps to the results schema when configured</li>
-</ul>
+        <p>Configure logging for this package and its declared transitive dependencies.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="oa_configurator.package_base.PackageConfigBase.from_stack" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">from_stack</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+<a href="#oa_configurator.package_base.PackageConfigBase.from_stack" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">from_stack</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">StackConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Self</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Load this package's section from a :class:<code>StackConfig</code>.</p>
+<p>Validates that all :attr:<code>required_resources</code> (or the
+<code>default_resource</code> override) are present in the config before
+instantiating. Alias resolution via <code>config.resource_aliases</code> is
+applied before the existence check. Raises :exc:<code>ConfigurationError</code>
+with an actionable message if any are missing.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="oa_configurator.package_base.PackageConfigBase.get_config" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_config</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+<a href="#oa_configurator.package_base.PackageConfigBase.get_config" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_config</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Self</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Load this package's config from the active stack config file.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="oa_configurator.package_base.PackageConfigBase.get_engine" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_engine</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+<a href="#oa_configurator.package_base.PackageConfigBase.get_engine" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_engine</span><span class="p">(</span>
+    <span class="n">resource_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">engine_kwargs</span><span class="p">:</span> <span class="n">Any</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Create a SQLAlchemy engine for a resource.</p>
+<h4 id="oa_configurator.package_base.PackageConfigBase.get_engine--parameters">Parameters<a class="headerlink" href="#oa_configurator.package_base.PackageConfigBase.get_engine--parameters" title="Permanent link">&para;</a></h4>
+<p>resource_name:
+    Resource to resolve. If <code>None</code>, uses <code>tool.default_resource</code>
+    from the config file, or falls back to <code>required_resources[0]</code>.
+**engine_kwargs:
+    Forwarded to :meth:<code>~oa_configurator.resolver.ResolvedResource.create_engine</code>.</p>
+<h4 id="oa_configurator.package_base.PackageConfigBase.get_engine--raises">Raises<a class="headerlink" href="#oa_configurator.package_base.PackageConfigBase.get_engine--raises" title="Permanent link">&para;</a></h4>
+<p>ConfigurationError
+    If no resource name can be determined.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="oa_configurator.package_base.PackageConfigBase.to_extra_dict" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">to_extra_dict</span>
+
+
+<a href="#oa_configurator.package_base.PackageConfigBase.to_extra_dict" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">to_extra_dict</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Serialize back to the dict stored in <code>ToolConfig.extra</code>.</p>
 
 
     </div>

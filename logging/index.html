@@ -33,6 +33,9 @@
     
       <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
       
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
       
 
 
@@ -61,7 +64,14 @@
   </head>
   
   
-    <body dir="ltr">
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -112,6 +122,32 @@
         </div>
       </div>
     </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="light-blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
     
     
       <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
@@ -277,6 +313,33 @@
       
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
     
   
   
@@ -295,10 +358,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
             
   
   
@@ -316,8 +379,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_3">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -506,10 +569,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-problem" class="md-nav__link">
+  <a href="#basic-usage" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The problem
+        Basic usage
       
     </span>
   </a>
@@ -517,160 +580,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#presets" class="md-nav__link">
+  <a href="#verbosity" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Presets
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Presets">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#formats" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Formats
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#usage-patterns" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Usage patterns
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Usage patterns">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#quick-one-liner-no-config-file-needed" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Quick one-liner (no config file needed)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#from-a-loaded-config-file" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        From a loaded config file
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#inline-with-overrides" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Inline with overrides
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#toml-configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        TOML configuration
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="TOML configuration">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#override-level" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Override level
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#suppress-noisy-third-party-loggers" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Suppress noisy third-party loggers
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#custom-handler" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Custom handler
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#full-production-example" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Full production example
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#full-development-example" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Full development example
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#controlled-namespaces" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Controlled namespaces
+        Verbosity
       
     </span>
   </a>
@@ -678,10 +591,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#library-vs-application-mode" class="md-nav__link">
+  <a href="#format" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Library vs application mode
+        Format
       
     </span>
   </a>
@@ -689,10 +602,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#downstream-packages" class="md-nav__link">
+  <a href="#extra_namespaces" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Downstream packages
+        extra_namespaces
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#level-override-from-config-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Level override from config file
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#get_logger" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_logger
       
     </span>
   </a>
@@ -708,15 +643,8 @@
 
               
             
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
+              
+                
   
   
   
@@ -741,30 +669,11 @@
     </li>
   
 
-    
+              
+            
+          </ul>
+        </nav>
       
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../architecture/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Architecture
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -791,10 +700,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
         
           
-          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
             
   
   
@@ -812,8 +721,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -914,42 +823,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/schema-helpers/" class="md-nav__link">
+      <a href="../api/package-base/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Schema Helpers
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../api/persistence/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Persistence
+    PackageConfigBase
   
 
     
@@ -1025,10 +906,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-problem" class="md-nav__link">
+  <a href="#basic-usage" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The problem
+        Basic usage
       
     </span>
   </a>
@@ -1036,160 +917,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#presets" class="md-nav__link">
+  <a href="#verbosity" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Presets
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Presets">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#formats" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Formats
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#usage-patterns" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Usage patterns
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Usage patterns">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#quick-one-liner-no-config-file-needed" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Quick one-liner (no config file needed)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#from-a-loaded-config-file" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        From a loaded config file
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#inline-with-overrides" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Inline with overrides
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#toml-configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        TOML configuration
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="TOML configuration">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#override-level" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Override level
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#suppress-noisy-third-party-loggers" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Suppress noisy third-party loggers
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#custom-handler" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Custom handler
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#full-production-example" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Full production example
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#full-development-example" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Full development example
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#controlled-namespaces" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Controlled namespaces
+        Verbosity
       
     </span>
   </a>
@@ -1197,10 +928,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#library-vs-application-mode" class="md-nav__link">
+  <a href="#format" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Library vs application mode
+        Format
       
     </span>
   </a>
@@ -1208,10 +939,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#downstream-packages" class="md-nav__link">
+  <a href="#extra_namespaces" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Downstream packages
+        extra_namespaces
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#level-override-from-config-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Level override from config file
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#get_logger" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_logger
       
     </span>
   </a>
@@ -1287,239 +1040,77 @@
 
 
 <h1 id="logging">Logging<a class="headerlink" href="#logging" title="Permanent link">&para;</a></h1>
-<p>oa-configurator provides a single call to configure consistent log output across the entire OMOP Python stack — <code>oa_configurator</code>, <code>orm_loader</code>, and <code>omop_alchemy</code> all share one logging namespace hierarchy, so one configuration controls them all.</p>
+<p>This package provides a unified logging setup for the OMOP Python stack. All packages configure their loggers through the same call and formatter.</p>
 <hr />
-<h2 id="the-problem">The problem<a class="headerlink" href="#the-problem" title="Permanent link">&para;</a></h2>
-<p>Without shared logging config each package does something different:</p>
-<ul>
-<li>orm-loader configures its own handler when <code>configure_logging()</code> is called</li>
-<li>omop-alchemy borrows orm-loader's helper but points at its own namespace</li>
-<li>Application code stacks <code>.env</code>-driven <code>load_dotenv()</code> calls on top</li>
-</ul>
-<p>The result is duplicate log lines, mismatched levels between packages, and no obvious "turn on debug logging for everything" knob.</p>
-<hr />
-<h2 id="presets">Presets<a class="headerlink" href="#presets" title="Permanent link">&para;</a></h2>
-<p><code>configure_logging()</code> accepts a <code>preset</code> that sets a sensible default level, handler, and format without requiring knowledge of Python's logging internals.</p>
-<table>
-<thead>
-<tr>
-<th>Preset</th>
-<th>Level</th>
-<th>Handler</th>
-<th>Format</th>
-<th>Use case</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>library</code></td>
-<td>WARNING</td>
-<td>none</td>
-<td>—</td>
-<td><strong>Default.</strong> Library imported by another app. Never touches handlers.</td>
-</tr>
-<tr>
-<td><code>notebook</code></td>
-<td>INFO</td>
-<td>stdout</td>
-<td>simple (no timestamps)</td>
-<td>Jupyter notebooks and interactive sessions</td>
-</tr>
-<tr>
-<td><code>application</code></td>
-<td>INFO</td>
-<td>stderr</td>
-<td>detailed (with timestamps)</td>
-<td>CLI tools and scripts</td>
-</tr>
-<tr>
-<td><code>production</code></td>
-<td>INFO</td>
-<td>stdout</td>
-<td>JSON lines</td>
-<td>Deployed services and log aggregators</td>
-</tr>
-</tbody>
-</table>
-<h3 id="formats">Formats<a class="headerlink" href="#formats" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Name</th>
-<th>Example output</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>simple</code></td>
-<td><code>INFO     orm_loader.loaders: Loading 45,000 rows into person</code></td>
-</tr>
-<tr>
-<td><code>detailed</code></td>
-<td><code>2024-03-15 14:22:01 [INFO    ] orm_loader.loaders: Loading 45,000 rows into person</code></td>
-</tr>
-<tr>
-<td><code>json</code></td>
-<td><code>{"time": "2024-03-15 14:22:01,123", "level": "INFO", "logger": "orm_loader.loaders", "message": "Loading 45,000 rows into person"}</code></td>
-</tr>
-</tbody>
-</table>
-<p>All non-JSON formats pass output through a <code>RedactingFormatter</code> that replaces any <code>key=value</code> pair where the key matches a sensitive name (<code>password</code>, <code>secret</code>, <code>token</code>, <code>url</code>, etc.) with <code>key=&lt;REDACTED&gt;</code>.</p>
-<hr />
-<h2 id="usage-patterns">Usage patterns<a class="headerlink" href="#usage-patterns" title="Permanent link">&para;</a></h2>
-<h3 id="quick-one-liner-no-config-file-needed">Quick one-liner (no config file needed)<a class="headerlink" href="#quick-one-liner-no-config-file-needed" title="Permanent link">&para;</a></h3>
+<h2 id="basic-usage">Basic usage<a class="headerlink" href="#basic-usage" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
 
-<span class="n">configure_logging</span><span class="p">(</span><span class="n">preset</span><span class="o">=</span><span class="s2">&quot;notebook&quot;</span><span class="p">)</span>     <span class="c1"># INFO to stdout, clean format</span>
-<span class="n">configure_logging</span><span class="p">(</span><span class="n">preset</span><span class="o">=</span><span class="s2">&quot;application&quot;</span><span class="p">)</span>  <span class="c1"># INFO to stderr, timestamps</span>
-<span class="n">configure_logging</span><span class="p">(</span><span class="n">preset</span><span class="o">=</span><span class="s2">&quot;production&quot;</span><span class="p">)</span>   <span class="c1"># INFO to stdout, JSON lines</span>
-<span class="n">configure_logging</span><span class="p">(</span><span class="n">preset</span><span class="o">=</span><span class="s2">&quot;library&quot;</span><span class="p">)</span>      <span class="c1"># WARNING, no handler (the default)</span>
-</code></pre></div>
-<h3 id="from-a-loaded-config-file">From a loaded config file<a class="headerlink" href="#from-a-loaded-config-file" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_stack_config</span><span class="p">,</span> <span class="n">configure_logging</span>
+<span class="c1"># WARNING level (default)</span>
+<span class="n">configure_logging</span><span class="p">(</span><span class="n">extra_namespaces</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;my_package&quot;</span><span class="p">])</span>
 
-<span class="n">config</span> <span class="o">=</span> <span class="n">load_stack_config</span><span class="p">()</span>
-<span class="n">configure_logging</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>                <span class="c1"># applies config.logging</span>
+<span class="c1"># From a loaded config file (uses [logging] block)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_stack_config</span>
+<span class="n">configure_logging</span><span class="p">(</span><span class="n">load_stack_config</span><span class="p">(),</span> <span class="n">extra_namespaces</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;my_package&quot;</span><span class="p">])</span>
 </code></pre></div>
-<h3 id="inline-with-overrides">Inline with overrides<a class="headerlink" href="#inline-with-overrides" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoggingConfig</span><span class="p">,</span> <span class="n">configure_logging</span>
-
-<span class="n">configure_logging</span><span class="p">(</span><span class="n">LoggingConfig</span><span class="p">(</span><span class="n">preset</span><span class="o">=</span><span class="s2">&quot;notebook&quot;</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="s2">&quot;DEBUG&quot;</span><span class="p">))</span>
-</code></pre></div>
+<p><code>configure_logging</code> is idempotent: it is safe to call multiple times with the same arguments.</p>
 <hr />
-<h2 id="toml-configuration">TOML configuration<a class="headerlink" href="#toml-configuration" title="Permanent link">&para;</a></h2>
-<p>Add a <code>[logging]</code> block to your config file. All fields are optional — omitting the block entirely is equivalent to <code>preset = "library"</code>.</p>
-<div class="highlight"><pre><span></span><code><span class="k">[logging]</span>
-<span class="n">preset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;application&quot;</span>
-</code></pre></div>
-<h3 id="override-level">Override level<a class="headerlink" href="#override-level" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><span class="k">[logging]</span>
-<span class="n">preset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;application&quot;</span>
-<span class="n">level</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;DEBUG&quot;</span><span class="w">          </span><span class="c1"># override the preset&#39;s INFO default</span>
-</code></pre></div>
-<h3 id="suppress-noisy-third-party-loggers">Suppress noisy third-party loggers<a class="headerlink" href="#suppress-noisy-third-party-loggers" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><span class="k">[logging]</span>
-<span class="n">preset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;notebook&quot;</span>
-
-<span class="k">[logging.loggers]</span>
-<span class="s2">&quot;sqlalchemy.engine&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;WARNING&quot;</span><span class="w">   </span><span class="c1"># suppress SQL statement echo</span>
-<span class="s2">&quot;sqlalchemy.pool&quot;</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;WARNING&quot;</span><span class="w">   </span><span class="c1"># suppress connection pool lifecycle</span>
-<span class="s2">&quot;httpx&quot;</span><span class="w">             </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;WARNING&quot;</span><span class="w">   </span><span class="c1"># suppress if any HTTP clients are present</span>
-</code></pre></div>
-<p>The <code>loggers</code> dict accepts any fully-qualified Python logger name, not just stack loggers.</p>
-<h3 id="custom-handler">Custom handler<a class="headerlink" href="#custom-handler" title="Permanent link">&para;</a></h3>
-<p>Override the preset's handler with <code>[logging.handler]</code>:</p>
-<div class="highlight"><pre><span></span><code><span class="k">[logging]</span>
-<span class="n">preset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;application&quot;</span>
-
-<span class="k">[logging.handler]</span>
-<span class="n">target</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;file&quot;</span>
-<span class="n">format</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;detailed&quot;</span>
-<span class="n">file_path</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;logs/stack.log&quot;</span><span class="w">      </span><span class="c1"># relative to configuration_base_path</span>
-</code></pre></div>
+<h2 id="verbosity">Verbosity<a class="headerlink" href="#verbosity" title="Permanent link">&para;</a></h2>
+<p>Log level is driven by the <code>verbosity</code> parameter, which maps directly to CLI <code>-v</code> count flags:</p>
 <table>
 <thead>
 <tr>
-<th><code>target</code></th>
-<th>Description</th>
+<th><code>verbosity</code></th>
+<th>Level</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>stderr</code></td>
-<td>Standard error stream (default for <code>application</code>)</td>
+<td><code>0</code> (default)</td>
+<td>WARNING</td>
 </tr>
 <tr>
-<td><code>stdout</code></td>
-<td>Standard output stream (default for <code>notebook</code> and <code>production</code>)</td>
+<td><code>1</code> (<code>-v</code>)</td>
+<td>INFO</td>
 </tr>
 <tr>
-<td><code>file</code></td>
-<td>File on disk; <code>file_path</code> is required</td>
+<td><code>2+</code> (<code>-vv</code>)</td>
+<td>DEBUG</td>
 </tr>
 </tbody>
 </table>
-<h3 id="full-production-example">Full production example<a class="headerlink" href="#full-production-example" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="n">configure_logging</span><span class="p">(</span><span class="n">verbosity</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">extra_namespaces</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;omop_graph&quot;</span><span class="p">])</span>
+</code></pre></div>
+<hr />
+<h2 id="format">Format<a class="headerlink" href="#format" title="Permanent link">&para;</a></h2>
+<p>All log records use a single fixed format:</p>
+<div class="highlight"><pre><span></span><code>2026-01-15 14:32:01 | my_package | INFO | Connected to database
+</code></pre></div>
+<p>Output always goes to <strong>stderr</strong>. There are no alternative handlers or JSON formatters -&gt; route stderr to a log aggregator if needed.</p>
+<hr />
+<h2 id="extra_namespaces"><code>extra_namespaces</code><a class="headerlink" href="#extra_namespaces" title="Permanent link">&para;</a></h2>
+<p><code>oa-configurator</code> never hardcodes downstream package names. Each consuming package passes its own namespace:</p>
+<div class="highlight"><pre><span></span><code><span class="n">configure_logging</span><span class="p">(</span><span class="n">verbosity</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">extra_namespaces</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;omop_graph&quot;</span><span class="p">,</span> <span class="s2">&quot;omop_emb&quot;</span><span class="p">])</span>
+</code></pre></div>
+<p>Both <code>oa_configurator</code> and all listed namespaces get the same level and handler.</p>
+<hr />
+<h2 id="level-override-from-config-file">Level override from config file<a class="headerlink" href="#level-override-from-config-file" title="Permanent link">&para;</a></h2>
+<p>The <code>[logging]</code> section in <code>config.toml</code> can set a fixed level that overrides <code>verbosity</code>:</p>
 <div class="highlight"><pre><span></span><code><span class="k">[logging]</span>
-<span class="n">preset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;production&quot;</span>
+<span class="n">level</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;DEBUG&quot;</span>
 
 <span class="k">[logging.loggers]</span>
-<span class="s2">&quot;sqlalchemy.engine&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;WARNING&quot;</span>
-<span class="s2">&quot;sqlalchemy.pool&quot;</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;WARNING&quot;</span>
+<span class="s2">&quot;sqlalchemy.engine&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;INFO&quot;</span>
+<span class="s2">&quot;httpx&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;WARNING&quot;</span>
 </code></pre></div>
-<h3 id="full-development-example">Full development example<a class="headerlink" href="#full-development-example" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><span class="k">[logging]</span>
-<span class="n">preset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;application&quot;</span>
-<span class="n">level</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;DEBUG&quot;</span>
+<p><code>level</code> applies to all OMOP namespaces. <code>loggers</code> applies fine-grained overrides to any specific logger.</p>
+<hr />
+<h2 id="get_logger"><code>get_logger</code><a class="headerlink" href="#get_logger" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_logger</span>
 
-<span class="k">[logging.loggers]</span>
-<span class="s2">&quot;sqlalchemy.engine&quot;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;WARNING&quot;</span>
+<span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="s2">&quot;my_package.module&quot;</span><span class="p">)</span>
+<span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Hello from my package&quot;</span><span class="p">)</span>
 </code></pre></div>
-<hr />
-<h2 id="controlled-namespaces">Controlled namespaces<a class="headerlink" href="#controlled-namespaces" title="Permanent link">&para;</a></h2>
-<p><code>configure_logging()</code> sets levels on each of these logger namespaces:</p>
-<table>
-<thead>
-<tr>
-<th>Namespace</th>
-<th>Package</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>oa_configurator</code></td>
-<td>this package</td>
-</tr>
-<tr>
-<td><code>orm_loader</code></td>
-<td>orm-loader</td>
-</tr>
-<tr>
-<td><code>sql_loader</code></td>
-<td>orm-loader legacy (both configured during namespace transition)</td>
-</tr>
-<tr>
-<td><code>omop_alchemy</code></td>
-<td>omop-alchemy</td>
-</tr>
-<tr>
-<td><code>omop_emb</code></td>
-<td>omop-emb (future)</td>
-</tr>
-<tr>
-<td><code>omop_graph</code></td>
-<td>omop-graph (future)</td>
-</tr>
-</tbody>
-</table>
-<p>Because Python logging is hierarchical, setting <code>orm_loader</code> to INFO automatically applies to <code>orm_loader.tables.loadable_table</code>, <code>orm_loader.loaders</code>, and every other sub-logger.</p>
-<p>The <code>loggers</code> dict can target any additional logger outside this set — including third-party libraries like <code>sqlalchemy</code>, <code>httpx</code>, or <code>urllib3</code>.</p>
-<hr />
-<h2 id="library-vs-application-mode">Library vs application mode<a class="headerlink" href="#library-vs-application-mode" title="Permanent link">&para;</a></h2>
-<p>When <code>preset = "library"</code> (the default):</p>
-<ul>
-<li>Levels are set on all stack namespaces</li>
-<li><strong>No handler is added</strong> — the caller's own root logger handles output</li>
-<li><code>propagate = True</code> on each namespace — records flow up to the root</li>
-</ul>
-<p>This means importing oa-configurator never hijacks an application's logging setup.</p>
-<p>When any other preset is used:</p>
-<ul>
-<li>A handler is added to each stack namespace logger</li>
-<li><code>propagate = False</code> — records stop at the stack logger, preventing duplicates if the root also has handlers</li>
-</ul>
-<hr />
-<h2 id="downstream-packages">Downstream packages<a class="headerlink" href="#downstream-packages" title="Permanent link">&para;</a></h2>
-<p>orm-loader and omop-alchemy use standard <code>logging.getLogger(__name__)</code> calls.
-No changes are needed in those packages — <code>configure_logging()</code> sets the level
-on their namespace roots, and the records propagate (or don't) as configured.</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># This is all orm-loader or omop-alchemy needs to do — standard Python logging</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
-<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
-<span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Loading vocabulary table&quot;</span><span class="p">)</span>
-</code></pre></div>
-<p>The application entry point (or notebook cell) calls <code>configure_logging()</code> once,
-and that setting applies to all log records from the entire stack.</p>
+<p>Thin wrapper around <code>logging.getLogger()</code> as a single import point for all packages.</p>
 
 
 

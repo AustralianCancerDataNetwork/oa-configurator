@@ -13,10 +13,10 @@
         <link rel="canonical" href="https://AustralianCancerDataNetwork.github.io/oa-configurator/architecture/">
       
       
-        <link rel="prev" href="../integration/">
+        <link rel="prev" href="../quickstart/">
       
       
-        <link rel="next" href="../api/loader/">
+        <link rel="next" href="../config-reference/">
       
       
         
@@ -32,6 +32,9 @@
     
     
       <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -61,7 +64,14 @@
   </head>
   
   
-    <body dir="ltr">
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -112,6 +122,32 @@
         </div>
       </div>
     </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="light-blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
     
     
       <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
@@ -277,6 +313,218 @@
       
   
   
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#purpose" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Purpose
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#core-concepts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core concepts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Core concepts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#database" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Database
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#resource" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resource
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tool
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#profile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Profile
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data flow
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#package-integration-via-entry-points" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Package integration via entry points
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#schema-translate-map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schema translate map
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#config-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config path
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#future-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Future work
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
   
   
     
@@ -295,10 +543,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
             
   
   
@@ -316,8 +564,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -467,15 +715,8 @@
 
               
             
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
+              
+                
   
   
   
@@ -500,270 +741,10 @@
     </li>
   
 
-    
-      
-      
-  
-  
-    
-  
-  
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Architecture
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Architecture
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#purpose" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Purpose
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#core-model" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Core Model
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-this-shape" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why This Shape
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#filesystem-path-convention" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Filesystem Path Convention
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Filesystem Path Convention">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#example" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Example
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#secret-sources" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Secret Sources
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Secret Sources">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#example_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Example
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#profile-overlay-shape" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Profile Overlay Shape
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Profile Overlay Shape">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#design-intent" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Design Intent
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#toml-shape" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        TOML Shape
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#merge-semantics" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Merge Semantics
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#why-this-is-better-than-duplicating-resource-blocks" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why This Is Better Than Duplicating Resource Blocks
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#what-should-probably-be-overridable" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What Should Probably Be Overridable
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#implemented" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implemented
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#possible-future-additions" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Possible future additions
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#design-notes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Design notes
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
+              
+            
+          </ul>
+        </nav>
       
     </li>
   
@@ -791,10 +772,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
         
           
-          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
             
   
   
@@ -812,8 +793,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -914,42 +895,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/schema-helpers/" class="md-nav__link">
+      <a href="../api/package-base/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Schema Helpers
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../api/persistence/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Persistence
+    PackageConfigBase
   
 
     
@@ -1036,44 +989,55 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#core-model" class="md-nav__link">
+  <a href="#core-concepts" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Core Model
+        Core concepts
       
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-this-shape" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why This Shape
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#filesystem-path-convention" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Filesystem Path Convention
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Filesystem Path Convention">
+    <nav class="md-nav" aria-label="Core concepts">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#example" class="md-nav__link">
+  <a href="#database" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Example
+        Database
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#resource" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resource
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tool
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#profile" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Profile
       
     </span>
   </a>
@@ -1086,110 +1050,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#secret-sources" class="md-nav__link">
+  <a href="#data-flow" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Secret Sources
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Secret Sources">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#example_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Example
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#profile-overlay-shape" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Profile Overlay Shape
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Profile Overlay Shape">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#design-intent" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Design Intent
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#toml-shape" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        TOML Shape
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#merge-semantics" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Merge Semantics
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#why-this-is-better-than-duplicating-resource-blocks" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why This Is Better Than Duplicating Resource Blocks
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#what-should-probably-be-overridable" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What Should Probably Be Overridable
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#implemented" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implemented
+        Data flow
       
     </span>
   </a>
@@ -1197,10 +1061,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#possible-future-additions" class="md-nav__link">
+  <a href="#package-integration-via-entry-points" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Possible future additions
+        Package integration via entry points
       
     </span>
   </a>
@@ -1208,10 +1072,43 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#design-notes" class="md-nav__link">
+  <a href="#schema-translate-map" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Design notes
+        Schema translate map
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#config-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config path
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#future-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Future work
       
     </span>
   </a>
@@ -1248,310 +1145,90 @@
 
 <h1 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h1>
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">&para;</a></h2>
-<p>This package is a shared configuration library for the stack around:</p>
+<p><code>oa-configurator</code> is a shared configuration layer for the OMOP-oriented Python stack:</p>
 <ul>
 <li><code>omop-alchemy</code></li>
 <li><code>orm-loader</code></li>
 <li><code>omop-emb</code></li>
 <li><code>omop-graph</code></li>
-<li>related tools that need databases, schemas, and local artifact roots</li>
+<li><code>omop-spires</code></li>
 </ul>
-<p>It is meant to replace the current pattern of:</p>
+<p>It replaces per-package <code>.env</code> files, inconsistent env var lookups, and duplicated engine-creation boilerplate with a single typed TOML file and a common resolver interface.</p>
+<hr />
+<h2 id="core-concepts">Core concepts<a class="headerlink" href="#core-concepts" title="Permanent link">&para;</a></h2>
+<h3 id="database">Database<a class="headerlink" href="#database" title="Permanent link">&para;</a></h3>
+<p>A concrete database endpoint: dialect, host, credentials, database name. Stored in <code>[databases.&lt;name&gt;]</code>.</p>
+<h3 id="resource">Resource<a class="headerlink" href="#resource" title="Permanent link">&para;</a></h3>
+<p>A logical role bundle that maps OMOP CDM roles to databases and schema names:</p>
 <ul>
-<li>package-local env var lookups</li>
-<li>dotenv-heavy setup</li>
-<li>incompatible config idioms across repos</li>
+<li><code>database</code>: the CDM server database</li>
+<li><code>vocab_database</code>: optional separate database for vocabulary (falls back to <code>database</code>)</li>
+<li><code>cdm_schema</code>: schema where CDM clinical tables live (required)</li>
+<li><code>vocab_schema</code> (optional): falls back to <code>cdm_schema</code></li>
+<li><code>results_schema</code> (optional): Achilles/Atlas results</li>
 </ul>
-<h2 id="core-model">Core Model<a class="headerlink" href="#core-model" title="Permanent link">&para;</a></h2>
-<p>The prototype is organized around four ideas:</p>
-<ol>
-<li>
-<p><code>profile</code>
-   Which environment is active, for example <code>local</code>, <code>staging</code>, or <code>prod</code>.</p>
-</li>
-<li>
-<p><code>connection</code>
-   A concrete database or service endpoint.</p>
-</li>
-<li>
-<p><code>resource</code>
-   A logical role mapping, for example:</p>
-</li>
-<li>primary OMOP/CDM database</li>
-<li>vocab database</li>
-<li>results database</li>
-<li>local DuckDB export root</li>
-<li>
-<p>local FAISS root</p>
-</li>
-<li>
-<p><code>tool</code>
-   Tool-specific defaults, for example:</p>
-</li>
-<li><code>omop_emb</code> backend and default resource</li>
-<li><code>orm_loader</code> database-file export root</li>
-<li><code>omop_graph</code> default resource</li>
-</ol>
-<h2 id="why-this-shape">Why This Shape<a class="headerlink" href="#why-this-shape" title="Permanent link">&para;</a></h2>
-<p>This package is trying to keep two important truths in view at the same time:</p>
-<ul>
-<li>humans want one obvious place to manage configuration</li>
-<li>code wants typed, explicit, role-based resolved settings</li>
-</ul>
-<p>That means config must answer both:</p>
-<ol>
-<li>What infrastructure do I have?</li>
-<li>How does a given tool or workflow map onto it?</li>
-</ol>
-<h2 id="filesystem-path-convention">Filesystem Path Convention<a class="headerlink" href="#filesystem-path-convention" title="Permanent link">&para;</a></h2>
-<p>Relative filesystem paths should never be interpreted relative to the process
-working directory.</p>
-<p>That gets too confusing too quickly once:</p>
-<ul>
-<li>multiple runtimes read the same file</li>
-<li>notebooks and CLIs run from different directories</li>
-<li>background jobs and services resolve the same configuration in parallel</li>
-</ul>
-<p>The convention is:</p>
-<ul>
-<li><code>settings.configuration_base_path = "."</code> means "use the fully resolved
-  directory containing this configuration file"</li>
-<li>any other <code>configuration_base_path</code> must be an absolute directory path</li>
-<li>every other filesystem location in the config is then either:</li>
-<li>absolute</li>
-<li>or relative to <code>configuration_base_path</code></li>
-</ul>
-<p>Path semantics should be easy to explain and predictable across runtimes.</p>
-<h3 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><span class="k">[settings]</span>
-<span class="n">active_profile</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local&quot;</span>
-<span class="n">configuration_base_path</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;.&quot;</span>
-
-<span class="k">[resources.default]</span>
-<span class="n">artifact_root</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;artifacts&quot;</span>
-<span class="n">embedding_file_root</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;artifacts/embeddings&quot;</span>
-<span class="n">analytic_db_file_root</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;artifacts/databases&quot;</span>
-<span class="n">athena_source_path</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;/srv/athena&quot;</span>
+<h3 id="tool">Tool<a class="headerlink" href="#tool" title="Permanent link">&para;</a></h3>
+<p>Per-package configuration in <code>[tools.&lt;name&gt;]</code>. The core model stores only <code>default_resource</code> and an <code>extra</code> dict. Each consuming package defines a typed <code>PackageConfigBase</code> subclass that provides a typed view over <code>extra</code>.</p>
+<h3 id="profile">Profile<a class="headerlink" href="#profile" title="Permanent link">&para;</a></h3>
+<p>A named overlay (<code>[profiles.&lt;name&gt;]</code>) that replaces specific connections, resources, or tools when active. Full model replacement, not a partial patch. Activate via <code>omop-config use &lt;profile&gt;</code> (persists to TOML) or <code>OA_ACTIVE_PROFILE=&lt;profile&gt;</code> (per-session).</p>
+<hr />
+<h2 id="data-flow">Data flow<a class="headerlink" href="#data-flow" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code>~/.config/omop/config.toml
+         │
+         ▼
+    load_stack_config()
+         │  reads TOML → StackConfig
+         │  applies active profile overlay
+         ▼
+       Resolver
+         │
+         ├─ resolve_database(name)   → ResolvedDatabaseTarget
+         │                               .url  (plaintext, internal)
+         │                               .safe_url  (redacted, for logs)
+         │                               .create_engine()
+         │
+         ├─ resolve_resource(name)   → ResolvedResource
+         │                               .database / .vocab_database  (ResolvedDatabaseTarget)
+         │                               .cdm_schema / .vocab_schema / .results_schema
+         │                               .schema_translate_map()
+         │                               .create_engine(role=&quot;primary&quot;|&quot;vocab&quot;)
+         │
+         └─ resolve_tool(name)       → ResolvedToolConfig
+                                         .extra  (raw dict; typed by PackageConfigBase.from_stack())
 </code></pre></div>
-<p>If the config file lives at:</p>
-<div class="highlight"><pre><span></span><code>/home/alice/.config/omop/config.toml
+<hr />
+<h2 id="package-integration-via-entry-points">Package integration via entry points<a class="headerlink" href="#package-integration-via-entry-points" title="Permanent link">&para;</a></h2>
+<p>Consuming packages subclass <code>PackageConfigBase</code> and register via a <code>pyproject.toml</code> entry point:</p>
+<div class="highlight"><pre><span></span><code><span class="k">[project.entry-points.</span><span class="s2">&quot;omop.config&quot;</span><span class="k">]</span>
+<span class="n">my_package</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my_package.config:MyPackageConfig&quot;</span>
 </code></pre></div>
-<p>then these resolve to:</p>
-<ul>
-<li><code>artifact_root</code> -&gt; <code>/home/alice/.config/omop/artifacts</code></li>
-<li><code>embedding_file_root</code> -&gt; <code>/home/alice/.config/omop/artifacts/embeddings</code></li>
-<li><code>analytic_db_file_root</code> -&gt; <code>/home/alice/.config/omop/artifacts/databases</code></li>
-<li><code>athena_source_path</code> -&gt; <code>/srv/athena</code></li>
-</ul>
-<h2 id="secret-sources">Secret Sources<a class="headerlink" href="#secret-sources" title="Permanent link">&para;</a></h2>
-<p>Inline passwords are still allowed for local or throwaway setups, but the
-configuration model now supports indirect secret lookup as well.</p>
-<ul>
-<li><code>settings.secrets_dir</code> is an optional filesystem root for file-backed
-  secrets</li>
-<li><code>connections.&lt;name&gt;.secret_source</code> is an explicit source string</li>
-<li><code>password</code> and <code>secret_source</code> are mutually exclusive on a connection</li>
-</ul>
-<p>The sketch currently supports two secret source formats:</p>
-<ul>
-<li><code>env:VARIABLE_NAME</code></li>
-<li><code>file:relative/or/absolute/path</code></li>
-</ul>
-<p>Relative <code>file:</code> sources resolve from <code>settings.secrets_dir</code> when that setting
-is present. Otherwise they resolve from <code>configuration_base_path</code>.</p>
-<h3 id="example_1">Example<a class="headerlink" href="#example_1" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><span class="k">[settings]</span>
-<span class="n">active_profile</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod&quot;</span>
-<span class="n">configuration_base_path</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;.&quot;</span>
-<span class="n">secrets_dir</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;secrets&quot;</span>
-
-<span class="k">[connections.prod_cdm]</span>
-<span class="n">dialect</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;postgresql&quot;</span>
-<span class="n">host</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod.hospital.org&quot;</span>
-<span class="n">port</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5432</span>
-<span class="n">user</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_prod&quot;</span>
-<span class="n">secret_source</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;file:prod_cdm.password&quot;</span>
-<span class="n">database</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_cdm&quot;</span>
-
-<span class="k">[connections.prod_vocab]</span>
-<span class="n">dialect</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;postgresql&quot;</span>
-<span class="n">host</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod.hospital.org&quot;</span>
-<span class="n">port</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5432</span>
-<span class="n">user</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_vocab&quot;</span>
-<span class="n">secret_source</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;env:OA_PROD_VOCAB_PASSWORD&quot;</span>
-<span class="n">database</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_vocab&quot;</span>
+<p><code>omop-config configure my_package</code> discovers the class at runtime via <code>importlib.metadata.entry_points(group="omop.config")</code>, presents the typed fields for interactive configuration, and writes the result to <code>[tools.my_package.extra]</code>. <code>oa-configurator</code> itself has no knowledge of any consuming package.</p>
+<hr />
+<h2 id="schema-translate-map">Schema translate map<a class="headerlink" href="#schema-translate-map" title="Permanent link">&para;</a></h2>
+<p><code>ResolvedResource.schema_translate_map()</code> returns the SQLAlchemy-compatible schema translate dict:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="kc">None</span><span class="p">:</span> <span class="s2">&quot;omop&quot;</span><span class="p">,</span> <span class="s2">&quot;vocab&quot;</span><span class="p">:</span> <span class="s2">&quot;omop_vocab&quot;</span><span class="p">,</span> <span class="s2">&quot;results&quot;</span><span class="p">:</span> <span class="s2">&quot;results&quot;</span><span class="p">}</span>
 </code></pre></div>
-<h2 id="profile-overlay-shape">Profile Overlay Shape<a class="headerlink" href="#profile-overlay-shape" title="Permanent link">&para;</a></h2>
-<p>Profiles now do more than act as labels.</p>
-<p>Right now a profile is mostly metadata plus a selected name:</p>
-<ul>
-<li><code>local</code></li>
-<li><code>staging</code></li>
-<li><code>prod</code></li>
-</ul>
-<p>The current version allows a profile to act as a structured patch over the
-base configuration. The goal is to avoid copying entire resource or tool blocks
-just because one or two values change between environments.</p>
-<h3 id="design-intent">Design Intent<a class="headerlink" href="#design-intent" title="Permanent link">&para;</a></h3>
-<p>The base file should define the stable logical shape:</p>
-<ul>
-<li>named connections</li>
-<li>named resources</li>
-<li>named tool defaults</li>
-</ul>
-<p>Profiles should then override only the parts that differ for a specific
-environment, such as:</p>
-<ul>
-<li>which connection a resource points at</li>
-<li>schema names</li>
-<li>local artifact roots</li>
-<li>tool backends</li>
-<li>tool storage roots</li>
-<li>read-only toggles</li>
-</ul>
-<h3 id="toml-shape">TOML Shape<a class="headerlink" href="#toml-shape" title="Permanent link">&para;</a></h3>
-<p>This is the shape the prototype now supports:</p>
-<div class="highlight"><pre><span></span><code><span class="k">[settings]</span>
-<span class="n">active_profile</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local&quot;</span>
-<span class="n">configuration_base_path</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;.&quot;</span>
-<span class="n">secrets_dir</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;secrets&quot;</span>
-
-<span class="k">[connections.local_cdm]</span>
-<span class="n">dialect</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;postgresql&quot;</span>
-<span class="n">host</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;localhost&quot;</span>
-<span class="n">port</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5432</span>
-<span class="n">user</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
-<span class="n">password</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
-<span class="n">database</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
-
-<span class="k">[connections.prod_cdm]</span>
-<span class="n">dialect</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;postgresql&quot;</span>
-<span class="n">host</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod.hospital.org&quot;</span>
-<span class="n">port</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5432</span>
-<span class="n">user</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_prod&quot;</span>
-<span class="n">secret_source</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;file:prod_cdm.password&quot;</span>
-<span class="n">database</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_cdm&quot;</span>
-
-<span class="k">[connections.prod_vocab]</span>
-<span class="n">dialect</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;postgresql&quot;</span>
-<span class="n">host</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod.hospital.org&quot;</span>
-<span class="n">port</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5432</span>
-<span class="n">user</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_vocab&quot;</span>
-<span class="n">secret_source</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;file:prod_vocab.password&quot;</span>
-<span class="n">database</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_vocab&quot;</span>
-
-<span class="k">[resources.default]</span>
-<span class="n">primary_db</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local_cdm&quot;</span>
-<span class="n">vocab_db</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local_cdm&quot;</span>
-<span class="n">results_db</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local_cdm&quot;</span>
-<span class="n">omop_schema</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
-<span class="n">vocab_schema</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
-<span class="n">results_schema</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;results&quot;</span>
-<span class="n">artifact_root</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;~/.local/share/omop-local&quot;</span>
-<span class="n">embedding_file_root</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;~/.local/share/omop-local/embeddings&quot;</span>
-<span class="n">analytic_db_file_root</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;~/.local/share/omop-local/databases&quot;</span>
-
-<span class="k">[tools.omop_emb]</span>
-<span class="n">default_resource</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;default&quot;</span>
-<span class="n">backend</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;pgvector&quot;</span>
-<span class="n">embedding_file_root</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;~/.local/share/omop-local/embeddings&quot;</span>
-
-<span class="k">[profiles.prod]</span>
-<span class="n">description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;remote OMOP source with local derived artifacts&quot;</span>
-
-<span class="k">[profiles.prod.resource_overrides.default]</span>
-<span class="n">primary_db</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod_cdm&quot;</span>
-<span class="n">vocab_db</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod_vocab&quot;</span>
-<span class="n">results_db</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod_cdm&quot;</span>
-<span class="n">vocab_schema</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;vocab&quot;</span>
-<span class="n">artifact_root</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;~/.local/share/omop-prod&quot;</span>
-<span class="n">embedding_file_root</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;~/.local/share/omop-prod/embeddings&quot;</span>
-<span class="n">analytic_db_file_root</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;~/.local/share/omop-prod/databases&quot;</span>
-
-<span class="k">[profiles.prod.tool_overrides.omop_emb]</span>
-<span class="n">embedding_file_root</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;~/.local/share/omop-prod/embeddings&quot;</span>
-
-<span class="k">[profiles.prod.tool_overrides.orm_loader]</span>
-<span class="n">database_file_root</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;~/.local/share/omop-prod/databases&quot;</span>
+<p>OMOP ORM models (omop-alchemy) carry <code>schema=None</code> or <code>schema="vocab"</code> on their <code>__table_args__</code>. The translate map routes them to the correct schema at runtime without changing model definitions.</p>
+<hr />
+<h2 id="security">Security<a class="headerlink" href="#security" title="Permanent link">&para;</a></h2>
+<p>Passwords are stored in plaintext in <code>~/.config/omop/config.toml</code>. Restrict permissions:</p>
+<div class="highlight"><pre><span></span><code>chmod<span class="w"> </span><span class="m">600</span><span class="w"> </span>~/.config/omop/config.toml
 </code></pre></div>
-<h3 id="merge-semantics">Merge Semantics<a class="headerlink" href="#merge-semantics" title="Permanent link">&para;</a></h3>
-<p>The intended merge rules should be simple and explicit:</p>
-<ol>
-<li>load the base config</li>
-<li>select the active profile</li>
-<li>apply <code>resource_overrides</code> by resource name</li>
-<li>apply <code>tool_overrides</code> by tool name</li>
-<li>optionally apply <code>connection_overrides</code> if we decide that is necessary</li>
-</ol>
-<p>This is implemented as a shallow field-level merge for each named object, not a
-free-form recursive patch language.</p>
-<h3 id="why-this-is-better-than-duplicating-resource-blocks">Why This Is Better Than Duplicating Resource Blocks<a class="headerlink" href="#why-this-is-better-than-duplicating-resource-blocks" title="Permanent link">&para;</a></h3>
-<p>Without overlays, users will quickly end up with:</p>
+<p><code>ResolvedDatabaseTarget.safe_url</code> and <code>ResolvedDatabaseTarget.url</code> are distinct: <code>safe_url</code> has the password replaced with <code>***</code> and is used for all logging and display. The <code>.url</code> value (with plaintext password) is used only for engine creation and never logged by the library.</p>
+<p><code>RedactingFormatter</code> (applied by all non-library log presets) scrubs both <code>key=value</code> patterns and <code>://user:password@host</code> URL patterns from log output.</p>
+<p><strong>Future work</strong>: <code>secret_source</code> support (<code>env:VAR</code>, <code>file:path</code>, Vault, cloud secret managers) is planned but not implemented in this version.</p>
+<hr />
+<h2 id="config-path">Config path<a class="headerlink" href="#config-path" title="Permanent link">&para;</a></h2>
+<p>Default: <code>~/.config/omop/config.toml</code>. Override with <code>OA_CONFIG_PATH=&lt;path/to/config.toml&gt;</code>
+(must end in <code>.toml</code>; <code>~</code> is expanded). Resolved once at module load time and stored as
+<code>CONFIG_PATH</code>. Use <code>OA_ACTIVE_PROFILE</code> to switch profiles within a file without changing the path.</p>
+<hr />
+<h2 id="future-work">Future work<a class="headerlink" href="#future-work" title="Permanent link">&para;</a></h2>
 <ul>
-<li><code>default_local</code></li>
-<li><code>default_prod</code></li>
-<li><code>default_staging</code></li>
-<li><code>default_ci</code></li>
+<li><code>secret_source</code> on <code>DatabaseConfig</code>: <code>env:VARNAME</code>, <code>file:PATH</code>, Vault, cloud secret managers</li>
+<li>Async engine factory (<code>ResolvedDatabaseTarget.create_async_engine()</code>)</li>
+<li>Project-local overlay (<code>./oa-config.toml</code>) layered over user config</li>
 </ul>
-<p>and then every tool has to know which duplicated resource to select.</p>
-<p>With overlays:</p>
-<ul>
-<li>the logical resource name stays stable</li>
-<li>the active profile changes the wiring beneath it</li>
-<li>code can keep asking for <code>default</code></li>
-</ul>
-<p>That is the important ergonomic win.</p>
-<h3 id="what-should-probably-be-overridable">What Should Probably Be Overridable<a class="headerlink" href="#what-should-probably-be-overridable" title="Permanent link">&para;</a></h3>
-<p>Strong candidates:</p>
-<ul>
-<li><code>ResourceConfig</code> fields</li>
-<li><code>ToolConfig</code> fields</li>
-</ul>
-<p>Possible but more debatable:</p>
-<ul>
-<li>selected <code>ConnectionConfig</code> fields, for example host or database name</li>
-</ul>
-<p>General considerations:</p>
-<ul>
-<li>prefer overriding resource and tool mappings first</li>
-<li>only add connection-level overlays if there is a real repeated need</li>
-</ul>
-<p>That keeps the mental model simpler.</p>
-<h2 id="implemented">Implemented<a class="headerlink" href="#implemented" title="Permanent link">&para;</a></h2>
-<ul>
-<li>Typed Pydantic v2 models for all config sections</li>
-<li>TOML loading with environment-variable overrides (<code>OA_CONFIG_FILE</code>, <code>OA_ACTIVE_PROFILE</code>)</li>
-<li>Cross-reference validation at load time (unknown connection/resource names raise immediately)</li>
-<li>Resolver: logical names → typed, secret-resolved, path-expanded handles</li>
-<li>Profile overlays: shallow field-level merge for resources and tools</li>
-<li>Secret sources: <code>env:VARNAME</code> and <code>file:path</code></li>
-<li><code>ResolvedDatabaseTarget.create_engine()</code> and <code>ResolvedResource.create_engine()</code></li>
-<li><code>ResolvedResource.schema_translate_map()</code> — SQLAlchemy <code>{None: omop_schema, "vocab": vocab_schema, ...}</code></li>
-<li><code>ResolvedResource.vocab_db_is_primary_fallback</code> / <code>results_db_is_primary_fallback</code></li>
-<li><code>StackConfig.for_session()</code> — inline construction without a TOML file</li>
-<li><code>Resolver.with_overrides()</code> — session-level connection/resource replacement</li>
-<li>Interactive REPL namespaces with tab completion (<code>resolver.resources.default</code>)</li>
-<li>CLI wizards: <code>add-connection</code>, <code>add-resource</code>, <code>add-profile</code>, <code>show</code>, <code>resolve-resource</code>, <code>resolve-tool</code></li>
-<li>TOML persistence (<code>save_stack_config</code>)</li>
-</ul>
-<h2 id="possible-future-additions">Possible future additions<a class="headerlink" href="#possible-future-additions" title="Permanent link">&para;</a></h2>
-<ul>
-<li>Doctor / validation command that checks connectivity and schema presence</li>
-<li>Project-local overlay file (<code>./oa-config.toml</code>) that merges over the user config</li>
-<li>Compatibility shims that export resolved config back to legacy env var format</li>
-<li>Vault / cloud secrets manager sources beyond <code>env:</code> and <code>file:</code></li>
-<li>Async engine factory for asyncpg / greenlet-based stacks</li>
-</ul>
-<h2 id="design-notes">Design notes<a class="headerlink" href="#design-notes" title="Permanent link">&para;</a></h2>
-<p><code>active_stack</code> was considered as a way to select a default resource by name but
-was removed — <code>active_profile</code> + resource naming covers the use case without
-the extra indirection.</p>
-<p><code>schema_translate_map</code> follows the SQLAlchemy convention of mapping <code>None</code> to
-the unqualified (default) schema. OMOP clinical tables carry <code>schema=None</code> in
-the ORM; the translate map routes them to the configured OMOP schema at runtime
-without changing model definitions.</p>
-<p>Inline secrets (<code>password = "..."</code>) are allowed but not recommended for shared
-config files. The <code>secret_source</code> mechanism keeps the TOML file safe to commit.</p>
 
 
 

@@ -33,6 +33,9 @@
     
       <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
       
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
       
 
 
@@ -61,7 +64,14 @@
   </head>
   
   
-    <body dir="ltr">
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -70,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#profiles-overlays" class="md-skip">
+        <a href="#profiles" class="md-skip">
           Skip to content
         </a>
       
@@ -112,6 +122,32 @@
         </div>
       </div>
     </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="light-blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
     
     
       <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
@@ -277,6 +313,33 @@
       
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
     
   
   
@@ -295,10 +358,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
             
   
   
@@ -316,8 +379,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_3">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -450,10 +513,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#concept" class="md-nav__link">
+  <a href="#how-profiles-work" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Concept
+        How profiles work
       
     </span>
   </a>
@@ -461,10 +524,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#selecting-the-active-profile" class="md-nav__link">
+  <a href="#switching-profiles" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Selecting the active profile
+        Switching profiles
       
     </span>
   </a>
@@ -472,10 +535,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#profile-structure" class="md-nav__link">
+  <a href="#profiles-in-tests" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Profile structure
+        Profiles in tests
       
     </span>
   </a>
@@ -483,60 +546,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#worked-example" class="md-nav__link">
+  <a href="#profile-with-additional-connections" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Worked example
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Worked example">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#base-config" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Base config
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#profile-patch" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Profile patch
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#merge-semantics" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Merge semantics
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-not-duplicate-resource-blocks" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why not duplicate resource blocks?
+        Profile with additional connections
       
     </span>
   </a>
@@ -608,15 +621,8 @@
 
               
             
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
+              
+                
   
   
   
@@ -641,30 +647,11 @@
     </li>
   
 
-    
+              
+            
+          </ul>
+        </nav>
       
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../architecture/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Architecture
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -691,10 +678,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
         
           
-          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
             
   
   
@@ -712,8 +699,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -814,42 +801,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/schema-helpers/" class="md-nav__link">
+      <a href="../api/package-base/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Schema Helpers
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../api/persistence/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Persistence
+    PackageConfigBase
   
 
     
@@ -925,10 +884,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#concept" class="md-nav__link">
+  <a href="#how-profiles-work" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Concept
+        How profiles work
       
     </span>
   </a>
@@ -936,10 +895,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#selecting-the-active-profile" class="md-nav__link">
+  <a href="#switching-profiles" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Selecting the active profile
+        Switching profiles
       
     </span>
   </a>
@@ -947,10 +906,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#profile-structure" class="md-nav__link">
+  <a href="#profiles-in-tests" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Profile structure
+        Profiles in tests
       
     </span>
   </a>
@@ -958,60 +917,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#worked-example" class="md-nav__link">
+  <a href="#profile-with-additional-connections" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Worked example
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Worked example">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#base-config" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Base config
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#profile-patch" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Profile patch
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#merge-semantics" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Merge semantics
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-not-duplicate-resource-blocks" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why not duplicate resource blocks?
+        Profile with additional connections
       
     </span>
   </a>
@@ -1086,118 +995,75 @@
   
 
 
-<h1 id="profiles-overlays">Profiles &amp; Overlays<a class="headerlink" href="#profiles-overlays" title="Permanent link">&para;</a></h1>
-<p>Profiles let you maintain a single config file for multiple environments (local, staging, prod) without duplicating entire resource or tool blocks.</p>
+<h1 id="profiles">Profiles<a class="headerlink" href="#profiles" title="Permanent link">&para;</a></h1>
+<p>Profiles let you maintain one config file for multiple environments (local dev, staging, prod, test) without duplicating connection blocks.</p>
 <hr />
-<h2 id="concept">Concept<a class="headerlink" href="#concept" title="Permanent link">&para;</a></h2>
-<p>The <strong>base config</strong> defines the stable logical shape: named connections, resources, and tools.</p>
-<p>A <strong>profile</strong> is a named set of patches applied on top at resolution time. Only the fields that differ between environments need to appear in the profile — everything else stays as defined in the base.</p>
-<div class="highlight"><pre><span></span><code>base config  →  profile overlay  →  resolved resource
-</code></pre></div>
-<p>The merge is a shallow field-level replacement: each field in the override replaces the corresponding base field independently.</p>
-<hr />
-<h2 id="selecting-the-active-profile">Selecting the active profile<a class="headerlink" href="#selecting-the-active-profile" title="Permanent link">&para;</a></h2>
-<p>In the config file:</p>
-<div class="highlight"><pre><span></span><code><span class="k">[settings]</span>
-<span class="n">active_profile</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local&quot;</span>
-</code></pre></div>
-<p>Via environment variable (overrides the file):</p>
-<div class="highlight"><pre><span></span><code><span class="nv">OA_ACTIVE_PROFILE</span><span class="o">=</span>prod<span class="w"> </span>python<span class="w"> </span>my_script.py
-</code></pre></div>
-<hr />
-<h2 id="profile-structure">Profile structure<a class="headerlink" href="#profile-structure" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><span class="k">[profiles.</span><span class="err">&lt;</span><span class="k">name</span><span class="err">&gt;</span><span class="k">]</span>
-<span class="n">description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;optional human-readable label&quot;</span>
-
-<span class="k">[profiles.</span><span class="err">&lt;</span><span class="k">name</span><span class="err">&gt;</span><span class="k">.resource_overrides.</span><span class="err">&lt;</span><span class="k">resource_name</span><span class="err">&gt;</span><span class="k">]</span>
-<span class="c1"># any subset of ResourceConfig fields</span>
-
-<span class="k">[profiles.</span><span class="err">&lt;</span><span class="k">name</span><span class="err">&gt;</span><span class="k">.tool_overrides.</span><span class="err">&lt;</span><span class="k">tool_name</span><span class="err">&gt;</span><span class="k">]</span>
-<span class="c1"># any subset of ToolConfig fields</span>
-</code></pre></div>
-<hr />
-<h2 id="worked-example">Worked example<a class="headerlink" href="#worked-example" title="Permanent link">&para;</a></h2>
-<h3 id="base-config">Base config<a class="headerlink" href="#base-config" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><span class="k">[settings]</span>
-<span class="n">active_profile</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local&quot;</span>
-
-<span class="k">[connections.local_cdm]</span>
-<span class="n">dialect</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;postgresql&quot;</span>
-<span class="n">host</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;localhost&quot;</span>
-<span class="n">database</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
-<span class="n">user</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
-<span class="n">password</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
-
-<span class="k">[connections.prod_cdm]</span>
-<span class="n">dialect</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;postgresql&quot;</span>
-<span class="n">host</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod.hospital.org&quot;</span>
-<span class="n">database</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_cdm&quot;</span>
-<span class="n">user</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_prod&quot;</span>
-<span class="n">secret_source</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;file:prod_cdm.password&quot;</span>
-
-<span class="k">[connections.prod_vocab]</span>
-<span class="n">dialect</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;postgresql&quot;</span>
-<span class="n">host</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod.hospital.org&quot;</span>
-<span class="n">database</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_vocab&quot;</span>
-<span class="n">user</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_vocab&quot;</span>
-<span class="n">secret_source</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;file:prod_vocab.password&quot;</span>
+<h2 id="how-profiles-work">How profiles work<a class="headerlink" href="#how-profiles-work" title="Permanent link">&para;</a></h2>
+<p>A profile defines connections, resources, and/or tools that <strong>replace</strong> the base entries with the same name when that profile is active. Base entries not mentioned in the profile are used unchanged.</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Base config</span>
+<span class="k">[databases.cdm]</span>
+<span class="n">dialect</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;postgresql+psycopg&quot;</span>
+<span class="n">host</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod.example.com&quot;</span>
+<span class="n">port</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="mi">5432</span>
+<span class="n">user</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
+<span class="n">password</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod_secret&quot;</span>
+<span class="n">database_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_cdm&quot;</span>
 
 <span class="k">[resources.default]</span>
-<span class="n">primary_db</span><span class="w">            </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local_cdm&quot;</span>
-<span class="n">vocab_db</span><span class="w">              </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local_cdm&quot;</span>
-<span class="n">results_db</span><span class="w">            </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local_cdm&quot;</span>
-<span class="n">omop_schema</span><span class="w">           </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
-<span class="n">vocab_schema</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
-<span class="n">results_schema</span><span class="w">        </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;results&quot;</span>
-<span class="n">artifact_root</span><span class="w">         </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;artifacts/local&quot;</span>
-<span class="n">embedding_file_root</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;artifacts/local/embeddings&quot;</span>
+<span class="n">database</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
+<span class="n">cdm_schema</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
 
-<span class="k">[tools.omop_emb]</span>
-<span class="n">default_resource</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;default&quot;</span>
-<span class="n">backend</span><span class="w">             </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;pgvector&quot;</span>
-<span class="n">embedding_file_root</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;artifacts/local/embeddings&quot;</span>
+<span class="c1"># Test profile (only what changes)</span>
+<span class="k">[profiles.test.databases.cdm]</span>
+<span class="n">dialect</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;postgresql+psycopg&quot;</span>
+<span class="n">host</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;localhost&quot;</span>
+<span class="n">port</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="mi">5433</span>
+<span class="n">user</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;test_user&quot;</span>
+<span class="n">password</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;test_pass&quot;</span>
+<span class="n">database_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_test&quot;</span>
+
+<span class="k">[profiles.test.resources.default]</span>
+<span class="n">database</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
+<span class="n">cdm_schema</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;test_omop&quot;</span>
 </code></pre></div>
-<h3 id="profile-patch">Profile patch<a class="headerlink" href="#profile-patch" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><span class="k">[profiles.prod]</span>
-<span class="n">description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;remote OMOP source, local derived artifacts&quot;</span>
-
-<span class="k">[profiles.prod.resource_overrides.default]</span>
-<span class="n">primary_db</span><span class="w">            </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod_cdm&quot;</span>
-<span class="n">vocab_db</span><span class="w">              </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod_vocab&quot;</span>
-<span class="n">results_db</span><span class="w">            </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod_cdm&quot;</span>
-<span class="n">vocab_schema</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;vocab&quot;</span>
-<span class="n">artifact_root</span><span class="w">         </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;artifacts/prod&quot;</span>
-<span class="n">embedding_file_root</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;artifacts/prod/embeddings&quot;</span>
-
-<span class="k">[profiles.prod.tool_overrides.omop_emb]</span>
-<span class="n">embedding_file_root</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;artifacts/prod/embeddings&quot;</span>
-</code></pre></div>
-<p>When <code>active_profile = "prod"</code>:</p>
-<ul>
-<li><code>resource.primary_db</code> → <code>prod_cdm</code> (changed)</li>
-<li><code>resource.vocab_db</code> → <code>prod_vocab</code> (changed)</li>
-<li><code>resource.omop_schema</code> → <code>"cdm"</code> (unchanged, from base)</li>
-<li><code>resource.vocab_schema</code> → <code>"vocab"</code> (changed)</li>
-<li><code>tool.embedding_file_root</code> → <code>"artifacts/prod/embeddings"</code> (changed)</li>
-</ul>
+<p>When the <code>test</code> profile is active, <code>resolver.resolve_database("cdm")</code> returns the test host/database.</p>
 <hr />
-<h2 id="merge-semantics">Merge semantics<a class="headerlink" href="#merge-semantics" title="Permanent link">&para;</a></h2>
-<p>Profile overrides are applied as a <strong>shallow field-level merge</strong>:</p>
-<ol>
-<li>Start with the base resource (or tool) config.</li>
-<li>For each field present in the override, replace the base field value.</li>
-<li>Fields absent from the override keep their base values.</li>
-<li><code>tool.extra</code> is merged shallowly: override keys are added or replaced, base keys not present in the override are kept.</li>
-</ol>
-<p>This is not a recursive patch language. It is intentionally simple.</p>
-<hr />
-<h2 id="why-not-duplicate-resource-blocks">Why not duplicate resource blocks?<a class="headerlink" href="#why-not-duplicate-resource-blocks" title="Permanent link">&para;</a></h2>
-<p>Without profiles, handling multiple environments leads to:</p>
-<div class="highlight"><pre><span></span><code><span class="k">[resources.default_local]</span>
-<span class="k">[resources.default_staging]</span>
-<span class="k">[resources.default_prod]</span>
+<h2 id="switching-profiles">Switching profiles<a class="headerlink" href="#switching-profiles" title="Permanent link">&para;</a></h2>
+<p><strong>Persistent</strong>: writes <code>active_profile</code> to the TOML file and re-exports <code>config.env</code>:</p>
+<div class="highlight"><pre><span></span><code>omop-config<span class="w"> </span>use<span class="w"> </span><span class="nb">test</span>
+omop-config<span class="w"> </span>use<span class="w"> </span><span class="nb">local</span>
 </code></pre></div>
-<p>Every tool then has to know which variant to use. With profiles the logical name <code>default</code> stays stable — only the wiring beneath it changes based on the active profile.</p>
+<p><strong>Per-session</strong>: env var override, does not modify the file:</p>
+<div class="highlight"><pre><span></span><code><span class="nv">OA_ACTIVE_PROFILE</span><span class="o">=</span><span class="nb">test</span><span class="w"> </span>omop-config<span class="w"> </span>doctor
+<span class="nv">OA_ACTIVE_PROFILE</span><span class="o">=</span>prod<span class="w"> </span>python<span class="w"> </span>my_script.py
+</code></pre></div>
+<hr />
+<h2 id="profiles-in-tests">Profiles in tests<a class="headerlink" href="#profiles-in-tests" title="Permanent link">&para;</a></h2>
+<p>Package tests should use <code>StackConfig.for_session()</code> (no file I/O). For integration tests that need a real database:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># conftest.py</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pytest</span>
+
+<span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span><span class="p">(</span><span class="n">autouse</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">scope</span><span class="o">=</span><span class="s2">&quot;session&quot;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">use_test_profile</span><span class="p">():</span>
+    <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;OA_ACTIVE_PROFILE&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;test&quot;</span>
+    <span class="k">yield</span>
+    <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;OA_ACTIVE_PROFILE&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+<p>This requires a <code>[profiles.test]</code> section in <code>~/.config/omop/config.toml</code> pointing at the test database. Document this in your package's README.</p>
+<hr />
+<h2 id="profile-with-additional-connections">Profile with additional connections<a class="headerlink" href="#profile-with-additional-connections" title="Permanent link">&para;</a></h2>
+<p>Profiles can introduce new connections not present in the base config:</p>
+<div class="highlight"><pre><span></span><code><span class="k">[profiles.local_only.databases.local_vocab]</span>
+<span class="n">dialect</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;sqlite&quot;</span>
+<span class="n">database_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;/data/vocab.db&quot;</span>
+
+<span class="k">[profiles.local_only.resources.default]</span>
+<span class="n">database</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span><span class="w">         </span><span class="c1"># uses base cdm database</span>
+<span class="n">vocab_database</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local_vocab&quot;</span><span class="w">  </span><span class="c1"># new database defined in this profile</span>
+<span class="n">cdm_schema</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
+</code></pre></div>
+<p>Cross-references in profile resources are validated against both base and profile databases at load time.</p>
 
 
 

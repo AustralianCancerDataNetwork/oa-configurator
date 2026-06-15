@@ -16,7 +16,7 @@
         <link rel="prev" href="..">
       
       
-        <link rel="next" href="../config-reference/">
+        <link rel="next" href="../architecture/">
       
       
         
@@ -32,6 +32,9 @@
     
     
       <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -61,7 +64,14 @@
   </head>
   
   
-    <body dir="ltr">
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -70,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#quick-start" class="md-skip">
+        <a href="#quickstart" class="md-skip">
           Skip to content
         </a>
       
@@ -112,6 +122,32 @@
         </div>
       </div>
     </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="blue"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="light-blue"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
     
     
       <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
@@ -313,10 +349,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#install" class="md-nav__link">
+  <a href="#1-install" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Install
+        1. Install
       
     </span>
   </a>
@@ -324,71 +360,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#option-a-config-file-recommended-for-shared-setups" class="md-nav__link">
+  <a href="#2-configure-your-first-package" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Option A — Config file (recommended for shared setups)
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Option A — Config file (recommended for shared setups)">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#1-create-a-config-file-with-the-cli-wizard" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        1. Create a config file with the CLI wizard
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#2-load-and-resolve-in-python" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        2. Load and resolve in Python
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#3-configure-logging-optional" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3. Configure logging (optional)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#4-use-with-orm-loader-or-omop-alchemy" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        4. Use with orm-loader or omop-alchemy
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#option-b-inline-construction-notebooks-quick-scripts" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Option B — Inline construction (notebooks, quick scripts)
+        2. Configure your first package
       
     </span>
   </a>
@@ -396,10 +371,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#environment-overrides" class="md-nav__link">
+  <a href="#3-verify" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Environment overrides
+        3. Verify
       
     </span>
   </a>
@@ -407,10 +382,43 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#verify-a-config-file" class="md-nav__link">
+  <a href="#4-test-connectivity" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Verify a config file
+        4. Test connectivity
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-export-for-docker-compose" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Export for Docker Compose
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verbosity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verbosity
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#next-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Next steps
       
     </span>
   </a>
@@ -421,6 +429,33 @@
   
 </nav>
       
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -447,10 +482,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
             
   
   
@@ -468,8 +503,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -619,15 +654,8 @@
 
               
             
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
+              
+                
   
   
   
@@ -652,30 +680,11 @@
     </li>
   
 
-    
+              
+            
+          </ul>
+        </nav>
       
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../architecture/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Architecture
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -702,10 +711,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
         
           
-          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
             
   
   
@@ -723,8 +732,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -825,42 +834,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/schema-helpers/" class="md-nav__link">
+      <a href="../api/package-base/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Schema Helpers
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../api/persistence/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Persistence
+    PackageConfigBase
   
 
     
@@ -936,10 +917,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#install" class="md-nav__link">
+  <a href="#1-install" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Install
+        1. Install
       
     </span>
   </a>
@@ -947,71 +928,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#option-a-config-file-recommended-for-shared-setups" class="md-nav__link">
+  <a href="#2-configure-your-first-package" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Option A — Config file (recommended for shared setups)
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Option A — Config file (recommended for shared setups)">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#1-create-a-config-file-with-the-cli-wizard" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        1. Create a config file with the CLI wizard
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#2-load-and-resolve-in-python" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        2. Load and resolve in Python
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#3-configure-logging-optional" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3. Configure logging (optional)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#4-use-with-orm-loader-or-omop-alchemy" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        4. Use with orm-loader or omop-alchemy
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#option-b-inline-construction-notebooks-quick-scripts" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Option B — Inline construction (notebooks, quick scripts)
+        2. Configure your first package
       
     </span>
   </a>
@@ -1019,10 +939,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#environment-overrides" class="md-nav__link">
+  <a href="#3-verify" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Environment overrides
+        3. Verify
       
     </span>
   </a>
@@ -1030,10 +950,43 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#verify-a-config-file" class="md-nav__link">
+  <a href="#4-test-connectivity" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Verify a config file
+        4. Test connectivity
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-export-for-docker-compose" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Export for Docker Compose
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verbosity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verbosity
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#next-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Next steps
       
     </span>
   </a>
@@ -1068,107 +1021,48 @@
   
 
 
-<h1 id="quick-start">Quick Start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h1>
-<h2 id="install">Install<a class="headerlink" href="#install" title="Permanent link">&para;</a></h2>
+<h1 id="quickstart">Quickstart<a class="headerlink" href="#quickstart" title="Permanent link">&para;</a></h1>
+<h2 id="1-install">1. Install<a class="headerlink" href="#1-install" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>oa-configurator
-<span class="c1"># or, if the stack uses uv:</span>
-uv<span class="w"> </span>add<span class="w"> </span>oa-configurator
 </code></pre></div>
-<h2 id="option-a-config-file-recommended-for-shared-setups">Option A — Config file (recommended for shared setups)<a class="headerlink" href="#option-a-config-file-recommended-for-shared-setups" title="Permanent link">&para;</a></h2>
-<h3 id="1-create-a-config-file-with-the-cli-wizard">1. Create a config file with the CLI wizard<a class="headerlink" href="#1-create-a-config-file-with-the-cli-wizard" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code>oa-config<span class="w"> </span>add-connection<span class="w">   </span><span class="c1"># guided prompts for dialect, host, credentials</span>
-oa-config<span class="w"> </span>add-resource<span class="w">     </span><span class="c1"># map the connection to a logical resource name</span>
+<h2 id="2-configure-your-first-package">2. Configure your first package<a class="headerlink" href="#2-configure-your-first-package" title="Permanent link">&para;</a></h2>
+<p>After installing a package that supports oa_configurator, run its configure command:</p>
+<div class="highlight"><pre><span></span><code>omop-config<span class="w"> </span>configure<span class="w"> </span>&lt;package&gt;<span class="w">   </span><span class="c1"># e.g. omop_alchemy, omop_emb</span>
 </code></pre></div>
-<p>The wizard writes to <code>~/.config/omop/config.toml</code> by default.</p>
-<h3 id="2-load-and-resolve-in-python">2. Load and resolve in Python<a class="headerlink" href="#2-load-and-resolve-in-python" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_stack_config</span><span class="p">,</span> <span class="n">Resolver</span>
-
-<span class="n">config</span>   <span class="o">=</span> <span class="n">load_stack_config</span><span class="p">()</span>              <span class="c1"># ~/.config/omop/config.toml</span>
-<span class="n">resolver</span> <span class="o">=</span> <span class="n">Resolver</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
-
-<span class="n">resource</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">resolve_resource</span><span class="p">(</span><span class="s2">&quot;default&quot;</span><span class="p">)</span>
-<span class="n">engine</span>   <span class="o">=</span> <span class="n">resource</span><span class="o">.</span><span class="n">create_engine</span><span class="p">()</span>         <span class="c1"># SQLAlchemy Engine, ready to use</span>
+<p>This prompts for any database connections and package-specific settings that package declares, then writes <code>~/.config/omop/config.toml</code>. Packages that own a database resource (such as a CDM database) will prompt for connection details and schema names as part of this step.</p>
+<p>To create an empty config file without prompts (useful for scripted setups), use:</p>
+<div class="highlight"><pre><span></span><code>omop-config<span class="w"> </span>init
 </code></pre></div>
-<p>For interactive work (notebooks, REPLs), the namespace attributes give tab completion:</p>
-<div class="highlight"><pre><span></span><code><span class="n">resource</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">resources</span><span class="o">.</span><span class="n">default</span>       <span class="c1"># same as resolve_resource(&quot;default&quot;)</span>
-<span class="n">engine</span>   <span class="o">=</span> <span class="n">resource</span><span class="o">.</span><span class="n">primary_db</span><span class="o">.</span><span class="n">create_engine</span><span class="p">()</span>
+<blockquote>
+<p><strong>Note</strong>: Passwords are stored in plaintext. Keep the file readable only by your user:
+<code>chmod 600 ~/.config/omop/config.toml</code>.
+Secret management improvements are planned for a future release.</p>
+</blockquote>
+<h2 id="3-verify">3. Verify<a class="headerlink" href="#3-verify" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code>omop-config<span class="w"> </span>show
 </code></pre></div>
-<h3 id="3-configure-logging-optional">3. Configure logging (optional)<a class="headerlink" href="#3-configure-logging-optional" title="Permanent link">&para;</a></h3>
-<p>Call <code>configure_logging()</code> once at the top of your script or notebook. It sets consistent levels and formats across <code>orm_loader</code>, <code>omop_alchemy</code>, and every other OMOP stack package:</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">configure_logging</span>
-
-<span class="n">configure_logging</span><span class="p">(</span><span class="n">preset</span><span class="o">=</span><span class="s2">&quot;notebook&quot;</span><span class="p">)</span>    <span class="c1"># INFO to stdout, no timestamps</span>
-<span class="n">configure_logging</span><span class="p">(</span><span class="n">preset</span><span class="o">=</span><span class="s2">&quot;application&quot;</span><span class="p">)</span> <span class="c1"># INFO to stderr, with timestamps</span>
+<p>Prints your config as JSON. Validation errors (unknown field, missing cross-reference) appear here.</p>
+<h2 id="4-test-connectivity">4. Test connectivity<a class="headerlink" href="#4-test-connectivity" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code>omop-config<span class="w"> </span>verify
 </code></pre></div>
-<p>Or derive it from the loaded config:</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_stack_config</span><span class="p">,</span> <span class="n">configure_logging</span>
-
-<span class="n">config</span> <span class="o">=</span> <span class="n">load_stack_config</span><span class="p">()</span>
-<span class="n">configure_logging</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>               <span class="c1"># applies config.logging</span>
+<p>Reports OK / FAIL for each configured connection, with latency.</p>
+<h2 id="5-export-for-docker-compose">5. Export for Docker Compose<a class="headerlink" href="#5-export-for-docker-compose" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code>omop-config<span class="w"> </span>export-env
 </code></pre></div>
-<p>See <a href="../logging/">Logging</a> for presets, TOML configuration, and per-logger overrides.</p>
-<h3 id="4-use-with-orm-loader-or-omop-alchemy">4. Use with orm-loader or omop-alchemy<a class="headerlink" href="#4-use-with-orm-loader-or-omop-alchemy" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">orm_loader.helpers</span><span class="w"> </span><span class="kn">import</span> <span class="n">bootstrap</span><span class="p">,</span> <span class="n">Base</span>
-
-<span class="n">bootstrap</span><span class="p">(</span><span class="n">engine</span><span class="p">,</span> <span class="n">Base</span><span class="p">)</span>                     <span class="c1"># create schema tables</span>
-</code></pre></div>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">omop_alchemy.oa_bridge</span><span class="w"> </span><span class="kn">import</span> <span class="n">engine_from_config</span>
-
-<span class="n">engine</span> <span class="o">=</span> <span class="n">engine_from_config</span><span class="p">()</span>               <span class="c1"># reads config, resolves resource, returns Engine</span>
+<p>Writes <code>~/.config/omop/config.env</code>. Docker Compose services read it via <code>env_file:</code>.</p>
+<hr />
+<h2 id="verbosity">Verbosity<a class="headerlink" href="#verbosity" title="Permanent link">&para;</a></h2>
+<p>All <code>omop-config</code> commands accept <code>-v</code> / <code>-vv</code> to increase log output:</p>
+<div class="highlight"><pre><span></span><code>omop-config<span class="w"> </span>-v<span class="w"> </span>verify<span class="w">     </span><span class="c1"># INFO level</span>
+omop-config<span class="w"> </span>-vv<span class="w"> </span>show<span class="w">      </span><span class="c1"># DEBUG level</span>
 </code></pre></div>
 <hr />
-<h2 id="option-b-inline-construction-notebooks-quick-scripts">Option B — Inline construction (notebooks, quick scripts)<a class="headerlink" href="#option-b-inline-construction-notebooks-quick-scripts" title="Permanent link">&para;</a></h2>
-<p>No config file required. Pass connections and resources directly:</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">StackConfig</span><span class="p">,</span> <span class="n">ConnectionConfig</span><span class="p">,</span> <span class="n">ResourceConfig</span><span class="p">,</span> <span class="n">Resolver</span>
-
-<span class="n">config</span> <span class="o">=</span> <span class="n">StackConfig</span><span class="o">.</span><span class="n">for_session</span><span class="p">(</span>
-    <span class="n">connections</span><span class="o">=</span><span class="p">{</span>
-        <span class="s2">&quot;local&quot;</span><span class="p">:</span> <span class="n">ConnectionConfig</span><span class="p">(</span>
-            <span class="n">dialect</span><span class="o">=</span><span class="s2">&quot;postgresql&quot;</span><span class="p">,</span>
-            <span class="n">host</span><span class="o">=</span><span class="s2">&quot;localhost&quot;</span><span class="p">,</span>
-            <span class="n">database</span><span class="o">=</span><span class="s2">&quot;omop&quot;</span><span class="p">,</span>
-            <span class="n">secret_source</span><span class="o">=</span><span class="s2">&quot;env:DB_PASSWORD&quot;</span><span class="p">,</span>   <span class="c1"># or: password=&quot;...&quot;</span>
-        <span class="p">)</span>
-    <span class="p">},</span>
-    <span class="n">resources</span><span class="o">=</span><span class="p">{</span>
-        <span class="s2">&quot;default&quot;</span><span class="p">:</span> <span class="n">ResourceConfig</span><span class="p">(</span>
-            <span class="n">primary_db</span><span class="o">=</span><span class="s2">&quot;local&quot;</span><span class="p">,</span>
-            <span class="n">omop_schema</span><span class="o">=</span><span class="s2">&quot;cdm&quot;</span><span class="p">,</span>
-            <span class="n">vocab_schema</span><span class="o">=</span><span class="s2">&quot;vocab&quot;</span><span class="p">,</span>
-        <span class="p">)</span>
-    <span class="p">},</span>
-<span class="p">)</span>
-<span class="n">engine</span> <span class="o">=</span> <span class="n">Resolver</span><span class="p">(</span><span class="n">config</span><span class="p">)</span><span class="o">.</span><span class="n">resolve_resource</span><span class="p">(</span><span class="s2">&quot;default&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">create_engine</span><span class="p">()</span>
-</code></pre></div>
-<p>See <a href="../inline-usage/">Inline &amp; Session Usage</a> for more patterns including session-level overrides.</p>
-<hr />
-<h2 id="environment-overrides">Environment overrides<a class="headerlink" href="#environment-overrides" title="Permanent link">&para;</a></h2>
-<p>Two environment variables are respected at load time:</p>
-<table>
-<thead>
-<tr>
-<th>Variable</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>OA_CONFIG_FILE</code></td>
-<td>Path to a different TOML file</td>
-</tr>
-<tr>
-<td><code>OA_ACTIVE_PROFILE</code></td>
-<td>Override <code>settings.active_profile</code> without editing the file</td>
-</tr>
-</tbody>
-</table>
-<div class="highlight"><pre><span></span><code><span class="nv">OA_ACTIVE_PROFILE</span><span class="o">=</span>prod<span class="w"> </span>python<span class="w"> </span>my_script.py
-</code></pre></div>
-<hr />
-<h2 id="verify-a-config-file">Verify a config file<a class="headerlink" href="#verify-a-config-file" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code>oa-config<span class="w"> </span>show<span class="w">                              </span><span class="c1"># print validated config as JSON</span>
-oa-config<span class="w"> </span>resolve-resource<span class="w"> </span>default<span class="w">         </span><span class="c1"># print the resolved resource bundle</span>
-</code></pre></div>
+<h2 id="next-steps">Next steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Switch profiles: <code>omop-config use &lt;profile&gt;</code> (see <a href="../profiles/">Profiles</a>)</li>
+<li>Configure a package interactively: <code>omop-config configure omop_alchemy</code> (see <a href="../integration/">Integration</a>)</li>
+<li>All TOML fields: <a href="../config-reference/">Config reference</a></li>
+</ul>
 
 
 

@@ -2,62 +2,58 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://AustralianCancerDataNetwork.github.io/oa-configurator/</loc>
-         <lastmod>2026-05-21</lastmod>
+         <lastmod>2026-06-15</lastmod>
     </url>
     <url>
          <loc>https://AustralianCancerDataNetwork.github.io/oa-configurator/architecture/</loc>
-         <lastmod>2026-05-21</lastmod>
+         <lastmod>2026-06-15</lastmod>
     </url>
     <url>
          <loc>https://AustralianCancerDataNetwork.github.io/oa-configurator/config-reference/</loc>
-         <lastmod>2026-05-21</lastmod>
+         <lastmod>2026-06-15</lastmod>
     </url>
     <url>
          <loc>https://AustralianCancerDataNetwork.github.io/oa-configurator/inline-usage/</loc>
-         <lastmod>2026-05-21</lastmod>
+         <lastmod>2026-06-15</lastmod>
     </url>
     <url>
          <loc>https://AustralianCancerDataNetwork.github.io/oa-configurator/integration/</loc>
-         <lastmod>2026-05-21</lastmod>
+         <lastmod>2026-06-15</lastmod>
     </url>
     <url>
          <loc>https://AustralianCancerDataNetwork.github.io/oa-configurator/logging/</loc>
-         <lastmod>2026-05-21</lastmod>
+         <lastmod>2026-06-15</lastmod>
     </url>
     <url>
          <loc>https://AustralianCancerDataNetwork.github.io/oa-configurator/profiles/</loc>
-         <lastmod>2026-05-21</lastmod>
+         <lastmod>2026-06-15</lastmod>
     </url>
     <url>
          <loc>https://AustralianCancerDataNetwork.github.io/oa-configurator/quickstart/</loc>
-         <lastmod>2026-05-21</lastmod>
+         <lastmod>2026-06-15</lastmod>
     </url>
     <url>
          <loc>https://AustralianCancerDataNetwork.github.io/oa-configurator/secrets/</loc>
-         <lastmod>2026-05-21</lastmod>
+         <lastmod>2026-06-15</lastmod>
     </url>
     <url>
          <loc>https://AustralianCancerDataNetwork.github.io/oa-configurator/api/loader/</loc>
-         <lastmod>2026-05-21</lastmod>
+         <lastmod>2026-06-15</lastmod>
     </url>
     <url>
          <loc>https://AustralianCancerDataNetwork.github.io/oa-configurator/api/logging/</loc>
-         <lastmod>2026-05-21</lastmod>
+         <lastmod>2026-06-15</lastmod>
     </url>
     <url>
          <loc>https://AustralianCancerDataNetwork.github.io/oa-configurator/api/models/</loc>
-         <lastmod>2026-05-21</lastmod>
+         <lastmod>2026-06-15</lastmod>
     </url>
     <url>
-         <loc>https://AustralianCancerDataNetwork.github.io/oa-configurator/api/persistence/</loc>
-         <lastmod>2026-05-21</lastmod>
+         <loc>https://AustralianCancerDataNetwork.github.io/oa-configurator/api/package-base/</loc>
+         <lastmod>2026-06-15</lastmod>
     </url>
     <url>
          <loc>https://AustralianCancerDataNetwork.github.io/oa-configurator/api/resolver/</loc>
-         <lastmod>2026-05-21</lastmod>
-    </url>
-    <url>
-         <loc>https://AustralianCancerDataNetwork.github.io/oa-configurator/api/schema-helpers/</loc>
-         <lastmod>2026-05-21</lastmod>
+         <lastmod>2026-06-15</lastmod>
     </url>
 </urlset>

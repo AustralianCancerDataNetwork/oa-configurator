@@ -8,6 +8,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      force_publish:
+        description: 'Force publish to PyPI without semantic-release (use after a failed release)'
+        type: boolean
+        default: false
 
 jobs:
   test:
@@ -72,7 +77,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and publish to PyPI
-        if: steps.semantic.outputs.new_release_published == 'true'
+        if: steps.semantic.outputs.new_release_published == 'true' || inputs.force_publish == true
         run: |
           uv build
           uv publish

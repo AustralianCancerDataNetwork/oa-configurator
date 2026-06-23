@@ -215,7 +215,7 @@ class _DynamicConfigureGroup(TyperGroup):
     def list_commands(self, ctx):
         return sorted(ep.name for ep in entry_points(group="omop.config"))
 
-    def get_command(self, ctx, cmd_name):
+    def get_command(self, ctx, cmd_name):  # type: ignore 
         eps = {ep.name: ep for ep in entry_points(group="omop.config")}
         ep = eps.get(cmd_name)
         return _build_package_command(cmd_name, ep.load()) if ep else None
@@ -374,7 +374,7 @@ def _run_configure_package(
     save_stack_config(config)
     console.print(f"\n[green]✓[/green] Saved \\[tools.{tool_name}] to [dim]{CONFIG_PATH}[/dim]")
 
-    if cls.test_resources:
+    if cls.test_resources and flags_arg is None:
         console.print("\n[dim]─── Test database (optional) ───[/dim]")
         console.print(
             "[yellow]⚠[/yellow]  Test resources are used by the test suite, which runs"

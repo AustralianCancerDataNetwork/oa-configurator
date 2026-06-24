@@ -777,6 +777,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="for_session">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#oa_configurator.models.StackConfig.for_session--notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1167,6 +1184,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="for_session">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#oa_configurator.models.StackConfig.for_session--notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1561,9 +1595,10 @@ via :meth:<code>for_session</code> for tests and scripts (no file I/O).</p>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">for_session</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">databases</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">DatabaseConfig</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">resources</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">tools</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">profiles</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">resources</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ResourceConfig</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">tools</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ToolConfig</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">profiles</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ProfileOverrideConfig</span><span class="p">]</span>
+    <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">active_profile</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">resource_aliases</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StackConfig</span>
@@ -1574,6 +1609,13 @@ via :meth:<code>for_session</code> for tests and scripts (no file I/O).</p>
         <p>Build a config in memory without a TOML file.</p>
 <p>Intended for tests and scripts. Cross-references are validated at
 construction time, same as for file-loaded configs.</p>
+<h4 id="oa_configurator.models.StackConfig.for_session--notes">Notes<a class="headerlink" href="#oa_configurator.models.StackConfig.for_session--notes" title="Permanent link">&para;</a></h4>
+<p>Pydantic still coerces a raw dict (e.g. one shaped like a parsed TOML
+table) into the corresponding model at validation time, so passing
+plain dicts keeps working at runtime. The parameter types above are
+the strict, intended shape; prefer constructing ResourceConfig,
+ToolConfig, and ProfileOverrideConfig instances directly so a renamed
+field is caught by the type checker instead of only at validation time.</p>
 
 
     </div>

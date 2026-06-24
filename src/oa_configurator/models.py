@@ -72,11 +72,16 @@ class DatabaseConfig(BaseModel):
         if self.dialect.startswith("sqlite"):
             db = self.database_name or ":memory:"
             return f"sqlite:///{db}"
+        if not self.host:
+            raise ValueError(
+                "DatabaseConfig has no `host` set and no longer defaults to 'localhost'."
+                " Set `host` explicitly in config.toml."
+            )
         return URL.create(
             drivername=self.dialect,
             username=self.user,
             password=self.password,
-            host=self.host or "localhost",
+            host=self.host,
             port=self.port,
             database=self.database_name or "",
         ).render_as_string(hide_password=hide_password)
@@ -282,9 +287,9 @@ class StackConfig(BaseModel):
         cls,
         *,
         databases: dict[str, DatabaseConfig] | None = None,
-        resources: dict | None = None,
-        tools: dict | None = None,
-        profiles: dict | None = None,
+        resources: dict[str, ResourceConfig] | None = None,
+        tools: dict[str, ToolConfig] | None = None,
+        profiles: dict[str, ProfileOverrideConfig] | None = None,
         active_profile: str | None = None,
         resource_aliases: dict[str, str] | None = None,
     ) -> StackConfig:
@@ -292,6 +297,15 @@ class StackConfig(BaseModel):
 
         Intended for tests and scripts. Cross-references are validated at
         construction time, same as for file-loaded configs.
+
+        Notes
+        -----
+        Pydantic still coerces a raw dict (e.g. one shaped like a parsed TOML
+        table) into the corresponding model at validation time, so passing
+        plain dicts keeps working at runtime. The parameter types above are
+        the strict, intended shape; prefer constructing ResourceConfig,
+        ToolConfig, and ProfileOverrideConfig instances directly so a renamed
+        field is caught by the type checker instead of only at validation time.
         """
         return cls(
             active_profile=active_profile,

@@ -6,7 +6,7 @@ import pytest
 
 from oa_configurator import Resolver, StackConfig
 from oa_configurator.resolver import ResolvedDatabaseTarget, ResolvedResource
-from oa_configurator.models import DatabaseConfig
+from oa_configurator.models import DatabaseConfig, ProfileOverrideConfig, ResourceConfig, ToolConfig
 
 
 class TestResolveDatabase:
@@ -32,11 +32,11 @@ class TestResolveDatabase:
     def test_profile_database_takes_precedence(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name="/base.db")},
-            resources={"default": {"database": "db", "cdm_schema": "omop"}},
+            resources={"default": ResourceConfig(database="db", cdm_schema="omop")},
             profiles={
-                "test": {
-                    "databases": {"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-                }
+                "test": ProfileOverrideConfig(
+                    databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
+                ),
             },
             active_profile="test",
         )
@@ -65,11 +65,7 @@ class TestResolveResource:
                 "vocab": DatabaseConfig(dialect="sqlite", database_name=":memory:"),
             },
             resources={
-                "default": {
-                    "database": "cdm",
-                    "vocab_database": "vocab",
-                    "cdm_schema": "omop",
-                }
+                "default": ResourceConfig(database="cdm", vocab_database="vocab", cdm_schema="omop"),
             },
         )
         r = Resolver(cfg)
@@ -95,13 +91,11 @@ class TestResolveResource:
     def test_profile_resource_takes_precedence(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"default": {"database": "db", "cdm_schema": "base_schema"}},
+            resources={"default": ResourceConfig(database="db", cdm_schema="base_schema")},
             profiles={
-                "test": {
-                    "resources": {
-                        "default": {"database": "db", "cdm_schema": "test_schema"}
-                    }
-                }
+                "test": ProfileOverrideConfig(
+                    resources={"default": ResourceConfig(database="db", cdm_schema="test_schema")},
+                ),
             },
             active_profile="test",
         )
@@ -137,8 +131,8 @@ class TestResolveTool:
     def test_tool_extra_dict(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite")},
-            resources={"default": {"database": "db", "cdm_schema": "omop"}},
-            tools={"omop_emb": {"extra": {"backend": "sqlitevec", "path": "/data"}}},
+            resources={"default": ResourceConfig(database="db", cdm_schema="omop")},
+            tools={"omop_emb": ToolConfig(extra={"backend": "sqlitevec", "path": "/data"})},
         )
         r = Resolver(cfg)
         tool = r.resolve_tool("omop_emb")
@@ -183,7 +177,7 @@ class TestResourceAliases:
     def test_alias_resolves_resource(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"my_prod": {"database": "db", "cdm_schema": "main"}},
+            resources={"my_prod": ResourceConfig(database="db", cdm_schema="main")},
             resource_aliases={"cdm_db": "my_prod"},
         )
         r = Resolver(cfg)
@@ -194,11 +188,11 @@ class TestResourceAliases:
     def test_alias_with_profile_override(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"my_prod": {"database": "db", "cdm_schema": "base"}},
+            resources={"my_prod": ResourceConfig(database="db", cdm_schema="base")},
             profiles={
-                "test": {
-                    "resources": {"my_prod": {"database": "db", "cdm_schema": "test_schema"}}
-                }
+                "test": ProfileOverrideConfig(
+                    resources={"my_prod": ResourceConfig(database="db", cdm_schema="test_schema")},
+                ),
             },
             resource_aliases={"cdm_db": "my_prod"},
             active_profile="test",

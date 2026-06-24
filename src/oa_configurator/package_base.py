@@ -31,7 +31,7 @@ from typing import Any, ClassVar, Self
 
 from pydantic import BaseModel
 
-from .models import StackConfig
+from .models import DatabaseConfig, StackConfig
 
 
 @dataclass(frozen=True)
@@ -56,12 +56,11 @@ class ResourceSpec:
         When ``False``, the configure prompt skips the vocab schema and
         results schema questions — those are OMOP CDM-specific concepts that
         do not apply to other databases such as the pgvector embedding store.
-    defaults
-        Optional pre-fill values for connection prompts. Keys match
-        ``DatabaseConfig`` and ``ResourceConfig`` field names (``dialect``,
-        ``host``, ``port``, ``user``, ``password``, ``database_name``,
-        ``cdm_schema``). Applied when there is no stored config for a field
-        — lower priority than an existing stored value.
+    connection_defaults
+        Optional pre-fill values for the connection prompts (dialect, host, port,
+        user, password, database_name), as a ``DatabaseConfig`` instance. Only the
+        fields actually set are used; the rest fall through to each field's own
+        default. Applied when there is no stored config for a field.
     """
 
     semantic_name: str
@@ -70,7 +69,7 @@ class ResourceSpec:
     connection_name_hint: str = ""
     cdm_schema_default: str = "omop"
     is_cdm_database: bool = True
-    defaults: dict[str, Any] | None = field(default=None, compare=False)
+    connection_defaults: DatabaseConfig | None = field(default=None, compare=False)
 
 
 class ConfigurationError(ValueError):

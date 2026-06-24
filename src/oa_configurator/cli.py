@@ -25,9 +25,11 @@ from .cli_fields import (
     CDM_SCHEMA_FIELDS,
     DATABASE_LABEL_FIELDS,
     NON_CDM_SCHEMA_FIELDS,
+    TEST_FLAG_PREFIX,
     build_database_config,
     build_resource_config,
     build_resource_params,
+    flag_name,
     resolve_field_value,
     resolve_fields,
 )
@@ -105,11 +107,15 @@ def _resolve_resource(
 
     missing_required: list[str] = []
 
+    spec_defaults = (
+        {k: str(v) for k, v in spec.connection_defaults.model_dump(exclude_unset=True).items()}
+        if spec.connection_defaults else None
+    )
     _resolve_field = partial(
         resolve_field_value,
         flags=flags,
         stored=_stored,
-        spec_defaults=spec.defaults,
+        spec_defaults=spec_defaults,
         non_interactive=non_interactive,
         missing_required=missing_required,
     )
@@ -172,16 +178,16 @@ def _check_missing_required(
         Field names appended to by resolve_field_value while resolving spec. Empty
         means nothing is missing.
     is_test_resource : bool
-        Whether spec is a test resource, controls the ``--test-`` flag prefix shown
-        in the error message.
+        Whether spec is a test resource, selects TEST_FLAG_PREFIX for the flag names
+        shown in the error message.
     non_interactive : bool
         Whether this resolution was non-interactive. Interactive resolutions never
         have anything in missing_required, since prompting always produces a value.
     """
     if not non_interactive or not missing_required:
         return
-    prefix = "--test-" if is_test_resource else "--"
-    flag_names = ", ".join(f"{prefix}{k.replace('_', '-')}" for k in missing_required)
+    prefix = TEST_FLAG_PREFIX if is_test_resource else ""
+    flag_names = ", ".join(flag_name(k, prefix) for k in missing_required)
     err_console.print(
         f"\n[red bold]Missing required field(s) for {spec.display_name!r}:[/red bold] {flag_names}\n"
         f"No flag, stored config, or spec default is available for these. Pass them explicitly."
@@ -260,7 +266,7 @@ def _build_extra_params(cls) -> list[click.Parameter]:
     """Generate Click options for a package's extra fields from its model_fields."""
     return [
         click.Option(
-            [f"--{name.replace('_', '-')}"],
+            [flag_name(name)],
             default=None,
             type=click.STRING,
             help=info.description or "",
@@ -273,7 +279,7 @@ def _build_package_command(ep_name: str, cls) -> click.Command:
     """Build a Click command for one registered package entry point."""
     resource_params = [p for spec in cls.owned_resources for p in build_resource_params(spec)]
     test_resource_params = [
-        p for spec in cls.test_resources for p in build_resource_params(spec, prefix="test-")
+        p for spec in cls.test_resources for p in build_resource_params(spec, prefix=TEST_FLAG_PREFIX)
     ]
     extra_params = _build_extra_params(cls)
     resource_names = {p.name for p in resource_params}

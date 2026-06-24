@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import tomllib
 
-from oa_configurator import FS_CDM_SCHEMA, FS_DATABASE, Resolver, StackConfig, DatabaseConfig
+from oa_configurator import Resolver, StackConfig, DatabaseConfig, ResourceConfig, ToolConfig
 from oa_configurator.io import patch_active_profile, save_stack_config, write_env_file
 
 
@@ -21,10 +21,7 @@ def _make_cdm_stack() -> StackConfig:
             )
         },
         resources={
-            "default": {
-                FS_DATABASE.name: "cdm",
-                FS_CDM_SCHEMA.name: "omop",
-            }
+            "default": ResourceConfig(database="cdm", cdm_schema="omop"),
         },
     )
 
@@ -74,11 +71,11 @@ class TestWriteEnvFile:
                 "emb": DatabaseConfig(dialect="postgresql+psycopg", host="emb.host", port=5433, user="eu", password="ep", database_name="embeddings"),
             },
             resources={
-                "default": {FS_DATABASE.name: "cdm", FS_CDM_SCHEMA.name: "omop"},
-                "omop_emb": {FS_DATABASE.name: "emb", FS_CDM_SCHEMA.name: "emb"},
+                "default": ResourceConfig(database="cdm", cdm_schema="omop"),
+                "omop_emb": ResourceConfig(database="emb", cdm_schema="emb"),
             },
             tools={
-                "omop_emb": {"extra": {"backend": "pgvector"}},
+                "omop_emb": ToolConfig(extra={"backend": "pgvector"}),
             },
         )
         out = tmp_path / "config.env"
@@ -90,8 +87,8 @@ class TestWriteEnvFile:
     def test_tool_extra_scalars_exported(self, tmp_path):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"default": {FS_DATABASE.name: "db", FS_CDM_SCHEMA.name: "omop"}},
-            tools={"my_pkg": {"extra": {"foo": "bar", "count": 3}}},
+            resources={"default": ResourceConfig(database="db", cdm_schema="omop")},
+            tools={"my_pkg": ToolConfig(extra={"foo": "bar", "count": 3})},
         )
         out = tmp_path / "config.env"
         write_env_file(Resolver(cfg), path=out)
@@ -108,7 +105,7 @@ class TestSaveStackConfig:
     def test_creates_file(self, tmp_path):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"default": {FS_DATABASE.name: "db", FS_CDM_SCHEMA.name: "omop"}},
+            resources={"default": ResourceConfig(database="db", cdm_schema="omop")},
         )
         out = tmp_path / "config.toml"
         save_stack_config(cfg, out)
@@ -119,7 +116,7 @@ class TestSaveStackConfig:
             databases={
                 "cdm": DatabaseConfig(dialect="postgresql+psycopg", host="localhost", port=5432, user="omop", password="pass", database_name="omop_cdm")
             },
-            resources={"default": {FS_DATABASE.name: "cdm", FS_CDM_SCHEMA.name: "omop"}},
+            resources={"default": ResourceConfig(database="cdm", cdm_schema="omop")},
         )
         out = tmp_path / "config.toml"
         save_stack_config(cfg, out)
@@ -135,7 +132,7 @@ class TestSaveStackConfig:
     def test_none_values_stripped(self, tmp_path):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite")},
-            resources={"default": {FS_DATABASE.name: "db", FS_CDM_SCHEMA.name: "omop"}},
+            resources={"default": ResourceConfig(database="db", cdm_schema="omop")},
         )
         out = tmp_path / "config.toml"
         save_stack_config(cfg, out)
@@ -157,7 +154,7 @@ class TestPatchActiveProfile:
     def test_updates_existing_file(self, tmp_path):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite")},
-            resources={"default": {FS_DATABASE.name: "db", FS_CDM_SCHEMA.name: "omop"}},
+            resources={"default": ResourceConfig(database="db", cdm_schema="omop")},
         )
         out = tmp_path / "config.toml"
         save_stack_config(cfg, out)
@@ -169,7 +166,7 @@ class TestPatchActiveProfile:
     def test_does_not_touch_other_fields(self, tmp_path):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite")},
-            resources={"default": {FS_DATABASE.name: "db", FS_CDM_SCHEMA.name: "omop"}},
+            resources={"default": ResourceConfig(database="db", cdm_schema="omop")},
             active_profile="dev",
         )
         out = tmp_path / "config.toml"

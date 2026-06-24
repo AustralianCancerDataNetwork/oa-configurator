@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from oa_configurator import FS_CDM_SCHEMA, FS_DATABASE, DatabaseConfig, ResourceConfig, StackConfig, ToolConfig
+from oa_configurator import DatabaseConfig, ResourceConfig, StackConfig, ToolConfig
+from oa_configurator.models import ProfileOverrideConfig
 
 
 class TestDatabaseConfig:
@@ -88,9 +89,10 @@ class TestStackConfig:
         assert "default" in minimal_stack.resources
 
     def test_for_session_accepts_raw_dicts(self):
+        """Raw, TOML-table-shaped dicts (not ResourceConfig instances) still coerce at validation time."""
         cfg = StackConfig.for_session(
             databases={"c": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"r": {FS_DATABASE.name: "c", FS_CDM_SCHEMA.name: "s"}},
+            resources={"r": {"database": "c", "cdm_schema": "s"}},  # type: ignore[dict-item]
         )
         assert isinstance(cfg.databases["c"], DatabaseConfig)
         assert isinstance(cfg.resources["r"], ResourceConfig)
@@ -99,7 +101,7 @@ class TestStackConfig:
         with pytest.raises(ValueError, match="unknown database"):
             StackConfig.for_session(
                 databases={},
-                resources={"r": {FS_DATABASE.name: "missing", FS_CDM_SCHEMA.name: "s"}},
+                resources={"r": ResourceConfig(database="missing", cdm_schema="s")},
             )
 
     def test_cross_ref_validation_unknown_resource_in_tool(self):
@@ -107,26 +109,26 @@ class TestStackConfig:
             StackConfig.for_session(
                 databases={"c": DatabaseConfig(dialect="sqlite")},
                 resources={},
-                tools={"t": {"default_resource": "missing"}},
+                tools={"t": ToolConfig(default_resource="missing")},
             )
 
     def test_cross_ref_validation_vocab_database(self):
         with pytest.raises(ValueError, match="unknown database"):
             StackConfig.for_session(
                 databases={"c": DatabaseConfig(dialect="sqlite")},
-                resources={"r": {FS_DATABASE.name: "c", "vocab_database": "missing", FS_CDM_SCHEMA.name: "s"}},
+                resources={"r": ResourceConfig(database="c", vocab_database="missing", cdm_schema="s")},
             )
 
     def test_profile_overlay_cross_ref(self):
         cfg = StackConfig.for_session(
             databases={"c": DatabaseConfig(dialect="sqlite")},
-            resources={"r": {FS_DATABASE.name: "c", FS_CDM_SCHEMA.name: "s"}},
+            resources={"r": ResourceConfig(database="c", cdm_schema="s")},
             profiles={
-                "test": {
-                    "databases": {"tc": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-                    "resources": {"r": {FS_DATABASE.name: "tc", FS_CDM_SCHEMA.name: "s"}},
-                }
-            }
+                "test": ProfileOverrideConfig(
+                    databases={"tc": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
+                    resources={"r": ResourceConfig(database="tc", cdm_schema="s")},
+                ),
+            },
         )
         assert "tc" in cfg.profiles["test"].databases
 
@@ -134,11 +136,11 @@ class TestStackConfig:
         with pytest.raises(ValueError, match="unknown database"):
             StackConfig.for_session(
                 databases={"c": DatabaseConfig(dialect="sqlite")},
-                resources={"r": {FS_DATABASE.name: "c", FS_CDM_SCHEMA.name: "s"}},
+                resources={"r": ResourceConfig(database="c", cdm_schema="s")},
                 profiles={
-                    "bad": {
-                        "resources": {"r": {FS_DATABASE.name: "nonexistent", FS_CDM_SCHEMA.name: "s"}},
-                    }
+                    "bad": ProfileOverrideConfig(
+                        resources={"r": ResourceConfig(database="nonexistent", cdm_schema="s")},
+                    ),
                 },
             )
 

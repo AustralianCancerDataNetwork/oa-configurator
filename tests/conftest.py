@@ -9,12 +9,9 @@ from __future__ import annotations
 import pytest
 
 from oa_configurator import (
-    FS_CDM_SCHEMA,
-    FS_DATABASE,
-    FS_RESULTS_SCHEMA,
-    FS_VOCAB_SCHEMA,
     StackConfig,
     DatabaseConfig,
+    ResourceConfig,
 )
 
 
@@ -29,10 +26,7 @@ def minimal_stack() -> StackConfig:
             )
         },
         resources={
-            "default": {
-                FS_DATABASE.name: "db",
-                FS_CDM_SCHEMA.name: "omop",
-            }
+            "default": ResourceConfig(database="db", cdm_schema="omop"),
         },
     )
 
@@ -52,11 +46,11 @@ def pg_stack() -> StackConfig:
             )
         },
         resources={
-            "default": {
-                FS_DATABASE.name: "cdm",
-                FS_CDM_SCHEMA.name: "omop",
-                FS_VOCAB_SCHEMA.name: "omop_vocab",
-                FS_RESULTS_SCHEMA.name: "results",
-            }
+            "default": ResourceConfig(
+                database="cdm",
+                cdm_schema="omop",
+                vocab_schema="omop_vocab",
+                results_schema="results",
+            ),
         },
     )

@@ -8,12 +8,13 @@ import pytest
 
 from oa_configurator import (
     ConfigurationError,
-    FS_CDM_SCHEMA,
-    FS_DATABASE,
     PackageConfigBase,
     StackConfig,
     DatabaseConfig,
+    ResourceConfig,
+    ToolConfig,
 )
+from oa_configurator.models import ProfileOverrideConfig
 
 
 class SampleConfig(PackageConfigBase):
@@ -25,7 +26,7 @@ class SampleConfig(PackageConfigBase):
 class TestPackageConfigBase:
     def test_from_stack_reads_extra(self):
         cfg = StackConfig.for_session(
-            tools={"sample_tool": {"extra": {"backend": "custom", "file_path": "/data"}}}
+            tools={"sample_tool": ToolConfig(extra={"backend": "custom", "file_path": "/data"})}
         )
         sample = SampleConfig.from_stack(cfg)
         assert sample.backend == "custom"
@@ -39,7 +40,7 @@ class TestPackageConfigBase:
 
     def test_from_stack_uses_defaults_when_extra_empty(self):
         cfg = StackConfig.for_session(
-            tools={"sample_tool": {"extra": {}}}
+            tools={"sample_tool": ToolConfig(extra={})}
         )
         sample = SampleConfig.from_stack(cfg)
         assert sample.backend == "default_backend"
@@ -59,7 +60,7 @@ class TestPackageConfigBase:
         original = SampleConfig(backend="sqlitevec", file_path="/embeddings")
         extra = original.to_extra_dict()
         cfg = StackConfig.for_session(
-            tools={"sample_tool": {"extra": extra}}
+            tools={"sample_tool": ToolConfig(extra=extra)}
         )
         restored = SampleConfig.from_stack(cfg)
         assert restored.backend == "sqlitevec"
@@ -83,7 +84,7 @@ class TestRequiredResources:
     def test_passes_when_resource_present(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"cdm_db": {FS_DATABASE.name: "db", FS_CDM_SCHEMA.name: "main"}},
+            resources={"cdm_db": ResourceConfig(database="db", cdm_schema="main")},
         )
         result = RequiredConfig.from_stack(cfg)
         assert result.value == "default_value"
@@ -107,7 +108,7 @@ class TestRequiredResources:
     def test_passes_when_resource_aliased(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"my_prod": {FS_DATABASE.name: "db", FS_CDM_SCHEMA.name: "main"}},
+            resources={"my_prod": ResourceConfig(database="db", cdm_schema="main")},
             resource_aliases={"cdm_db": "my_prod"},
         )
         result = RequiredConfig.from_stack(cfg)
@@ -116,8 +117,8 @@ class TestRequiredResources:
     def test_respects_default_resource_override(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"my_custom": {FS_DATABASE.name: "db", FS_CDM_SCHEMA.name: "main"}},
-            tools={"required_tool": {"default_resource": "my_custom"}},
+            resources={"my_custom": ResourceConfig(database="db", cdm_schema="main")},
+            tools={"required_tool": ToolConfig(default_resource="my_custom")},
         )
         result = RequiredConfig.from_stack(cfg)
         assert result.value == "default_value"
@@ -126,9 +127,9 @@ class TestRequiredResources:
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
             profiles={
-                "test": {
-                    "resources": {"cdm_db": {FS_DATABASE.name: "db", FS_CDM_SCHEMA.name: "test_schema"}}
-                }
+                "test": ProfileOverrideConfig(
+                    resources={"cdm_db": ResourceConfig(database="db", cdm_schema="test_schema")},
+                ),
             },
             active_profile="test",
         )

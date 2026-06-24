@@ -36,6 +36,30 @@ class FieldSpec:
     hide_input: bool = False
 
 
+TEST_FLAG_PREFIX = "test"
+
+
+def flag_name(name: str, prefix: str = "") -> str:
+    """Build a Click flag name from a field name and an optional prefix.
+
+    Parameters
+    ----------
+    name : str
+        The field name, e.g. "database_name". Underscores become hyphens.
+    prefix : str, optional
+        A prefix to insert before the field name, without a trailing hyphen
+        (e.g. "test", not "test-"). The hyphen is appended automatically when
+        prefix is non-empty. Default: ""
+
+    Returns
+    -------
+    str
+        The flag name, e.g. "--database-name" or "--test-database-name".
+    """
+    full_prefix = f"{prefix}-" if prefix else ""
+    return f"--{full_prefix}{name.replace('_', '-')}"
+
+
 # -------------------
 # Database connection
 # -------------------
@@ -141,7 +165,8 @@ def resolve_field_value(
     stored : dict[str, str]
         Values already stored in config.toml for this resource. Checked second.
     spec_defaults : dict[str, str] or None
-        Package-supplied defaults for this resource (ResourceSpec.defaults). Checked third.
+        Package-supplied defaults for this resource (ResourceSpec.connection_defaults,
+        stringified). Checked third.
     non_interactive : bool
         Whether to skip prompting and fall back to default_value instead.
     missing_required : list[str]
@@ -235,9 +260,10 @@ def build_resource_params(spec: ResourceSpec, *, prefix: str = "") -> list[click
     spec : ResourceSpec
         The resource to generate flags for.
     prefix : str, optional
-        A prefix for the flag names (e.g. "test-"), used to prevent namespace
-        collisions between a package's owned resource and its test resource, which
-        often share field names (host, port, etc.). Default: ""
+        A prefix for the flag names, without a trailing hyphen (e.g. "test", not
+        "test-"), used to prevent namespace collisions between a package's owned
+        resource and its test resource, which often share field names (host, port,
+        etc.). Default: ""
 
     Returns
     -------
@@ -246,12 +272,11 @@ def build_resource_params(spec: ResourceSpec, *, prefix: str = "") -> list[click
         fields (CDM_SCHEMA_FIELDS or NON_CDM_SCHEMA_FIELDS, depending on
         spec.is_cdm_database).
     """
-    prefixed_option = lambda n: f"--{prefix}{n.replace('_', '-')}"
     schema_fields = CDM_SCHEMA_FIELDS if spec.is_cdm_database else NON_CDM_SCHEMA_FIELDS
 
     return [
         click.Option(
-            [prefixed_option(f.name)],
+            [flag_name(f.name, prefix)],
             default=None,
             type=click.STRING,
             help=f.label,

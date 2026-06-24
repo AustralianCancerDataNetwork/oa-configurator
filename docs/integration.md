@@ -163,7 +163,8 @@ leaves `cdm_db` unambiguously pointing at production data throughout the test se
 The test resource must be provisioned for real before pytest runs. There is no fallback that
 papers over a missing one, by design (see the callout above). `omop-config configure <package>`
 accepts `--test-*` flags (mirroring every owned-resource flag, e.g. `--test-host`, `--test-port`,
-`--test-database-name`) for exactly this:
+`--test-database-name`) for exactly this. The `test-` prefix is fixed and the same for every
+package; it is not configurable per package.
 
 === "Local development"
 

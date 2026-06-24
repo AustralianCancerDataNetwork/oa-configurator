@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from oa_configurator import DatabaseConfig, ResourceConfig, StackConfig, ToolConfig
+from oa_configurator import FS_CDM_SCHEMA, FS_DATABASE, DatabaseConfig, ResourceConfig, StackConfig, ToolConfig
 
 
 class TestDatabaseConfig:
@@ -90,7 +90,7 @@ class TestStackConfig:
     def test_for_session_accepts_raw_dicts(self):
         cfg = StackConfig.for_session(
             databases={"c": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"r": {"database": "c", "cdm_schema": "s"}},
+            resources={"r": {FS_DATABASE.name: "c", FS_CDM_SCHEMA.name: "s"}},
         )
         assert isinstance(cfg.databases["c"], DatabaseConfig)
         assert isinstance(cfg.resources["r"], ResourceConfig)
@@ -99,7 +99,7 @@ class TestStackConfig:
         with pytest.raises(ValueError, match="unknown database"):
             StackConfig.for_session(
                 databases={},
-                resources={"r": {"database": "missing", "cdm_schema": "s"}},
+                resources={"r": {FS_DATABASE.name: "missing", FS_CDM_SCHEMA.name: "s"}},
             )
 
     def test_cross_ref_validation_unknown_resource_in_tool(self):
@@ -114,17 +114,17 @@ class TestStackConfig:
         with pytest.raises(ValueError, match="unknown database"):
             StackConfig.for_session(
                 databases={"c": DatabaseConfig(dialect="sqlite")},
-                resources={"r": {"database": "c", "vocab_database": "missing", "cdm_schema": "s"}},
+                resources={"r": {FS_DATABASE.name: "c", "vocab_database": "missing", FS_CDM_SCHEMA.name: "s"}},
             )
 
     def test_profile_overlay_cross_ref(self):
         cfg = StackConfig.for_session(
             databases={"c": DatabaseConfig(dialect="sqlite")},
-            resources={"r": {"database": "c", "cdm_schema": "s"}},
+            resources={"r": {FS_DATABASE.name: "c", FS_CDM_SCHEMA.name: "s"}},
             profiles={
                 "test": {
                     "databases": {"tc": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-                    "resources": {"r": {"database": "tc", "cdm_schema": "s"}},
+                    "resources": {"r": {FS_DATABASE.name: "tc", FS_CDM_SCHEMA.name: "s"}},
                 }
             }
         )
@@ -134,10 +134,10 @@ class TestStackConfig:
         with pytest.raises(ValueError, match="unknown database"):
             StackConfig.for_session(
                 databases={"c": DatabaseConfig(dialect="sqlite")},
-                resources={"r": {"database": "c", "cdm_schema": "s"}},
+                resources={"r": {FS_DATABASE.name: "c", FS_CDM_SCHEMA.name: "s"}},
                 profiles={
                     "bad": {
-                        "resources": {"r": {"database": "nonexistent", "cdm_schema": "s"}},
+                        "resources": {"r": {FS_DATABASE.name: "nonexistent", FS_CDM_SCHEMA.name: "s"}},
                     }
                 },
             )

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from oa_configurator import Resolver, StackConfig
+from oa_configurator import FS_CDM_SCHEMA, FS_DATABASE, Resolver, StackConfig
 from oa_configurator.resolver import ResolvedDatabaseTarget, ResolvedResource
 from oa_configurator.models import DatabaseConfig
 
@@ -32,7 +32,7 @@ class TestResolveDatabase:
     def test_profile_database_takes_precedence(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name="/base.db")},
-            resources={"default": {"database": "db", "cdm_schema": "omop"}},
+            resources={"default": {FS_DATABASE.name: "db", FS_CDM_SCHEMA.name: "omop"}},
             profiles={
                 "test": {
                     "databases": {"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
@@ -66,9 +66,9 @@ class TestResolveResource:
             },
             resources={
                 "default": {
-                    "database": "cdm",
+                    FS_DATABASE.name: "cdm",
                     "vocab_database": "vocab",
-                    "cdm_schema": "omop",
+                    FS_CDM_SCHEMA.name: "omop",
                 }
             },
         )
@@ -95,11 +95,11 @@ class TestResolveResource:
     def test_profile_resource_takes_precedence(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"default": {"database": "db", "cdm_schema": "base_schema"}},
+            resources={"default": {FS_DATABASE.name: "db", FS_CDM_SCHEMA.name: "base_schema"}},
             profiles={
                 "test": {
                     "resources": {
-                        "default": {"database": "db", "cdm_schema": "test_schema"}
+                        "default": {FS_DATABASE.name: "db", FS_CDM_SCHEMA.name: "test_schema"}
                     }
                 }
             },
@@ -137,7 +137,7 @@ class TestResolveTool:
     def test_tool_extra_dict(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite")},
-            resources={"default": {"database": "db", "cdm_schema": "omop"}},
+            resources={"default": {FS_DATABASE.name: "db", FS_CDM_SCHEMA.name: "omop"}},
             tools={"omop_emb": {"extra": {"backend": "sqlitevec", "path": "/data"}}},
         )
         r = Resolver(cfg)
@@ -183,7 +183,7 @@ class TestResourceAliases:
     def test_alias_resolves_resource(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"my_prod": {"database": "db", "cdm_schema": "main"}},
+            resources={"my_prod": {FS_DATABASE.name: "db", FS_CDM_SCHEMA.name: "main"}},
             resource_aliases={"cdm_db": "my_prod"},
         )
         r = Resolver(cfg)
@@ -194,10 +194,10 @@ class TestResourceAliases:
     def test_alias_with_profile_override(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"my_prod": {"database": "db", "cdm_schema": "base"}},
+            resources={"my_prod": {FS_DATABASE.name: "db", FS_CDM_SCHEMA.name: "base"}},
             profiles={
                 "test": {
-                    "resources": {"my_prod": {"database": "db", "cdm_schema": "test_schema"}}
+                    "resources": {"my_prod": {FS_DATABASE.name: "db", FS_CDM_SCHEMA.name: "test_schema"}}
                 }
             },
             resource_aliases={"cdm_db": "my_prod"},

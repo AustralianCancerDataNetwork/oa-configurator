@@ -76,7 +76,7 @@ class DatabaseConfig(BaseModel):
             drivername=self.dialect,
             username=self.user,
             password=self.password,
-            host=self.host or "localhost",
+            host=self.host,
             port=self.port,
             database=self.database_name or "",
         ).render_as_string(hide_password=hide_password)

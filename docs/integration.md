@@ -123,6 +123,10 @@ def test_something(monkeypatch):
 
 This covers the vast majority of tests. No file I/O, no environment-specific setup needed.
 
+!!! success "`for_session() + monkeypatch` is NOT a fallback"
+    `for_session()` + `monkeypatch` is for isolated unit tests where only config *values* matter, not config *source*. It **MUST NEVER** be used to paper over missing configuration in CI or local dev. If a code path needs `get_config()`/`load_stack_config()` to succeed at all, you
+    need to provide a real configuration for the test case.
+
 ### Integration tests: dedicated test resource
 
 For tests that exercise a real database (e.g. PostgreSQL-specific SQL, bulk loading, trigger
@@ -133,27 +137,20 @@ The canonical resource name is `test_<package>_db` (e.g. `test_cdm_db` for omop-
 Keeping the name distinct from the production resource (`cdm_db`) is a mandatory safety guard:
 the test suite must never accidentally connect to a production database.
 
-In `conftest.py`, resolve the test resource explicitly:
+In `conftest.py`, resolve the test resource via the `resolve_test_resource` pytest-plugin
+helper, which skips cleanly whether `config.toml` is entirely missing or simply
+doesn't have this resource configured yet:
 
 ```python
-_TEST_RESOURCE = "test_cdm_db"
-
 @pytest.fixture(scope="session")
 def pg_engine():
-    # CI: sets ENGINE_CDM env var no file I/O needed
-    url = os.getenv("ENGINE_CDM")
-    if url:
-        return sa.create_engine(url, future=True)
+    from oa_configurator.pytest_plugin import resolve_test_resource
+    from my_package.config import MyPackageConfig
 
-    # Local Dev:  read dedicated test resource from config
-    from oa_configurator import Resolver, load_stack_config
-    from oa_configurator.package_base import ConfigurationError
-    try:
-        stack = load_stack_config()
-        resolved = Resolver(stack).resolve_resource(_TEST_RESOURCE)
-        return resolved.create_engine()
-    except (FileNotFoundError, KeyError, ConfigurationError):
-        pytest.skip("No PostgreSQL test database configured.")
+    url = resolve_test_resource(MyPackageConfig.TEST_DB)
+    engine = sa.create_engine(url, future=True)
+    yield engine
+    engine.dispose()
 ```
 
 **Why not `OA_ACTIVE_PROFILE=test`?** Setting `OA_ACTIVE_PROFILE` globally in `conftest.py`
@@ -161,26 +158,39 @@ affects every test that calls `load_stack_config()`, including unit tests that m
 A dedicated resource name scopes the real-DB resolution to only the fixture that needs it, and
 leaves `cdm_db` unambiguously pointing at production data throughout the test session.
 
-Add the test resource to `~/.config/omop/config.toml`:
+#### Provisioning the test resource
 
-```toml
-[databases.pg_test]
-dialect       = "postgresql+psycopg"
-host          = "localhost"
-port          = 5432
-user          = "test"
-password      = "test"
-database_name = "test_db"
+The test resource must be provisioned for real before pytest runs. There is no fallback that
+papers over a missing one, by design (see the callout above). `omop-config configure <package>`
+accepts `--test-*` flags (mirroring every owned-resource flag, e.g. `--test-host`, `--test-port`,
+`--test-database-name`) for exactly this:
 
-[resources.test_cdm_db]
-database   = "pg_test"
-cdm_schema = "public"
-```
+=== "Local development"
 
-> **Safety**: the test resource must point to a dedicated, empty database.
-> If your test session drops and recreates schemas, add a runtime guard that compares the
-> resolved URL of `test_cdm_db` against all other configured resources and calls
-> `pytest.fail()` on any match.
+    Run `omop-config configure <package>` and answer `Y` when asked to configure a
+    test database resource, or pass `--test-*` flags directly for the same one-shot, non-interactive 
+    result CI uses.
+
+=== "CI"
+
+    pass `--test-*` flags as part of the same `omop-config configure <package>` step that
+    configures the package's owned resource (if it has one):
+
+    ```bash
+    omop-config configure <db-package> \
+      --test-dialect postgresql+psycopg --test-database test_cdm \
+      --test-host localhost --test-port 5432 --test-cdm-schema public \
+      --test-user test --test-password test --test-database-name test_db
+    ```
+    `--test-*` flags work independently of the owned resource flags. This 
+    means that we can just provide the test flags if the resource itself is
+    not needed in the CI but the test configuration is.
+
+!!! info "Safety"
+    The test resource must point to a dedicated, empty database.
+    If your test session drops and recreates schemas, add a runtime guard that compares the
+    resolved URL of `test_cdm_db` against all other configured resources and calls
+    `pytest.fail()` on any match.
 
 ---
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from functools import partial
 from importlib.metadata import entry_points
 from typing import Annotated
 
@@ -20,6 +21,16 @@ from .logging_config import configure_logging
 from .models import DatabaseConfig, ResourceConfig, StackConfig, ToolConfig
 from .package_base import ConfigurationError, ResourceSpec
 from .resolver import Resolver
+from .cli_fields import (
+    CDM_SCHEMA_FIELDS,
+    DATABASE_LABEL_FIELDS,
+    NON_CDM_SCHEMA_FIELDS,
+    build_database_config,
+    build_resource_config,
+    build_resource_params,
+    resolve_field_value,
+    resolve_fields,
+)
 
 app = typer.Typer(name="omop-config", no_args_is_help=True, add_completion=False)
 console = Console()
@@ -36,28 +47,34 @@ def _resolve_resource(
 ) -> tuple[str, DatabaseConfig | None, ResourceConfig] | None:
     """Resolve or create a database config + resource for a ResourceSpec.
 
-    Resolution order for each field: explicit flag > stored config > prompt.
-
-    When *flags* is provided, the "keep existing?" confirmation is suppressed.
-    This is the non-interactive path suitable for scripted / Docker Compose use.
-    Omitting *flags* preserves fully-interactive behaviour.
-
     Parameters
     ----------
-    spec
-        The ResourceSpec describing the resource to configure.
-    config
-        The current StackConfig, used to look up existing config and determine defaults.
-    flags
-        Optional dict of flag values to override prompts.
-        Keys correspond to the fields of DatabaseConfig and ResourceConfig.
-    semantic_name_override
-        When provided, the resource is created/updated under this name instead
-        of ``spec.semantic_name``. Used by ``--resource-name`` to create a
-        second instance of the same resource type (e.g. ``cdm_db_prod``).
-
-    Returns ``(db_name, db_config, resource)`` or ``None`` to keep existing config.
-    When an existing connection is reused, ``db_config`` is ``None`` (no new entry needed).
+    spec : ResourceSpec
+        The ResourceSpec describing the resource to resolve.
+    config : StackConfig
+        The current StackConfig, used to look up existing stored config for 
+        this resource and any existing connections.
+    flags : dict[str, str], optional
+        A dict of flag values for this resource, keyed by field name
+        (e.g. "host", "port"). Presence of this argument (even if empty) 
+        indicates a non-interactive invocation where no prompts should be shown.
+        Non-interactive requires all required fields to be supplied via flags or
+        stored config. Missing required fields will be reported.
+    semantic_name_override: str, optional
+        When given, this name is used instead of spec.semantic_name for looking up
+        existing config and for the saved resource name.
+    is_test_resource: bool
+        Whether this resource is a test resource. If True, the safety checks around
+        test resources are applied (see _configure_test_resources). Default: False
+    
+    Returns
+    -------
+    db_name : str
+        The name of the database config to use for this resource (either existing or new).
+    db_config : DatabaseConfig, optional
+        The new DatabaseConfig to save for this resource, or None to reuse an existing one.
+    resource : ResourceConfig
+        The ResourceConfig to save for this resource (either existing with updates or new).
     """
     non_interactive = flags is not None
     flags = flags or {}
@@ -79,12 +96,6 @@ def _resolve_resource(
         console.print(f"[dim]{spec.description}[/dim]")
         console.print("[dim]Tip: the value shown in [brackets] is the default. Press Enter to accept it.[/dim]\n")
 
-    # Resolution order: explicit flag > stored config > prompt.
-    # _stored holds every field from the existing config as strings ("" for None)
-    # so _v can find them and skip the prompt. Callers do `_v(...) or None` to
-    # convert empty-string back to None for optional fields.
-    # When the user explicitly declined to keep the existing config, we don't
-    # pre-fill _stored — they should be prompted for every field afresh.
     _stored: dict[str, str] = {}
     if existing and not declined:
         _stored.update({k: str(v) if v is not None else "" for k, v in existing.model_dump().items()})
@@ -92,17 +103,19 @@ def _resolve_resource(
         if _edb:
             _stored.update({k: str(v) if v is not None else "" for k, v in _edb.model_dump().items()})
 
-    def _v(key: str, label: str, default: str, *, hide_input: bool = False) -> str:
-        if (val := flags.get(key)) is not None:
-            return str(val)
-        if key in _stored:
-            return _stored[key]
-        if spec.defaults and (pre := spec.defaults.get(key)) is not None:
-            default = str(pre)
-        return typer.prompt(label, default=default, hide_input=hide_input)
+    missing_required: list[str] = []
+
+    _resolve_field = partial(
+        resolve_field_value,
+        flags=flags,
+        stored=_stored,
+        spec_defaults=spec.defaults,
+        non_interactive=non_interactive,
+        missing_required=missing_required,
+    )
 
     # Offer reuse of an existing connection when none is configured yet.
-    reuse_label: str | None = None
+    reuse_existing_label: str | None = None
     if not existing and not non_interactive and config.databases:
         if is_test_resource:
             candidates = [n for n, db in config.databases.items() if db.test_only]
@@ -117,60 +130,63 @@ def _resolve_resource(
                 default=suggested,
             )
             if choice != "new" and choice in candidates:
-                reuse_label = choice
+                reuse_existing_label = choice
 
-    if reuse_label:
+    schema_fields = CDM_SCHEMA_FIELDS if spec.is_cdm_database else NON_CDM_SCHEMA_FIELDS
+
+    if reuse_existing_label:
         if not non_interactive:
             console.print("\n[dim]Schema configuration[/dim]\n")
-        if spec.is_cdm_database:
-            cdm_schema = _v("cdm_schema", "CDM schema  (schema containing the OMOP tables)", spec.cdm_schema_default)
-            vocab_schema = _v("vocab_schema", "Vocab schema  (blank = same schema as CDM; set only if vocabulary lives in a separate schema)", "") or None
-            results_schema = _v("results_schema", "Results schema  (for Achilles/Atlas results tables; blank = not used)", "") or None
-        else:
-            cdm_schema = _v("cdm_schema", "Schema  (leave blank for public/default)", spec.cdm_schema_default)
-            vocab_schema = None
-            results_schema = None
-        resource = ResourceConfig(
-            database=reuse_label,
-            cdm_schema=cdm_schema,
-            vocab_schema=vocab_schema,
-            results_schema=results_schema,
-        )
-        return reuse_label, None, resource
+        schema_values = resolve_fields(schema_fields, spec, _resolve_field)
+        _check_missing_required(spec, missing_required, is_test_resource, non_interactive)
+        resource = build_resource_config(reuse_existing_label, schema_values, spec.is_cdm_database)
+        return reuse_existing_label, None, resource
 
-    database = _v("database", "Database label  (short name for this database entry, e.g. 'cdm')", spec.connection_name_hint or "cdm")
-    dialect = _v("dialect", "Dialect  (SQLAlchemy driver string, e.g. postgresql+psycopg, sqlite)", "postgresql+psycopg")
-    host = _v("host", "Host  (e.g. Docker container name; leave blank for SQLite or socket connections)", "localhost") or None
-
-    port_str = _v("port", "Port  (leave blank to use the dialect default)", "")
-    port: int | None = int(port_str) if port_str.strip() else None
-
-    user = _v("user", "User  (leave blank if not required)", "") or None
-    password = _v("password", "Password  (leave blank if not required)", "", hide_input=True) or None
-    database_name = _v("database_name", "Database name  (name of the database on the server, or file path for SQLite)", "") or None
-
-    db_config = DatabaseConfig(dialect=dialect, host=host, port=port, user=user, password=password, database_name=database_name)
+    conn_values = resolve_fields(DATABASE_LABEL_FIELDS, spec, _resolve_field)
 
     if not non_interactive:
         console.print("\n[dim]Schema configuration[/dim]\n")
 
-    if spec.is_cdm_database:
-        cdm_schema = _v("cdm_schema", "CDM schema  (schema containing the OMOP tables)", spec.cdm_schema_default)
-        vocab_schema = _v("vocab_schema", "Vocab schema  (blank = same schema as CDM; set only if vocabulary lives in a separate schema)", "") or None
-        results_schema = _v("results_schema", "Results schema  (for Achilles/Atlas results tables; blank = not used)", "") or None
-    else:
-        cdm_schema = _v("cdm_schema", "Schema  (leave blank for public/default)", spec.cdm_schema_default)
-        vocab_schema = None
-        results_schema = None
+    schema_values = resolve_fields(schema_fields, spec, _resolve_field)
+    _check_missing_required(spec, missing_required, is_test_resource, non_interactive)
 
-    resource = ResourceConfig(
-        database=database,
-        cdm_schema=cdm_schema,
-        vocab_schema=vocab_schema,
-        results_schema=results_schema,
-    )
+    db_config, database = build_database_config(conn_values)
+    resource = build_resource_config(database, schema_values, spec.is_cdm_database)
 
     return database, db_config, resource
+
+
+def _check_missing_required(
+    spec: ResourceSpec,
+    missing_required: list[str],
+    is_test_resource: bool,
+    non_interactive: bool,
+) -> None:
+    """Abort with a clear error if a non-interactive resolution left required fields unset.
+
+    Parameters
+    ----------
+    spec : ResourceSpec
+        The resource being resolved, used for the display name in the error message.
+    missing_required : list[str]
+        Field names appended to by resolve_field_value while resolving spec. Empty
+        means nothing is missing.
+    is_test_resource : bool
+        Whether spec is a test resource, controls the ``--test-`` flag prefix shown
+        in the error message.
+    non_interactive : bool
+        Whether this resolution was non-interactive. Interactive resolutions never
+        have anything in missing_required, since prompting always produces a value.
+    """
+    if not non_interactive or not missing_required:
+        return
+    prefix = "--test-" if is_test_resource else "--"
+    flag_names = ", ".join(f"{prefix}{k.replace('_', '-')}" for k in missing_required)
+    err_console.print(
+        f"\n[red bold]Missing required field(s) for {spec.display_name!r}:[/red bold] {flag_names}\n"
+        f"No flag, stored config, or spec default is available for these. Pass them explicitly."
+    )
+    raise typer.Exit(1)
 
 
 def _resolve_extra_fields(
@@ -180,7 +196,26 @@ def _resolve_extra_fields(
     set_dict: dict[str, str],
     interactive: bool,
 ) -> dict:
-    """Resolve package-specific extra fields using flag (--set) → stored → prompt."""
+    """Resolve package-specific extra fields using flag (--set) then stored then prompt.
+
+    Parameters
+    ----------
+    cls
+        The package's PackageConfigBase subclass, whose model_fields are resolved.
+    config : StackConfig
+        The current StackConfig, used to read any already-stored extras.
+    set_dict : dict[str, str]
+        Flag values from ``--set``, keyed by field name. Checked first.
+    interactive : bool
+        Whether to prompt for fields not covered by set_dict or stored config.
+        Non-interactively, such fields are simply omitted (they fall back to the
+        field's own pydantic default when the config class is loaded).
+
+    Returns
+    -------
+    dict
+        Resolved extra field values, keyed by field name.
+    """
     try:
         current = cls.from_stack(config)
         current_dict = current.to_extra_dict()
@@ -221,32 +256,6 @@ class _DynamicConfigureGroup(TyperGroup):
         return _build_package_command(cmd_name, ep.load()) if ep else None
 
 
-def _build_resource_params(spec: ResourceSpec) -> list[click.Parameter]:
-    """Generate Click options for one resource from DatabaseConfig + ResourceConfig fields."""
-    params: list[click.Parameter] = []
-    for name, info in DatabaseConfig.model_fields.items():
-        if name in ("read_only", "test_only"):
-            continue
-        params.append(click.Option(
-            [f"--{name.replace('_', '-')}"],
-            default=None,
-            type=click.STRING,
-            help=info.description or "",
-        ))
-    resource_field_names = ["database", "cdm_schema"]
-    if spec.is_cdm_database:
-        resource_field_names += ["vocab_schema", "results_schema"]
-    for name in resource_field_names:
-        info = ResourceConfig.model_fields[name]
-        params.append(click.Option(
-            [f"--{name.replace('_', '-')}"],
-            default=None,
-            type=click.STRING,
-            help=info.description or "",
-        ))
-    return params
-
-
 def _build_extra_params(cls) -> list[click.Parameter]:
     """Generate Click options for a package's extra fields from its model_fields."""
     return [
@@ -262,9 +271,13 @@ def _build_extra_params(cls) -> list[click.Parameter]:
 
 def _build_package_command(ep_name: str, cls) -> click.Command:
     """Build a Click command for one registered package entry point."""
-    resource_params = [p for spec in cls.owned_resources for p in _build_resource_params(spec)]
+    resource_params = [p for spec in cls.owned_resources for p in build_resource_params(spec)]
+    test_resource_params = [
+        p for spec in cls.test_resources for p in build_resource_params(spec, prefix="test-")
+    ]
     extra_params = _build_extra_params(cls)
     resource_names = {p.name for p in resource_params}
+    test_resource_names = {p.name for p in test_resource_params}
     extra_names = {p.name for p in extra_params}
 
     resource_name_opt = click.Option(
@@ -279,14 +292,18 @@ def _build_package_command(ep_name: str, cls) -> click.Command:
     def callback(**kwargs):
         flags_arg = {k: str(v) for k, v in kwargs.items()
                      if k in resource_names and v is not None} or None
+        test_flags_arg = {
+            k[len("test_"):]: str(v) for k, v in kwargs.items()
+            if k in test_resource_names and v is not None
+        } or None
         set_dict = {k: str(v) for k, v in kwargs.items()
                     if k in extra_names and v is not None}
-        _run_configure_package(cls, flags_arg, set_dict, kwargs.get("resource_name"))
+        _run_configure_package(cls, flags_arg, set_dict, kwargs.get("resource_name"), test_flags_arg)
 
     return click.Command(
         name=ep_name,
         callback=callback,
-        params=resource_params + extra_params + [resource_name_opt],
+        params=resource_params + test_resource_params + extra_params + [resource_name_opt],
         help=f"Configure {cls.tool_name} settings in config.toml.",
     )
 
@@ -306,14 +323,49 @@ def _list_packages() -> None:
         for name in sorted(registered):
             console.print(f"  • {name}")
 
-
 def _run_configure_package(
     cls,
     flags_arg: dict[str, str] | None,
     set_dict: dict[str, str],
     resource_name: str | None,
+    test_flags_arg: dict[str, str] | None = None,
 ) -> None:
-    """Run the configure flow for one package."""
+    """Run the configure flow for one package.
+
+    Parameters
+    ----------
+    cls
+        The package's PackageConfigBase subclass.
+    flags_arg : dict[str, str], optional
+        Flag values for the package's owned resource(s), keyed by field name.
+        None means no owned-resource flags were given on this invocation.
+    set_dict : dict[str, str]
+        Flag values for ``--set`` package extras, keyed by field name.
+    resource_name : str or None
+        Resource name override from ``--resource-name``.
+    test_flags_arg : dict[str, str] or None, optional
+        Flag values for the package's test resource(s), keyed by field name.
+        None means no ``--test-*`` flags were given. Default: None
+
+    Notes
+    -----
+    Interactivity is decided per resource, not globally. The invocation is
+    non-interactive as a whole the moment any of flags_arg, test_flags_arg or
+    set_dict is given, but that alone does not mean every resource is
+    touched:
+
+    1. The owned resource is only resolved when flags_arg is not None, i.e.
+       at least one of its own flags was given. An invocation with only
+       ``--test-*`` flags (e.g. a CI job that only needs a test database)
+       leaves the owned resource completely untouched, rather than prompting
+       for it (no TTY, would abort) or writing defaults nobody asked for.
+    2. The test resource is resolved non-interactively whenever
+       test_flags_arg is not None. The interactive prompt only fires 
+       for a fully bare invocation, with no flags anywhere.
+    3. Within a resource that is being resolved, individual missing fields
+       still fall back to stored config, a spec default, or a safe default
+       value. See _resolve_resource for which fields error out instead.
+    """
     try:
         config = load_stack_config()
     except FileNotFoundError:
@@ -324,7 +376,12 @@ def _run_configure_package(
     console.print(f"\n[bold]Configuring [cyan]{tool_name}[/cyan][/bold]")
     console.print(f"[dim]TOML section: \\[tools.{tool_name}][/dim]")
 
+
+    any_explicit_flags = flags_arg is not None or test_flags_arg is not None or bool(set_dict)
+
     for spec in cls.owned_resources:
+        if flags_arg is None and any_explicit_flags:
+            continue
         effective_name = resource_name if (resource_name and len(cls.owned_resources) == 1) else None
         result = _resolve_resource(spec, config, flags=flags_arg, semantic_name_override=effective_name)
         if result is not None:
@@ -345,7 +402,9 @@ def _run_configure_package(
                 f"It may be provided by another package. Run that package's configure command."
             )
 
-    extra = _resolve_extra_fields(cls, config, set_dict=set_dict, interactive=flags_arg is None)
+    extra = _resolve_extra_fields(
+        cls, config, set_dict=set_dict, interactive=flags_arg is None and not any_explicit_flags
+    )
 
     existing_tool = config.tools.get(tool_name)
     existing_default = existing_tool.default_resource if existing_tool else None
@@ -355,7 +414,7 @@ def _run_configure_package(
         relevant_names.add(resource_name)
     relevant_resources = [r for r in available_resources if r in relevant_names]
 
-    if len(relevant_resources) > 1 and flags_arg is None:
+    if len(relevant_resources) > 1 and flags_arg is None and not any_explicit_flags:
         console.print(f"\n[dim]Available resources for this package: {', '.join(relevant_resources)}[/dim]")
         prompt_default = resource_name or existing_default or relevant_resources[0]
         new_default_resource = (
@@ -365,7 +424,7 @@ def _run_configure_package(
             )
             or None
         )
-    elif len(relevant_resources) > 1 and flags_arg is not None:
+    elif len(relevant_resources) > 1:
         new_default_resource = resource_name or existing_default or relevant_resources[0]
     else:
         new_default_resource = existing_default or (relevant_resources[0] if relevant_resources else None)
@@ -374,61 +433,91 @@ def _run_configure_package(
     save_stack_config(config)
     console.print(f"\n[green]✓[/green] Saved \\[tools.{tool_name}] to [dim]{CONFIG_PATH}[/dim]")
 
-    if cls.test_resources and flags_arg is None:
-        console.print("\n[dim]─── Test database (optional) ───[/dim]")
-        console.print(
-            "[yellow]⚠[/yellow]  Test resources are used by the test suite, which runs"
-            " DROP SCHEMA CASCADE on every run.\n"
-            "   Point to a [bold]dedicated test_only connection[/bold], never to real data.\n"
-            "   Existing test_only connections will be offered for reuse."
-        )
-        want_test = typer.confirm("Configure a test database resource?", default=False)
-        if want_test:
-            test_names = {s.semantic_name for s in cls.test_resources}
-            for spec in cls.test_resources:
-                result = _resolve_resource(spec, config, flags=None, is_test_resource=True)
-                if result is None:
+    if cls.test_resources:
+        if test_flags_arg is not None:
+            _configure_test_resources(cls, config, test_flags_arg)
+        elif not any_explicit_flags:
+            console.print("\n[dim]─── Test database (optional) ───[/dim]")
+            console.print(
+                "[yellow]⚠[/yellow]  Test resources are used by the test suite, which runs"
+                " DROP SCHEMA CASCADE on every run.\n"
+                "   Point to a [bold]dedicated test_only connection[/bold], never to real data.\n"
+                "   Existing test_only connections will be offered for reuse."
+            )
+            want_test = typer.confirm("Configure a test database resource?", default=False)
+            if want_test:
+                _configure_test_resources(cls, config, None)
+        # else: any_explicit_flags is True but no --test-* flags were given.
+        # Test resources are opt-in, so leave them untouched.
+
+def _configure_test_resources(
+    cls,
+    config: StackConfig,
+    flags: dict[str, str] | None,
+) -> None:
+    """Resolve and save every spec in cls.test_resources, applying the test_only safety guard.
+
+    Parameters
+    ----------
+    cls
+        The package's PackageConfigBase subclass, whose test_resources are resolved.
+    config : StackConfig
+        The current StackConfig, updated in place with each resolved test resource.
+    flags : dict[str, str] or None
+        ``--test-*`` flag values, keyed by field name (without the test- prefix).
+        None means this came from the interactive confirm-driven flow instead.
+
+    Notes
+    -----
+    Shared by both the interactive confirm-driven flow and the non-interactive
+    ``--test-*`` flag flow. The safety checks (test_only marking, production
+    collision detection) must hold identically in both.
+    """
+    test_names = {s.semantic_name for s in cls.test_resources}
+    for spec in cls.test_resources:
+        result = _resolve_resource(spec, config, flags=flags, is_test_resource=True)
+        if result is None:
+            continue
+        db_label, new_db, new_resource = result
+
+        if new_db is not None:
+            # New connection: set test_only flag and check for production collision.
+            new_db.test_only = True
+            for res_name, existing_res in config.resources.items():
+                if res_name in test_names:
                     continue
-                db_label, new_db, new_resource = result
-
-                if new_db is not None:
-                    # New connection: set test_only flag and check for production collision.
-                    new_db.test_only = True
-                    for res_name, existing_res in config.resources.items():
-                        if res_name in test_names:
-                            continue
-                        existing_conn = config.databases.get(existing_res.database)
-                        if existing_conn is None or existing_conn.test_only:
-                            continue
-                        if (
-                            existing_conn.host == new_db.host
-                            and existing_conn.database_name == new_db.database_name
-                            and existing_conn.port == new_db.port
-                        ):
-                            err_console.print(
-                                f"\n[red bold]DANGER[/red bold]: these connection details match the"
-                                f" [bold]{res_name!r}[/bold] resource (same host and database name).\n"
-                                f"Tests run DROP SCHEMA CASCADE — this would destroy your data.\n"
-                                f"Use a different [bold]host[/bold] or [bold]database name[/bold]."
-                            )
-                            raise typer.Exit(1)
-                    config.databases[db_label] = new_db
-                else:
-                    # Reuse: verify the referenced connection is actually test_only.
-                    existing_db = config.databases.get(db_label)
-                    if existing_db is not None and not existing_db.test_only:
-                        err_console.print(
-                            f"\n[red bold]DANGER[/red bold]: the connection {db_label!r} is not"
-                            f" marked test_only=true. Point test resources only to test_only"
-                            f" connections.\n"
-                        )
-                        raise typer.Exit(1)
-
-                config.resources[spec.semantic_name] = new_resource
-                save_stack_config(config)
-                console.print(
-                    f"[green]✓[/green] Test resource [bold]{spec.semantic_name!r}[/bold] written."
+                existing_conn = config.databases.get(existing_res.database)
+                if existing_conn is None or existing_conn.test_only:
+                    continue
+                if (
+                    existing_conn.host == new_db.host
+                    and existing_conn.database_name == new_db.database_name
+                    and existing_conn.port == new_db.port
+                ):
+                    err_console.print(
+                        f"\n[red bold]DANGER[/red bold]: these connection details match the"
+                        f" [bold]{res_name!r}[/bold] resource (same host and database name).\n"
+                        f"Tests run DROP SCHEMA CASCADE, which would destroy your data.\n"
+                        f"Use a different [bold]host[/bold] or [bold]database name[/bold]."
+                    )
+                    raise typer.Exit(1)
+            config.databases[db_label] = new_db
+        else:
+            # Reuse: verify the referenced connection is actually test_only.
+            existing_db = config.databases.get(db_label)
+            if existing_db is not None and not existing_db.test_only:
+                err_console.print(
+                    f"\n[red bold]DANGER[/red bold]: the connection {db_label!r} is not"
+                    f" marked test_only=true. Point test resources only to test_only"
+                    f" connections.\n"
                 )
+                raise typer.Exit(1)
+
+        config.resources[spec.semantic_name] = new_resource
+        save_stack_config(config)
+        console.print(
+            f"[green]✓[/green] Test resource [bold]{spec.semantic_name!r}[/bold] written."
+        )
 
 @app.callback()  # required by Typer to attach global --verbose/-v before any subcommand
 def _main(

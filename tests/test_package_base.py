@@ -6,7 +6,14 @@ from typing import ClassVar
 
 import pytest
 
-from oa_configurator import ConfigurationError, PackageConfigBase, StackConfig, DatabaseConfig
+from oa_configurator import (
+    ConfigurationError,
+    FS_CDM_SCHEMA,
+    FS_DATABASE,
+    PackageConfigBase,
+    StackConfig,
+    DatabaseConfig,
+)
 
 
 class SampleConfig(PackageConfigBase):
@@ -76,7 +83,7 @@ class TestRequiredResources:
     def test_passes_when_resource_present(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"cdm_db": {"database": "db", "cdm_schema": "main"}},
+            resources={"cdm_db": {FS_DATABASE.name: "db", FS_CDM_SCHEMA.name: "main"}},
         )
         result = RequiredConfig.from_stack(cfg)
         assert result.value == "default_value"
@@ -100,7 +107,7 @@ class TestRequiredResources:
     def test_passes_when_resource_aliased(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"my_prod": {"database": "db", "cdm_schema": "main"}},
+            resources={"my_prod": {FS_DATABASE.name: "db", FS_CDM_SCHEMA.name: "main"}},
             resource_aliases={"cdm_db": "my_prod"},
         )
         result = RequiredConfig.from_stack(cfg)
@@ -109,7 +116,7 @@ class TestRequiredResources:
     def test_respects_default_resource_override(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"my_custom": {"database": "db", "cdm_schema": "main"}},
+            resources={"my_custom": {FS_DATABASE.name: "db", FS_CDM_SCHEMA.name: "main"}},
             tools={"required_tool": {"default_resource": "my_custom"}},
         )
         result = RequiredConfig.from_stack(cfg)
@@ -120,7 +127,7 @@ class TestRequiredResources:
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
             profiles={
                 "test": {
-                    "resources": {"cdm_db": {"database": "db", "cdm_schema": "test_schema"}}
+                    "resources": {"cdm_db": {FS_DATABASE.name: "db", FS_CDM_SCHEMA.name: "test_schema"}}
                 }
             },
             active_profile="test",

@@ -8,7 +8,14 @@ from __future__ import annotations
 
 import pytest
 
-from oa_configurator import StackConfig, DatabaseConfig
+from oa_configurator import (
+    FS_CDM_SCHEMA,
+    FS_DATABASE,
+    FS_RESULTS_SCHEMA,
+    FS_VOCAB_SCHEMA,
+    StackConfig,
+    DatabaseConfig,
+)
 
 
 @pytest.fixture
@@ -23,8 +30,8 @@ def minimal_stack() -> StackConfig:
         },
         resources={
             "default": {
-                "database": "db",
-                "cdm_schema": "omop",
+                FS_DATABASE.name: "db",
+                FS_CDM_SCHEMA.name: "omop",
             }
         },
     )
@@ -46,10 +53,10 @@ def pg_stack() -> StackConfig:
         },
         resources={
             "default": {
-                "database": "cdm",
-                "cdm_schema": "omop",
-                "vocab_schema": "omop_vocab",
-                "results_schema": "results",
+                FS_DATABASE.name: "cdm",
+                FS_CDM_SCHEMA.name: "omop",
+                FS_VOCAB_SCHEMA.name: "omop_vocab",
+                FS_RESULTS_SCHEMA.name: "results",
             }
         },
     )

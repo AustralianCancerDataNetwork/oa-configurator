@@ -9,7 +9,7 @@ from typing import Any
 
 import tomli_w
 
-from .loader import CONFIG_PATH, DEFAULT_CONFIG_PATH
+from .loader import CONFIG_PATH
 from .resolver import Resolver
 from .models import StackConfig
 
@@ -70,7 +70,7 @@ def write_env_file(resolver: Resolver, path: Path = FLAT_ENV_PATH) -> Path:
     return path
 
 
-def save_stack_config(config: StackConfig, path: Path = DEFAULT_CONFIG_PATH) -> Path:
+def save_stack_config(config: StackConfig, path: Path = CONFIG_PATH) -> Path:
     """Serialize a :class:`~oa_configurator.models.StackConfig` back to TOML.
 
     Does NOT preserve comments or original formatting. The ``logging`` section
@@ -90,7 +90,7 @@ def save_stack_config(config: StackConfig, path: Path = DEFAULT_CONFIG_PATH) -> 
     return path
 
 
-def patch_active_profile(profile_name: str, path: Path = DEFAULT_CONFIG_PATH) -> None:
+def patch_active_profile(profile_name: str, path: Path = CONFIG_PATH) -> None:
     """Set ``active_profile`` in the TOML file without touching other fields.
 
     Creates the file with only ``active_profile`` if it does not exist.

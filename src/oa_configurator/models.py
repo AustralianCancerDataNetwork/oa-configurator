@@ -72,6 +72,11 @@ class DatabaseConfig(BaseModel):
         if self.dialect.startswith("sqlite"):
             db = self.database_name or ":memory:"
             return f"sqlite:///{db}"
+        if not self.host:
+            raise ValueError(
+                "DatabaseConfig has no `host` set and no longer defaults to 'localhost'."
+                " Set `host` explicitly in config.toml."
+            )
         return URL.create(
             drivername=self.dialect,
             username=self.user,

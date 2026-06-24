@@ -641,7 +641,12 @@ def verify(
     all_ok = True
 
     for name in sorted(config.databases):
-        target = resolver.resolve_database(name)
+        try:
+            target = resolver.resolve_database(name)
+        except Exception as exc:
+            table.add_row(name, "?", "[red]FAIL[/red]", str(exc)[:60])
+            all_ok = False
+            continue
         try:
             t0 = time.monotonic()
             engine = target.create_engine()

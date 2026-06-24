@@ -1,6 +1,6 @@
 [project]
 name = "oa-configurator"
-version = "0.1.1"
+version = "0.1.2"
 description = "Prototype shared configuration layer for the OMOP-oriented stack."
 readme = "README.md"
 requires-python = ">=3.12"

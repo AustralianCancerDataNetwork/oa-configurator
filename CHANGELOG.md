@@ -1,3 +1,10 @@
+## [0.1.2](https://github.com/AustralianCancerDataNetwork/oa-configurator/compare/v0.1.1...v0.1.2) (2026-06-24)
+
+
+### Bug Fixes
+
+* configure non-interactive mode for test resources and field-resolution validation ([#7](https://github.com/AustralianCancerDataNetwork/oa-configurator/issues/7)) ([2ef6de1](https://github.com/AustralianCancerDataNetwork/oa-configurator/commit/2ef6de154feb47b9183c96ce89b860f0bf368207))
+
 ## [0.1.1](https://github.com/AustralianCancerDataNetwork/oa-configurator/compare/v0.1.0...v0.1.1) (2026-06-15)
 
 

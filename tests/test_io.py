@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import tomllib
 
-from oa_configurator import Resolver, StackConfig, DatabaseConfig, ResourceConfig, ToolConfig
+from oa_configurator import Resolver, StackConfig, DatabaseConfig, FilesystemPacksConfig, ResourceConfig, ToolConfig
 from oa_configurator.io import patch_active_profile, save_stack_config, write_env_file
 
 
@@ -143,6 +143,16 @@ class TestSaveStackConfig:
         out = tmp_path / "nested" / "dirs" / "config.toml"
         save_stack_config(StackConfig.for_session(), out)
         assert out.exists()
+
+    def test_knowledge_resource_root_path_serialises(self, tmp_path):
+        cfg = StackConfig.for_session(
+            knowledge_resources={"packs": FilesystemPacksConfig(root="/opt/packs")}
+        )
+        out = tmp_path / "config.toml"
+        save_stack_config(cfg, out)
+        data = tomllib.loads(out.read_text())
+        assert data["knowledge_resources"]["packs"]["root"] == "/opt/packs"
+        assert data["knowledge_resources"]["packs"]["kind"] == "filesystem_packs"
 
 
 class TestPatchActiveProfile:

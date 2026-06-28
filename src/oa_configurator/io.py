@@ -81,7 +81,7 @@ def save_stack_config(config: StackConfig, path: Path = CONFIG_PATH) -> Path:
     """
     from .logging_config import LoggingConfig
 
-    payload = _drop_none_and_empty(config.model_dump(mode="python"))
+    payload = _drop_none_and_empty(config.model_dump(mode="json"))
     if config.logging == LoggingConfig():
         payload.pop("logging", None)
 

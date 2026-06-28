@@ -19,13 +19,21 @@ from .loader import DEFAULT_CONFIG_PATH, load_stack_config
 from .logging_config import LoggingConfig, RedactingFormatter, configure_logging, get_logger
 from .models import (
     DatabaseConfig,
+    FilesystemPacksConfig,
+    KnowledgeResourceConfig,
     ProfileOverrideConfig,
     ResourceConfig,
     StackConfig,
     ToolConfig,
 )
 from .package_base import ConfigurationError, PackageConfigBase, ResourceSpec
-from .resolver import Resolver, ResolvedDatabaseTarget, ResolvedResource, ResolvedToolConfig
+from .resolver import (
+    Resolver,
+    ResolvedDatabaseTarget,
+    ResolvedKnowledgeResource,
+    ResolvedResource,
+    ResolvedToolConfig,
+)
 
 __all__ = [
     "ConfigurationError",
@@ -44,6 +52,8 @@ __all__ = [
     "FS_VOCAB_SCHEMA",
     "FieldSpec",
     "DatabaseConfig",
+    "FilesystemPacksConfig",
+    "KnowledgeResourceConfig",
     "LoggingConfig",
     "RedactingFormatter",
     "PackageConfigBase",
@@ -52,6 +62,7 @@ __all__ = [
     "ResourceConfig",
     "Resolver",
     "ResolvedDatabaseTarget",
+    "ResolvedKnowledgeResource",
     "ResolvedResource",
     "ResolvedToolConfig",
     "StackConfig",

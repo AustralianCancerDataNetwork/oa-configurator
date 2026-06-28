@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from oa_configurator import DatabaseConfig, ResourceConfig, StackConfig, ToolConfig
+from oa_configurator import (
+    DatabaseConfig,
+    FilesystemPacksConfig,
+    KnowledgeResourceConfig,
+    ResourceConfig,
+    StackConfig,
+    ToolConfig,
+)
 from oa_configurator.models import ProfileOverrideConfig
 
 
@@ -72,10 +79,24 @@ class TestResourceConfig:
             ResourceConfig(database="db", cdm_schema="omop", unknown="x")  # type: ignore
 
 
+class TestFilesystemPacksConfig:
+    def test_minimal(self):
+        r = FilesystemPacksConfig(root="/packs")
+        assert r.kind == "filesystem_packs"
+
+    def test_extra_fields_forbidden(self):
+        with pytest.raises(Exception):
+            FilesystemPacksConfig(root="/packs", unknown="x")  # type: ignore
+
+    def test_knowledge_resource_config_is_alias(self):
+        assert KnowledgeResourceConfig is FilesystemPacksConfig
+
+
 class TestToolConfig:
     def test_defaults(self):
         t = ToolConfig()
         assert t.default_resource is None
+        assert t.default_knowledge_resource is None
         assert t.extra == {}
 
     def test_extra_accepts_any_values(self):
@@ -93,9 +114,11 @@ class TestStackConfig:
         cfg = StackConfig.for_session(
             databases={"c": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
             resources={"r": {"database": "c", "cdm_schema": "s"}},  # type: ignore[dict-item]
+            knowledge_resources={"k": {"root": "/packs"}},  # type: ignore[dict-item]
         )
         assert isinstance(cfg.databases["c"], DatabaseConfig)
         assert isinstance(cfg.resources["r"], ResourceConfig)
+        assert isinstance(cfg.knowledge_resources["k"], KnowledgeResourceConfig)
 
     def test_cross_ref_validation_unknown_database(self):
         with pytest.raises(ValueError, match="unknown database"):
@@ -112,6 +135,14 @@ class TestStackConfig:
                 tools={"t": ToolConfig(default_resource="missing")},
             )
 
+    def test_cross_ref_validation_unknown_knowledge_resource_in_tool(self):
+        with pytest.raises(ValueError, match="unknown knowledge resource"):
+            StackConfig.for_session(
+                databases={"c": DatabaseConfig(dialect="sqlite")},
+                knowledge_resources={},
+                tools={"t": ToolConfig(default_knowledge_resource="missing")},
+            )
+
     def test_cross_ref_validation_vocab_database(self):
         with pytest.raises(ValueError, match="unknown database"):
             StackConfig.for_session(
@@ -123,14 +154,17 @@ class TestStackConfig:
         cfg = StackConfig.for_session(
             databases={"c": DatabaseConfig(dialect="sqlite")},
             resources={"r": ResourceConfig(database="c", cdm_schema="s")},
+            knowledge_resources={"k": KnowledgeResourceConfig(root="/packs")},
             profiles={
                 "test": ProfileOverrideConfig(
                     databases={"tc": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
                     resources={"r": ResourceConfig(database="tc", cdm_schema="s")},
+                    knowledge_resources={"k": KnowledgeResourceConfig(root="/profile-packs")},
                 ),
             },
         )
         assert "tc" in cfg.profiles["test"].databases
+        assert "k" in cfg.profiles["test"].knowledge_resources
 
     def test_profile_overlay_invalid_cross_ref(self):
         with pytest.raises(ValueError, match="unknown database"):
@@ -152,6 +186,19 @@ class TestStackConfig:
         cfg = StackConfig.for_session()
         cfg.bind_loaded_path(tmp_path / "config.toml")
         assert cfg.loaded_path == tmp_path / "config.toml"
+
+    def test_unknown_knowledge_resource_alias_target_raises_at_construction(self):
+        with pytest.raises(ValueError, match="knowledge_resource_aliases"):
+            StackConfig.for_session(
+                knowledge_resources={},
+                knowledge_resource_aliases={"default_packs": "does_not_exist"},
+            )
+
+    def test_knowledge_resource_names(self):
+        cfg = StackConfig.for_session(
+            knowledge_resources={"default_packs": KnowledgeResourceConfig(root="/packs")}
+        )
+        assert cfg.knowledge_resource_names() == ("default_packs",)
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(Exception):

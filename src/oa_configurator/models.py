@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 from sqlalchemy.engine import URL
@@ -142,10 +142,39 @@ class ResourceConfig(BaseModel):
     )
 
 
+class FilesystemPacksConfig(BaseModel):
+    """Filesystem-backed knowledge pack root.
+
+    One concrete variant of the ``KnowledgeResourceConfig`` discriminated union.
+    The ``kind`` discriminator field enables future variants (e.g. ``package_data``,
+    ``rag_index``) to be added as separate classes with their own required fields,
+    without cross-field validators on a shared model.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["filesystem_packs"] = Field(
+        default="filesystem_packs",
+        description="Knowledge source implementation kind.",
+    )
+    root: Path = Field(
+        description="Root directory for this knowledge source.",
+    )
+
+
+# Single-variant discriminated union — extend to
+#   Annotated[FilesystemPacksConfig | NextKindConfig, Field(discriminator="kind")]
+# when a second kind is introduced. intended for future added support for 
+# package_data and rag_index knowledge sources.
+KnowledgeResourceConfig = FilesystemPacksConfig
+
+
 class ToolConfig(BaseModel):
     """Per-package section in ``config.toml`` (``[tools.<name>]``).
 
     ``default_resource`` names which resource this package reads from.
+    ``default_knowledge_resource`` names which shared knowledge source this
+    package reads from.
     ``extra`` holds the package-specific typed fields declared on the
     package's :class:`~oa_configurator.PackageConfigBase` subclass.
     """
@@ -155,6 +184,10 @@ class ToolConfig(BaseModel):
     default_resource: str | None = Field(
         default=None,
         description="Resource name this tool uses when none is specified by the caller.",
+    )
+    default_knowledge_resource: str | None = Field(
+        default=None,
+        description="Knowledge resource name this tool uses when none is specified by the caller.",
     )
     extra: dict[str, Any] = Field(
         default_factory=dict,
@@ -180,6 +213,10 @@ class ProfileOverrideConfig(BaseModel):
     resources: dict[str, ResourceConfig] = Field(
         default_factory=dict,
         description="Resource configs that replace or extend the base resources.",
+    )
+    knowledge_resources: dict[str, KnowledgeResourceConfig] = Field(
+        default_factory=dict,
+        description="Knowledge resource configs that replace or extend the base knowledge resources.",
     )
     tools: dict[str, ToolConfig] = Field(
         default_factory=dict,
@@ -211,6 +248,10 @@ class StackConfig(BaseModel):
         default_factory=dict,
         description="Named logical role bundles mapping CDM roles to databases and schemas.",
     )
+    knowledge_resources: dict[str, KnowledgeResourceConfig] = Field(
+        default_factory=dict,
+        description="Named shared knowledge source configurations.",
+    )
     tools: dict[str, ToolConfig] = Field(
         default_factory=dict,
         description="Per-package configuration sections.",
@@ -228,6 +269,13 @@ class StackConfig(BaseModel):
             "Alias targets must exist at the base config level, not only inside a profile."
         ),
     )
+    knowledge_resource_aliases: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Maps semantic knowledge resource names to user-chosen resource names. "
+            "Alias targets must exist at the base config level, not only inside a profile."
+        ),
+    )
     logging: LoggingConfig = Field(
         default_factory=LoggingConfig,
         description="Logging configuration. Optional; defaults to WARNING level with no handler.",
@@ -240,19 +288,41 @@ class StackConfig(BaseModel):
         for rname, resource in self.resources.items():
             self._check_resource_refs(resource, self.databases, f"resources.{rname}")
         for tname, tool in self.tools.items():
-            self._check_tool_refs(tool, self.resources, self.resource_aliases, f"tools.{tname}")
+            self._check_tool_refs(
+                tool,
+                self.resources,
+                self.resource_aliases,
+                self.knowledge_resources,
+                self.knowledge_resource_aliases,
+                f"tools.{tname}",
+            )
         for pname, profile in self.profiles.items():
             effective_dbs = {**self.databases, **profile.databases}
             effective_res = {**self.resources, **profile.resources}
+            effective_knowledge = {**self.knowledge_resources, **profile.knowledge_resources}
             for rname, resource in profile.resources.items():
                 self._check_resource_refs(resource, effective_dbs, f"profiles.{pname}.resources.{rname}")
             for tname, tool in profile.tools.items():
-                self._check_tool_refs(tool, effective_res, self.resource_aliases, f"profiles.{pname}.tools.{tname}")
+                self._check_tool_refs(
+                    tool,
+                    effective_res,
+                    self.resource_aliases,
+                    effective_knowledge,
+                    self.knowledge_resource_aliases,
+                    f"profiles.{pname}.tools.{tname}",
+                )
         for alias_key, alias_target in self.resource_aliases.items():
             if alias_target not in self.resources:
                 raise ValueError(
                     f"resource_aliases.{alias_key!r} references unknown resource {alias_target!r}. "
                     "Note: alias targets must exist at the base config level, not only inside a profile."
+                )
+        for alias_key, alias_target in self.knowledge_resource_aliases.items():
+            if alias_target not in self.knowledge_resources:
+                raise ValueError(
+                    f"knowledge_resource_aliases.{alias_key!r} references unknown knowledge resource "
+                    f"{alias_target!r}. Note: alias targets must exist at the base config level, "
+                    "not only inside a profile."
                 )
         return self
 
@@ -273,6 +343,8 @@ class StackConfig(BaseModel):
         tool: ToolConfig,
         resources: dict[str, ResourceConfig],
         resource_aliases: dict[str, str],
+        knowledge_resources: dict[str, KnowledgeResourceConfig],
+        knowledge_resource_aliases: dict[str, str],
         location: str,
     ) -> None:
         if tool.default_resource is not None:
@@ -281,6 +353,16 @@ class StackConfig(BaseModel):
                 raise ValueError(
                     f"{location}.default_resource references unknown resource {tool.default_resource!r}"
                 )
+        if tool.default_knowledge_resource is not None:
+            effective = knowledge_resource_aliases.get(
+                tool.default_knowledge_resource,
+                tool.default_knowledge_resource,
+            )
+            if effective not in knowledge_resources:
+                raise ValueError(
+                    f"{location}.default_knowledge_resource references unknown knowledge resource "
+                    f"{tool.default_knowledge_resource!r}"
+                )
 
     @classmethod
     def for_session(
@@ -288,10 +370,12 @@ class StackConfig(BaseModel):
         *,
         databases: dict[str, DatabaseConfig] | None = None,
         resources: dict[str, ResourceConfig] | None = None,
+        knowledge_resources: dict[str, KnowledgeResourceConfig] | None = None,
         tools: dict[str, ToolConfig] | None = None,
         profiles: dict[str, ProfileOverrideConfig] | None = None,
         active_profile: str | None = None,
         resource_aliases: dict[str, str] | None = None,
+        knowledge_resource_aliases: dict[str, str] | None = None,
     ) -> StackConfig:
         """Build a config in memory without a TOML file.
 
@@ -311,9 +395,11 @@ class StackConfig(BaseModel):
             active_profile=active_profile,
             databases=databases or {},
             resources=resources or {},
+            knowledge_resources=knowledge_resources or {},
             tools=tools or {},
             profiles=profiles or {},
             resource_aliases=resource_aliases or {},
+            knowledge_resource_aliases=knowledge_resource_aliases or {},
         )
 
     def bind_loaded_path(self, path: Path) -> None:
@@ -333,6 +419,10 @@ class StackConfig(BaseModel):
         """Return a sorted tuple of configured resource names."""
         return tuple(sorted(self.resources))
 
+    def knowledge_resource_names(self) -> tuple[str, ...]:
+        """Return a sorted tuple of configured knowledge resource names."""
+        return tuple(sorted(self.knowledge_resources))
+
     def tool_names(self) -> tuple[str, ...]:
         """Return a sorted tuple of configured tool names."""
         return tuple(sorted(self.tools))
@@ -340,5 +430,3 @@ class StackConfig(BaseModel):
     def profile_names(self) -> tuple[str, ...]:
         """Return a sorted tuple of configured profile names."""
         return tuple(sorted(self.profiles))
-
-

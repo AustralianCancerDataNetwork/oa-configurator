@@ -30,13 +30,24 @@ A logical role bundle that maps OMOP CDM roles to databases and schema names:
 - `vocab_schema` (optional): falls back to `cdm_schema`
 - `results_schema` (optional): Achilles/Atlas results
 
+### Knowledge resource
+
+A named shared knowledge source. Phase 1 supports filesystem-backed knowledge
+pack roots; future kinds may include package-data bundles or retrieval-backed
+providers. Stored in `[knowledge_resources.<name>]`.
+
 ### Tool
 
-Per-package configuration in `[tools.<name>]`. The core model stores only `default_resource` and an `extra` dict. Each consuming package defines a typed `PackageConfigBase` subclass that provides a typed view over `extra`.
+Per-package configuration in `[tools.<name>]`. The core model stores `default_resource`,
+`default_knowledge_resource`, and an `extra` dict. Each consuming package defines a typed
+`PackageConfigBase` subclass that provides a typed view over `extra`.
 
 ### Profile
 
-A named overlay (`[profiles.<name>]`) that replaces specific connections, resources, or tools when active. Full model replacement, not a partial patch. Activate via `omop-config use <profile>` (persists to TOML) or `OA_ACTIVE_PROFILE=<profile>` (per-session).
+A named overlay (`[profiles.<name>]`) that replaces specific connections, resources,
+knowledge resources, or tools when active. Full model replacement, not a partial patch.
+Activate via `omop-config use <profile>` (persists to TOML) or
+`OA_ACTIVE_PROFILE=<profile>` (per-session).
 
 ---
 
@@ -62,6 +73,10 @@ A named overlay (`[profiles.<name>]`) that replaces specific connections, resour
          │                               .cdm_schema / .vocab_schema / .results_schema
          │                               .schema_translate_map()
          │                               .create_engine(role="primary"|"vocab")
+         │
+         ├─ resolve_knowledge_resource(name) → ResolvedKnowledgeResource
+         │                                       .kind
+         │                                       .root
          │
          └─ resolve_tool(name)       → ResolvedToolConfig
                                          .extra  (raw dict; typed by PackageConfigBase.from_stack())

@@ -8,6 +8,7 @@ import pytest
 
 from oa_configurator import (
     ConfigurationError,
+    KnowledgeResourceConfig,
     PackageConfigBase,
     StackConfig,
     DatabaseConfig,
@@ -140,3 +141,62 @@ class TestRequiredResources:
         cfg = StackConfig.for_session()
         result = SampleConfig.from_stack(cfg)
         assert result.backend == "default_backend"
+
+
+class RequiredKnowledgeConfig(PackageConfigBase):
+    tool_name: ClassVar[str] = "required_knowledge_tool"
+    required_knowledge_resources: ClassVar[tuple[str, ...]] = ("default_packs",)
+    value: str = "default_value"
+
+
+class TestRequiredKnowledgeResources:
+    def test_passes_when_knowledge_resource_present(self):
+        cfg = StackConfig.for_session(
+            knowledge_resources={"default_packs": KnowledgeResourceConfig(root="/packs")}
+        )
+        result = RequiredKnowledgeConfig.from_stack(cfg)
+        assert result.value == "default_value"
+
+    def test_raises_when_knowledge_resource_missing(self):
+        cfg = StackConfig.for_session()
+        with pytest.raises(ConfigurationError) as exc_info:
+            RequiredKnowledgeConfig.from_stack(cfg)
+        msg = str(exc_info.value)
+        assert "default_packs" in msg
+        assert "knowledge resource" in msg
+
+    def test_passes_when_knowledge_resource_aliased(self):
+        cfg = StackConfig.for_session(
+            knowledge_resources={"org_packs": KnowledgeResourceConfig(root="/packs")},
+            knowledge_resource_aliases={"default_packs": "org_packs"},
+        )
+        result = RequiredKnowledgeConfig.from_stack(cfg)
+        assert result.value == "default_value"
+
+    def test_respects_default_knowledge_resource_override(self):
+        cfg = StackConfig.for_session(
+            knowledge_resources={"my_custom": KnowledgeResourceConfig(root="/packs")},
+            tools={"required_knowledge_tool": ToolConfig(default_knowledge_resource="my_custom")},
+        )
+        result = RequiredKnowledgeConfig.from_stack(cfg)
+        assert result.value == "default_value"
+
+    def test_recognises_profile_knowledge_resources(self):
+        cfg = StackConfig.for_session(
+            profiles={
+                "test": ProfileOverrideConfig(
+                    knowledge_resources={"default_packs": KnowledgeResourceConfig(root="/packs")},
+                ),
+            },
+            active_profile="test",
+        )
+        result = RequiredKnowledgeConfig.from_stack(cfg)
+        assert result.value == "default_value"
+
+    def test_get_knowledge_resource_raises_when_none_declared(self, monkeypatch):
+        monkeypatch.setattr(
+            "oa_configurator.loader.load_stack_config",
+            lambda: StackConfig.for_session(),
+        )
+        with pytest.raises(ConfigurationError, match="has no knowledge resources"):
+            SampleConfig.get_knowledge_resource()

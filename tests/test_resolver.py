@@ -4,8 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from oa_configurator import Resolver, StackConfig
-from oa_configurator.resolver import ResolvedDatabaseTarget, ResolvedResource
+from pathlib import Path
+
+from oa_configurator import KnowledgeResourceConfig, Resolver, StackConfig
+from oa_configurator.resolver import (
+    ResolvedDatabaseTarget,
+    ResolvedKnowledgeResource,
+    ResolvedResource,
+)
 from oa_configurator.models import DatabaseConfig, ProfileOverrideConfig, ResourceConfig, ToolConfig
 
 
@@ -145,6 +151,65 @@ class TestResolveTool:
             r.resolve_tool("nonexistent")
 
 
+class TestResolveKnowledgeResource:
+    def test_resolves_filesystem_packs_root(self):
+        cfg = StackConfig.for_session(
+            knowledge_resources={"default_packs": KnowledgeResourceConfig(root="/packs")}
+        )
+        r = Resolver(cfg)
+        resource = r.resolve_knowledge_resource("default_packs")
+        assert isinstance(resource, ResolvedKnowledgeResource)
+        assert resource.kind == "filesystem_packs"
+        assert resource.root == Path("/packs")
+
+    def test_alias_resolves_knowledge_resource(self):
+        cfg = StackConfig.for_session(
+            knowledge_resources={"site_packs": KnowledgeResourceConfig(root="/packs")},
+            knowledge_resource_aliases={"default_packs": "site_packs"},
+        )
+        r = Resolver(cfg)
+        resource = r.resolve_knowledge_resource("default_packs")
+        assert resource.root == Path("/packs")
+
+    def test_profile_override_takes_precedence(self):
+        cfg = StackConfig.for_session(
+            knowledge_resources={"default_packs": KnowledgeResourceConfig(root="/base")},
+            profiles={
+                "test": ProfileOverrideConfig(
+                    knowledge_resources={"default_packs": KnowledgeResourceConfig(root="/profile")}
+                ),
+            },
+            active_profile="test",
+        )
+        r = Resolver(cfg)
+        resource = r.resolve_knowledge_resource("default_packs")
+        assert resource.root == Path("/profile")
+
+    def test_relative_path_resolves_from_loaded_config(self, tmp_path):
+        cfg = StackConfig.for_session(
+            knowledge_resources={"default_packs": KnowledgeResourceConfig(root="knowledge/packs")}
+        )
+        cfg.bind_loaded_path(tmp_path / "config.toml")
+        r = Resolver(cfg)
+        resource = r.resolve_knowledge_resource("default_packs")
+        assert resource.root == (tmp_path / "knowledge" / "packs").resolve()
+
+    def test_unknown_knowledge_resource_raises(self):
+        r = Resolver(StackConfig.for_session())
+        with pytest.raises(KeyError, match="Unknown knowledge resource"):
+            r.resolve_knowledge_resource("missing")
+
+    def test_relative_path_without_loaded_config_warns(self, caplog):
+        import logging
+        cfg = StackConfig.for_session(
+            knowledge_resources={"packs": KnowledgeResourceConfig(root="relative/packs")}
+        )
+        r = Resolver(cfg)
+        with caplog.at_level(logging.WARNING, logger="oa_configurator.resolver"):
+            r.resolve_knowledge_resource("packs")
+        assert any("relative" in msg for msg in caplog.messages)
+
+
 class TestCreateEngine:
     def test_sqlite_engine_from_target(self, minimal_stack):
         r = Resolver(minimal_stack)
@@ -171,6 +236,44 @@ class TestWithOverrides:
         r = Resolver(minimal_stack)
         r.with_overrides(databases={"db": DatabaseConfig(dialect="sqlite", database_name="/other.db")})
         assert r.resolve_database("db").url == "sqlite:///:memory:"
+
+    def test_override_knowledge_resource(self):
+        r = Resolver(
+            StackConfig.for_session(
+                knowledge_resources={"default_packs": KnowledgeResourceConfig(root="/base")}
+            )
+        )
+        r2 = r.with_overrides(
+            knowledge_resources={"default_packs": KnowledgeResourceConfig(root="/other")}
+        )
+        assert r2.resolve_knowledge_resource("default_packs").root == Path("/other")
+
+    def test_override_knowledge_resource_aliases(self):
+        r = Resolver(
+            StackConfig.for_session(
+                knowledge_resources={"site_packs": KnowledgeResourceConfig(root="/packs")},
+                knowledge_resource_aliases={"default_packs": "site_packs"},
+            )
+        )
+        r2 = r.with_overrides(
+            knowledge_resources={"test_packs": KnowledgeResourceConfig(root="/test")},
+            knowledge_resource_aliases={"default_packs": "test_packs"},
+        )
+        assert r2.resolve_knowledge_resource("default_packs").root == Path("/test")
+
+    def test_override_resource_aliases(self):
+        r = Resolver(
+            StackConfig.for_session(
+                databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
+                resources={"prod": ResourceConfig(database="db", cdm_schema="prod_schema")},
+                resource_aliases={"cdm_db": "prod"},
+            )
+        )
+        r2 = r.with_overrides(
+            resources={"test": ResourceConfig(database="db", cdm_schema="test_schema")},
+            resource_aliases={"cdm_db": "test"},
+        )
+        assert r2.resolve_resource("cdm_db").cdm_schema == "test_schema"
 
 
 class TestResourceAliases:
@@ -218,6 +321,14 @@ class TestDiscovery:
     def test_resource_names(self, minimal_stack):
         r = Resolver(minimal_stack)
         assert r.resource_names() == ("default",)
+
+    def test_knowledge_resource_names(self):
+        r = Resolver(
+            StackConfig.for_session(
+                knowledge_resources={"default_packs": KnowledgeResourceConfig(root="/packs")}
+            )
+        )
+        assert r.knowledge_resource_names() == ("default_packs",)
 
     def test_no_active_profile(self, minimal_stack):
         r = Resolver(minimal_stack)

@@ -407,6 +407,13 @@ def _run_configure_package(
                 f"\n[yellow]Warning:[/yellow] Required resource {rname!r} is not configured. "
                 f"It may be provided by another package. Run that package's configure command."
             )
+    for kname in getattr(cls, "required_knowledge_resources", ()):
+        resolved_kname = config.knowledge_resource_aliases.get(kname, kname)
+        if resolved_kname not in config.knowledge_resources:
+            console.print(
+                f"\n[yellow]Warning:[/yellow] Required knowledge resource {kname!r} is not configured. "
+                "It may be provided manually or by another package integration."
+            )
 
     extra = _resolve_extra_fields(
         cls, config, set_dict=set_dict, interactive=flags_arg is None and not any_explicit_flags
@@ -414,6 +421,9 @@ def _run_configure_package(
 
     existing_tool = config.tools.get(tool_name)
     existing_default = existing_tool.default_resource if existing_tool else None
+    existing_knowledge_default = (
+        existing_tool.default_knowledge_resource if existing_tool else None
+    )
     available_resources = sorted(config.resource_names())
     relevant_names = {s.semantic_name for s in cls.owned_resources} | set(cls.required_resources)
     if resource_name:
@@ -435,7 +445,11 @@ def _run_configure_package(
     else:
         new_default_resource = existing_default or (relevant_resources[0] if relevant_resources else None)
 
-    config.tools[tool_name] = ToolConfig(default_resource=new_default_resource, extra=extra)
+    config.tools[tool_name] = ToolConfig(
+        default_resource=new_default_resource,
+        default_knowledge_resource=existing_knowledge_default,
+        extra=extra,
+    )
     save_stack_config(config)
     console.print(f"\n[green]✓[/green] Saved \\[tools.{tool_name}] to [dim]{CONFIG_PATH}[/dim]")
 

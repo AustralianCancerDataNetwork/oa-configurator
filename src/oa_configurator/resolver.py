@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal, TypeVar
 
 import sqlalchemy as sa
@@ -11,6 +12,7 @@ from sqlalchemy.engine import Engine
 
 from .models import (
     DatabaseConfig,
+    KnowledgeResourceConfig,
     ProfileOverrideConfig,
     ResourceConfig,
     StackConfig,
@@ -186,13 +188,39 @@ class ResolvedToolConfig:
 
     name: str
     default_resource: str | None
+    default_knowledge_resource: str | None
     extra: dict[str, Any]
 
     def __repr__(self) -> str:
         return (
             f"ResolvedToolConfig(name={self.name!r}, "
             f"default_resource={self.default_resource!r}, "
+            f"default_knowledge_resource={self.default_knowledge_resource!r}, "
             f"extra_keys={sorted(self.extra)!r})"
+        )
+
+
+@dataclass(frozen=True)
+class ResolvedKnowledgeResource:
+    """Resolved knowledge source handle.
+
+    Phase 1 exposes the filesystem-backed root path for knowledge pack
+    resources while preserving a future-facing ``kind`` discriminator.
+    """
+
+    name: str
+    kind: str
+    root: Path
+
+    @property
+    def exists(self) -> bool:
+        """Return True when the resolved root currently exists on disk."""
+        return self.root.exists()
+
+    def __repr__(self) -> str:
+        return (
+            f"ResolvedKnowledgeResource(name={self.name!r}, "
+            f"kind={self.kind!r}, root={str(self.root)!r})"
         )
 
 
@@ -285,9 +313,36 @@ class Resolver:
         resolved = ResolvedToolConfig(
             name=name,
             default_resource=tool.default_resource,
+            default_knowledge_resource=tool.default_knowledge_resource,
             extra=dict(tool.extra),
         )
-        logger.debug("Resolved tool %r with default_resource=%r", name, resolved.default_resource)
+        logger.debug(
+            "Resolved tool %r with default_resource=%r default_knowledge_resource=%r",
+            name,
+            resolved.default_resource,
+            resolved.default_knowledge_resource,
+        )
+        return resolved
+
+    def resolve_knowledge_resource(self, name: str) -> ResolvedKnowledgeResource:
+        """Resolve a knowledge resource name to a concrete knowledge source handle.
+
+        Applies profile overlays and knowledge-resource aliases. Phase 1
+        supports filesystem-backed knowledge pack roots only.
+        """
+        resource = self._effective_knowledge_resource(name)
+        root = _resolve_path(resource.root, self.config.loaded_path)
+        resolved = ResolvedKnowledgeResource(
+            name=name,
+            kind=resource.kind,
+            root=root,
+        )
+        logger.debug(
+            "Resolved knowledge resource %r → kind=%r root=%s",
+            name,
+            resolved.kind,
+            resolved.root,
+        )
         return resolved
 
     def with_overrides(
@@ -295,7 +350,10 @@ class Resolver:
         *,
         databases: dict[str, DatabaseConfig] | None = None,
         resources: dict[str, ResourceConfig] | None = None,
+        knowledge_resources: dict[str, KnowledgeResourceConfig] | None = None,
         tools: dict[str, ToolConfig] | None = None,
+        resource_aliases: dict[str, str] | None = None,
+        knowledge_resource_aliases: dict[str, str] | None = None,
     ) -> Resolver:
         """Return a new Resolver with entries merged over the current config.
 
@@ -306,8 +364,10 @@ class Resolver:
             profiles=self.config.profiles,
             databases={**self.config.databases, **(databases or {})},
             resources={**self.config.resources, **(resources or {})},
+            knowledge_resources={**self.config.knowledge_resources, **(knowledge_resources or {})},
             tools={**self.config.tools, **(tools or {})},
-            resource_aliases=self.config.resource_aliases,
+            resource_aliases={**self.config.resource_aliases, **(resource_aliases or {})},
+            knowledge_resource_aliases={**self.config.knowledge_resource_aliases, **(knowledge_resource_aliases or {})},
             logging=self.config.logging,
         )
         if self.config.loaded_path is not None:
@@ -325,6 +385,10 @@ class Resolver:
     def tool_names(self) -> tuple[str, ...]:
         """Return a sorted tuple of configured tool names."""
         return self.config.tool_names()
+
+    def knowledge_resource_names(self) -> tuple[str, ...]:
+        """Return a sorted tuple of configured knowledge resource names."""
+        return self.config.knowledge_resource_names()
 
     def profile_names(self) -> tuple[str, ...]:
         """Return a sorted tuple of configured profile names."""
@@ -374,6 +438,13 @@ class Resolver:
             return profile.resources[actual_name]
         return _get_named(self.config.resources, "resource", actual_name)
 
+    def _effective_knowledge_resource(self, name: str) -> KnowledgeResourceConfig:
+        profile = self._active_profile()
+        actual_name = self.config.knowledge_resource_aliases.get(name, name)
+        if profile and actual_name in profile.knowledge_resources:
+            return profile.knowledge_resources[actual_name]
+        return _get_named(self.config.knowledge_resources, "knowledge resource", actual_name)
+
     def _effective_tool(self, name: str) -> ToolConfig:
         profile = self._active_profile()
         if profile and name in profile.tools:
@@ -391,6 +462,7 @@ class Resolver:
             f"Resolver(active_profile={self.config.active_profile!r}, "
             f"databases={len(self.config.databases)}, "
             f"resources={len(self.config.resources)}, "
+            f"knowledge_resources={len(self.config.knowledge_resources)}, "
             f"tools={len(self.config.tools)})"
         )
 
@@ -400,3 +472,17 @@ def _get_named(mapping: dict[str, T], kind: str, name: str) -> T:
         return mapping[name]
     except KeyError as exc:
         raise KeyError(f"Unknown {kind}: {name!r}") from exc
+
+
+def _resolve_path(path: Path, loaded_path: Path | None) -> Path:
+    expanded = path.expanduser()
+    if expanded.is_absolute():
+        return expanded.resolve()
+    if loaded_path is not None:
+        return (loaded_path.parent / expanded).resolve()
+    logger.warning(
+        "Resolving relative knowledge resource path %r against process CWD because no config file "
+        "path is set. Call bind_loaded_path() or use an absolute path to avoid CWD-dependent results.",
+        str(path),
+    )
+    return expanded.resolve()

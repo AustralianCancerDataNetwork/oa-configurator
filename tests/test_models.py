@@ -1,6 +1,7 @@
 """Tests for models.py: DatabaseConfig, ResourceConfig, ToolConfig, StackConfig."""
 
 from __future__ import annotations
+from pathlib import Path
 
 import pytest
 
@@ -81,12 +82,12 @@ class TestResourceConfig:
 
 class TestLocalPathKnowledgeResource:
     def test_minimal(self):
-        r = LocalPathKnowledgeResource(root="/packs")
+        r = LocalPathKnowledgeResource(root=Path("/packs"))
         assert r.kind == "local_path"
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(Exception):
-            LocalPathKnowledgeResource(root="/packs", unknown="x")  # type: ignore
+            LocalPathKnowledgeResource(root=Path("/packs"), unknown="x") # type: ignore
 
     def test_is_subclass_of_base(self):
         assert issubclass(LocalPathKnowledgeResource, KnowledgeResourceConfig)
@@ -154,12 +155,12 @@ class TestStackConfig:
         cfg = StackConfig.for_session(
             databases={"c": DatabaseConfig(dialect="sqlite")},
             resources={"r": ResourceConfig(database="c", cdm_schema="s")},
-            knowledge_resources={"k": LocalPathKnowledgeResource(root="/packs")},
+            knowledge_resources={"k": LocalPathKnowledgeResource(root=Path("/packs"))},
             profiles={
                 "test": ProfileOverrideConfig(
                     databases={"tc": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
                     resources={"r": ResourceConfig(database="tc", cdm_schema="s")},
-                    knowledge_resources={"k": LocalPathKnowledgeResource(root="/profile-packs")},
+                    knowledge_resources={"k": LocalPathKnowledgeResource(root=Path("/profile-packs"))},
                 ),
             },
         )
@@ -196,7 +197,7 @@ class TestStackConfig:
 
     def test_knowledge_resource_names(self):
         cfg = StackConfig.for_session(
-            knowledge_resources={"default_packs": LocalPathKnowledgeResource(root="/packs")}
+            knowledge_resources={"default_packs": LocalPathKnowledgeResource(root=Path("/packs"))}
         )
         assert cfg.knowledge_resource_names() == ("default_packs",)
 

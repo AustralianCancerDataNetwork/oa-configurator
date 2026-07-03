@@ -145,8 +145,9 @@ class TestSaveStackConfig:
         assert out.exists()
 
     def test_knowledge_resource_root_path_serialises(self, tmp_path):
+        from pathlib import Path
         cfg = StackConfig.for_session(
-            knowledge_resources={"packs": LocalPathKnowledgeResource(root="/opt/packs")}
+            knowledge_resources={"packs": LocalPathKnowledgeResource(root=Path("/opt/packs"))}
         )
         out = tmp_path / "config.toml"
         save_stack_config(cfg, out)

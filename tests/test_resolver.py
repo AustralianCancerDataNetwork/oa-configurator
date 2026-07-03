@@ -154,7 +154,7 @@ class TestResolveTool:
 class TestResolveKnowledgeResource:
     def test_resolves_local_path_root(self):
         cfg = StackConfig.for_session(
-            knowledge_resources={"default_packs": LocalPathKnowledgeResource(root="/packs")}
+            knowledge_resources={"default_packs": LocalPathKnowledgeResource(root=Path("/packs"))}
         )
         r = Resolver(cfg)
         resource = r.resolve_knowledge_resource("default_packs")
@@ -165,34 +165,37 @@ class TestResolveKnowledgeResource:
 
     def test_alias_resolves_knowledge_resource(self):
         cfg = StackConfig.for_session(
-            knowledge_resources={"site_packs": LocalPathKnowledgeResource(root="/packs")},
+            knowledge_resources={"site_packs": LocalPathKnowledgeResource(root=Path("/packs"))},
             knowledge_resource_aliases={"default_packs": "site_packs"},
         )
         r = Resolver(cfg)
         resource = r.resolve_knowledge_resource("default_packs")
+        assert isinstance(resource, ResolvedLocalPathKnowledgeResource)
         assert resource.root == Path("/packs")
 
     def test_profile_override_takes_precedence(self):
         cfg = StackConfig.for_session(
-            knowledge_resources={"default_packs": LocalPathKnowledgeResource(root="/base")},
+            knowledge_resources={"default_packs": LocalPathKnowledgeResource(root=Path("/base"))},
             profiles={
                 "test": ProfileOverrideConfig(
-                    knowledge_resources={"default_packs": LocalPathKnowledgeResource(root="/profile")}
+                    knowledge_resources={"default_packs": LocalPathKnowledgeResource(root=Path("/profile"))}
                 ),
             },
             active_profile="test",
         )
         r = Resolver(cfg)
         resource = r.resolve_knowledge_resource("default_packs")
+        assert isinstance(resource, ResolvedLocalPathKnowledgeResource)
         assert resource.root == Path("/profile")
 
     def test_relative_path_resolves_from_loaded_config(self, tmp_path):
         cfg = StackConfig.for_session(
-            knowledge_resources={"default_packs": LocalPathKnowledgeResource(root="knowledge/packs")}
+            knowledge_resources={"default_packs": LocalPathKnowledgeResource(root=Path("knowledge/packs"))}
         )
         cfg.bind_loaded_path(tmp_path / "config.toml")
         r = Resolver(cfg)
         resource = r.resolve_knowledge_resource("default_packs")
+        assert isinstance(resource, ResolvedLocalPathKnowledgeResource)
         assert resource.root == (tmp_path / "knowledge" / "packs").resolve()
 
     def test_unknown_knowledge_resource_raises(self):
@@ -203,7 +206,7 @@ class TestResolveKnowledgeResource:
     def test_relative_path_without_loaded_config_warns(self, caplog):
         import logging
         cfg = StackConfig.for_session(
-            knowledge_resources={"packs": LocalPathKnowledgeResource(root="relative/packs")}
+            knowledge_resources={"packs": LocalPathKnowledgeResource(root=Path("relative/packs"))}
         )
         r = Resolver(cfg)
         with caplog.at_level(logging.WARNING, logger="oa_configurator.resolver"):
@@ -241,26 +244,30 @@ class TestWithOverrides:
     def test_override_knowledge_resource(self):
         r = Resolver(
             StackConfig.for_session(
-                knowledge_resources={"default_packs": LocalPathKnowledgeResource(root="/base")}
+                knowledge_resources={"default_packs": LocalPathKnowledgeResource(root=Path("/base"))}
             )
         )
         r2 = r.with_overrides(
-            knowledge_resources={"default_packs": LocalPathKnowledgeResource(root="/other")}
+            knowledge_resources={"default_packs": LocalPathKnowledgeResource(root=Path("/other"))}
         )
-        assert r2.resolve_knowledge_resource("default_packs").root == Path("/other")
+        r2_resource = r2.resolve_knowledge_resource("default_packs")
+        assert isinstance(r2_resource, ResolvedLocalPathKnowledgeResource)
+        assert r2_resource.root == Path("/other")
 
     def test_override_knowledge_resource_aliases(self):
         r = Resolver(
             StackConfig.for_session(
-                knowledge_resources={"site_packs": LocalPathKnowledgeResource(root="/packs")},
+                knowledge_resources={"site_packs": LocalPathKnowledgeResource(root=Path("/packs"))},
                 knowledge_resource_aliases={"default_packs": "site_packs"},
             )
         )
         r2 = r.with_overrides(
-            knowledge_resources={"test_packs": LocalPathKnowledgeResource(root="/test")},
+            knowledge_resources={"test_packs": LocalPathKnowledgeResource(root=Path("/test"))},
             knowledge_resource_aliases={"default_packs": "test_packs"},
         )
-        assert r2.resolve_knowledge_resource("default_packs").root == Path("/test")
+        r2_resource = r2.resolve_knowledge_resource("default_packs")
+        assert isinstance(r2_resource, ResolvedLocalPathKnowledgeResource)
+        assert r2_resource.root == Path("/test")
 
     def test_override_resource_aliases(self):
         r = Resolver(
@@ -326,7 +333,7 @@ class TestDiscovery:
     def test_knowledge_resource_names(self):
         r = Resolver(
             StackConfig.for_session(
-                knowledge_resources={"default_packs": LocalPathKnowledgeResource(root="/packs")}
+                knowledge_resources={"default_packs": LocalPathKnowledgeResource(root=Path("/packs"))}
             )
         )
         assert r.knowledge_resource_names() == ("default_packs",)

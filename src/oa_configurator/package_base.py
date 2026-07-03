@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
 from pydantic import BaseModel
 
-from .models import DatabaseConfig, StackConfig
+from .models import DatabaseConfig, ResourceKind, StackConfig
 
 
 @dataclass(frozen=True)
@@ -51,14 +51,10 @@ class ResourceSpec:
 
     Attributes
     ----------
-    cdm_schema_default
-        Default value for the schema prompt. Defaults to ``"omop"`` for OMOP
-        CDM databases. Set to ``"public"`` for non-CDM databases (e.g. the
-        pgvector embedding database).
-    is_cdm_database
-        When ``False``, the configure prompt skips the vocab schema and
-        results schema questions — those are OMOP CDM-specific concepts that
-        do not apply to other databases such as the pgvector embedding store.
+    resource_kind
+        Determines which schema prompts the configure CLI shows and which
+        config type is built. See ``cli_fields.SCHEMA_FIELDS_BY_KIND`` 
+        for the mapping.
     connection_defaults
         Optional pre-fill values for the connection prompts (dialect, host, port,
         user, password, database_name), as a ``DatabaseConfig`` instance. Only the
@@ -70,8 +66,7 @@ class ResourceSpec:
     display_name: str
     description: str
     connection_name_hint: str = ""
-    cdm_schema_default: str = "omop"
-    is_cdm_database: bool = True
+    resource_kind: ResourceKind = ResourceKind.cdm
     connection_defaults: DatabaseConfig | None = field(default=None, compare=False)
 
 

@@ -1,4 +1,4 @@
-"""Tests for resolver.py: Resolver, ResolvedResource, ResolvedLocalPathKnowledgeResource."""
+"""Tests for resolver.py: ResolvedCDMResource, ResolvedLocalPathKnowledgeResource."""
 
 from __future__ import annotations
 
@@ -8,11 +8,12 @@ from pathlib import Path
 
 from oa_configurator import LocalPathKnowledgeResource, Resolver, StackConfig
 from oa_configurator.resolver import (
+    ResolvedCDMResource,
     ResolvedKnowledgeResource,
     ResolvedLocalPathKnowledgeResource,
-    ResolvedResource,
+    ResolvedResourceBase,
 )
-from oa_configurator.models import DatabaseConfig, ProfileOverrideConfig, ResourceConfig, ToolConfig
+from oa_configurator.models import CDMResourceConfig, DatabaseConfig, ProfileOverrideConfig, ToolConfig
 
 
 class TestResolveDatabase:
@@ -38,7 +39,7 @@ class TestResolveDatabase:
     def test_profile_database_takes_precedence(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name="/base.db")},
-            resources={"default": ResourceConfig(database="db", cdm_schema="omop")},
+            resources={"default": CDMResourceConfig(database="db", cdm_schema="omop")},
             profiles={
                 "test": ProfileOverrideConfig(
                     databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
@@ -55,13 +56,15 @@ class TestResolveResource:
     def test_database_resolved(self, minimal_stack):
         r = Resolver(minimal_stack)
         res = r.resolve_resource("default")
-        assert isinstance(res, ResolvedResource)
+        assert isinstance(res, ResolvedCDMResource)
+        assert isinstance(res, ResolvedResourceBase)
         assert res.database.name == "db"
         assert res.cdm_schema == "omop"
 
     def test_vocab_fallback_to_primary(self, minimal_stack):
         r = Resolver(minimal_stack)
         res = r.resolve_resource("default")
+        assert isinstance(res, ResolvedCDMResource)
         assert res.vocab_database.name == res.database.name
 
     def test_vocab_database_separate(self):
@@ -71,21 +74,24 @@ class TestResolveResource:
                 "vocab": DatabaseConfig(dialect="sqlite", database_name=":memory:"),
             },
             resources={
-                "default": ResourceConfig(database="cdm", vocab_database="vocab", cdm_schema="omop"),
+                "default": CDMResourceConfig(database="cdm", vocab_database="vocab", cdm_schema="omop"),
             },
         )
         r = Resolver(cfg)
         res = r.resolve_resource("default")
+        assert isinstance(res, ResolvedCDMResource)
         assert res.vocab_database.name == "vocab"
 
     def test_vocab_schema_falls_back_to_cdm_schema(self, minimal_stack):
         r = Resolver(minimal_stack)
         res = r.resolve_resource("default")
+        assert isinstance(res, ResolvedCDMResource)
         assert res.vocab_schema == "omop"
 
     def test_explicit_vocab_schema(self, pg_stack):
         r = Resolver(pg_stack)
         res = r.resolve_resource("default")
+        assert isinstance(res, ResolvedCDMResource)
         assert res.vocab_schema == "omop_vocab"
         assert res.results_schema == "results"
 
@@ -97,16 +103,17 @@ class TestResolveResource:
     def test_profile_resource_takes_precedence(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"default": ResourceConfig(database="db", cdm_schema="base_schema")},
+            resources={"default": CDMResourceConfig(database="db", cdm_schema="base_schema")},
             profiles={
                 "test": ProfileOverrideConfig(
-                    resources={"default": ResourceConfig(database="db", cdm_schema="test_schema")},
+                    resources={"default": CDMResourceConfig(database="db", cdm_schema="test_schema")},
                 ),
             },
             active_profile="test",
         )
         r = Resolver(cfg)
         res = r.resolve_resource("default")
+        assert isinstance(res, ResolvedCDMResource)
         assert res.cdm_schema == "test_schema"
 
 
@@ -114,6 +121,7 @@ class TestSchemaTranslateMap:
     def test_no_results_schema(self, minimal_stack):
         r = Resolver(minimal_stack)
         res = r.resolve_resource("default")
+        assert isinstance(res, ResolvedCDMResource)
         stm = res.schema_translate_map()
         assert stm[None] == "omop"
         assert "results" not in stm
@@ -121,6 +129,7 @@ class TestSchemaTranslateMap:
     def test_with_all_schemas(self, pg_stack):
         r = Resolver(pg_stack)
         res = r.resolve_resource("default")
+        assert isinstance(res, ResolvedCDMResource)
         stm = res.schema_translate_map()
         assert stm[None] == "omop"
         assert stm["vocab"] == "omop_vocab"
@@ -129,6 +138,7 @@ class TestSchemaTranslateMap:
     def test_vocab_schema_defaults_to_cdm(self, minimal_stack):
         r = Resolver(minimal_stack)
         res = r.resolve_resource("default")
+        assert isinstance(res, ResolvedCDMResource)
         stm = res.schema_translate_map()
         assert stm["vocab"] == "omop"
 
@@ -137,7 +147,7 @@ class TestResolveTool:
     def test_tool_extra_dict(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite")},
-            resources={"default": ResourceConfig(database="db", cdm_schema="omop")},
+            resources={"default": CDMResourceConfig(database="db", cdm_schema="omop")},
             tools={"omop_emb": ToolConfig(extra={"backend": "sqlitevec", "path": "/data"})},
         )
         r = Resolver(cfg)
@@ -160,7 +170,7 @@ class TestResolveKnowledgeResource:
         resource = r.resolve_knowledge_resource("default_packs")
         assert isinstance(resource, ResolvedLocalPathKnowledgeResource)
         assert isinstance(resource, ResolvedKnowledgeResource)
-        assert resource.kind == "local_path"
+        assert resource.knowledge_resource_kind == "local_path"
         assert resource.root == Path("/packs")
 
     def test_alias_resolves_knowledge_resource(self):
@@ -273,36 +283,39 @@ class TestWithOverrides:
         r = Resolver(
             StackConfig.for_session(
                 databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-                resources={"prod": ResourceConfig(database="db", cdm_schema="prod_schema")},
+                resources={"prod": CDMResourceConfig(database="db", cdm_schema="prod_schema")},
                 resource_aliases={"cdm_db": "prod"},
             )
         )
         r2 = r.with_overrides(
-            resources={"test": ResourceConfig(database="db", cdm_schema="test_schema")},
+            resources={"test": CDMResourceConfig(database="db", cdm_schema="test_schema")},
             resource_aliases={"cdm_db": "test"},
         )
-        assert r2.resolve_resource("cdm_db").cdm_schema == "test_schema"
+        res = r2.resolve_resource("cdm_db")
+        assert isinstance(res, ResolvedCDMResource)
+        assert res.cdm_schema == "test_schema"
 
 
 class TestResourceAliases:
     def test_alias_resolves_resource(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"my_prod": ResourceConfig(database="db", cdm_schema="main")},
+            resources={"my_prod": CDMResourceConfig(database="db", cdm_schema="main")},
             resource_aliases={"cdm_db": "my_prod"},
         )
         r = Resolver(cfg)
         res = r.resolve_resource("cdm_db")
+        assert isinstance(res, ResolvedCDMResource)
         assert res.cdm_schema == "main"
         assert res.database.name == "db"
 
     def test_alias_with_profile_override(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"my_prod": ResourceConfig(database="db", cdm_schema="base")},
+            resources={"my_prod": CDMResourceConfig(database="db", cdm_schema="base")},
             profiles={
                 "test": ProfileOverrideConfig(
-                    resources={"my_prod": ResourceConfig(database="db", cdm_schema="test_schema")},
+                    resources={"my_prod": CDMResourceConfig(database="db", cdm_schema="test_schema")},
                 ),
             },
             resource_aliases={"cdm_db": "my_prod"},
@@ -310,6 +323,7 @@ class TestResourceAliases:
         )
         r = Resolver(cfg)
         res = r.resolve_resource("cdm_db")
+        assert isinstance(res, ResolvedCDMResource)
         assert res.cdm_schema == "test_schema"
 
     def test_unknown_alias_target_raises_at_construction(self):

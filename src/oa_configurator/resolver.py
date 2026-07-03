@@ -10,13 +10,16 @@ from typing import Any, Literal, TypeVar
 from sqlalchemy.engine import Engine
 
 from .models import (
+    CDMResourceConfig,
     DatabaseConfig,
-    KnowledgeKind,
+    EmbeddingResourceConfig,
     KnowledgeResourceConfig,
+    KnowledgeResourceKind,
     KnowledgeResourceMap,
     LocalPathKnowledgeResource,
     ProfileOverrideConfig,
-    ResourceConfig,
+    ResourceConfigBase,
+    ResourceMap,
     StackConfig,
     ToolConfig,
 )
@@ -24,31 +27,59 @@ from .models import (
 T = TypeVar("T")
 logger = logging.getLogger(__name__)
 
+
 @dataclass(frozen=True)
-class ResolvedResource:
-    """Resolved logical resource with concrete DB configs and effective schema names.
+class ResolvedResourceBase:
+    """Base resolved handle for all resource kinds.
+
+    Subclasses carry kind-specific fields and may override ``create_engine``.
+    Use ``isinstance`` to narrow to a concrete subclass.
 
     Attributes
     ----------
     name : str
         Logical name of the resource as declared in the config or an alias.
     database : DatabaseConfig
-        Resolved primary database config for this resource. The ``name`` field
-        on the config is set to the logical database name.
-    vocab_database : DatabaseConfig
-        Resolved vocabulary database config. May be the same object as
-        *database* if no separate vocab database is configured.
-    cdm_schema : str
-        Effective CDM schema name for this resource.
-    vocab_schema : str
-        Effective vocabulary schema name. May equal *cdm_schema* when no
-        separate vocab schema is configured.
-    results_schema : str | None
-        Effective results schema name, or None if not configured.
+        Resolved primary database config. The ``name`` field is set to the
+        logical database name.
     """
 
     name: str
     database: DatabaseConfig
+
+    def create_engine(self, **kwargs: Any) -> Engine:
+        """Create a plain SQLAlchemy engine for the primary database.
+
+        Parameters
+        ----------
+        **kwargs
+            Forwarded to ``sqlalchemy.create_engine``.
+
+        Returns
+        -------
+        sqlalchemy.engine.Engine
+        """
+        return self.database.create_engine(**kwargs)
+
+
+@dataclass(frozen=True)
+class ResolvedCDMResource(ResolvedResourceBase):
+    """Resolved OMOP CDM resource with concrete DB configs and effective schema names.
+
+    Attributes
+    ----------
+    vocab_database : DatabaseConfig
+        Resolved vocabulary database config. May be the same object as
+        ``database`` if no separate vocab database is configured.
+    cdm_schema : str
+        Effective CDM schema name for this resource.
+    vocab_schema : str
+        Effective vocabulary schema name. May equal ``cdm_schema`` when no
+        separate vocab schema is configured.
+    results_schema : str or None
+        Effective results schema name, or None if not configured.
+    """
+
     vocab_database: DatabaseConfig
     cdm_schema: str
     vocab_schema: str
@@ -67,7 +98,6 @@ class ResolvedResource:
         Returns
         -------
         DatabaseConfig
-            The database config for *role*, with ``name`` set.
 
         Raises
         ------
@@ -103,7 +133,7 @@ class ResolvedResource:
         execution_options: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> Engine:
-        """Create a SQLAlchemy engine with the schema translate map applied.
+        """Create a SQLAlchemy engine with the CDM schema translate map applied.
 
         The schema translate map routes OMOP ORM models to the correct schemas
         automatically (``None`` -> cdm_schema, ``"vocab"`` -> vocab_schema,
@@ -134,11 +164,31 @@ class ResolvedResource:
 
     def __repr__(self) -> str:
         return (
-            f"ResolvedResource(name={self.name!r}, "
+            f"ResolvedCDMResource(name={self.name!r}, "
             f"database={self.database.name!r}, "
             f"cdm_schema={self.cdm_schema!r}, "
             f"vocab_schema={self.vocab_schema!r}, "
             f"results_schema={self.results_schema!r})"
+        )
+
+
+@dataclass(frozen=True)
+class ResolvedEmbeddingResource(ResolvedResourceBase):
+    """Resolved embedding store resource with its primary schema.
+
+    Attributes
+    ----------
+    embedding_schema : str
+        Schema where the embedding store tables live.
+    """
+
+    embedding_schema: str
+
+    def __repr__(self) -> str:
+        return (
+            f"ResolvedEmbeddingResource(name={self.name!r}, "
+            f"database={self.database.name!r}, "
+            f"embedding_schema={self.embedding_schema!r})"
         )
 
 
@@ -168,7 +218,7 @@ class ResolvedKnowledgeResource:
     """
 
     name: str
-    kind: KnowledgeKind
+    knowledge_resource_kind: KnowledgeResourceKind
 
 
 @dataclass(frozen=True)
@@ -213,12 +263,12 @@ class Resolver:
         logger.debug("Resolved database %r → %s", name, resolved.safe_url())
         return resolved
 
-    def resolve_resource(self, name: str) -> ResolvedResource:
-        """Resolve a resource name to a concrete bundle of DB targets and schemas.
+    def resolve_resource(self, name: str) -> ResolvedResourceBase:
+        """Resolve a resource name to a kind-specific resolved handle.
 
-        Applies profile overlays and resource aliases. The vocab DB falls back
-        to the primary DB when not explicitly configured; the vocab schema falls
-        back to the CDM schema under the same condition.
+        Applies profile overlays and resource aliases. Dispatches on the config
+        type and returns the appropriate :class:`ResolvedResourceBase` subclass.
+        Add an ``isinstance`` branch here when a new resource kind is introduced.
 
         Parameters
         ----------
@@ -228,36 +278,57 @@ class Resolver:
 
         Returns
         -------
-        ResolvedResource
-            Fully resolved resource with concrete database targets and
-            effective schema names.
+        ResolvedResourceBase
+            Concrete subclass matching the resource kind.
 
         Raises
         ------
         KeyError
             If *name* (after alias resolution) does not exist in the config.
+        ValueError
+            If the resource kind is not handled (extend this method).
         """
-        resource = self._effective_resource(name)
+        config = self._effective_resource(name)
 
-        primary = self.resolve_database(resource.database)
-        vocab = self.resolve_database(resource.vocab_database or resource.database)
-        effective_vocab_schema = resource.vocab_schema or resource.cdm_schema
+        if isinstance(config, CDMResourceConfig):
+            primary = self.resolve_database(config.database)
+            vocab = self.resolve_database(config.vocab_database or config.database)
+            effective_vocab_schema = config.vocab_schema or config.cdm_schema
+            resolved: ResolvedResourceBase = ResolvedCDMResource(
+                name=name,
+                database=primary,
+                vocab_database=vocab,
+                cdm_schema=config.cdm_schema,
+                vocab_schema=effective_vocab_schema,
+                results_schema=config.results_schema,
+            )
+            logger.debug(
+                "Resolved resource %r → database=%s cdm_schema=%r",
+                name,
+                primary.safe_url(),
+                config.cdm_schema,
+            )
+            return resolved
 
-        resolved = ResolvedResource(
-            name=name,
-            database=primary,
-            vocab_database=vocab,
-            cdm_schema=resource.cdm_schema,
-            vocab_schema=effective_vocab_schema,
-            results_schema=resource.results_schema,
+        if isinstance(config, EmbeddingResourceConfig):
+            primary = self.resolve_database(config.database)
+            resolved = ResolvedEmbeddingResource(
+                name=name,
+                database=primary,
+                embedding_schema=config.embedding_schema,
+            )
+            logger.debug(
+                "Resolved resource %r → database=%s embedding_schema=%r",
+                name,
+                primary.safe_url(),
+                config.embedding_schema,
+            )
+            return resolved
+
+        raise ValueError(
+            f"Unknown resource kind {config.resource_kind!r} for {name!r}. "
+            "Add an isinstance branch in Resolver.resolve_resource."
         )
-        logger.debug(
-            "Resolved resource %r → database=%s cdm_schema=%r",
-            name,
-            resolved.database.safe_url(),
-            resolved.cdm_schema,
-        )
-        return resolved
 
     def resolve_tool(self, name: str) -> ResolvedToolConfig:
         """Resolve a tool name to its configuration.
@@ -297,20 +368,25 @@ class Resolver:
         """Resolve a knowledge resource name to a kind-specific resolved handle.
 
         Applies profile overlays and knowledge-resource aliases. Dispatches on
-        ``kind`` and returns the appropriate :class:`ResolvedKnowledgeResource`
-        subclass. Add a new ``case`` here when a new kind is introduced.
+        ``knowledge_resource_kind`` and returns the appropriate
+        :class:`ResolvedKnowledgeResource` subclass. Add an ``isinstance`` branch
+        here when a new kind is introduced.
         """
         config = self._effective_knowledge_resource(name)
         if isinstance(config, LocalPathKnowledgeResource):
             root = _resolve_path(config.root, self.config.loaded_path)
-            resolved = ResolvedLocalPathKnowledgeResource(name=name, kind=config.kind, root=root)
+            resolved = ResolvedLocalPathKnowledgeResource(
+                name=name,
+                knowledge_resource_kind=config.knowledge_resource_kind,
+                root=root,
+            )
             logger.debug(
                 "Resolved knowledge resource %r → kind=%r root=%s",
-                name, resolved.kind, resolved.root,
+                name, resolved.knowledge_resource_kind, resolved.root,
             )
             return resolved
         raise ValueError(
-            f"Unknown knowledge resource kind {config.kind!r} for {name!r}. "
+            f"Unknown knowledge resource kind {config.knowledge_resource_kind!r} for {name!r}. "
             "Add an isinstance branch in Resolver.resolve_knowledge_resource."
         )
 
@@ -318,7 +394,7 @@ class Resolver:
         self,
         *,
         databases: dict[str, DatabaseConfig] | None = None,
-        resources: dict[str, ResourceConfig] | None = None,
+        resources: ResourceMap | None = None,
         knowledge_resources: KnowledgeResourceMap | None = None,
         tools: dict[str, ToolConfig] | None = None,
         resource_aliases: dict[str, str] | None = None,
@@ -332,7 +408,7 @@ class Resolver:
             active_profile=self.config.active_profile,
             profiles=self.config.profiles,
             databases={**self.config.databases, **(databases or {})},
-            resources={**self.config.resources, **(resources or {})},
+            resources={**self.config.resources, **(resources or {})},  # type: ignore[arg-type]
             knowledge_resources={**self.config.knowledge_resources, **(knowledge_resources or {})},  # type: ignore[arg-type]
             tools={**self.config.tools, **(tools or {})},
             resource_aliases={**self.config.resource_aliases, **(resource_aliases or {})},
@@ -400,7 +476,7 @@ class Resolver:
             return profile.databases[name]
         return _get_named(self.config.databases, "database", name)
 
-    def _effective_resource(self, name: str) -> ResourceConfig:
+    def _effective_resource(self, name: str) -> ResourceConfigBase:
         profile = self._active_profile()
         actual_name = self.config.resource_aliases.get(name, name)
         if profile and actual_name in profile.resources:

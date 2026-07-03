@@ -11,7 +11,7 @@ import pytest
 from oa_configurator import (
     StackConfig,
     DatabaseConfig,
-    ResourceConfig,
+    CDMResourceConfig,
 )
 
 
@@ -26,7 +26,7 @@ def minimal_stack() -> StackConfig:
             )
         },
         resources={
-            "default": ResourceConfig(database="db", cdm_schema="omop"),
+            "default": CDMResourceConfig(database="db", cdm_schema="omop"),
         },
     )
 
@@ -46,7 +46,7 @@ def pg_stack() -> StackConfig:
             )
         },
         resources={
-            "default": ResourceConfig(
+            "default": CDMResourceConfig(
                 database="cdm",
                 cdm_schema="omop",
                 vocab_schema="omop_vocab",

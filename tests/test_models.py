@@ -1,4 +1,4 @@
-"""Tests for models.py: DatabaseConfig, ResourceConfig, ToolConfig, StackConfig."""
+"""Tests for models.py: DatabaseConfig, CDMResourceConfig, EmbeddingResourceConfig, ToolConfig, StackConfig."""
 
 from __future__ import annotations
 from pathlib import Path
@@ -6,10 +6,13 @@ from pathlib import Path
 import pytest
 
 from oa_configurator import (
+    CDMResourceConfig,
     DatabaseConfig,
+    EmbeddingResourceConfig,
     KnowledgeResourceConfig,
     LocalPathKnowledgeResource,
-    ResourceConfig,
+    ResourceConfigBase,
+    ResourceKind,
     StackConfig,
     ToolConfig,
 )
@@ -64,26 +67,48 @@ class TestDatabaseConfig:
         assert db.read_only is True
 
 
-class TestResourceConfig:
+class TestCDMResourceConfig:
     def test_minimal(self):
-        r = ResourceConfig(database="db", cdm_schema="omop")
+        r = CDMResourceConfig(database="db", cdm_schema="omop")
+        assert r.resource_kind == ResourceKind.cdm
         assert r.vocab_database is None
         assert r.vocab_schema is None
         assert r.results_schema is None
 
     def test_cdm_schema_required(self):
         with pytest.raises(Exception):
-            ResourceConfig(database="db")  # type: ignore
+            CDMResourceConfig(database="db")  # type: ignore
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(Exception):
-            ResourceConfig(database="db", cdm_schema="omop", unknown="x")  # type: ignore
+            CDMResourceConfig(database="db", cdm_schema="omop", unknown="x")  # type: ignore
+
+    def test_is_subclass_of_base(self):
+        assert issubclass(CDMResourceConfig, ResourceConfigBase)
+
+
+class TestEmbeddingResourceConfig:
+    def test_minimal(self):
+        r = EmbeddingResourceConfig(database="db", embedding_schema="embeddings")
+        assert r.resource_kind == ResourceKind.embedding
+        assert r.embedding_schema == "embeddings"
+
+    def test_schema_required(self):
+        with pytest.raises(Exception):
+            EmbeddingResourceConfig(database="db")  # type: ignore
+
+    def test_extra_fields_forbidden(self):
+        with pytest.raises(Exception):
+            EmbeddingResourceConfig(database="db", schema="s", unknown="x")  # type: ignore
+
+    def test_is_subclass_of_base(self):
+        assert issubclass(EmbeddingResourceConfig, ResourceConfigBase)
 
 
 class TestLocalPathKnowledgeResource:
     def test_minimal(self):
         r = LocalPathKnowledgeResource(root=Path("/packs"))
-        assert r.kind == "local_path"
+        assert r.knowledge_resource_kind == "local_path"
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(Exception):
@@ -111,21 +136,37 @@ class TestStackConfig:
         assert "default" in minimal_stack.resources
 
     def test_for_session_accepts_raw_dicts(self):
-        """Raw, TOML-table-shaped dicts (not ResourceConfig instances) still coerce at validation time."""
+        """Raw, TOML-table-shaped dicts (not typed instances) still coerce at validation time."""
         cfg = StackConfig.for_session(
             databases={"c": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
             resources={"r": {"database": "c", "cdm_schema": "s"}},  # type: ignore[dict-item]
-            knowledge_resources={"k": {"kind": "local_path", "root": "/packs"}},  # type: ignore[dict-item]
+            knowledge_resources={"k": {"knowledge_resource_kind": "local_path", "root": "/packs"}},  # type: ignore[dict-item]
         )
         assert isinstance(cfg.databases["c"], DatabaseConfig)
-        assert isinstance(cfg.resources["r"], ResourceConfig)
+        assert isinstance(cfg.resources["r"], CDMResourceConfig)
         assert isinstance(cfg.knowledge_resources["k"], KnowledgeResourceConfig)
+
+    def test_resource_kind_shim_cdm_schema(self):
+        """Compat shim injects resource_kind='cdm' for dicts with cdm_schema."""
+        cfg = StackConfig.for_session(
+            databases={"c": DatabaseConfig(dialect="sqlite")},
+            resources={"r": {"database": "c", "cdm_schema": "omop"}},  # type: ignore[dict-item]
+        )
+        assert isinstance(cfg.resources["r"], CDMResourceConfig)
+
+    def test_resource_kind_shim_schema(self):
+        """Compat shim injects resource_kind='embedding' for dicts with embedding_schema."""
+        cfg = StackConfig.for_session(
+            databases={"c": DatabaseConfig(dialect="sqlite")},
+            resources={"r": {"database": "c", "embedding_schema": "embeddings"}},  # type: ignore[dict-item]
+        )
+        assert isinstance(cfg.resources["r"], EmbeddingResourceConfig)
 
     def test_cross_ref_validation_unknown_database(self):
         with pytest.raises(ValueError, match="unknown database"):
             StackConfig.for_session(
                 databases={},
-                resources={"r": ResourceConfig(database="missing", cdm_schema="s")},
+                resources={"r": CDMResourceConfig(database="missing", cdm_schema="s")},
             )
 
     def test_cross_ref_validation_unknown_resource_in_tool(self):
@@ -148,18 +189,18 @@ class TestStackConfig:
         with pytest.raises(ValueError, match="unknown database"):
             StackConfig.for_session(
                 databases={"c": DatabaseConfig(dialect="sqlite")},
-                resources={"r": ResourceConfig(database="c", vocab_database="missing", cdm_schema="s")},
+                resources={"r": CDMResourceConfig(database="c", vocab_database="missing", cdm_schema="s")},
             )
 
     def test_profile_overlay_cross_ref(self):
         cfg = StackConfig.for_session(
             databases={"c": DatabaseConfig(dialect="sqlite")},
-            resources={"r": ResourceConfig(database="c", cdm_schema="s")},
+            resources={"r": CDMResourceConfig(database="c", cdm_schema="s")},
             knowledge_resources={"k": LocalPathKnowledgeResource(root=Path("/packs"))},
             profiles={
                 "test": ProfileOverrideConfig(
                     databases={"tc": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-                    resources={"r": ResourceConfig(database="tc", cdm_schema="s")},
+                    resources={"r": CDMResourceConfig(database="tc", cdm_schema="s")},
                     knowledge_resources={"k": LocalPathKnowledgeResource(root=Path("/profile-packs"))},
                 ),
             },
@@ -171,10 +212,10 @@ class TestStackConfig:
         with pytest.raises(ValueError, match="unknown database"):
             StackConfig.for_session(
                 databases={"c": DatabaseConfig(dialect="sqlite")},
-                resources={"r": ResourceConfig(database="c", cdm_schema="s")},
+                resources={"r": CDMResourceConfig(database="c", cdm_schema="s")},
                 profiles={
                     "bad": ProfileOverrideConfig(
-                        resources={"r": ResourceConfig(database="nonexistent", cdm_schema="s")},
+                        resources={"r": CDMResourceConfig(database="nonexistent", cdm_schema="s")},
                     ),
                 },
             )

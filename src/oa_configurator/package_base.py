@@ -27,7 +27,10 @@ In ``pyproject.toml``::
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Self
+
+if TYPE_CHECKING:
+    from .resolver import ResolvedKnowledgeResource
 
 from pydantic import BaseModel
 
@@ -207,7 +210,7 @@ class PackageConfigBase(BaseModel):
         return Resolver(stack).resolve_resource(name).create_engine(**engine_kwargs)
 
     @classmethod
-    def get_knowledge_resource(cls, resource_name: str | None = None) -> Any:
+    def get_knowledge_resource(cls, resource_name: str | None = None) -> "ResolvedKnowledgeResource":
         """Resolve a knowledge resource for this package."""
         from .loader import load_stack_config
         from .resolver import Resolver
@@ -237,6 +240,14 @@ def _validate_required_names(
     available: set[str],
     alias_section: str,
 ) -> None:
+    """Check that each required name (or its alias) exists in available.
+
+    When override is set, it replaces required_names[0]: the tool-level
+    default_resource / default_knowledge_resource is the user's way of saying
+    "my primary required entry lives under a different name in my config". It is
+    a single name so it can only redirect required_names[0]; remaining entries
+    are still checked by their canonical names.
+    """
     if override and required_names:
         names_to_check: list[str] = [override] + list(required_names[1:])
     else:

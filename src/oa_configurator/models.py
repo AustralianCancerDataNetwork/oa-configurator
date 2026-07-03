@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
+import sqlalchemy as sa
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
-from sqlalchemy.engine import URL
+from sqlalchemy.engine import URL, Engine
 
 from .logging_config import LoggingConfig
 
@@ -24,6 +27,12 @@ class DatabaseConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    name: str = Field(
+        default="",
+        exclude=True,
+        repr=False,
+        description="Logical name of this connection as declared in [databases]. Set by the resolver; not read from TOML.",
+    )
     dialect: str = Field(
         description="SQLAlchemy dialect string, e.g. 'postgresql+psycopg', 'mssql+pyodbc', 'sqlite'."
     )
@@ -111,6 +120,34 @@ class DatabaseConfig(BaseModel):
         """
         return self._build_url(hide_password=True)
 
+    @model_validator(mode="after")
+    def _name_is_reserved(self) -> DatabaseConfig:
+        if "name" in self.model_fields_set:
+            raise ValueError(
+                "DatabaseConfig.name is reserved for the resolver and must not be set in "
+                "config.toml. The logical name comes from the key under [databases] "
+                "(e.g. [databases.cdm] makes name='cdm' available after resolution)."
+            )
+        return self
+
+    def create_engine(self, **kwargs: Any) -> Engine:
+        """Create a SQLAlchemy engine for this connection.
+
+        Parameters
+        ----------
+        **kwargs
+            Forwarded to ``sqlalchemy.create_engine``. The ``read_only``
+            keyword is silently removed for SQLite connections, which do
+            not support it.
+
+        Returns
+        -------
+        sqlalchemy.engine.Engine
+        """
+        if self.dialect.startswith("sqlite") and "read_only" in kwargs:
+            kwargs.pop("read_only", None)
+        return sa.create_engine(self.build_url(), **kwargs)
+
 
 class ResourceConfig(BaseModel):
     """Maps the OMOP logical roles (CDM, vocab, results) to named databases and schema names.
@@ -142,31 +179,52 @@ class ResourceConfig(BaseModel):
     )
 
 
-class FilesystemPacksConfig(BaseModel):
-    """Filesystem-backed knowledge pack root.
+class KnowledgeKind(StrEnum):
+    local_path = "local_path"
 
-    One concrete variant of the ``KnowledgeResourceConfig`` discriminated union.
-    The ``kind`` discriminator field enables future variants (e.g. ``package_data``,
-    ``rag_index``) to be added as separate classes with their own required fields,
-    without cross-field validators on a shared model.
+
+class KnowledgeResourceConfig(BaseModel):
+    """Shared interface anchor for all knowledge resource config types.
+
+    Enforces the ``kind`` field on every subclass and provides the base type
+    used for resolver internals, ``isinstance`` dispatch, and method parameters.
+    Pydantic field declarations use :data:`KnowledgeResourceType` (not this
+    class directly) so that deserialization dispatches to the correct concrete
+    subclass based on ``kind``.
+
+    To add a new kind: add a member to :class:`KnowledgeKind`, write a subclass
+    with ``kind: Literal[KnowledgeKind.<member>]``, and extend
+    :data:`KnowledgeResourceType` with the new type.
     """
 
     model_config = ConfigDict(extra="forbid")
-
-    kind: Literal["filesystem_packs"] = Field(
-        default="filesystem_packs",
-        description="Knowledge source implementation kind.",
-    )
-    root: Path = Field(
-        description="Root directory for this knowledge source.",
-    )
+    kind: KnowledgeKind
 
 
-# Single-variant discriminated union — extend to
-#   Annotated[FilesystemPacksConfig | NextKindConfig, Field(discriminator="kind")]
-# when a second kind is introduced. intended for future added support for 
-# package_data and rag_index knowledge sources.
-KnowledgeResourceConfig = FilesystemPacksConfig
+class LocalPathKnowledgeResource(KnowledgeResourceConfig):
+    """Knowledge source backed by a local filesystem directory.
+
+    ``root`` may be an absolute path or a path relative to the config file.
+    The resolver always expands it to absolute before returning a resolved handle.
+    """
+
+    kind: Literal[KnowledgeKind.local_path] = KnowledgeKind.local_path  # type: ignore[assignment]
+    root: Path = Field(description="Root directory for this knowledge source.")
+
+
+# Discriminated union for Pydantic field declarations. Pydantic reads ``kind``
+# from the raw TOML dict and dispatches to the matching concrete class.
+# This is the single place to extend when a new KnowledgeResource kind is added:
+#   KnowledgeResourceType = Annotated[LocalPathKnowledgeResource | NewKind, Field(discriminator="kind")]
+KnowledgeResourceType = Annotated[
+    LocalPathKnowledgeResource,
+    Field(discriminator="kind"),
+]
+
+# Covariant parameter type for methods that accept any knowledge resource mapping.
+# Mapping so callers can pass dict[str, <ConcreteSubclass>] without
+# dict-invariance type errors; we only read from these mappings, never write.
+KnowledgeResourceMap = Mapping[str, KnowledgeResourceConfig]
 
 
 class ToolConfig(BaseModel):
@@ -214,7 +272,7 @@ class ProfileOverrideConfig(BaseModel):
         default_factory=dict,
         description="Resource configs that replace or extend the base resources.",
     )
-    knowledge_resources: dict[str, KnowledgeResourceConfig] = Field(
+    knowledge_resources: dict[str, KnowledgeResourceType] = Field(
         default_factory=dict,
         description="Knowledge resource configs that replace or extend the base knowledge resources.",
     )
@@ -248,7 +306,7 @@ class StackConfig(BaseModel):
         default_factory=dict,
         description="Named logical role bundles mapping CDM roles to databases and schemas.",
     )
-    knowledge_resources: dict[str, KnowledgeResourceConfig] = Field(
+    knowledge_resources: dict[str, KnowledgeResourceType] = Field(
         default_factory=dict,
         description="Named shared knowledge source configurations.",
     )
@@ -343,7 +401,7 @@ class StackConfig(BaseModel):
         tool: ToolConfig,
         resources: dict[str, ResourceConfig],
         resource_aliases: dict[str, str],
-        knowledge_resources: dict[str, KnowledgeResourceConfig],
+        knowledge_resources: KnowledgeResourceMap,
         knowledge_resource_aliases: dict[str, str],
         location: str,
     ) -> None:
@@ -370,7 +428,7 @@ class StackConfig(BaseModel):
         *,
         databases: dict[str, DatabaseConfig] | None = None,
         resources: dict[str, ResourceConfig] | None = None,
-        knowledge_resources: dict[str, KnowledgeResourceConfig] | None = None,
+        knowledge_resources: KnowledgeResourceMap | None = None,
         tools: dict[str, ToolConfig] | None = None,
         profiles: dict[str, ProfileOverrideConfig] | None = None,
         active_profile: str | None = None,
@@ -395,7 +453,7 @@ class StackConfig(BaseModel):
             active_profile=active_profile,
             databases=databases or {},
             resources=resources or {},
-            knowledge_resources=knowledge_resources or {},
+            knowledge_resources=knowledge_resources or {},  # type: ignore[arg-type]
             tools=tools or {},
             profiles=profiles or {},
             resource_aliases=resource_aliases or {},

@@ -6,8 +6,8 @@ import pytest
 
 from oa_configurator import (
     DatabaseConfig,
-    FilesystemPacksConfig,
     KnowledgeResourceConfig,
+    LocalPathKnowledgeResource,
     ResourceConfig,
     StackConfig,
     ToolConfig,
@@ -79,17 +79,17 @@ class TestResourceConfig:
             ResourceConfig(database="db", cdm_schema="omop", unknown="x")  # type: ignore
 
 
-class TestFilesystemPacksConfig:
+class TestLocalPathKnowledgeResource:
     def test_minimal(self):
-        r = FilesystemPacksConfig(root="/packs")
-        assert r.kind == "filesystem_packs"
+        r = LocalPathKnowledgeResource(root="/packs")
+        assert r.kind == "local_path"
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(Exception):
-            FilesystemPacksConfig(root="/packs", unknown="x")  # type: ignore
+            LocalPathKnowledgeResource(root="/packs", unknown="x")  # type: ignore
 
-    def test_knowledge_resource_config_is_alias(self):
-        assert KnowledgeResourceConfig is FilesystemPacksConfig
+    def test_is_subclass_of_base(self):
+        assert issubclass(LocalPathKnowledgeResource, KnowledgeResourceConfig)
 
 
 class TestToolConfig:
@@ -114,7 +114,7 @@ class TestStackConfig:
         cfg = StackConfig.for_session(
             databases={"c": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
             resources={"r": {"database": "c", "cdm_schema": "s"}},  # type: ignore[dict-item]
-            knowledge_resources={"k": {"root": "/packs"}},  # type: ignore[dict-item]
+            knowledge_resources={"k": {"kind": "local_path", "root": "/packs"}},  # type: ignore[dict-item]
         )
         assert isinstance(cfg.databases["c"], DatabaseConfig)
         assert isinstance(cfg.resources["r"], ResourceConfig)
@@ -154,12 +154,12 @@ class TestStackConfig:
         cfg = StackConfig.for_session(
             databases={"c": DatabaseConfig(dialect="sqlite")},
             resources={"r": ResourceConfig(database="c", cdm_schema="s")},
-            knowledge_resources={"k": KnowledgeResourceConfig(root="/packs")},
+            knowledge_resources={"k": LocalPathKnowledgeResource(root="/packs")},
             profiles={
                 "test": ProfileOverrideConfig(
                     databases={"tc": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
                     resources={"r": ResourceConfig(database="tc", cdm_schema="s")},
-                    knowledge_resources={"k": KnowledgeResourceConfig(root="/profile-packs")},
+                    knowledge_resources={"k": LocalPathKnowledgeResource(root="/profile-packs")},
                 ),
             },
         )
@@ -196,7 +196,7 @@ class TestStackConfig:
 
     def test_knowledge_resource_names(self):
         cfg = StackConfig.for_session(
-            knowledge_resources={"default_packs": KnowledgeResourceConfig(root="/packs")}
+            knowledge_resources={"default_packs": LocalPathKnowledgeResource(root="/packs")}
         )
         assert cfg.knowledge_resource_names() == ("default_packs",)
 

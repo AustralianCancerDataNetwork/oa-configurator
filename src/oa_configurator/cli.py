@@ -407,7 +407,7 @@ def _run_configure_package(
                 f"\n[yellow]Warning:[/yellow] Required resource {rname!r} is not configured. "
                 f"It may be provided by another package. Run that package's configure command."
             )
-    for kname in getattr(cls, "required_knowledge_resources", ()):
+    for kname in cls.required_knowledge_resources:
         resolved_kname = config.knowledge_resource_aliases.get(kname, kname)
         if resolved_kname not in config.knowledge_resources:
             console.print(
@@ -667,9 +667,9 @@ def verify(
             with engine.connect() as conn:
                 conn.execute(sa.text("SELECT 1"))
             elapsed = (time.monotonic() - t0) * 1000
-            table.add_row(name, target.safe_url, "[green]OK[/green]", f"{elapsed:.0f} ms")
+            table.add_row(name, target.safe_url(), "[green]OK[/green]", f"{elapsed:.0f} ms")
         except Exception as exc:
-            table.add_row(name, target.safe_url, "[red]FAIL[/red]", str(exc)[:60])
+            table.add_row(name, target.safe_url(), "[red]FAIL[/red]", str(exc)[:60])
             all_ok = False
 
     console.print(table)

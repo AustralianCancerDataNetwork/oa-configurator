@@ -7,12 +7,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, TypeVar
 
-import sqlalchemy as sa
 from sqlalchemy.engine import Engine
 
 from .models import (
     DatabaseConfig,
+    KnowledgeKind,
     KnowledgeResourceConfig,
+    KnowledgeResourceMap,
+    LocalPathKnowledgeResource,
     ProfileOverrideConfig,
     ResourceConfig,
     StackConfig,
@@ -23,78 +25,36 @@ T = TypeVar("T")
 logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
-class ResolvedDatabaseTarget:
-    """Concrete database connection ready for engine creation.
-
-    Attributes
-    ----------
-    name : str
-        Logical name of the connection as declared in the config.
-    url : str
-        Full database URL including credentials.
-        TODO: make this a private attribute to avoid accidental password exposure;
-        requires a factory method or ``__post_init__`` since dataclass field
-        visibility can't be changed without breaking callers.
-    safe_url : str
-        Database URL with credentials redacted, safe for logging and display.
-    """
-
-    name: str
-    url: str
-    safe_url: str
-
-    def create_engine(self, **kwargs: Any) -> Engine:
-        """Create a SQLAlchemy engine for this connection.
-
-        Parameters
-        ----------
-        **kwargs
-            Forwarded to ``sqlalchemy.create_engine``. The ``read_only``
-            keyword is silently removed for SQLite connections, which do
-            not support it.
-
-        Returns
-        -------
-        sqlalchemy.engine.Engine
-        """
-        if self.url.startswith("sqlite") and "read_only" in kwargs:
-            kwargs.pop("read_only", None)
-        return sa.create_engine(self.url, **kwargs)
-
-    def __repr__(self) -> str:
-        return f"ResolvedDatabaseTarget(name={self.name!r}, safe_url={self.safe_url!r})"
-
-
-@dataclass(frozen=True)
 class ResolvedResource:
-    """Resolved logical resource with concrete DB targets and effective schema names.
-    
+    """Resolved logical resource with concrete DB configs and effective schema names.
+
     Attributes
     ----------
     name : str
         Logical name of the resource as declared in the config or an alias.
-    database : ResolvedDatabaseTarget
-        Resolved primary database target for this resource.
-    vocab_database : ResolvedDatabaseTarget
-        Resolved vocabulary database target for this resource. May be the same as
+    database : DatabaseConfig
+        Resolved primary database config for this resource. The ``name`` field
+        on the config is set to the logical database name.
+    vocab_database : DatabaseConfig
+        Resolved vocabulary database config. May be the same object as
         *database* if no separate vocab database is configured.
     cdm_schema : str
         Effective CDM schema name for this resource.
     vocab_schema : str
-        Effective vocabulary schema name for this resource. May be the same as
-        *cdm_schema* if no separate vocab schema is configured.
+        Effective vocabulary schema name. May equal *cdm_schema* when no
+        separate vocab schema is configured.
     results_schema : str | None
-        Effective results schema name for this resource, or None if not configured.
+        Effective results schema name, or None if not configured.
     """
 
     name: str
-    database: ResolvedDatabaseTarget
-    vocab_database: ResolvedDatabaseTarget
+    database: DatabaseConfig
+    vocab_database: DatabaseConfig
     cdm_schema: str
     vocab_schema: str
     results_schema: str | None
 
-    def database_target(self, role: Literal["primary", "vocab"] = "primary") -> ResolvedDatabaseTarget:
+    def database_target(self, role: Literal["primary", "vocab"] = "primary") -> DatabaseConfig:
         """Return the resolved database target for a given role.
 
         Parameters
@@ -106,8 +66,8 @@ class ResolvedResource:
 
         Returns
         -------
-        ResolvedDatabaseTarget
-            The concrete database target for *role*.
+        DatabaseConfig
+            The database config for *role*, with ``name`` set.
 
         Raises
         ------
@@ -202,14 +162,26 @@ class ResolvedToolConfig:
 
 @dataclass(frozen=True)
 class ResolvedKnowledgeResource:
-    """Resolved knowledge source handle.
+    """Base resolved handle for all knowledge resource kinds.
 
-    Phase 1 exposes the filesystem-backed root path for knowledge pack
-    resources while preserving a future-facing ``kind`` discriminator.
+    Subclasses carry kind-specific fields. Use ``isinstance`` to narrow.
     """
 
     name: str
-    kind: str
+    kind: KnowledgeKind
+
+
+@dataclass(frozen=True)
+class ResolvedLocalPathKnowledgeResource(ResolvedKnowledgeResource):
+    """Resolved handle for a :class:`~oa_configurator.LocalPathKnowledgeResource`.
+
+    Attributes
+    ----------
+    root : Path
+        Absolute path to the knowledge source root directory. Always absolute
+        after resolution regardless of how ``root`` was specified in config.
+    """
+
     root: Path
 
     @property
@@ -219,8 +191,7 @@ class ResolvedKnowledgeResource:
 
     def __repr__(self) -> str:
         return (
-            f"ResolvedKnowledgeResource(name={self.name!r}, "
-            f"kind={self.kind!r}, root={str(self.root)!r})"
+            f"ResolvedLocalPathKnowledgeResource(name={self.name!r}, root={str(self.root)!r})"
         )
 
 
@@ -230,19 +201,17 @@ class Resolver:
     def __init__(self, config: StackConfig) -> None:
         self.config = config
 
-    def resolve_database(self, name: str) -> ResolvedDatabaseTarget:
-        """Resolve a database name to a concrete target.
+    def resolve_database(self, name: str) -> DatabaseConfig:
+        """Resolve a database name to its config with ``name`` set.
 
         Profile overlay databases take precedence over base databases.
+        Returns the effective :class:`~oa_configurator.DatabaseConfig` with
+        the logical *name* stored on the ``name`` field.
         """
         db = self.effective_database(name)
-        target = ResolvedDatabaseTarget(
-            name=name,
-            url=db.build_url(),
-            safe_url=db.safe_url(),
-        )
-        logger.debug("Resolved database %r → %s", name, target.safe_url)
-        return target
+        resolved = db.model_copy(update={"name": name})
+        logger.debug("Resolved database %r → %s", name, resolved.safe_url())
+        return resolved
 
     def resolve_resource(self, name: str) -> ResolvedResource:
         """Resolve a resource name to a concrete bundle of DB targets and schemas.
@@ -285,7 +254,7 @@ class Resolver:
         logger.debug(
             "Resolved resource %r → database=%s cdm_schema=%r",
             name,
-            resolved.database.safe_url,
+            resolved.database.safe_url(),
             resolved.cdm_schema,
         )
         return resolved
@@ -325,32 +294,32 @@ class Resolver:
         return resolved
 
     def resolve_knowledge_resource(self, name: str) -> ResolvedKnowledgeResource:
-        """Resolve a knowledge resource name to a concrete knowledge source handle.
+        """Resolve a knowledge resource name to a kind-specific resolved handle.
 
-        Applies profile overlays and knowledge-resource aliases. Phase 1
-        supports filesystem-backed knowledge pack roots only.
+        Applies profile overlays and knowledge-resource aliases. Dispatches on
+        ``kind`` and returns the appropriate :class:`ResolvedKnowledgeResource`
+        subclass. Add a new ``case`` here when a new kind is introduced.
         """
-        resource = self._effective_knowledge_resource(name)
-        root = _resolve_path(resource.root, self.config.loaded_path)
-        resolved = ResolvedKnowledgeResource(
-            name=name,
-            kind=resource.kind,
-            root=root,
+        config = self._effective_knowledge_resource(name)
+        if isinstance(config, LocalPathKnowledgeResource):
+            root = _resolve_path(config.root, self.config.loaded_path)
+            resolved = ResolvedLocalPathKnowledgeResource(name=name, kind=config.kind, root=root)
+            logger.debug(
+                "Resolved knowledge resource %r → kind=%r root=%s",
+                name, resolved.kind, resolved.root,
+            )
+            return resolved
+        raise ValueError(
+            f"Unknown knowledge resource kind {config.kind!r} for {name!r}. "
+            "Add an isinstance branch in Resolver.resolve_knowledge_resource."
         )
-        logger.debug(
-            "Resolved knowledge resource %r → kind=%r root=%s",
-            name,
-            resolved.kind,
-            resolved.root,
-        )
-        return resolved
 
     def with_overrides(
         self,
         *,
         databases: dict[str, DatabaseConfig] | None = None,
         resources: dict[str, ResourceConfig] | None = None,
-        knowledge_resources: dict[str, KnowledgeResourceConfig] | None = None,
+        knowledge_resources: KnowledgeResourceMap | None = None,
         tools: dict[str, ToolConfig] | None = None,
         resource_aliases: dict[str, str] | None = None,
         knowledge_resource_aliases: dict[str, str] | None = None,
@@ -364,7 +333,7 @@ class Resolver:
             profiles=self.config.profiles,
             databases={**self.config.databases, **(databases or {})},
             resources={**self.config.resources, **(resources or {})},
-            knowledge_resources={**self.config.knowledge_resources, **(knowledge_resources or {})},
+            knowledge_resources={**self.config.knowledge_resources, **(knowledge_resources or {})},  # type: ignore[arg-type]
             tools={**self.config.tools, **(tools or {})},
             resource_aliases={**self.config.resource_aliases, **(resource_aliases or {})},
             knowledge_resource_aliases={**self.config.knowledge_resource_aliases, **(knowledge_resource_aliases or {})},

@@ -1,4 +1,4 @@
-"""Tests for resolver.py: Resolver, ResolvedDatabaseTarget, ResolvedResource."""
+"""Tests for resolver.py: Resolver, ResolvedResource, ResolvedLocalPathKnowledgeResource."""
 
 from __future__ import annotations
 
@@ -6,10 +6,10 @@ import pytest
 
 from pathlib import Path
 
-from oa_configurator import KnowledgeResourceConfig, Resolver, StackConfig
+from oa_configurator import LocalPathKnowledgeResource, Resolver, StackConfig
 from oa_configurator.resolver import (
-    ResolvedDatabaseTarget,
     ResolvedKnowledgeResource,
+    ResolvedLocalPathKnowledgeResource,
     ResolvedResource,
 )
 from oa_configurator.models import DatabaseConfig, ProfileOverrideConfig, ResourceConfig, ToolConfig
@@ -19,16 +19,16 @@ class TestResolveDatabase:
     def test_sqlite_url(self, minimal_stack):
         r = Resolver(minimal_stack)
         target = r.resolve_database("db")
-        assert isinstance(target, ResolvedDatabaseTarget)
-        assert target.url == "sqlite:///:memory:"
-        assert target.safe_url == "sqlite:///:memory:"
+        assert isinstance(target, DatabaseConfig)
+        assert target.build_url() == "sqlite:///:memory:"
+        assert target.safe_url() == "sqlite:///:memory:"
 
     def test_pg_url_contains_password(self, pg_stack):
         r = Resolver(pg_stack)
         target = r.resolve_database("cdm")
-        assert "secret" in target.url
-        assert "secret" not in target.safe_url
-        assert "***" in target.safe_url
+        assert "secret" in target.build_url()
+        assert "secret" not in target.safe_url()
+        assert "***" in target.safe_url()
 
     def test_unknown_database_raises(self, minimal_stack):
         r = Resolver(minimal_stack)
@@ -48,7 +48,7 @@ class TestResolveDatabase:
         )
         r = Resolver(cfg)
         target = r.resolve_database("db")
-        assert target.url == "sqlite:///:memory:"
+        assert target.build_url() == "sqlite:///:memory:"
 
 
 class TestResolveResource:
@@ -152,19 +152,20 @@ class TestResolveTool:
 
 
 class TestResolveKnowledgeResource:
-    def test_resolves_filesystem_packs_root(self):
+    def test_resolves_local_path_root(self):
         cfg = StackConfig.for_session(
-            knowledge_resources={"default_packs": KnowledgeResourceConfig(root="/packs")}
+            knowledge_resources={"default_packs": LocalPathKnowledgeResource(root="/packs")}
         )
         r = Resolver(cfg)
         resource = r.resolve_knowledge_resource("default_packs")
+        assert isinstance(resource, ResolvedLocalPathKnowledgeResource)
         assert isinstance(resource, ResolvedKnowledgeResource)
-        assert resource.kind == "filesystem_packs"
+        assert resource.kind == "local_path"
         assert resource.root == Path("/packs")
 
     def test_alias_resolves_knowledge_resource(self):
         cfg = StackConfig.for_session(
-            knowledge_resources={"site_packs": KnowledgeResourceConfig(root="/packs")},
+            knowledge_resources={"site_packs": LocalPathKnowledgeResource(root="/packs")},
             knowledge_resource_aliases={"default_packs": "site_packs"},
         )
         r = Resolver(cfg)
@@ -173,10 +174,10 @@ class TestResolveKnowledgeResource:
 
     def test_profile_override_takes_precedence(self):
         cfg = StackConfig.for_session(
-            knowledge_resources={"default_packs": KnowledgeResourceConfig(root="/base")},
+            knowledge_resources={"default_packs": LocalPathKnowledgeResource(root="/base")},
             profiles={
                 "test": ProfileOverrideConfig(
-                    knowledge_resources={"default_packs": KnowledgeResourceConfig(root="/profile")}
+                    knowledge_resources={"default_packs": LocalPathKnowledgeResource(root="/profile")}
                 ),
             },
             active_profile="test",
@@ -187,7 +188,7 @@ class TestResolveKnowledgeResource:
 
     def test_relative_path_resolves_from_loaded_config(self, tmp_path):
         cfg = StackConfig.for_session(
-            knowledge_resources={"default_packs": KnowledgeResourceConfig(root="knowledge/packs")}
+            knowledge_resources={"default_packs": LocalPathKnowledgeResource(root="knowledge/packs")}
         )
         cfg.bind_loaded_path(tmp_path / "config.toml")
         r = Resolver(cfg)
@@ -202,7 +203,7 @@ class TestResolveKnowledgeResource:
     def test_relative_path_without_loaded_config_warns(self, caplog):
         import logging
         cfg = StackConfig.for_session(
-            knowledge_resources={"packs": KnowledgeResourceConfig(root="relative/packs")}
+            knowledge_resources={"packs": LocalPathKnowledgeResource(root="relative/packs")}
         )
         r = Resolver(cfg)
         with caplog.at_level(logging.WARNING, logger="oa_configurator.resolver"):
@@ -230,33 +231,33 @@ class TestWithOverrides:
         r2 = r.with_overrides(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name="/other.db")}
         )
-        assert r2.resolve_database("db").url == "sqlite:////other.db"
+        assert r2.resolve_database("db").build_url() == "sqlite:////other.db"
 
     def test_original_unchanged(self, minimal_stack):
         r = Resolver(minimal_stack)
         r.with_overrides(databases={"db": DatabaseConfig(dialect="sqlite", database_name="/other.db")})
-        assert r.resolve_database("db").url == "sqlite:///:memory:"
+        assert r.resolve_database("db").build_url() == "sqlite:///:memory:"
 
     def test_override_knowledge_resource(self):
         r = Resolver(
             StackConfig.for_session(
-                knowledge_resources={"default_packs": KnowledgeResourceConfig(root="/base")}
+                knowledge_resources={"default_packs": LocalPathKnowledgeResource(root="/base")}
             )
         )
         r2 = r.with_overrides(
-            knowledge_resources={"default_packs": KnowledgeResourceConfig(root="/other")}
+            knowledge_resources={"default_packs": LocalPathKnowledgeResource(root="/other")}
         )
         assert r2.resolve_knowledge_resource("default_packs").root == Path("/other")
 
     def test_override_knowledge_resource_aliases(self):
         r = Resolver(
             StackConfig.for_session(
-                knowledge_resources={"site_packs": KnowledgeResourceConfig(root="/packs")},
+                knowledge_resources={"site_packs": LocalPathKnowledgeResource(root="/packs")},
                 knowledge_resource_aliases={"default_packs": "site_packs"},
             )
         )
         r2 = r.with_overrides(
-            knowledge_resources={"test_packs": KnowledgeResourceConfig(root="/test")},
+            knowledge_resources={"test_packs": LocalPathKnowledgeResource(root="/test")},
             knowledge_resource_aliases={"default_packs": "test_packs"},
         )
         assert r2.resolve_knowledge_resource("default_packs").root == Path("/test")
@@ -325,7 +326,7 @@ class TestDiscovery:
     def test_knowledge_resource_names(self):
         r = Resolver(
             StackConfig.for_session(
-                knowledge_resources={"default_packs": KnowledgeResourceConfig(root="/packs")}
+                knowledge_resources={"default_packs": LocalPathKnowledgeResource(root="/packs")}
             )
         )
         assert r.knowledge_resource_names() == ("default_packs",)

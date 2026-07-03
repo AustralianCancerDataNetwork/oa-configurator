@@ -47,7 +47,7 @@ def write_env_file(resolver: Resolver, path: Path = FLAT_ENV_PATH) -> Path:
             continue
 
         lines.extend(db.to_env_pairs(prefix))
-        lines.append(f"{prefix}_URL={resolved.database.url}")
+        lines.append(f"{prefix}_URL={resolved.database.build_url()}")
         lines.append("")
 
     for tool_name in resolver.config.tools:

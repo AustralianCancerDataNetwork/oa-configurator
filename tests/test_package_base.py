@@ -8,7 +8,7 @@ import pytest
 
 from oa_configurator import (
     ConfigurationError,
-    KnowledgeResourceConfig,
+    LocalPathKnowledgeResource,
     PackageConfigBase,
     StackConfig,
     DatabaseConfig,
@@ -152,7 +152,7 @@ class RequiredKnowledgeConfig(PackageConfigBase):
 class TestRequiredKnowledgeResources:
     def test_passes_when_knowledge_resource_present(self):
         cfg = StackConfig.for_session(
-            knowledge_resources={"default_packs": KnowledgeResourceConfig(root="/packs")}
+            knowledge_resources={"default_packs": LocalPathKnowledgeResource(root="/packs")}
         )
         result = RequiredKnowledgeConfig.from_stack(cfg)
         assert result.value == "default_value"
@@ -167,7 +167,7 @@ class TestRequiredKnowledgeResources:
 
     def test_passes_when_knowledge_resource_aliased(self):
         cfg = StackConfig.for_session(
-            knowledge_resources={"org_packs": KnowledgeResourceConfig(root="/packs")},
+            knowledge_resources={"org_packs": LocalPathKnowledgeResource(root="/packs")},
             knowledge_resource_aliases={"default_packs": "org_packs"},
         )
         result = RequiredKnowledgeConfig.from_stack(cfg)
@@ -175,7 +175,7 @@ class TestRequiredKnowledgeResources:
 
     def test_respects_default_knowledge_resource_override(self):
         cfg = StackConfig.for_session(
-            knowledge_resources={"my_custom": KnowledgeResourceConfig(root="/packs")},
+            knowledge_resources={"my_custom": LocalPathKnowledgeResource(root="/packs")},
             tools={"required_knowledge_tool": ToolConfig(default_knowledge_resource="my_custom")},
         )
         result = RequiredKnowledgeConfig.from_stack(cfg)
@@ -185,7 +185,7 @@ class TestRequiredKnowledgeResources:
         cfg = StackConfig.for_session(
             profiles={
                 "test": ProfileOverrideConfig(
-                    knowledge_resources={"default_packs": KnowledgeResourceConfig(root="/packs")},
+                    knowledge_resources={"default_packs": LocalPathKnowledgeResource(root="/packs")},
                 ),
             },
             active_profile="test",

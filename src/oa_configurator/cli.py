@@ -668,8 +668,16 @@ def verify(
             elapsed = (time.monotonic() - t0) * 1000
             table.add_row(name, target.safe_url(), "[green]OK[/green]", f"{elapsed:.0f} ms")
         except Exception as exc:
-            table.add_row(name, target.safe_url(), "[red]FAIL[/red]", str(exc)[:60])
-            all_ok = False
+            exc_str = str(exc)
+            if target.test_only and "does not exist" in exc_str:
+                table.add_row(
+                    name, target.safe_url(),
+                    "[yellow]NOT CREATED[/yellow]",
+                    "test db — run the test suite once to provision it",
+                )
+            else:
+                table.add_row(name, target.safe_url(), "[red]FAIL[/red]", exc_str[:60])
+                all_ok = False
 
     console.print(table)
     if not all_ok:

@@ -56,41 +56,54 @@ database_name = ":memory:"
 
 ## `[resources.<name>]`
 
-A resource maps logical OMOP CDM roles to named connections and schema names.
+A resource maps a named database to a schema layout. Two kinds exist, selected by `resource_kind`.
+
+### CDM resource (`resource_kind = "cdm"`)
+
+The default kind. Maps OMOP logical roles (CDM, vocabulary, results) to databases and schema names.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `resource_kind` | `"cdm"` | no | Defaults to `"cdm"` when omitted (with a warning). |
 | `database` | string | **yes** | Database name (from `[databases.*]`) for the CDM server |
 | `vocab_database` | string | no | Separate database if vocabulary lives on a different server. Falls back to `database`. |
 | `cdm_schema` | string | **yes** | Schema where CDM clinical tables live |
 | `vocab_schema` | string | no | Vocabulary schema. Falls back to `cdm_schema` when not set. |
 | `results_schema` | string | no | Achilles / Atlas results schema |
 
-### Example: all in one schema
-
 ```toml
-[resources.default]
-database   = "cdm"
-cdm_schema = "omop"
+[resources.cdm_db]
+resource_kind = "cdm"
+database      = "cdm"
+cdm_schema    = "omop"
 ```
 
-### Example: separate vocab and results schemas
+With separate vocab and results schemas:
 
 ```toml
-[resources.default]
+[resources.cdm_db]
+resource_kind  = "cdm"
 database       = "cdm"
 cdm_schema     = "omop"
 vocab_schema   = "omop_vocab"
 results_schema = "results"
 ```
 
-### Example vocabulary on a separate server
+### Embedding resource (`resource_kind = "embedding"`)
+
+For pgvector / SQLite-vec embedding databases. No CDM roles; just a single schema.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `resource_kind` | `"embedding"` | **yes** | Must be set explicitly. |
+| `database` | string | **yes** | Database name (from `[databases.*]`) |
+| `embedding_schema` | string | **yes** | Schema where the embedding tables live |
 
 ```toml
-[resources.default]
-database      = "cdm"
-vocab_database = "central_vocab"
-cdm_schema    = "omop"
+[resources.emb_db]
+resource_kind    = "embedding"
+database         = "emb"
+embedding_schema = "public"
 ```
 
 ---

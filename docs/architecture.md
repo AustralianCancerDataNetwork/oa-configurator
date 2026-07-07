@@ -22,13 +22,20 @@ A concrete database endpoint: dialect, host, credentials, database name. Stored 
 
 ### Resource
 
-A logical role bundle that maps OMOP CDM roles to databases and schema names:
+A logical role bundle mapping a database and schema to a named resource. Two kinds exist, selected via `resource_kind`:
+
+**CDM resource** (`resource_kind = "cdm"`, default):
 
 - `database`: the CDM server database
 - `vocab_database`: optional separate database for vocabulary (falls back to `database`)
 - `cdm_schema`: schema where CDM clinical tables live (required)
 - `vocab_schema` (optional): falls back to `cdm_schema`
 - `results_schema` (optional): Achilles/Atlas results
+
+**Embedding resource** (`resource_kind = "embedding"`):
+
+- `database`: the embedding store database
+- `embedding_schema`: schema where the embedding tables live (required)
 
 ### Knowledge resource
 
@@ -68,15 +75,21 @@ Activate via `omop-config use <profile>` (persists to TOML) or
          │                               .safe_url  (redacted, for logs)
          │                               .create_engine()
          │
-         ├─ resolve_resource(name)   → ResolvedResource
-         │                               .database / .vocab_database  (ResolvedDatabaseTarget)
-         │                               .cdm_schema / .vocab_schema / .results_schema
-         │                               .schema_translate_map()
-         │                               .create_engine(role="primary"|"vocab")
+         ├─ resolve_resource(name)   → ResolvedResourceBase
+         │                             (isinstance to narrow)
+         │                               ResolvedCDMResource
+         │                                 .database / .vocab_database  (DatabaseConfig)
+         │                                 .cdm_schema / .vocab_schema / .results_schema
+         │                                 .schema_translate_map()
+         │                                 .create_engine(role="primary"|"vocab")
+         │                               ResolvedEmbeddingResource
+         │                                 .database  (DatabaseConfig)
+         │                                 .embedding_schema
+         │                                 .create_engine()
          │
          ├─ resolve_knowledge_resource(name) → ResolvedKnowledgeResource
-         │                                       .kind
-         │                                       .root
+         │                                       .knowledge_resource_kind
+         │                                       .root  (LocalPathKnowledgeResource)
          │
          └─ resolve_tool(name)       → ResolvedToolConfig
                                          .extra  (raw dict; typed by PackageConfigBase.from_stack())
@@ -99,7 +112,7 @@ my_package = "my_package.config:MyPackageConfig"
 
 ## Schema translate map
 
-`ResolvedResource.schema_translate_map()` returns the SQLAlchemy-compatible schema translate dict:
+`ResolvedCDMResource.schema_translate_map()` returns the SQLAlchemy-compatible schema translate dict:
 
 ```python
 {None: "omop", "vocab": "omop_vocab", "results": "results"}

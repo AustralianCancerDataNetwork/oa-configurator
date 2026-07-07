@@ -1,3 +1,6 @@
+> [!NOTE]
+> This file is no longer maintained. Release history from this point forward is in [GitHub Releases](https://github.com/AustralianCancerDataNetwork/OA_Configurator/releases).
+
 ## [0.1.2](https://github.com/AustralianCancerDataNetwork/oa-configurator/compare/v0.1.1...v0.1.2) (2026-06-24)
 
 

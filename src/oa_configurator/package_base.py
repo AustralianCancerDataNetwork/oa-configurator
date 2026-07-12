@@ -65,8 +65,8 @@ class ResourceSpec:
     semantic_name: str
     display_name: str
     description: str
+    resource_kind: ResourceKind
     connection_name_hint: str = ""
-    resource_kind: ResourceKind = ResourceKind.cdm
     connection_defaults: DatabaseConfig | None = field(default=None, compare=False)
 
 

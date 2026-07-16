@@ -225,7 +225,7 @@ def resolve_fields(
     """
     result: dict[str, str | None] = {}
     for f in fields:
-        default = f.default(spec) if callable(f.default) else f.default
+        default = f.default(spec) if callable(f.default) else f.default  # ty: ignore[call-top-callable]
         is_required = not callable(f.default) and not f.nullable and not f.default
         value = resolve_field_fn(f.name, prompt_label=f.label, default_value=default, required=is_required, hide_input=f.hide_input)
         result[f.name] = (value or None) if f.nullable else value

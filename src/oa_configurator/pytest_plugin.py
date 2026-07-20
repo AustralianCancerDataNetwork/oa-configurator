@@ -44,13 +44,13 @@ def _pg_ident(name: str) -> object:
 
 def _pg_lit(value: str) -> object:
     from psycopg.sql import Literal
-    return Literal(value)  # type: ignore[arg-type]
+    return Literal(value)
 
 
 def _pg_ddl(template: str, *parts: object) -> str:
     """Build a safe DDL string using psycopg.sql quoting (lazy import)."""
     from psycopg.sql import SQL
-    return SQL(template).format(*parts).as_string(None)  # type: ignore[attr-defined]
+    return SQL(template).format(*parts).as_string(None)  # ty: ignore[invalid-argument-type]
 
 
 # ---------------------------------------------------------------------------

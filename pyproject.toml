@@ -1,6 +1,6 @@
 [project]
 name = "oa-configurator"
-version = "0.1.2"
+dynamic = ["version"]
 description = "Prototype shared configuration layer for the OMOP-oriented stack."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -19,7 +19,7 @@ dev = [
   "requests>=2.33.0",
   "pytest>=9.0.3",
   "pytest-cov>=4.0",
-  "mypy>=1.8",
+  "ty>=0.0.59",
   "ruff>=0.4",
   "mkdocs-material>=9.7.1",
   "mkdocstrings-python>=2.0.1",
@@ -38,8 +38,15 @@ omop-config = "oa_configurator.cli:app"
 oa_configurator = "oa_configurator.pytest_plugin"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+raw-options = { tag_regex = '^v?(?P<version>[0-9]+\.[0-9]+\.[0-9]+)$' }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/oa_configurator"]
+
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { git = { commit = true, tags = true } }]

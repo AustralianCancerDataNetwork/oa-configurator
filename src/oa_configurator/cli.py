@@ -256,7 +256,7 @@ class _DynamicConfigureGroup(TyperGroup):
     def list_commands(self, ctx):
         return sorted(ep.name for ep in entry_points(group="omop.config"))
 
-    def get_command(self, ctx, cmd_name):  # type: ignore 
+    def get_command(self, ctx, cmd_name):
         eps = {ep.name: ep for ep in entry_points(group="omop.config")}
         ep = eps.get(cmd_name)
         return _build_package_command(cmd_name, ep.load()) if ep else None
@@ -684,7 +684,7 @@ def export_env(
     console.print(f"[green]✓[/green] Wrote [dim]{env_path}[/dim]")
 
 
-@app.command(name="configure", cls=_DynamicConfigureGroup)  # type: ignore[arg-type]
+@app.command(name="configure", cls=_DynamicConfigureGroup)  # ty: ignore[invalid-argument-type]
 def configure(ctx: typer.Context) -> None:
     r"""Configure a package's \[tools.<name>] section.
 

@@ -4,7 +4,7 @@ from typing import Callable
 import click
 import typer
 
-from .models import ResourceConfig, DatabaseConfig
+from .models import CDMResourceConfig, DatabaseConfig, EmbeddingResourceConfig, ResourceConfigBase, ResourceKind
 from .package_base import ResourceSpec
 
 
@@ -115,7 +115,7 @@ DATABASE_LABEL_FIELDS: tuple[FieldSpec, ...] = (
 FS_CDM_SCHEMA = FieldSpec(
     "cdm_schema",
     "CDM schema (schema containing the OMOP tables)",
-    default=lambda spec: spec.cdm_schema_default,
+    default="omop",
     nullable=False,
 )
 FS_VOCAB_SCHEMA = FieldSpec(
@@ -129,11 +129,14 @@ FS_RESULTS_SCHEMA = FieldSpec(
 FS_NON_CDM_SCHEMA = FieldSpec(
     FS_CDM_SCHEMA.name,
     "Schema (leave blank for public/default)",
-    default=lambda spec: spec.cdm_schema_default,
+    default="public",
     nullable=False,
 )
-CDM_SCHEMA_FIELDS = (FS_CDM_SCHEMA, FS_VOCAB_SCHEMA, FS_RESULTS_SCHEMA)
-NON_CDM_SCHEMA_FIELDS = (FS_NON_CDM_SCHEMA,)
+
+SCHEMA_FIELDS_BY_KIND: dict[ResourceKind, tuple[FieldSpec, ...]] = {
+    ResourceKind.cdm: (FS_CDM_SCHEMA, FS_VOCAB_SCHEMA, FS_RESULTS_SCHEMA),
+    ResourceKind.embedding: (FS_NON_CDM_SCHEMA,),
+}
 
 
 def resolve_field_value(
@@ -269,10 +272,9 @@ def build_resource_params(spec: ResourceSpec, *, prefix: str = "") -> list[click
     -------
     list[click.Parameter]
         One click.Option per field in DATABASE_LABEL_FIELDS plus the resource's schema
-        fields (CDM_SCHEMA_FIELDS or NON_CDM_SCHEMA_FIELDS, depending on
-        spec.is_cdm_database).
+        fields (from SCHEMA_FIELDS_BY_KIND, keyed on spec.resource_kind).
     """
-    schema_fields = CDM_SCHEMA_FIELDS if spec.is_cdm_database else NON_CDM_SCHEMA_FIELDS
+    schema_fields = SCHEMA_FIELDS_BY_KIND[spec.resource_kind]
 
     return [
         click.Option(
@@ -288,9 +290,9 @@ def build_resource_params(spec: ResourceSpec, *, prefix: str = "") -> list[click
 def build_resource_config(
     database: str,
     schema_values: dict[str, str | None],
-    is_cdm_database: bool,
-) -> ResourceConfig:
-    """Build a ResourceConfig from resolve_fields output for a schema field table.
+    resource_kind: ResourceKind,
+) -> ResourceConfigBase:
+    """Build a resource config from resolve_fields output for a schema field table.
 
     Parameters
     ----------
@@ -298,20 +300,28 @@ def build_resource_config(
         The database label this resource points to.
     schema_values : dict[str, str or None]
         Output of resolve_fields(CDM_SCHEMA_FIELDS or NON_CDM_SCHEMA_FIELDS, ...).
-    is_cdm_database : bool
-        Whether this resource is a CDM database. Non-CDM resources have no
-        vocab_schema or results_schema.
+    resource_kind : ResourceKind
+        Which concrete type to build. CDM resources include vocab and results
+        schemas; embedding resources have a single schema field.
 
     Returns
     -------
-    ResourceConfig
+    ResourceConfigBase
+        A CDMResourceConfig or EmbeddingResourceConfig instance.
     """
-    cdm_schema = pop_str(schema_values, FS_CDM_SCHEMA.name)
-    return ResourceConfig(
-        database=database,
-        cdm_schema=cdm_schema,
-        vocab_schema=schema_values.get(FS_VOCAB_SCHEMA.name) if is_cdm_database else None,
-        results_schema=schema_values.get(FS_RESULTS_SCHEMA.name) if is_cdm_database else None,
+    schema = pop_str(schema_values, FS_CDM_SCHEMA.name)
+    if resource_kind == ResourceKind.embedding:
+        return EmbeddingResourceConfig(database=database, embedding_schema=schema)
+    if resource_kind == ResourceKind.cdm:
+        return CDMResourceConfig(
+            database=database,
+            cdm_schema=schema,
+            vocab_schema=schema_values.get(FS_VOCAB_SCHEMA.name),
+            results_schema=schema_values.get(FS_RESULTS_SCHEMA.name),
+        )
+    raise ValueError(
+        f"Unknown resource kind {resource_kind!r}. "
+        "Add a branch in build_resource_config for this kind."
     )
 
 

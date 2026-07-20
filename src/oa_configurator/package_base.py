@@ -27,11 +27,14 @@ In ``pyproject.toml``::
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Self
+
+if TYPE_CHECKING:
+    from .resolver import ResolvedKnowledgeResource
 
 from pydantic import BaseModel
 
-from .models import DatabaseConfig, StackConfig
+from .models import DatabaseConfig, ResourceKind, StackConfig
 
 
 @dataclass(frozen=True)
@@ -48,14 +51,10 @@ class ResourceSpec:
 
     Attributes
     ----------
-    cdm_schema_default
-        Default value for the schema prompt. Defaults to ``"omop"`` for OMOP
-        CDM databases. Set to ``"public"`` for non-CDM databases (e.g. the
-        pgvector embedding database).
-    is_cdm_database
-        When ``False``, the configure prompt skips the vocab schema and
-        results schema questions — those are OMOP CDM-specific concepts that
-        do not apply to other databases such as the pgvector embedding store.
+    resource_kind
+        Determines which schema prompts the configure CLI shows and which
+        config type is built. See ``cli_fields.SCHEMA_FIELDS_BY_KIND`` 
+        for the mapping.
     connection_defaults
         Optional pre-fill values for the connection prompts (dialect, host, port,
         user, password, database_name), as a ``DatabaseConfig`` instance. Only the
@@ -66,9 +65,8 @@ class ResourceSpec:
     semantic_name: str
     display_name: str
     description: str
+    resource_kind: ResourceKind
     connection_name_hint: str = ""
-    cdm_schema_default: str = "omop"
-    is_cdm_database: bool = True
     connection_defaults: DatabaseConfig | None = field(default=None, compare=False)
 
 
@@ -91,6 +89,8 @@ class PackageConfigBase(BaseModel):
     required_resources : tuple[str, ...]
         Canonical resource names this package depends on. A missing resource
         at :meth:`from_stack` time raises :exc:`ConfigurationError`.
+    required_knowledge_resources : tuple[str, ...]
+        Canonical knowledge resource names this package depends on.
     owned_resources : tuple[ResourceSpec, ...]
         Resources this package is responsible for configuring interactively.
         ``omop-config configure`` prompts for these before package extras.
@@ -108,6 +108,7 @@ class PackageConfigBase(BaseModel):
 
     tool_name: ClassVar[str]
     required_resources: ClassVar[tuple[str, ...]] = ()
+    required_knowledge_resources: ClassVar[tuple[str, ...]] = ()
     owned_resources: ClassVar[tuple[ResourceSpec, ...]] = ()
     test_resources: ClassVar[tuple[ResourceSpec, ...]] = ()
     extra_logging_namespaces: ClassVar[tuple[str, ...]] = ()
@@ -116,39 +117,45 @@ class PackageConfigBase(BaseModel):
     def from_stack(cls, config: StackConfig) -> Self:
         """Load this package's section from a :class:`StackConfig`.
 
-        Validates that all :attr:`required_resources` (or the
-        ``default_resource`` override) are present in the config before
-        instantiating. Alias resolution via ``config.resource_aliases`` is
-        applied before the existence check. Raises :exc:`ConfigurationError`
-        with an actionable message if any are missing.
+        Validates that all :attr:`required_resources` and
+        :attr:`required_knowledge_resources` (or their tool-level default
+        overrides) are present in the config before instantiating. Alias
+        resolution via ``config.resource_aliases`` and
+        ``config.knowledge_resource_aliases`` is applied before the existence
+        check. Raises :exc:`ConfigurationError` with an actionable message if
+        any are missing.
         """
         tool = config.tools.get(cls.tool_name)
         override = tool.default_resource if tool else None
+        knowledge_override = tool.default_knowledge_resource if tool else None
 
         available: set[str] = set(config.resource_names())
+        available_knowledge: set[str] = set(config.knowledge_resource_names())
         if config.active_profile and config.active_profile in config.profiles:
-            available |= set(config.profiles[config.active_profile].resources)
+            active = config.profiles[config.active_profile]
+            available |= set(active.resources)
+            available_knowledge |= set(active.knowledge_resources)
 
-        # default_resource is a user-level alias for required_resources[0]. Treat it as a
-        # substitute for the first entry but still validate the rest of required_resources.
-        if override and cls.required_resources:
-            names_to_check: list[str] = [override] + list(cls.required_resources[1:])
-        else:
-            names_to_check = list(cls.required_resources)
-        for check_name in names_to_check:
-            resolved_check = config.resource_aliases.get(check_name, check_name)
-            if resolved_check not in available:
-                alias_hint = (
-                    f"\nTip: if you named your resource differently, add:\n"
-                    f"  [resource_aliases]\n  {check_name} = \"your-resource-name\""
-                )
-                raise ConfigurationError(
-                    f"{cls.__name__} requires resource {check_name!r} "
-                    f"but it is not configured.\n"
-                    f"Available: {sorted(available) or '(none)'}\n"
-                    f"Run 'omop-config configure {cls.tool_name}' to set up your configuration."
-                    + alias_hint
-                )
+        _validate_required_names(
+            cls_name=cls.__name__,
+            tool_name=cls.tool_name,
+            kind="resource",
+            required_names=cls.required_resources,
+            override=override,
+            aliases=config.resource_aliases,
+            available=available,
+            alias_section="resource_aliases",
+        )
+        _validate_required_names(
+            cls_name=cls.__name__,
+            tool_name=cls.tool_name,
+            kind="knowledge resource",
+            required_names=cls.required_knowledge_resources,
+            override=knowledge_override,
+            aliases=config.knowledge_resource_aliases,
+            available=available_knowledge,
+            alias_section="knowledge_resource_aliases",
+        )
 
         return cls.model_validate(tool.extra if tool else {})
 
@@ -197,6 +204,60 @@ class PackageConfigBase(BaseModel):
             raise ConfigurationError(f"{cls.__name__} has no resources to resolve.")
         return Resolver(stack).resolve_resource(name).create_engine(**engine_kwargs)
 
+    @classmethod
+    def get_knowledge_resource(cls, resource_name: str | None = None) -> "ResolvedKnowledgeResource":
+        """Resolve a knowledge resource for this package."""
+        from .loader import load_stack_config
+        from .resolver import Resolver
+
+        stack = load_stack_config()
+        tool = stack.tools.get(cls.tool_name)
+        name = resource_name or (tool.default_knowledge_resource if tool else None) or (
+            cls.required_knowledge_resources[0] if cls.required_knowledge_resources else None
+        )
+        if name is None:
+            raise ConfigurationError(f"{cls.__name__} has no knowledge resources to resolve.")
+        return Resolver(stack).resolve_knowledge_resource(name)
+
     def to_extra_dict(self) -> dict[str, Any]:
         """Serialize back to the dict stored in ``ToolConfig.extra``."""
         return self.model_dump(exclude_none=True)
+
+
+def _validate_required_names(
+    *,
+    cls_name: str,
+    tool_name: str,
+    kind: str,
+    required_names: tuple[str, ...],
+    override: str | None,
+    aliases: dict[str, str],
+    available: set[str],
+    alias_section: str,
+) -> None:
+    """Check that each required name (or its alias) exists in available.
+
+    When override is set, it replaces required_names[0]: the tool-level
+    default_resource / default_knowledge_resource is the user's way of saying
+    "my primary required entry lives under a different name in my config". It is
+    a single name so it can only redirect required_names[0]; remaining entries
+    are still checked by their canonical names.
+    """
+    if override and required_names:
+        names_to_check: list[str] = [override] + list(required_names[1:])
+    else:
+        names_to_check = list(required_names)
+    for check_name in names_to_check:
+        resolved_check = aliases.get(check_name, check_name)
+        if resolved_check not in available:
+            alias_hint = (
+                f"\nTip: if you named your {kind} differently, add:\n"
+                f"  [{alias_section}]\n  {check_name} = \"your-{kind.replace(' ', '-')}-name\""
+            )
+            raise ConfigurationError(
+                f"{cls_name} requires {kind} {check_name!r} "
+                f"but it is not configured.\n"
+                f"Available: {sorted(available) or '(none)'}\n"
+                f"Run 'omop-config configure {tool_name}' to set up your configuration."
+                + alias_hint
+            )

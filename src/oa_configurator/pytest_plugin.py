@@ -341,6 +341,6 @@ else:
             else str(spec_or_name)
         )
         try:
-            return Resolver.from_active_config().resolve_resource(name).database.url
+            return Resolver.from_active_config().resolve_resource(name).database.build_url()
         except Exception:
             pytest.skip(_skip_message(name))

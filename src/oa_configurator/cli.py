@@ -18,13 +18,12 @@ from rich.table import Table
 from .io import patch_active_profile, save_stack_config, write_env_file
 from .loader import CONFIG_PATH, load_stack_config
 from .logging_config import configure_logging
-from .models import DatabaseConfig, ResourceConfig, StackConfig, ToolConfig
+from .models import DatabaseConfig, ResourceConfigBase, StackConfig, ToolConfig
 from .package_base import ConfigurationError, ResourceSpec
 from .resolver import Resolver
 from .cli_fields import (
-    CDM_SCHEMA_FIELDS,
     DATABASE_LABEL_FIELDS,
-    NON_CDM_SCHEMA_FIELDS,
+    SCHEMA_FIELDS_BY_KIND,
     TEST_FLAG_PREFIX,
     build_database_config,
     build_resource_config,
@@ -46,7 +45,7 @@ def _resolve_resource(
     flags: dict[str, str] | None = None,
     semantic_name_override: str | None = None,
     is_test_resource: bool = False,
-) -> tuple[str, DatabaseConfig | None, ResourceConfig] | None:
+) -> tuple[str, DatabaseConfig | None, ResourceConfigBase] | None:
     """Resolve or create a database config + resource for a ResourceSpec.
 
     Parameters
@@ -54,11 +53,11 @@ def _resolve_resource(
     spec : ResourceSpec
         The ResourceSpec describing the resource to resolve.
     config : StackConfig
-        The current StackConfig, used to look up existing stored config for 
+        The current StackConfig, used to look up existing stored config for
         this resource and any existing connections.
     flags : dict[str, str], optional
         A dict of flag values for this resource, keyed by field name
-        (e.g. "host", "port"). Presence of this argument (even if empty) 
+        (e.g. "host", "port"). Presence of this argument (even if empty)
         indicates a non-interactive invocation where no prompts should be shown.
         Non-interactive requires all required fields to be supplied via flags or
         stored config. Missing required fields will be reported.
@@ -68,15 +67,15 @@ def _resolve_resource(
     is_test_resource: bool
         Whether this resource is a test resource. If True, the safety checks around
         test resources are applied (see _configure_test_resources). Default: False
-    
+
     Returns
     -------
     db_name : str
         The name of the database config to use for this resource (either existing or new).
     db_config : DatabaseConfig, optional
         The new DatabaseConfig to save for this resource, or None to reuse an existing one.
-    resource : ResourceConfig
-        The ResourceConfig to save for this resource (either existing with updates or new).
+    resource : ResourceConfigBase
+        The resource config to save (CDMResourceConfig or EmbeddingResourceConfig).
     """
     non_interactive = flags is not None
     flags = flags or {}
@@ -138,14 +137,14 @@ def _resolve_resource(
             if choice != "new" and choice in candidates:
                 reuse_existing_label = choice
 
-    schema_fields = CDM_SCHEMA_FIELDS if spec.is_cdm_database else NON_CDM_SCHEMA_FIELDS
+    schema_fields = SCHEMA_FIELDS_BY_KIND[spec.resource_kind]
 
     if reuse_existing_label:
         if not non_interactive:
             console.print("\n[dim]Schema configuration[/dim]\n")
         schema_values = resolve_fields(schema_fields, spec, _resolve_field)
         _check_missing_required(spec, missing_required, is_test_resource, non_interactive)
-        resource = build_resource_config(reuse_existing_label, schema_values, spec.is_cdm_database)
+        resource = build_resource_config(reuse_existing_label, schema_values, spec.resource_kind)
         return reuse_existing_label, None, resource
 
     conn_values = resolve_fields(DATABASE_LABEL_FIELDS, spec, _resolve_field)
@@ -157,7 +156,7 @@ def _resolve_resource(
     _check_missing_required(spec, missing_required, is_test_resource, non_interactive)
 
     db_config, database = build_database_config(conn_values)
-    resource = build_resource_config(database, schema_values, spec.is_cdm_database)
+    resource = build_resource_config(database, schema_values, spec.resource_kind)
 
     return database, db_config, resource
 
@@ -395,7 +394,7 @@ def _run_configure_package(
             if new_db is not None:
                 config.databases[db_label] = new_db
             save_name = effective_name or spec.semantic_name
-            config.resources[save_name] = new_resource
+            config.resources[save_name] = new_resource  # type: ignore[index]
 
     owned_names = {spec.semantic_name for spec in cls.owned_resources}
     for rname in cls.required_resources:
@@ -407,6 +406,13 @@ def _run_configure_package(
                 f"\n[yellow]Warning:[/yellow] Required resource {rname!r} is not configured. "
                 f"It may be provided by another package. Run that package's configure command."
             )
+    for kname in cls.required_knowledge_resources:
+        resolved_kname = config.knowledge_resource_aliases.get(kname, kname)
+        if resolved_kname not in config.knowledge_resources:
+            console.print(
+                f"\n[yellow]Warning:[/yellow] Required knowledge resource {kname!r} is not configured. "
+                "It may be provided manually or by another package integration."
+            )
 
     extra = _resolve_extra_fields(
         cls, config, set_dict=set_dict, interactive=flags_arg is None and not any_explicit_flags
@@ -414,6 +420,9 @@ def _run_configure_package(
 
     existing_tool = config.tools.get(tool_name)
     existing_default = existing_tool.default_resource if existing_tool else None
+    existing_knowledge_default = (
+        existing_tool.default_knowledge_resource if existing_tool else None
+    )
     available_resources = sorted(config.resource_names())
     relevant_names = {s.semantic_name for s in cls.owned_resources} | set(cls.required_resources)
     if resource_name:
@@ -435,7 +444,11 @@ def _run_configure_package(
     else:
         new_default_resource = existing_default or (relevant_resources[0] if relevant_resources else None)
 
-    config.tools[tool_name] = ToolConfig(default_resource=new_default_resource, extra=extra)
+    config.tools[tool_name] = ToolConfig(
+        default_resource=new_default_resource,
+        default_knowledge_resource=existing_knowledge_default,
+        extra=extra,
+    )
     save_stack_config(config)
     console.print(f"\n[green]✓[/green] Saved \\[tools.{tool_name}] to [dim]{CONFIG_PATH}[/dim]")
 
@@ -519,7 +532,7 @@ def _configure_test_resources(
                 )
                 raise typer.Exit(1)
 
-        config.resources[spec.semantic_name] = new_resource
+        config.resources[spec.semantic_name] = new_resource  # type: ignore[index]
         save_stack_config(config)
         console.print(
             f"[green]✓[/green] Test resource [bold]{spec.semantic_name!r}[/bold] written."
@@ -653,10 +666,18 @@ def verify(
             with engine.connect() as conn:
                 conn.execute(sa.text("SELECT 1"))
             elapsed = (time.monotonic() - t0) * 1000
-            table.add_row(name, target.safe_url, "[green]OK[/green]", f"{elapsed:.0f} ms")
+            table.add_row(name, target.safe_url(), "[green]OK[/green]", f"{elapsed:.0f} ms")
         except Exception as exc:
-            table.add_row(name, target.safe_url, "[red]FAIL[/red]", str(exc)[:60])
-            all_ok = False
+            exc_str = str(exc)
+            if target.test_only and "does not exist" in exc_str:
+                table.add_row(
+                    name, target.safe_url(),
+                    "[yellow]NOT CREATED[/yellow]",
+                    "test db — run the test suite once to provision it",
+                )
+            else:
+                table.add_row(name, target.safe_url(), "[red]FAIL[/red]", exc_str[:60])
+                all_ok = False
 
     console.print(table)
     if not all_ok:

@@ -47,7 +47,7 @@ def write_env_file(resolver: Resolver, path: Path = FLAT_ENV_PATH) -> Path:
             continue
 
         lines.extend(db.to_env_pairs(prefix))
-        lines.append(f"{prefix}_URL={resolved.database.url}")
+        lines.append(f"{prefix}_URL={resolved.database.build_url()}")
         lines.append("")
 
     for tool_name in resolver.config.tools:
@@ -81,7 +81,7 @@ def save_stack_config(config: StackConfig, path: Path = CONFIG_PATH) -> Path:
     """
     from .logging_config import LoggingConfig
 
-    payload = _drop_none_and_empty(config.model_dump(mode="python"))
+    payload = _drop_none_and_empty(config.model_dump(mode="json"))
     if config.logging == LoggingConfig():
         payload.pop("logging", None)
 

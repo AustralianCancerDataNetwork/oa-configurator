@@ -13,7 +13,7 @@ Equivalent to loading a TOML file, but the config is built in code. Useful for:
 - Programmatic config generation (e.g. CI pipelines)
 
 ```python
-from oa_configurator import StackConfig, DatabaseConfig, ResourceConfig, Resolver
+from oa_configurator import StackConfig, DatabaseConfig, CDMResourceConfig, Resolver
 
 config = StackConfig.for_session(
     databases={
@@ -26,7 +26,7 @@ config = StackConfig.for_session(
         )
     },
     resources={
-        "default": ResourceConfig(
+        "default": CDMResourceConfig(
             database="local",
             cdm_schema="cdm",
             vocab_schema="vocab",
@@ -41,7 +41,7 @@ engine = Resolver(config).resolve_resource("default").create_engine()
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `databases` | dict \| None | `{}` | Named `DatabaseConfig` objects or raw dicts |
-| `resources` | dict \| None | `{}` | Named `ResourceConfig` objects or raw dicts |
+| `resources` | dict \| None | `{}` | Named `CDMResourceConfig` objects or raw dicts |
 | `tools` | dict \| None | `{}` | Named `ToolConfig` objects or raw dicts |
 | `profiles` | dict \| None | `{}` | Named `ProfileOverrideConfig` objects or raw dicts |
 | `active_profile` | str \| None | `None` | Profile to activate |
@@ -53,7 +53,7 @@ Cross-references are validated at construction time, same as for file-loaded con
 ```python
 StackConfig.for_session(
     databases={"local": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-    resources={"default": ResourceConfig(database="typo", cdm_schema="omop")},  # raises ValueError
+    resources={"default": CDMResourceConfig(database="typo", cdm_schema="omop")},  # raises ValueError
 )
 ```
 
@@ -86,7 +86,7 @@ Loads the shared config file, then replaces specific connections or resources fo
 - Sharing a team config but running with personal credentials locally
 
 ```python
-from oa_configurator import load_stack_config, DatabaseConfig, ResourceConfig, Resolver
+from oa_configurator import load_stack_config, DatabaseConfig, CDMResourceConfig, Resolver
 
 engine = (
     Resolver(load_stack_config())
@@ -95,7 +95,7 @@ engine = (
             "local": DatabaseConfig(dialect="sqlite", database_name=":memory:")
         },
         resources={
-            "default": ResourceConfig(database="local", cdm_schema="omop")
+            "default": CDMResourceConfig(database="local", cdm_schema="omop")
         },
     )
     .resolve_resource("default")
@@ -123,7 +123,7 @@ Cross-references are checked against the **merged** result. A resource override 
 
 ```python
 Resolver(load_stack_config()).with_overrides(
-    resources={"default": ResourceConfig(database="nonexistent", cdm_schema="omop")}  # raises
+    resources={"default": CDMResourceConfig(database="nonexistent", cdm_schema="omop")}  # raises
 )
 ```
 

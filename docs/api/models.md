@@ -12,9 +12,37 @@ Root configuration object. Also the entry point for programmatic construction vi
 
 ::: oa_configurator.models.DatabaseConfig
 
-## ResourceConfig
+## Resource models
 
-::: oa_configurator.models.ResourceConfig
+### ResourceKind
+
+::: oa_configurator.models.ResourceKind
+
+### ResourceConfigBase
+
+::: oa_configurator.models.ResourceConfigBase
+
+### CDMResourceConfig
+
+::: oa_configurator.models.CDMResourceConfig
+
+### EmbeddingResourceConfig
+
+::: oa_configurator.models.EmbeddingResourceConfig
+
+## Knowledge resource models
+
+### KnowledgeResourceKind
+
+::: oa_configurator.models.KnowledgeResourceKind
+
+### KnowledgeResourceConfig
+
+::: oa_configurator.models.KnowledgeResourceConfig
+
+### LocalPathKnowledgeResource
+
+::: oa_configurator.models.LocalPathKnowledgeResource
 
 ## ToolConfig
 

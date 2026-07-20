@@ -6,16 +6,32 @@ The `Resolver` turns logical names in a `StackConfig` into concrete typed handle
 
 ::: oa_configurator.resolver.Resolver
 
-## Resolved types
+## Resolved resource types
 
-### ResolvedResource
+`resolve_resource()` returns a `ResolvedResourceBase` subclass. Use `isinstance` to narrow to a specific kind.
 
-::: oa_configurator.resolver.ResolvedResource
+### ResolvedResourceBase
 
-### ResolvedDatabaseTarget
+::: oa_configurator.resolver.ResolvedResourceBase
 
-::: oa_configurator.resolver.ResolvedDatabaseTarget
+### ResolvedCDMResource
 
-### ResolvedToolConfig
+::: oa_configurator.resolver.ResolvedCDMResource
+
+### ResolvedEmbeddingResource
+
+::: oa_configurator.resolver.ResolvedEmbeddingResource
+
+## Resolved knowledge resource types
+
+### ResolvedKnowledgeResource
+
+::: oa_configurator.resolver.ResolvedKnowledgeResource
+
+### ResolvedLocalPathKnowledgeResource
+
+::: oa_configurator.resolver.ResolvedLocalPathKnowledgeResource
+
+## ResolvedToolConfig
 
 ::: oa_configurator.resolver.ResolvedToolConfig

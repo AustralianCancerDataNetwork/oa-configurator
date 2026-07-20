@@ -1,6 +1,7 @@
 """Tests for package_base.py: PackageConfigBase factory interface."""
 
 from __future__ import annotations
+from pathlib import Path
 
 from typing import ClassVar
 
@@ -8,10 +9,11 @@ import pytest
 
 from oa_configurator import (
     ConfigurationError,
+    LocalPathKnowledgeResource,
     PackageConfigBase,
     StackConfig,
     DatabaseConfig,
-    ResourceConfig,
+    CDMResourceConfig,
     ToolConfig,
 )
 from oa_configurator.models import ProfileOverrideConfig
@@ -84,7 +86,7 @@ class TestRequiredResources:
     def test_passes_when_resource_present(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"cdm_db": ResourceConfig(database="db", cdm_schema="main")},
+            resources={"cdm_db": CDMResourceConfig(database="db", cdm_schema="main")},
         )
         result = RequiredConfig.from_stack(cfg)
         assert result.value == "default_value"
@@ -108,7 +110,7 @@ class TestRequiredResources:
     def test_passes_when_resource_aliased(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"my_prod": ResourceConfig(database="db", cdm_schema="main")},
+            resources={"my_prod": CDMResourceConfig(database="db", cdm_schema="main")},
             resource_aliases={"cdm_db": "my_prod"},
         )
         result = RequiredConfig.from_stack(cfg)
@@ -117,7 +119,7 @@ class TestRequiredResources:
     def test_respects_default_resource_override(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"my_custom": ResourceConfig(database="db", cdm_schema="main")},
+            resources={"my_custom": CDMResourceConfig(database="db", cdm_schema="main")},
             tools={"required_tool": ToolConfig(default_resource="my_custom")},
         )
         result = RequiredConfig.from_stack(cfg)
@@ -128,7 +130,7 @@ class TestRequiredResources:
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
             profiles={
                 "test": ProfileOverrideConfig(
-                    resources={"cdm_db": ResourceConfig(database="db", cdm_schema="test_schema")},
+                    resources={"cdm_db": CDMResourceConfig(database="db", cdm_schema="test_schema")},
                 ),
             },
             active_profile="test",
@@ -140,3 +142,62 @@ class TestRequiredResources:
         cfg = StackConfig.for_session()
         result = SampleConfig.from_stack(cfg)
         assert result.backend == "default_backend"
+
+
+class RequiredKnowledgeConfig(PackageConfigBase):
+    tool_name: ClassVar[str] = "required_knowledge_tool"
+    required_knowledge_resources: ClassVar[tuple[str, ...]] = ("default_packs",)
+    value: str = "default_value"
+
+
+class TestRequiredKnowledgeResources:
+    def test_passes_when_knowledge_resource_present(self):
+        cfg = StackConfig.for_session(
+            knowledge_resources={"default_packs": LocalPathKnowledgeResource(root=Path("/packs"))}
+        )
+        result = RequiredKnowledgeConfig.from_stack(cfg)
+        assert result.value == "default_value"
+
+    def test_raises_when_knowledge_resource_missing(self):
+        cfg = StackConfig.for_session()
+        with pytest.raises(ConfigurationError) as exc_info:
+            RequiredKnowledgeConfig.from_stack(cfg)
+        msg = str(exc_info.value)
+        assert "default_packs" in msg
+        assert "knowledge resource" in msg
+
+    def test_passes_when_knowledge_resource_aliased(self):
+        cfg = StackConfig.for_session(
+            knowledge_resources={"org_packs": LocalPathKnowledgeResource(root=Path("/packs"))},
+            knowledge_resource_aliases={"default_packs": "org_packs"},
+        )
+        result = RequiredKnowledgeConfig.from_stack(cfg)
+        assert result.value == "default_value"
+
+    def test_respects_default_knowledge_resource_override(self):
+        cfg = StackConfig.for_session(
+            knowledge_resources={"my_custom": LocalPathKnowledgeResource(root=Path("/packs"))},
+            tools={"required_knowledge_tool": ToolConfig(default_knowledge_resource="my_custom")},
+        )
+        result = RequiredKnowledgeConfig.from_stack(cfg)
+        assert result.value == "default_value"
+
+    def test_recognises_profile_knowledge_resources(self):
+        cfg = StackConfig.for_session(
+            profiles={
+                "test": ProfileOverrideConfig(
+                    knowledge_resources={"default_packs": LocalPathKnowledgeResource(root=Path("/packs"))},
+                ),
+            },
+            active_profile="test",
+        )
+        result = RequiredKnowledgeConfig.from_stack(cfg)
+        assert result.value == "default_value"
+
+    def test_get_knowledge_resource_raises_when_none_declared(self, monkeypatch):
+        monkeypatch.setattr(
+            "oa_configurator.loader.load_stack_config",
+            lambda: StackConfig.for_session(),
+        )
+        with pytest.raises(ConfigurationError, match="has no knowledge resources"):
+            SampleConfig.get_knowledge_resource()

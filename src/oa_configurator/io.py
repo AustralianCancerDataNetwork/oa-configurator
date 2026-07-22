@@ -9,7 +9,7 @@ from typing import Any
 
 import tomli_w
 
-from .loader import CONFIG_PATH
+from .loader import CONFIG_PATH, _ConfigCache
 from .resolver import Resolver
 from .models import StackConfig
 
@@ -87,6 +87,7 @@ def save_stack_config(config: StackConfig, path: Path = CONFIG_PATH) -> Path:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(tomli_w.dumps(payload), encoding="utf-8")
+    _ConfigCache.clear()
     return path
 
 
@@ -102,6 +103,7 @@ def patch_active_profile(profile_name: str, path: Path = CONFIG_PATH) -> None:
     data["active_profile"] = profile_name
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(tomli_w.dumps(data), encoding="utf-8")
+    _ConfigCache.clear()
 
 
 def _drop_none_and_empty(value: Any) -> Any:

@@ -17,6 +17,47 @@ ENV_ACTIVE_PROFILE = "OA_ACTIVE_PROFILE"
 ENV_CONFIG_PATH = "OA_CONFIG_PATH"
 
 
+class _ConfigCache:
+    """Process-local cache for loaded StackConfig.
+
+    Invalidated automatically by file content changes (mtime + size) and by
+    the env vars that affect parsing (OA_ACTIVE_PROFILE, OA_CONFIG_PATH), so
+    callers never need to invalidate it themselves for normal reads. Writers
+    (:func:`~oa_configurator.io.save_stack_config`,
+    :func:`~oa_configurator.io.patch_active_profile`) call :meth:`clear`
+    directly after writing, as a guard against filesystems with coarse mtime
+    resolution.
+
+    Each entry stores the config object actually parsed from disk; callers
+    always receive a deep copy so no caller can mutate a shared instance.
+    """
+
+    _entries: dict[tuple, StackConfig] = {}
+
+    @classmethod
+    def _key(cls, resolved_path: Path, st: os.stat_result) -> tuple:
+        return (
+            resolved_path,
+            st.st_mtime_ns,
+            st.st_size,
+            os.environ.get(ENV_ACTIVE_PROFILE),
+            os.environ.get(ENV_CONFIG_PATH),
+        )
+
+    @classmethod
+    def get(cls, resolved_path: Path, st: os.stat_result) -> StackConfig | None:
+        cached = cls._entries.get(cls._key(resolved_path, st))
+        return cached.model_copy(deep=True) if cached is not None else None
+
+    @classmethod
+    def put(cls, resolved_path: Path, st: os.stat_result, config: StackConfig) -> None:
+        cls._entries[cls._key(resolved_path, st)] = config
+
+    @classmethod
+    def clear(cls) -> None:
+        cls._entries.clear()
+
+
 def _resolve_config_path() -> Path:
     raw = os.environ.get(ENV_CONFIG_PATH)
     if raw:
@@ -58,13 +99,18 @@ def _load_from_path(path: str | Path) -> StackConfig:
     if not resolved_path.exists():
         raise FileNotFoundError(f"Config file not found: {resolved_path}")
 
-    file_mode = stat.S_IMODE(resolved_path.stat().st_mode)
+    st = resolved_path.stat()
+    file_mode = stat.S_IMODE(st.st_mode)
     if file_mode & 0o044:
         logger.warning(
             "Config file %s has loose permissions (mode %04o). "
             "It may contain passwords. Run 'chmod 600 %s' to restrict access.",
             resolved_path, file_mode, resolved_path,
         )
+
+    cached = _ConfigCache.get(resolved_path, st)
+    if cached is not None:
+        return cached
 
     try:
         data = tomllib.loads(resolved_path.read_text(encoding="utf-8"))
@@ -79,4 +125,5 @@ def _load_from_path(path: str | Path) -> StackConfig:
 
     config.bind_loaded_path(resolved_path)
 
-    return config
+    _ConfigCache.put(resolved_path, st, config)
+    return config.model_copy(deep=True)

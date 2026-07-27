@@ -19,13 +19,22 @@ from .loader import DEFAULT_CONFIG_PATH, load_stack_config
 from .logging_config import LoggingConfig, RedactingFormatter, configure_logging, get_logger
 from .models import (
     DatabaseConfig,
+    ModelConfig,
     ProfileOverrideConfig,
+    ProviderConfig,
     ResourceConfig,
     StackConfig,
     ToolConfig,
 )
 from .package_base import ConfigurationError, PackageConfigBase, ResourceSpec
-from .resolver import Resolver, ResolvedDatabaseTarget, ResolvedResource, ResolvedToolConfig
+from .resolver import (
+    Resolver,
+    ResolvedDatabaseTarget,
+    ResolvedModel,
+    ResolvedProvider,
+    ResolvedResource,
+    ResolvedToolConfig,
+)
 
 __all__ = [
     "ConfigurationError",
@@ -45,13 +54,17 @@ __all__ = [
     "FieldSpec",
     "DatabaseConfig",
     "LoggingConfig",
+    "ModelConfig",
     "RedactingFormatter",
     "PackageConfigBase",
+    "ProviderConfig",
     "ResourceSpec",
     "ProfileOverrideConfig",
     "ResourceConfig",
     "Resolver",
     "ResolvedDatabaseTarget",
+    "ResolvedModel",
+    "ResolvedProvider",
     "ResolvedResource",
     "ResolvedToolConfig",
     "StackConfig",

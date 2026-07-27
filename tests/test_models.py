@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from oa_configurator import DatabaseConfig, ResourceConfig, StackConfig, ToolConfig
+from oa_configurator import DatabaseConfig, ModelConfig, ProviderConfig, ResourceConfig, StackConfig, ToolConfig
 from oa_configurator.models import ProfileOverrideConfig
 
 
@@ -156,3 +156,69 @@ class TestStackConfig:
     def test_extra_fields_forbidden(self):
         with pytest.raises(Exception):
             StackConfig(unknown_top_level="x")  # type: ignore
+
+    def test_cross_ref_validation_unknown_provider(self):
+        with pytest.raises(ValueError, match="unknown provider"):
+            StackConfig.for_session(
+                providers={},
+                models={"m": ModelConfig(provider="missing", model="llama3:8b")},
+            )
+
+    def test_model_profile_overlay_cross_ref(self):
+        cfg = StackConfig.for_session(
+            providers={"p": ProviderConfig(provider="ollama")},
+            models={"m": ModelConfig(provider="p", model="llama3:8b")},
+            profiles={
+                "test": ProfileOverrideConfig(
+                    providers={"tp": ProviderConfig(provider="anthropic")},
+                    models={"m": ModelConfig(provider="tp", model="claude-sonnet-4")},
+                ),
+            },
+        )
+        assert "tp" in cfg.profiles["test"].providers
+
+    def test_model_profile_overlay_invalid_cross_ref(self):
+        with pytest.raises(ValueError, match="unknown provider"):
+            StackConfig.for_session(
+                providers={"p": ProviderConfig(provider="ollama")},
+                models={"m": ModelConfig(provider="p", model="llama3:8b")},
+                profiles={
+                    "bad": ProfileOverrideConfig(
+                        models={"m": ModelConfig(provider="nonexistent", model="llama3:8b")},
+                    ),
+                },
+            )
+
+
+class TestProviderConfig:
+    def test_minimal(self):
+        provider = ProviderConfig(provider="ollama")
+        assert provider.provider == "ollama"
+        assert provider.base_url is None
+        assert provider.api_key is None
+
+    def test_extra_fields_forbidden(self):
+        with pytest.raises(Exception):
+            ProviderConfig(provider="ollama", unknown_field="x")  # type: ignore
+
+    def test_provider_required(self):
+        with pytest.raises(Exception):
+            ProviderConfig()  # type: ignore
+
+
+class TestModelConfig:
+    def test_minimal(self):
+        model = ModelConfig(provider="p", model="llama3:8b")
+        assert model.provider == "p"
+        assert model.model == "llama3:8b"
+        assert model.configuration == {}
+
+    def test_configuration_defaults_independent_per_instance(self):
+        a = ModelConfig(provider="p", model="m1")
+        b = ModelConfig(provider="p", model="m2")
+        a.configuration["x"] = 1
+        assert b.configuration == {}
+
+    def test_extra_fields_forbidden(self):
+        with pytest.raises(Exception):
+            ModelConfig(provider="p", model="m", unknown_field="x")  # type: ignore

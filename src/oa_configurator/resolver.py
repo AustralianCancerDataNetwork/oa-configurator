@@ -11,7 +11,9 @@ from sqlalchemy.engine import Engine
 
 from .models import (
     DatabaseConfig,
+    ModelConfig,
     ProfileOverrideConfig,
+    ProviderConfig,
     ResourceConfig,
     StackConfig,
     ToolConfig,
@@ -181,6 +183,62 @@ class ResolvedResource:
 
 
 @dataclass(frozen=True)
+class ResolvedProvider:
+    """Concrete LLM provider connection, ready to be served through.
+
+    Attributes
+    ----------
+    name : str
+        Logical name of the provider as declared in the config.
+    provider : str
+        Provider key, e.g. ``'ollama'``, ``'llamacpp'``, ``'openai'``.
+    base_url : str, optional
+        Resolved base URL for this deployment.
+    api_key : str, optional
+        Resolved API key for this deployment.
+    """
+
+    name: str
+    provider: str
+    base_url: str | None
+    api_key: str | None
+
+    def __repr__(self) -> str:
+        return f"ResolvedProvider(name={self.name!r}, provider={self.provider!r})"
+
+
+@dataclass(frozen=True)
+class ResolvedModel:
+    """Concrete, backend-agnostic model configuration.
+    No explicit methods as it is just a data struct that can be used
+    by the consuming package to construct a backend-specific model handle.
+
+    Attributes
+    ----------
+    name : str
+        Logical name of the model as declared in the config.
+    provider : ResolvedProvider
+        Resolved provider this model is served through.
+    model : str
+        Model name or identifier passed to the provider.
+    configuration : dict[str, Any]
+        Free-form per-model knobs (max_tokens, temperature, embedding_dim,
+        and so on).
+    """
+
+    name: str
+    provider: ResolvedProvider
+    model: str
+    configuration: dict[str, Any]
+
+    def __repr__(self) -> str:
+        return (
+            f"ResolvedModel(name={self.name!r}, "
+            f"provider={self.provider.provider!r}, model={self.model!r})"
+        )
+
+
+@dataclass(frozen=True)
 class ResolvedToolConfig:
     """Resolved tool section with raw extra dict for PackageConfigBase consumption."""
 
@@ -215,6 +273,36 @@ class Resolver:
         )
         logger.debug("Resolved database %r → %s", name, target.safe_url)
         return target
+
+    def resolve_provider(self, name: str) -> ResolvedProvider:
+        """Resolve a provider name to a concrete connection.
+
+        Profile overlay providers take precedence over base providers.
+
+        Parameters
+        ----------
+        name : str
+            Provider name as declared in ``[providers]`` or a profile overlay.
+
+        Returns
+        -------
+        ResolvedProvider
+            Resolved provider connection.
+
+        Raises
+        ------
+        KeyError
+            If *name* does not exist in the config.
+        """
+        provider = self.effective_provider(name)
+        resolved = ResolvedProvider(
+            name=name,
+            provider=provider.provider,
+            base_url=provider.base_url,
+            api_key=provider.api_key,
+        )
+        logger.debug("Resolved provider %r → %s", name, resolved.provider)
+        return resolved
 
     def resolve_resource(self, name: str) -> ResolvedResource:
         """Resolve a resource name to a concrete bundle of DB targets and schemas.
@@ -262,6 +350,42 @@ class Resolver:
         )
         return resolved
 
+    def resolve_model(self, name: str) -> ResolvedModel:
+        """Resolve a model name to a concrete, backend-ready configuration.
+
+        Applies profile overlays. The unit consuming packages use directly:
+        a package's own config just names an entry here (e.g.
+        ``embedding_model = "embed-default"``), the same way
+        ``default_resource`` names a :class:`~oa_configurator.models.ResourceConfig`
+        entry.
+
+        Parameters
+        ----------
+        name : str
+            Model name as declared in ``[models]`` or a profile overlay.
+
+        Returns
+        -------
+        ResolvedModel
+            Fully resolved model with a concrete provider connection.
+
+        Raises
+        ------
+        KeyError
+            If *name* (or its provider) does not exist in the config.
+        """
+        model = self._effective_model(name)
+        provider = self.resolve_provider(model.provider)
+
+        resolved = ResolvedModel(
+            name=name,
+            provider=provider,
+            model=model.model,
+            configuration=dict(model.configuration),
+        )
+        logger.debug("Resolved model %r → provider=%s model=%r", name, provider.provider, resolved.model)
+        return resolved
+
     def resolve_tool(self, name: str) -> ResolvedToolConfig:
         """Resolve a tool name to its configuration.
 
@@ -295,6 +419,8 @@ class Resolver:
         *,
         databases: dict[str, DatabaseConfig] | None = None,
         resources: dict[str, ResourceConfig] | None = None,
+        providers: dict[str, ProviderConfig] | None = None,
+        models: dict[str, ModelConfig] | None = None,
         tools: dict[str, ToolConfig] | None = None,
     ) -> Resolver:
         """Return a new Resolver with entries merged over the current config.
@@ -306,6 +432,8 @@ class Resolver:
             profiles=self.config.profiles,
             databases={**self.config.databases, **(databases or {})},
             resources={**self.config.resources, **(resources or {})},
+            providers={**self.config.providers, **(providers or {})},
+            models={**self.config.models, **(models or {})},
             tools={**self.config.tools, **(tools or {})},
             resource_aliases=self.config.resource_aliases,
             logging=self.config.logging,
@@ -321,6 +449,14 @@ class Resolver:
     def resource_names(self) -> tuple[str, ...]:
         """Return a sorted tuple of configured resource names."""
         return self.config.resource_names()
+
+    def provider_names(self) -> tuple[str, ...]:
+        """Return a sorted tuple of configured provider names."""
+        return self.config.provider_names()
+
+    def model_names(self) -> tuple[str, ...]:
+        """Return a sorted tuple of configured model names."""
+        return self.config.model_names()
 
     def tool_names(self) -> tuple[str, ...]:
         """Return a sorted tuple of configured tool names."""
@@ -374,6 +510,39 @@ class Resolver:
             return profile.resources[actual_name]
         return _get_named(self.config.resources, "resource", actual_name)
 
+    def effective_provider(self, name: str) -> ProviderConfig:
+        """Return the active ProviderConfig for a provider name.
+
+        Profile overlay providers take precedence over base providers.
+        Unlike ``resolve_provider``, this returns the raw config object
+        rather than a resolved target.
+
+        Parameters
+        ----------
+        name : str
+            Provider name as it appears in ``[providers]`` or a profile overlay.
+
+        Returns
+        -------
+        ProviderConfig
+            The effective provider config for the active profile.
+
+        Raises
+        ------
+        KeyError
+            If *name* does not exist in the base config or the active profile.
+        """
+        profile = self._active_profile()
+        if profile and name in profile.providers:
+            return profile.providers[name]
+        return _get_named(self.config.providers, "provider", name)
+
+    def _effective_model(self, name: str) -> ModelConfig:
+        profile = self._active_profile()
+        if profile and name in profile.models:
+            return profile.models[name]
+        return _get_named(self.config.models, "model", name)
+
     def _effective_tool(self, name: str) -> ToolConfig:
         profile = self._active_profile()
         if profile and name in profile.tools:
@@ -391,6 +560,8 @@ class Resolver:
             f"Resolver(active_profile={self.config.active_profile!r}, "
             f"databases={len(self.config.databases)}, "
             f"resources={len(self.config.resources)}, "
+            f"providers={len(self.config.providers)}, "
+            f"models={len(self.config.models)}, "
             f"tools={len(self.config.tools)})"
         )
 

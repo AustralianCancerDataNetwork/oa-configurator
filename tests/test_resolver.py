@@ -1,12 +1,12 @@
-"""Tests for resolver.py: Resolver, ResolvedDatabaseTarget, ResolvedResource."""
+"""Tests for resolver.py: Resolver, ResolvedDatabaseTarget, ResolvedResource, ResolvedProvider, ResolvedModel."""
 
 from __future__ import annotations
 
 import pytest
 
 from oa_configurator import Resolver, StackConfig
-from oa_configurator.resolver import ResolvedDatabaseTarget, ResolvedResource
-from oa_configurator.models import DatabaseConfig, ProfileOverrideConfig, ResourceConfig, ToolConfig
+from oa_configurator.resolver import ResolvedDatabaseTarget, ResolvedModel, ResolvedProvider, ResolvedResource
+from oa_configurator.models import DatabaseConfig, ModelConfig, ProfileOverrideConfig, ProviderConfig, ResourceConfig, ToolConfig
 
 
 class TestResolveDatabase:
@@ -102,6 +102,94 @@ class TestResolveResource:
         r = Resolver(cfg)
         res = r.resolve_resource("default")
         assert res.cdm_schema == "test_schema"
+
+
+class TestResolveProvider:
+    def test_resolved(self):
+        cfg = StackConfig.for_session(
+            providers={"p": ProviderConfig(provider="llamacpp", base_url="http://localhost:8080/v1")},
+        )
+        r = Resolver(cfg)
+        provider = r.resolve_provider("p")
+        assert isinstance(provider, ResolvedProvider)
+        assert provider.provider == "llamacpp"
+        assert provider.base_url == "http://localhost:8080/v1"
+
+    def test_unknown_provider_raises(self):
+        cfg = StackConfig.for_session()
+        r = Resolver(cfg)
+        with pytest.raises(KeyError, match="Unknown provider"):
+            r.resolve_provider("does_not_exist")
+
+    def test_profile_provider_takes_precedence(self):
+        cfg = StackConfig.for_session(
+            providers={"p": ProviderConfig(provider="ollama")},
+            profiles={
+                "test": ProfileOverrideConfig(
+                    providers={"p": ProviderConfig(provider="anthropic")},
+                ),
+            },
+            active_profile="test",
+        )
+        r = Resolver(cfg)
+        provider = r.resolve_provider("p")
+        assert provider.provider == "anthropic"
+
+
+class TestResolveModel:
+    def test_resolved(self):
+        cfg = StackConfig.for_session(
+            providers={"p": ProviderConfig(provider="llamacpp", base_url="http://localhost:8080/v1")},
+            models={"m": ModelConfig(provider="p", model="local-chat", configuration={"max_tokens": 8000})},
+        )
+        r = Resolver(cfg)
+        model = r.resolve_model("m")
+        assert isinstance(model, ResolvedModel)
+        assert model.provider.provider == "llamacpp"
+        assert model.model == "local-chat"
+        assert model.configuration == {"max_tokens": 8000}
+
+    def test_unknown_model_raises(self):
+        cfg = StackConfig.for_session()
+        r = Resolver(cfg)
+        with pytest.raises(KeyError, match="Unknown model"):
+            r.resolve_model("does_not_exist")
+
+    def test_resolved_model_exposes_plain_primitives_for_a_consumer_to_use(self):
+        """ResolvedModel is pure data, oa-configurator never imports a consumer package.
+
+        A consumer (e.g. omop-llm) builds whatever it needs from these plain
+        fields on its own side, the same way omop_alchemy.config.create_cdm_engine()
+        takes a plain ResolvedResource and does the omop-alchemy-specific part itself.
+        """
+        cfg = StackConfig.for_session(
+            providers={"p": ProviderConfig(provider="llamacpp", base_url="http://localhost:8080/v1")},
+            models={"m": ModelConfig(provider="p", model="local-chat")},
+        )
+        r = Resolver(cfg)
+        model = r.resolve_model("m")
+        assert model.provider.provider == "llamacpp"
+        assert model.provider.base_url == "http://localhost:8080/v1"
+        assert model.model == "local-chat"
+
+    def test_profile_model_takes_precedence(self):
+        cfg = StackConfig.for_session(
+            providers={
+                "local": ProviderConfig(provider="llamacpp", base_url="http://localhost:8080/v1"),
+                "cloud": ProviderConfig(provider="anthropic"),
+            },
+            models={"m": ModelConfig(provider="local", model="local-model")},
+            profiles={
+                "test": ProfileOverrideConfig(
+                    models={"m": ModelConfig(provider="cloud", model="claude-sonnet-4")},
+                ),
+            },
+            active_profile="test",
+        )
+        r = Resolver(cfg)
+        model = r.resolve_model("m")
+        assert model.provider.provider == "anthropic"
+        assert model.model == "claude-sonnet-4"
 
 
 class TestSchemaTranslateMap:
@@ -218,6 +306,15 @@ class TestDiscovery:
     def test_resource_names(self, minimal_stack):
         r = Resolver(minimal_stack)
         assert r.resource_names() == ("default",)
+
+    def test_provider_and_model_names(self):
+        cfg = StackConfig.for_session(
+            providers={"p": ProviderConfig(provider="ollama")},
+            models={"m": ModelConfig(provider="p", model="llama3:8b")},
+        )
+        r = Resolver(cfg)
+        assert r.provider_names() == ("p",)
+        assert r.model_names() == ("m",)
 
     def test_no_active_profile(self, minimal_stack):
         r = Resolver(minimal_stack)

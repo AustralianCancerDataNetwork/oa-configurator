@@ -112,6 +112,59 @@ class DatabaseConfig(BaseModel):
         return self._build_url(hide_password=True)
 
 
+class ProviderConfig(BaseModel):
+    """Concrete connection to one LLM provider: which one, and how to reach it.
+
+    Peer of :class:`DatabaseConfig` for LLM/embedding backends instead of
+    databases. Referenced by :attr:`ModelConfig.provider`. Each entry
+    under ``[providers]`` in ``config.toml`` maps to one instance of this
+    model.
+
+    API keys are stored in plaintext for now, the same documented
+    limitation :attr:`DatabaseConfig.password` already carries; secret
+    management support is planned for a future release for both.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str = Field(
+        description="Provider key, e.g. 'ollama', 'llamacpp', 'vllm', 'openai', 'anthropic', 'gemini'."
+    )
+    base_url: str | None = Field(
+        default=None,
+        description="Base URL for this specific deployment of the provider (a local llama-server, a cloud vendor endpoint, and so on).",
+    )
+    api_key: str | None = Field(
+        default=None,
+        description="Plaintext API key for this deployment, if one is required. Secret management support is planned for a future release.",
+    )
+
+
+class ModelConfig(BaseModel):
+    """A named, reusable, concretely-configured model.
+
+    Peer of :class:`ResourceConfig` for LLM/embedding backends instead of
+    databases. The unit that consuming packages reference by name (e.g. a
+    package's ``embedding_model`` field just names an entry here, the same
+    way a package's ``default_resource`` names a :class:`ResourceConfig`
+    entry). Each entry under ``[models]`` in ``config.toml`` maps to one
+    instance of this model.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str = Field(
+        description="Name of the provider entry (from [providers]) this model is served through."
+    )
+    model: str = Field(
+        description="Model name or identifier passed to the provider."
+    )
+    configuration: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Free-form per-model knobs (max_tokens, temperature, embedding_dim, and so on), passed through verbatim to the underlying call.",
+    )
+
+
 class ResourceConfig(BaseModel):
     """Maps the OMOP logical roles (CDM, vocab, results) to named databases and schema names.
 
@@ -181,6 +234,14 @@ class ProfileOverrideConfig(BaseModel):
         default_factory=dict,
         description="Resource configs that replace or extend the base resources.",
     )
+    providers: dict[str, ProviderConfig] = Field(
+        default_factory=dict,
+        description="Provider configs that replace or extend the base providers.",
+    )
+    models: dict[str, ModelConfig] = Field(
+        default_factory=dict,
+        description="Model configs that replace or extend the base models.",
+    )
     tools: dict[str, ToolConfig] = Field(
         default_factory=dict,
         description="Tool configs that replace or extend the base tool configs.",
@@ -211,6 +272,14 @@ class StackConfig(BaseModel):
         default_factory=dict,
         description="Named logical role bundles mapping CDM roles to databases and schemas.",
     )
+    providers: dict[str, ProviderConfig] = Field(
+        default_factory=dict,
+        description="Named LLM/embedding provider connections.",
+    )
+    models: dict[str, ModelConfig] = Field(
+        default_factory=dict,
+        description="Named, concretely-configured models, each served through a provider.",
+    )
     tools: dict[str, ToolConfig] = Field(
         default_factory=dict,
         description="Per-package configuration sections.",
@@ -239,13 +308,18 @@ class StackConfig(BaseModel):
         """Ensure all named cross-references point at configured objects."""
         for rname, resource in self.resources.items():
             self._check_resource_refs(resource, self.databases, f"resources.{rname}")
+        for mname, model in self.models.items():
+            self._check_model_refs(model, self.providers, f"models.{mname}")
         for tname, tool in self.tools.items():
             self._check_tool_refs(tool, self.resources, self.resource_aliases, f"tools.{tname}")
         for pname, profile in self.profiles.items():
             effective_dbs = {**self.databases, **profile.databases}
             effective_res = {**self.resources, **profile.resources}
+            effective_providers = {**self.providers, **profile.providers}
             for rname, resource in profile.resources.items():
                 self._check_resource_refs(resource, effective_dbs, f"profiles.{pname}.resources.{rname}")
+            for mname, model in profile.models.items():
+                self._check_model_refs(model, effective_providers, f"profiles.{pname}.models.{mname}")
             for tname, tool in profile.tools.items():
                 self._check_tool_refs(tool, effective_res, self.resource_aliases, f"profiles.{pname}.tools.{tname}")
         for alias_key, alias_target in self.resource_aliases.items():
@@ -269,6 +343,17 @@ class StackConfig(BaseModel):
                 )
 
     @staticmethod
+    def _check_model_refs(
+        model: ModelConfig,
+        providers: dict[str, ProviderConfig],
+        location: str,
+    ) -> None:
+        if model.provider not in providers:
+            raise ValueError(
+                f"{location}.provider references unknown provider {model.provider!r}"
+            )
+
+    @staticmethod
     def _check_tool_refs(
         tool: ToolConfig,
         resources: dict[str, ResourceConfig],
@@ -288,6 +373,8 @@ class StackConfig(BaseModel):
         *,
         databases: dict[str, DatabaseConfig] | None = None,
         resources: dict[str, ResourceConfig] | None = None,
+        providers: dict[str, ProviderConfig] | None = None,
+        models: dict[str, ModelConfig] | None = None,
         tools: dict[str, ToolConfig] | None = None,
         profiles: dict[str, ProfileOverrideConfig] | None = None,
         active_profile: str | None = None,
@@ -311,6 +398,8 @@ class StackConfig(BaseModel):
             active_profile=active_profile,
             databases=databases or {},
             resources=resources or {},
+            providers=providers or {},
+            models=models or {},
             tools=tools or {},
             profiles=profiles or {},
             resource_aliases=resource_aliases or {},
@@ -332,6 +421,14 @@ class StackConfig(BaseModel):
     def resource_names(self) -> tuple[str, ...]:
         """Return a sorted tuple of configured resource names."""
         return tuple(sorted(self.resources))
+
+    def provider_names(self) -> tuple[str, ...]:
+        """Return a sorted tuple of configured provider names."""
+        return tuple(sorted(self.providers))
+
+    def model_names(self) -> tuple[str, ...]:
+        """Return a sorted tuple of configured model names."""
+        return tuple(sorted(self.models))
 
     def tool_names(self) -> tuple[str, ...]:
         """Return a sorted tuple of configured tool names."""

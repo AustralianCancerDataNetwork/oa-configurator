@@ -16,6 +16,14 @@ The `Resolver` turns logical names in a `StackConfig` into concrete typed handle
 
 ::: oa_configurator.resolver.ResolvedDatabaseTarget
 
+### ResolvedProvider
+
+::: oa_configurator.resolver.ResolvedProvider
+
+### ResolvedModel
+
+::: oa_configurator.resolver.ResolvedModel
+
 ### ResolvedToolConfig
 
 ::: oa_configurator.resolver.ResolvedToolConfig

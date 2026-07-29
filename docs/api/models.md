@@ -16,6 +16,14 @@ Root configuration object. Also the entry point for programmatic construction vi
 
 ::: oa_configurator.models.ResourceConfig
 
+## ProviderConfig
+
+::: oa_configurator.models.ProviderConfig
+
+## ModelConfig
+
+::: oa_configurator.models.ModelConfig
+
 ## ToolConfig
 
 ::: oa_configurator.models.ToolConfig

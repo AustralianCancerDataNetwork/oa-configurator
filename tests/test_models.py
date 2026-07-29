@@ -211,7 +211,22 @@ class TestModelConfig:
         model = ModelConfig(provider="p", model="llama3:8b")
         assert model.provider == "p"
         assert model.model == "llama3:8b"
+        assert model.embedding_dim is None
+        assert model.document_prefix is None
+        assert model.query_prefix is None
         assert model.configuration == {}
+
+    def test_embedding_fields(self):
+        model = ModelConfig(
+            provider="p",
+            model="nomic-embed-text",
+            embedding_dim=768,
+            document_prefix="search_document: ",
+            query_prefix="search_query: ",
+        )
+        assert model.embedding_dim == 768
+        assert model.document_prefix == "search_document: "
+        assert model.query_prefix == "search_query: "
 
     def test_configuration_defaults_independent_per_instance(self):
         a = ModelConfig(provider="p", model="m1")

@@ -221,14 +221,26 @@ class ResolvedModel:
         Resolved provider this model is served through.
     model : str
         Model name or identifier passed to the provider.
+    embedding_dim : int, optional
+        Embedding dimension override, or None to let the provider's own
+        discovery determine it.
+    document_prefix : str, optional
+        Prefix prepended to document/passage text before embedding, for
+        asymmetric embedding models.
+    query_prefix : str, optional
+        Prefix prepended to query text before embedding, for asymmetric
+        embedding models.
     configuration : dict[str, Any]
-        Free-form per-model knobs (max_tokens, temperature, embedding_dim,
-        and so on).
+        Free-form per-model knobs (max_tokens, temperature, and so on) with
+        no dedicated field.
     """
 
     name: str
     provider: ResolvedProvider
     model: str
+    embedding_dim: int | None
+    document_prefix: str | None
+    query_prefix: str | None
     configuration: dict[str, Any]
 
     def __repr__(self) -> str:
@@ -381,6 +393,9 @@ class Resolver:
             name=name,
             provider=provider,
             model=model.model,
+            embedding_dim=model.embedding_dim,
+            document_prefix=model.document_prefix,
+            query_prefix=model.query_prefix,
             configuration=dict(model.configuration),
         )
         logger.debug("Resolved model %r → provider=%s model=%r", name, provider.provider, resolved.model)

@@ -159,9 +159,21 @@ class ModelConfig(BaseModel):
     model: str = Field(
         description="Model name or identifier passed to the provider."
     )
+    embedding_dim: int | None = Field(
+        default=None,
+        description="Embedding dimension override. Unset lets the provider's own discovery (fast path or live probe) determine it.",
+    )
+    document_prefix: str | None = Field(
+        default=None,
+        description="Prefix prepended to document/passage text before embedding, for asymmetric embedding models (e.g. nomic-embed-text, E5, BGE).",
+    )
+    query_prefix: str | None = Field(
+        default=None,
+        description="Prefix prepended to query text before embedding, for asymmetric embedding models (e.g. nomic-embed-text, E5, BGE).",
+    )
     configuration: dict[str, Any] = Field(
         default_factory=dict,
-        description="Free-form per-model knobs (max_tokens, temperature, embedding_dim, and so on), passed through verbatim to the underlying call.",
+        description="Free-form per-model knobs (max_tokens, temperature, and so on) with no dedicated field, passed through verbatim to the underlying call.",
     )
 
 

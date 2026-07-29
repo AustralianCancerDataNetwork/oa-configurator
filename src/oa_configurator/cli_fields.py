@@ -4,7 +4,7 @@ from typing import Callable
 import click
 import typer
 
-from .models import ResourceConfig, DatabaseConfig
+from .models import ModelConfig, ProviderConfig, ResourceConfig, DatabaseConfig
 from .package_base import ResourceSpec
 
 
@@ -199,7 +199,7 @@ def resolve_field_value(
 
 def resolve_fields(
     fields: tuple[FieldSpec, ...],
-    spec: ResourceSpec,
+    spec: ResourceSpec | None,
     resolve_field_fn: Callable[..., str],
 ) -> dict[str, str | None]:
     """Resolve a whole field table at once via resolve (a resolve_field_value partial).
@@ -208,8 +208,10 @@ def resolve_fields(
     ----------
     fields : tuple[FieldSpec, ...]
         The field table to resolve, e.g. DATABASE_LABEL_FIELDS.
-    spec : ResourceSpec
+    spec : ResourceSpec or None
         The resource being configured, passed to any callable FieldSpec.default.
+        None for field tables with no callable defaults (e.g. PROVIDER_FIELDS,
+        MODEL_FIELDS), which are not resource-owned.
     resolve_field_fn : Callable[..., str]
         A resolve_field_value partial, pre-bound with flags/stored/spec_defaults/etc.
 
@@ -225,7 +227,11 @@ def resolve_fields(
     """
     result: dict[str, str | None] = {}
     for f in fields:
-        default = f.default(spec) if callable(f.default) else f.default  # ty: ignore[call-top-callable]
+        if callable(f.default):
+            assert spec is not None, f"{f.name} has a callable default but no spec was given"
+            default = f.default(spec)  # ty: ignore[call-top-callable]
+        else:
+            default = f.default
         is_required = not callable(f.default) and not f.nullable and not f.default
         value = resolve_field_fn(f.name, prompt_label=f.label, default_value=default, required=is_required, hide_input=f.hide_input)
         result[f.name] = (value or None) if f.nullable else value
@@ -345,3 +351,97 @@ def build_database_config(
         database_name=conn_values[FS_DATABASE_NAME.name],
     )
     return db_config, database
+
+
+# -------------------
+# LLM provider / model
+# -------------------
+FS_PROVIDER_KEY = FieldSpec(
+    "provider",
+    "Provider key (e.g. ollama, llamacpp, vllm, openai, anthropic, gemini)",
+    nullable=False,
+)
+FS_BASE_URL = FieldSpec(
+    "base_url",
+    "Base URL (leave blank to use the provider's default)",
+)
+FS_API_KEY = FieldSpec(
+    "api_key",
+    "API key (leave blank if not required)",
+    hide_input=True,
+)
+PROVIDER_FIELDS: tuple[FieldSpec, ...] = (FS_PROVIDER_KEY, FS_BASE_URL, FS_API_KEY)
+
+FS_MODEL_PROVIDER_REF = FieldSpec(
+    "provider",
+    "Provider name (an entry from [providers])",
+    nullable=False,
+)
+FS_MODEL_NAME = FieldSpec(
+    "model",
+    "Model name/identifier passed to the provider",
+    nullable=False,
+)
+FS_EMBEDDING_DIM = FieldSpec(
+    "embedding_dim",
+    "Embedding dimension (leave blank to auto-discover, or if not an embedding model)",
+)
+FS_DOCUMENT_PREFIX = FieldSpec(
+    "document_prefix",
+    "Document embedding prefix (leave blank for symmetric models)",
+)
+FS_QUERY_PREFIX = FieldSpec(
+    "query_prefix",
+    "Query embedding prefix (leave blank for symmetric models)",
+)
+MODEL_FIELDS: tuple[FieldSpec, ...] = (
+    FS_MODEL_PROVIDER_REF,
+    FS_MODEL_NAME,
+    FS_EMBEDDING_DIM,
+    FS_DOCUMENT_PREFIX,
+    FS_QUERY_PREFIX,
+)
+
+
+def build_provider_config(values: dict[str, str | None]) -> ProviderConfig:
+    """Build a ProviderConfig from resolve_fields(PROVIDER_FIELDS, ...) output.
+
+    Parameters
+    ----------
+    values : dict[str, str or None]
+        Output of resolve_fields(PROVIDER_FIELDS, None, ...).
+
+    Returns
+    -------
+    ProviderConfig
+    """
+    provider = pop_str(values, FS_PROVIDER_KEY.name)
+    return ProviderConfig(
+        provider=provider,
+        base_url=values[FS_BASE_URL.name],
+        api_key=values[FS_API_KEY.name],
+    )
+
+
+def build_model_config(values: dict[str, str | None]) -> ModelConfig:
+    """Build a ModelConfig from resolve_fields(MODEL_FIELDS, ...) output.
+
+    Parameters
+    ----------
+    values : dict[str, str or None]
+        Output of resolve_fields(MODEL_FIELDS, None, ...).
+
+    Returns
+    -------
+    ModelConfig
+    """
+    provider = pop_str(values, FS_MODEL_PROVIDER_REF.name)
+    model = pop_str(values, FS_MODEL_NAME.name)
+    raw_dim = values[FS_EMBEDDING_DIM.name]
+    return ModelConfig(
+        provider=provider,
+        model=model,
+        embedding_dim=int(raw_dim) if raw_dim is not None else None,
+        document_prefix=values[FS_DOCUMENT_PREFIX.name],
+        query_prefix=values[FS_QUERY_PREFIX.name],
+    )

@@ -24,9 +24,21 @@ from .resolver import Resolver
 from .cli_fields import (
     CDM_SCHEMA_FIELDS,
     DATABASE_LABEL_FIELDS,
+    FS_API_KEY,
+    FS_BASE_URL,
+    FS_DOCUMENT_PREFIX,
+    FS_EMBEDDING_DIM,
+    FS_MODEL_NAME,
+    FS_MODEL_PROVIDER_REF,
+    FS_PROVIDER_KEY,
+    FS_QUERY_PREFIX,
+    MODEL_FIELDS,
     NON_CDM_SCHEMA_FIELDS,
+    PROVIDER_FIELDS,
     TEST_FLAG_PREFIX,
     build_database_config,
+    build_model_config,
+    build_provider_config,
     build_resource_config,
     build_resource_params,
     flag_name,
@@ -682,6 +694,173 @@ def export_env(
 
     env_path = write_env_file(Resolver(config))
     console.print(f"[green]✓[/green] Wrote [dim]{env_path}[/dim]")
+
+
+providers_app = typer.Typer(
+    name="providers", no_args_is_help=True, help="Manage [providers] entries (LLM/embedding provider connections)."
+)
+models_app = typer.Typer(
+    name="models", no_args_is_help=True, help="Manage [models] entries (named, concretely-configured models)."
+)
+app.add_typer(providers_app, name="providers")
+app.add_typer(models_app, name="models")
+
+
+@providers_app.command("add")
+def providers_add(
+    name: Annotated[str, typer.Argument(help="Provider entry name, e.g. 'ollama-local'.")],
+    provider: Annotated[str | None, typer.Option(help=FS_PROVIDER_KEY.label)] = None,
+    base_url: Annotated[str | None, typer.Option(help=FS_BASE_URL.label)] = None,
+    api_key: Annotated[str | None, typer.Option(help=FS_API_KEY.label)] = None,
+) -> None:
+    r"""Add or update a \[providers.<name>] entry. Prompts for any field not given as a flag."""
+    try:
+        config = load_stack_config()
+    except FileNotFoundError:
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        config = StackConfig()
+
+    flags = {
+        k: v
+        for k, v in {"provider": provider, "base_url": base_url, "api_key": api_key}.items()
+        if v is not None
+    }
+    non_interactive = bool(flags)
+    existing = config.providers.get(name)
+    stored = {k: str(v) if v is not None else "" for k, v in existing.model_dump().items()} if existing else {}
+
+    if not non_interactive:
+        console.print(f"\n[bold]Provider: {name}[/bold]")
+
+    missing_required: list[str] = []
+    resolve_field = partial(
+        resolve_field_value,
+        flags=flags,
+        stored=stored,
+        spec_defaults=None,
+        non_interactive=non_interactive,
+        missing_required=missing_required,
+    )
+    values = resolve_fields(PROVIDER_FIELDS, None, resolve_field)
+    if missing_required:
+        err_console.print(f"[red bold]Missing required field(s):[/red bold] {', '.join(missing_required)}")
+        raise typer.Exit(1)
+
+    config.providers[name] = build_provider_config(values)
+    save_stack_config(config)
+    console.print(f"[green]✓[/green] Saved \\[providers.{name}] to [dim]{CONFIG_PATH}[/dim]")
+
+
+@providers_app.command("list")
+def providers_list() -> None:
+    """List configured provider entries."""
+    try:
+        config = load_stack_config()
+    except FileNotFoundError:
+        err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
+        raise typer.Exit(1)
+
+    if not config.providers:
+        console.print("[yellow]No providers configured.[/yellow]")
+        return
+
+    table = Table("Name", "Provider", "Base URL")
+    for pname in sorted(config.providers):
+        p = config.providers[pname]
+        table.add_row(pname, p.provider, p.base_url or "[dim]-[/dim]")
+    console.print(table)
+
+
+@models_app.command("add")
+def models_add(
+    name: Annotated[str, typer.Argument(help="Model entry name, e.g. 'nomic-embed'.")],
+    provider: Annotated[str | None, typer.Option(help=FS_MODEL_PROVIDER_REF.label)] = None,
+    model: Annotated[str | None, typer.Option(help=FS_MODEL_NAME.label)] = None,
+    embedding_dim: Annotated[str | None, typer.Option(help=FS_EMBEDDING_DIM.label)] = None,
+    document_prefix: Annotated[str | None, typer.Option(help=FS_DOCUMENT_PREFIX.label)] = None,
+    query_prefix: Annotated[str | None, typer.Option(help=FS_QUERY_PREFIX.label)] = None,
+) -> None:
+    r"""Add or update a \[models.<name>] entry. Prompts for any field not given as a flag."""
+    try:
+        config = load_stack_config()
+    except FileNotFoundError:
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        config = StackConfig()
+
+    flags = {
+        k: v
+        for k, v in {
+            "provider": provider,
+            "model": model,
+            "embedding_dim": embedding_dim,
+            "document_prefix": document_prefix,
+            "query_prefix": query_prefix,
+        }.items()
+        if v is not None
+    }
+    non_interactive = bool(flags)
+    existing = config.models.get(name)
+    stored = {k: str(v) if v is not None else "" for k, v in existing.model_dump().items()} if existing else {}
+
+    if not non_interactive:
+        console.print(f"\n[bold]Model: {name}[/bold]")
+        if config.providers:
+            console.print(f"[dim]Configured providers: {', '.join(sorted(config.providers))}[/dim]")
+
+    missing_required: list[str] = []
+    resolve_field = partial(
+        resolve_field_value,
+        flags=flags,
+        stored=stored,
+        spec_defaults=None,
+        non_interactive=non_interactive,
+        missing_required=missing_required,
+    )
+    values = resolve_fields(MODEL_FIELDS, None, resolve_field)
+    if missing_required:
+        err_console.print(f"[red bold]Missing required field(s):[/red bold] {', '.join(missing_required)}")
+        raise typer.Exit(1)
+
+    provider_ref = values[FS_MODEL_PROVIDER_REF.name]
+    if provider_ref not in config.providers:
+        err_console.print(
+            f"[red bold]Unknown provider {provider_ref!r}.[/red bold] Configure it first: "
+            f"omop-config providers add {provider_ref}"
+        )
+        raise typer.Exit(1)
+
+    new_model = build_model_config(values)
+    new_model.configuration = existing.configuration if existing else {}
+    config.models[name] = new_model
+    save_stack_config(config)
+    console.print(f"[green]✓[/green] Saved \\[models.{name}] to [dim]{CONFIG_PATH}[/dim]")
+
+
+@models_app.command("list")
+def models_list() -> None:
+    """List configured model entries."""
+    try:
+        config = load_stack_config()
+    except FileNotFoundError:
+        err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
+        raise typer.Exit(1)
+
+    if not config.models:
+        console.print("[yellow]No models configured.[/yellow]")
+        return
+
+    table = Table("Name", "Provider", "Model", "Embedding dim", "Document prefix", "Query prefix")
+    for mname in sorted(config.models):
+        m = config.models[mname]
+        table.add_row(
+            mname,
+            m.provider,
+            m.model,
+            str(m.embedding_dim) if m.embedding_dim is not None else "[dim]-[/dim]",
+            m.document_prefix or "[dim]-[/dim]",
+            m.query_prefix or "[dim]-[/dim]",
+        )
+    console.print(table)
 
 
 @app.command(name="configure", cls=_DynamicConfigureGroup)  # ty: ignore[invalid-argument-type]

@@ -149,6 +149,36 @@ class TestResolveModel:
         assert model.model == "local-chat"
         assert model.configuration == {"max_tokens": 8000}
 
+    def test_resolved_embedding_fields(self):
+        cfg = StackConfig.for_session(
+            providers={"p": ProviderConfig(provider="ollama")},
+            models={
+                "m": ModelConfig(
+                    provider="p",
+                    model="nomic-embed-text",
+                    embedding_dim=768,
+                    document_prefix="search_document: ",
+                    query_prefix="search_query: ",
+                )
+            },
+        )
+        r = Resolver(cfg)
+        model = r.resolve_model("m")
+        assert model.embedding_dim == 768
+        assert model.document_prefix == "search_document: "
+        assert model.query_prefix == "search_query: "
+
+    def test_resolved_embedding_fields_default_to_none(self):
+        cfg = StackConfig.for_session(
+            providers={"p": ProviderConfig(provider="ollama")},
+            models={"m": ModelConfig(provider="p", model="local-chat")},
+        )
+        r = Resolver(cfg)
+        model = r.resolve_model("m")
+        assert model.embedding_dim is None
+        assert model.document_prefix is None
+        assert model.query_prefix is None
+
     def test_unknown_model_raises(self):
         cfg = StackConfig.for_session()
         r = Resolver(cfg)

@@ -15,7 +15,6 @@ from oa_configurator import (
     StackConfig,
     DatabaseConfig,
     ResourceConfig,
-    ToolConfig,
 )
 from oa_configurator.models import ProfileOverrideConfig
 
@@ -29,7 +28,7 @@ class SampleConfig(PackageConfigBase):
 class TestPackageConfigBase:
     def test_resolve_package_config_reads_extra(self):
         cfg = StackConfig.for_session(
-            tools={"sample_tool": ToolConfig(extra={"backend": "custom", "file_path": "/data"})}
+            tools={"sample_tool": {"backend": "custom", "file_path": "/data"}}
         )
         sample = Resolver(cfg).resolve_package_config(SampleConfig)
         assert sample.backend == "custom"
@@ -43,7 +42,7 @@ class TestPackageConfigBase:
 
     def test_resolve_package_config_uses_defaults_when_extra_empty(self):
         cfg = StackConfig.for_session(
-            tools={"sample_tool": ToolConfig(extra={})}
+            tools={"sample_tool": {}}
         )
         sample = Resolver(cfg).resolve_package_config(SampleConfig)
         assert sample.backend == "default_backend"
@@ -63,7 +62,7 @@ class TestPackageConfigBase:
         original = SampleConfig(backend="sqlitevec", file_path="/embeddings")
         extra = original.to_extra_dict()
         cfg = StackConfig.for_session(
-            tools={"sample_tool": ToolConfig(extra=extra)}
+            tools={"sample_tool": extra}
         )
         restored = Resolver(cfg).resolve_package_config(SampleConfig)
         assert restored.backend == "sqlitevec"

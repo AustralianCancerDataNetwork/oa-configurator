@@ -73,6 +73,17 @@ def _resolve_config_path() -> Path:
 CONFIG_PATH: Path = _resolve_config_path()
 
 
+def invalidate_cache() -> None:
+    """Clear the process-local config cache.
+
+    Called by :mod:`~oa_configurator.io` after writing to the config file
+    (``save_stack_config``, ``patch_active_profile``), as a guard against
+    filesystems with coarse mtime resolution where a write and the next
+    read could otherwise land in the same cache key.
+    """
+    _ConfigCache.clear()
+
+
 def load_stack_config() -> StackConfig:
     """Load a :class:`StackConfig` from ``CONFIG_PATH``
     (default ``~/.config/omop/config.toml``, overridable via ``OA_CONFIG_PATH``).

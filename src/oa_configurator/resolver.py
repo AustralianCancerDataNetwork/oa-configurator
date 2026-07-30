@@ -16,31 +16,19 @@ from .models import (
     ProviderConfig,
     ResourceConfig,
     StackConfig,
-    ToolConfig,
 )
-from .package_base import ConfigurationError, PackageConfigBase, ResourceRef, ResourceSpec
+from .package_base import (
+    ConfigurationError,
+    PackageConfigBase,
+    ResourceLike,
+    _resource_ref_name,
+    _resource_ref_owner_tool_name,
+)
 
 T = TypeVar("T")
 TConfig = TypeVar("TConfig", bound=PackageConfigBase)
 logger = logging.getLogger(__name__)
 
-
-def _resource_ref_name(item: "ResourceRef | ResourceSpec | str") -> str:
-    """Return the literal resource name a required-resource declaration points at."""
-    if isinstance(item, ResourceRef):
-        return item.spec.semantic_name
-    if isinstance(item, ResourceSpec):
-        return item.semantic_name
-    return item
-
-
-def _resource_ref_owner_tool_name(
-    item: "ResourceRef | ResourceSpec | str", default_owner: type[PackageConfigBase]
-) -> str:
-    """Return the tool_name of the package responsible for configuring *item*."""
-    if isinstance(item, ResourceRef):
-        return item.owning_class.tool_name
-    return default_owner.tool_name
 
 @dataclass(frozen=True)
 class ResolvedDatabase:
@@ -433,7 +421,7 @@ class Resolver:
             If *name* does not exist in the config.
         """
         tool = self._effective_tool(name)
-        resolved = ResolvedToolConfig(name=name, extra=dict(tool.extra))
+        resolved = ResolvedToolConfig(name=name, extra=dict(tool))
         logger.debug("Resolved tool %r with %d extra key(s)", name, len(resolved.extra))
         return resolved
 
@@ -482,9 +470,9 @@ class Resolver:
                     f"Run 'omop-config configure {owner_tool}' to set it up."
                 )
 
-        return cls.model_validate(tool.extra if tool is not None else {})
+        return cls.model_validate(tool if tool is not None else {})
 
-    def resolve_engine(self, resource: "ResourceRef | ResourceSpec | str", **kwargs: Any) -> Engine:
+    def resolve_engine(self, resource: ResourceLike, **kwargs: Any) -> Engine:
         """Resolve a resource -- owned directly or consumed from another package -- into an engine.
 
         Parameters
@@ -510,7 +498,7 @@ class Resolver:
         resources: dict[str, ResourceConfig] | None = None,
         providers: dict[str, ProviderConfig] | None = None,
         models: dict[str, ModelConfig] | None = None,
-        tools: dict[str, ToolConfig] | None = None,
+        tools: dict[str, dict[str, Any]] | None = None,
     ) -> Resolver:
         """Return a new Resolver with entries merged over the current config.
 
@@ -657,7 +645,7 @@ class Resolver:
             name, profile_dict=profile.models if profile else None, base_dict=self.config.models, kind="model"
         )
 
-    def _effective_tool(self, name: str) -> ToolConfig:
+    def _effective_tool(self, name: str) -> dict[str, Any]:
         profile = self._active_profile()
         return self._effective(
             name, profile_dict=profile.tools if profile else None, base_dict=self.config.tools, kind="tool"

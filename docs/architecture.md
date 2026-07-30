@@ -40,7 +40,7 @@ A named, reusable, concretely-configured model: which provider it runs through, 
 
 ### Tool
 
-Per-package configuration in `[tools.<name>]`. The core model stores only an `extra` dict. Each consuming package defines a typed `PackageConfigBase` subclass that provides a typed view over `extra`.
+Per-package configuration in `[tools.<name>]`. The core model stores it as a plain, untyped dict; each consuming package defines a typed `PackageConfigBase` subclass that provides a validated view over it, resolved lazily since packages register via entry points and aren't known to `oa-configurator` itself at parse time.
 
 ### ResourceRef
 
@@ -108,7 +108,7 @@ Consuming packages subclass `PackageConfigBase` and register via a `pyproject.to
 my_package = "my_package.config:MyPackageConfig"
 ```
 
-`omop-config configure my_package` discovers the class at runtime via `importlib.metadata.entry_points(group="omop.config")`, presents the typed fields for interactive configuration, and writes the result to `[tools.my_package.extra]`. `oa-configurator` itself has no knowledge of any consuming package.
+`omop-config configure my_package` discovers the class at runtime via `importlib.metadata.entry_points(group="omop.config")`, presents the typed fields for interactive configuration, and writes the result to `[tools.my_package]`. `oa-configurator` itself has no knowledge of any consuming package.
 
 ---
 

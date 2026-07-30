@@ -31,7 +31,7 @@ In ``pyproject.toml``::
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Self
+from typing import Any, ClassVar, Self, TypeAlias
 
 from pydantic import BaseModel
 
@@ -97,6 +97,28 @@ class ResourceRef:
     spec: ResourceSpec
 
 
+ResourceLike: TypeAlias = "ResourceRef | ResourceSpec | str"
+"""A required-resource declaration: a cross-package reference, a self-owned
+spec, or a bare resource name. Shared by every function that accepts or
+resolves one, so the union only needs spelling out once."""
+
+
+def _resource_ref_name(item: ResourceLike) -> str:
+    """Return the literal resource name a required-resource declaration points at."""
+    if isinstance(item, ResourceRef):
+        return item.spec.semantic_name
+    if isinstance(item, ResourceSpec):
+        return item.semantic_name
+    return item
+
+
+def _resource_ref_owner_tool_name(item: ResourceLike, default_owner: type["PackageConfigBase"]) -> str:
+    """Return the tool_name of the package responsible for configuring *item*."""
+    if isinstance(item, ResourceRef):
+        return item.owning_class.tool_name
+    return default_owner.tool_name
+
+
 @dataclass(frozen=True)
 class ModelFieldSpec:
     """Marks one of a package's own fields as naming a ``[models.*]`` entry.
@@ -156,7 +178,7 @@ class PackageConfigBase(BaseModel):
     """
 
     tool_name: ClassVar[str]
-    required_resources: ClassVar[tuple[ResourceRef | ResourceSpec | str, ...]] = ()
+    required_resources: ClassVar[tuple[ResourceLike, ...]] = ()
     owned_resources: ClassVar[tuple[ResourceSpec, ...]] = ()
     test_resources: ClassVar[tuple[ResourceSpec, ...]] = ()
     referenced_models: ClassVar[tuple[ModelFieldSpec, ...]] = ()
@@ -180,7 +202,7 @@ class PackageConfigBase(BaseModel):
         )
 
     @classmethod
-    def get_engine(cls, resource: "ResourceRef | ResourceSpec | str", **engine_kwargs: Any) -> Any:
+    def get_engine(cls, resource: ResourceLike, **engine_kwargs: Any) -> Any:
         """Create a SQLAlchemy engine for a resource.
 
         Parameters
@@ -197,5 +219,5 @@ class PackageConfigBase(BaseModel):
         return Resolver.from_active_config().resolve_engine(resource, **engine_kwargs)
 
     def to_extra_dict(self) -> dict[str, Any]:
-        """Serialize back to the dict stored in ``ToolConfig.extra``."""
+        """Serialize back to the dict stored under ``[tools.<tool_name>]``."""
         return self.model_dump(exclude_none=True)

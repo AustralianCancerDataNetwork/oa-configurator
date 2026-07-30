@@ -24,10 +24,10 @@ Root configuration object. Also the entry point for programmatic construction vi
 
 ::: oa_configurator.models.ModelConfig
 
-## ToolConfig
-
-::: oa_configurator.models.ToolConfig
-
 ## ProfileOverrideConfig
 
 ::: oa_configurator.models.ProfileOverrideConfig
+
+## Tool sections
+
+`[tools.<name>]` sections have no dedicated model: `StackConfig.tools` is a plain `dict[str, dict[str, Any]]`, since each package's own schema is only known lazily, via its `PackageConfigBase` subclass (see [PackageConfigBase](package-base.md)), not by `oa-configurator` itself at parse time.

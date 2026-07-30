@@ -206,21 +206,6 @@ class ResourceConfig(BaseModel):
     )
 
 
-class ToolConfig(BaseModel):
-    """Per-package section in ``config.toml`` (``[tools.<name>]``).
-
-    ``extra`` holds the package-specific typed fields declared on the
-    package's :class:`~oa_configurator.PackageConfigBase` subclass.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    extra: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Package-specific key/value pairs. Each package defines its own typed fields that map here.",
-    )
-
-
 class ProfileOverrideConfig(BaseModel):
     """Named environment overlay (``[profiles.<name>]`` in ``config.toml``).
 
@@ -248,9 +233,9 @@ class ProfileOverrideConfig(BaseModel):
         default_factory=dict,
         description="Model configs that replace or extend the base models.",
     )
-    tools: dict[str, ToolConfig] = Field(
+    tools: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
-        description="Tool configs that replace or extend the base tool configs.",
+        description="Per-package [tools.<name>] sections that replace or extend the base ones.",
     )
 
 
@@ -286,9 +271,9 @@ class StackConfig(BaseModel):
         default_factory=dict,
         description="Named, concretely-configured models, each served through a provider.",
     )
-    tools: dict[str, ToolConfig] = Field(
+    tools: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
-        description="Per-package configuration sections.",
+        description="Per-package [tools.<name>] sections, keyed by tool_name.",
     )
     profiles: dict[str, ProfileOverrideConfig] = Field(
         default_factory=dict,
@@ -347,7 +332,7 @@ class StackConfig(BaseModel):
         resources: dict[str, ResourceConfig] | None = None,
         providers: dict[str, ProviderConfig] | None = None,
         models: dict[str, ModelConfig] | None = None,
-        tools: dict[str, ToolConfig] | None = None,
+        tools: dict[str, dict[str, Any]] | None = None,
         profiles: dict[str, ProfileOverrideConfig] | None = None,
         active_profile: str | None = None,
     ) -> StackConfig:
@@ -361,9 +346,12 @@ class StackConfig(BaseModel):
         Pydantic still coerces a raw dict (e.g. one shaped like a parsed TOML
         table) into the corresponding model at validation time, so passing
         plain dicts keeps working at runtime. The parameter types above are
-        the strict, intended shape; prefer constructing ResourceConfig,
-        ToolConfig, and ProfileOverrideConfig instances directly so a renamed
-        field is caught by the type checker instead of only at validation time.
+        the strict, intended shape; prefer constructing ResourceConfig and
+        ProfileOverrideConfig instances directly so a renamed field is caught
+        by the type checker instead of only at validation time. ``tools``
+        stays a plain dict: it's the one section oa-configurator never
+        types itself, since each package's own schema is only known lazily,
+        via its ``PackageConfigBase`` subclass.
         """
         return cls(
             active_profile=active_profile,

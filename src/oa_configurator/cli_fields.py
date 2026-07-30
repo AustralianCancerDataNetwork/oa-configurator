@@ -60,80 +60,130 @@ def flag_name(name: str, prefix: str = "") -> str:
     return f"--{full_prefix}{name.replace('_', '-')}"
 
 
-# -------------------
-# Database connection
-# -------------------
-FS_DATABASE = FieldSpec(
-    "database",
-    "Database label (short name for this database entry, e.g. 'cdm')",
-    default=lambda spec: spec.connection_name_hint or spec.semantic_name,
-    nullable=False,
-)
-FS_DIALECT = FieldSpec(
-    "dialect",
-    "Dialect (SQLAlchemy driver string, e.g. postgresql+psycopg, sqlite)",
-    nullable=False,
-)
-FS_HOST = FieldSpec(
-    "host",
-    "Host (e.g. Docker container name)",
-    default="localhost",
-    nullable=False,
-)
-FS_PORT = FieldSpec(
-    "port",
-    "Port (leave blank to use the dialect default)",
-)
-FS_USER = FieldSpec(
-    "user",
-    "User (leave blank if not required)",
-)
-FS_PASSWORD = FieldSpec(
-    "password",
-    "Password (leave blank if not required)",
-    hide_input=True,
-)
-FS_DATABASE_NAME = FieldSpec(
-    "database_name",
-    "Database name (name of the database on the server, or file path for SQLite)",
-    nullable=False,
-)
+class FS_Database:
+    """Field table for a `[databases.<name>]` connection.
 
-DATABASE_LABEL_FIELDS: tuple[FieldSpec, ...] = (
-    FS_DATABASE,
-    FS_DIALECT,
-    FS_HOST,
-    FS_PORT,
-    FS_USER,
-    FS_PASSWORD,
-    FS_DATABASE_NAME,
-)
+    Grouped as a plain namespace (never instantiated) rather than
+    module-level constants, so a field is always reached through its
+    section, e.g. ``FS_Database.HOST`` instead of a bare ``FS_HOST``.
+    """
 
-# --------------------
-# Schema configuration
-# --------------------
-FS_CDM_SCHEMA = FieldSpec(
-    "cdm_schema",
-    "CDM schema (schema containing the OMOP tables)",
-    default=lambda spec: spec.cdm_schema_default,
-    nullable=False,
-)
-FS_VOCAB_SCHEMA = FieldSpec(
-    "vocab_schema",
-    "Vocab schema (blank = same schema as CDM; set only if vocabulary lives in a separate schema)",
-)
-FS_RESULTS_SCHEMA = FieldSpec(
-    "results_schema",
-    "Results schema (for Achilles/Atlas results tables; blank = not used)",
-)
-FS_NON_CDM_SCHEMA = FieldSpec(
-    FS_CDM_SCHEMA.name,
-    "Schema (leave blank for public/default)",
-    default=lambda spec: spec.cdm_schema_default,
-    nullable=False,
-)
-CDM_SCHEMA_FIELDS = (FS_CDM_SCHEMA, FS_VOCAB_SCHEMA, FS_RESULTS_SCHEMA)
-NON_CDM_SCHEMA_FIELDS = (FS_NON_CDM_SCHEMA,)
+    LABEL = FieldSpec(
+        "database",
+        "Database label (short name for this database entry, e.g. 'cdm')",
+        default=lambda spec: spec.connection_name_hint or spec.semantic_name,
+        nullable=False,
+    )
+    DIALECT = FieldSpec(
+        "dialect",
+        "Dialect (SQLAlchemy driver string, e.g. postgresql+psycopg, sqlite)",
+        nullable=False,
+    )
+    HOST = FieldSpec(
+        "host",
+        "Host (e.g. Docker container name)",
+        default="localhost",
+        nullable=False,
+    )
+    PORT = FieldSpec(
+        "port",
+        "Port (leave blank to use the dialect default)",
+    )
+    USER = FieldSpec(
+        "user",
+        "User (leave blank if not required)",
+    )
+    PASSWORD = FieldSpec(
+        "password",
+        "Password (leave blank if not required)",
+        hide_input=True,
+    )
+    DATABASE_NAME = FieldSpec(
+        "database_name",
+        "Database name (name of the database on the server, or file path for SQLite)",
+        nullable=False,
+    )
+    ALL: tuple[FieldSpec, ...] = (LABEL, DIALECT, HOST, PORT, USER, PASSWORD, DATABASE_NAME)
+
+
+class FS_Schema:
+    """Field tables for a resource's schema configuration.
+
+    ``CDM`` applies to OMOP CDM databases (vocab/results schema fall back to
+    ``cdm_schema``); ``NON_CDM`` applies to non-CDM resources (e.g. the
+    pgvector embedding store), which have no vocab/results concept.
+    """
+
+    CDM_SCHEMA = FieldSpec(
+        "cdm_schema",
+        "CDM schema (schema containing the OMOP tables)",
+        default=lambda spec: spec.cdm_schema_default,
+        nullable=False,
+    )
+    VOCAB_SCHEMA = FieldSpec(
+        "vocab_schema",
+        "Vocab schema (blank = same schema as CDM; set only if vocabulary lives in a separate schema)",
+    )
+    RESULTS_SCHEMA = FieldSpec(
+        "results_schema",
+        "Results schema (for Achilles/Atlas results tables; blank = not used)",
+    )
+    NON_CDM_SCHEMA = FieldSpec(
+        CDM_SCHEMA.name,
+        "Schema (leave blank for public/default)",
+        default=lambda spec: spec.cdm_schema_default,
+        nullable=False,
+    )
+    CDM: tuple[FieldSpec, ...] = (CDM_SCHEMA, VOCAB_SCHEMA, RESULTS_SCHEMA)
+    NON_CDM: tuple[FieldSpec, ...] = (NON_CDM_SCHEMA,)
+
+
+class FS_Provider:
+    """Field table for a `[providers.<name>]` entry."""
+
+    KEY = FieldSpec(
+        "provider",
+        "Provider key (e.g. ollama, llamacpp, vllm, openai, anthropic, gemini)",
+        nullable=False,
+    )
+    BASE_URL = FieldSpec(
+        "base_url",
+        "Base URL (leave blank to use the provider's default)",
+    )
+    API_KEY = FieldSpec(
+        "api_key",
+        "API key (leave blank if not required)",
+        hide_input=True,
+    )
+    ALL: tuple[FieldSpec, ...] = (KEY, BASE_URL, API_KEY)
+
+
+class FS_Model:
+    """Field table for a `[models.<name>]` entry."""
+
+    PROVIDER_REF = FieldSpec(
+        "provider",
+        "Provider name (an entry from [providers])",
+        nullable=False,
+    )
+    NAME = FieldSpec(
+        "model",
+        "Model name/identifier passed to the provider",
+        nullable=False,
+    )
+    EMBEDDING_DIM = FieldSpec(
+        "embedding_dim",
+        "Embedding dimension (leave blank to auto-discover, or if not an embedding model)",
+    )
+    DOCUMENT_PREFIX = FieldSpec(
+        "document_prefix",
+        "Document embedding prefix (leave blank for symmetric models)",
+    )
+    QUERY_PREFIX = FieldSpec(
+        "query_prefix",
+        "Query embedding prefix (leave blank for symmetric models)",
+    )
+    ALL: tuple[FieldSpec, ...] = (PROVIDER_REF, NAME, EMBEDDING_DIM, DOCUMENT_PREFIX, QUERY_PREFIX)
 
 
 def resolve_field_value(
@@ -207,11 +257,11 @@ def resolve_fields(
     Parameters
     ----------
     fields : tuple[FieldSpec, ...]
-        The field table to resolve, e.g. DATABASE_LABEL_FIELDS.
+        The field table to resolve, e.g. FS_Database.ALL.
     spec : ResourceSpec or None
         The resource being configured, passed to any callable FieldSpec.default.
-        None for field tables with no callable defaults (e.g. PROVIDER_FIELDS,
-        MODEL_FIELDS), which are not resource-owned.
+        None for field tables with no callable defaults (e.g. FS_Provider.ALL,
+        FS_Model.ALL), which are not resource-owned.
     resolve_field_fn : Callable[..., str]
         A resolve_field_value partial, pre-bound with flags/stored/spec_defaults/etc.
 
@@ -274,11 +324,11 @@ def build_resource_params(spec: ResourceSpec, *, prefix: str = "") -> list[click
     Returns
     -------
     list[click.Parameter]
-        One click.Option per field in DATABASE_LABEL_FIELDS plus the resource's schema
-        fields (CDM_SCHEMA_FIELDS or NON_CDM_SCHEMA_FIELDS, depending on
+        One click.Option per field in FS_Database.ALL plus the resource's schema
+        fields (FS_Schema.CDM or FS_Schema.NON_CDM, depending on
         spec.is_cdm_database).
     """
-    schema_fields = CDM_SCHEMA_FIELDS if spec.is_cdm_database else NON_CDM_SCHEMA_FIELDS
+    schema_fields = FS_Schema.CDM if spec.is_cdm_database else FS_Schema.NON_CDM
 
     return [
         click.Option(
@@ -287,7 +337,7 @@ def build_resource_params(spec: ResourceSpec, *, prefix: str = "") -> list[click
             type=click.STRING,
             help=f.label,
         )
-        for f in (*DATABASE_LABEL_FIELDS, *schema_fields)
+        for f in (*FS_Database.ALL, *schema_fields)
     ]
 
 
@@ -303,7 +353,7 @@ def build_resource_config(
     database : str
         The database label this resource points to.
     schema_values : dict[str, str or None]
-        Output of resolve_fields(CDM_SCHEMA_FIELDS or NON_CDM_SCHEMA_FIELDS, ...).
+        Output of resolve_fields(FS_Schema.CDM or FS_Schema.NON_CDM, ...).
     is_cdm_database : bool
         Whether this resource is a CDM database. Non-CDM resources have no
         vocab_schema or results_schema.
@@ -312,24 +362,24 @@ def build_resource_config(
     -------
     ResourceConfig
     """
-    cdm_schema = pop_str(schema_values, FS_CDM_SCHEMA.name)
+    cdm_schema = pop_str(schema_values, FS_Schema.CDM_SCHEMA.name)
     return ResourceConfig(
         database=database,
         cdm_schema=cdm_schema,
-        vocab_schema=schema_values.get(FS_VOCAB_SCHEMA.name) if is_cdm_database else None,
-        results_schema=schema_values.get(FS_RESULTS_SCHEMA.name) if is_cdm_database else None,
+        vocab_schema=schema_values.get(FS_Schema.VOCAB_SCHEMA.name) if is_cdm_database else None,
+        results_schema=schema_values.get(FS_Schema.RESULTS_SCHEMA.name) if is_cdm_database else None,
     )
 
 
 def build_database_config(
     conn_values: dict[str, str | None],
 ) -> tuple[DatabaseConfig, str]:
-    """Build a DatabaseConfig from resolve_fields(DATABASE_LABEL_FIELDS, ...) output.
+    """Build a DatabaseConfig from resolve_fields(FS_Database.ALL, ...) output.
 
     Parameters
     ----------
     conn_values : dict[str, str or None]
-        Output of resolve_fields(DATABASE_LABEL_FIELDS, ...). Must be resolved, and
+        Output of resolve_fields(FS_Database.ALL, ...). Must be resolved, and
         checked for missing required fields, before this is called, since popping
         a field with no value raises rather than reporting it.
 
@@ -339,109 +389,59 @@ def build_database_config(
     str
         The database label this config should be stored under.
     """
-    database = pop_str(conn_values, FS_DATABASE.name)
-    dialect = pop_str(conn_values, FS_DIALECT.name)
-    raw_port = conn_values.pop(FS_PORT.name)
+    database = pop_str(conn_values, FS_Database.LABEL.name)
+    dialect = pop_str(conn_values, FS_Database.DIALECT.name)
+    raw_port = conn_values.pop(FS_Database.PORT.name)
     db_config = DatabaseConfig(
         dialect=dialect,
-        host=conn_values[FS_HOST.name],
+        host=conn_values[FS_Database.HOST.name],
         port=int(raw_port) if raw_port is not None else None,
-        user=conn_values[FS_USER.name],
-        password=conn_values[FS_PASSWORD.name],
-        database_name=conn_values[FS_DATABASE_NAME.name],
+        user=conn_values[FS_Database.USER.name],
+        password=conn_values[FS_Database.PASSWORD.name],
+        database_name=conn_values[FS_Database.DATABASE_NAME.name],
     )
     return db_config, database
 
 
-# -------------------
-# LLM provider / model
-# -------------------
-FS_PROVIDER_KEY = FieldSpec(
-    "provider",
-    "Provider key (e.g. ollama, llamacpp, vllm, openai, anthropic, gemini)",
-    nullable=False,
-)
-FS_BASE_URL = FieldSpec(
-    "base_url",
-    "Base URL (leave blank to use the provider's default)",
-)
-FS_API_KEY = FieldSpec(
-    "api_key",
-    "API key (leave blank if not required)",
-    hide_input=True,
-)
-PROVIDER_FIELDS: tuple[FieldSpec, ...] = (FS_PROVIDER_KEY, FS_BASE_URL, FS_API_KEY)
-
-FS_MODEL_PROVIDER_REF = FieldSpec(
-    "provider",
-    "Provider name (an entry from [providers])",
-    nullable=False,
-)
-FS_MODEL_NAME = FieldSpec(
-    "model",
-    "Model name/identifier passed to the provider",
-    nullable=False,
-)
-FS_EMBEDDING_DIM = FieldSpec(
-    "embedding_dim",
-    "Embedding dimension (leave blank to auto-discover, or if not an embedding model)",
-)
-FS_DOCUMENT_PREFIX = FieldSpec(
-    "document_prefix",
-    "Document embedding prefix (leave blank for symmetric models)",
-)
-FS_QUERY_PREFIX = FieldSpec(
-    "query_prefix",
-    "Query embedding prefix (leave blank for symmetric models)",
-)
-MODEL_FIELDS: tuple[FieldSpec, ...] = (
-    FS_MODEL_PROVIDER_REF,
-    FS_MODEL_NAME,
-    FS_EMBEDDING_DIM,
-    FS_DOCUMENT_PREFIX,
-    FS_QUERY_PREFIX,
-)
-
-
 def build_provider_config(values: dict[str, str | None]) -> ProviderConfig:
-    """Build a ProviderConfig from resolve_fields(PROVIDER_FIELDS, ...) output.
+    """Build a ProviderConfig from resolve_fields(FS_Provider.ALL, ...) output.
 
     Parameters
     ----------
     values : dict[str, str or None]
-        Output of resolve_fields(PROVIDER_FIELDS, None, ...).
+        Output of resolve_fields(FS_Provider.ALL, None, ...).
 
     Returns
     -------
     ProviderConfig
     """
-    provider = pop_str(values, FS_PROVIDER_KEY.name)
+    provider = pop_str(values, FS_Provider.KEY.name)
     return ProviderConfig(
         provider=provider,
-        base_url=values[FS_BASE_URL.name],
-        api_key=values[FS_API_KEY.name],
+        base_url=values[FS_Provider.BASE_URL.name],
+        api_key=values[FS_Provider.API_KEY.name],
     )
 
 
 def build_model_config(values: dict[str, str | None]) -> ModelConfig:
-    """Build a ModelConfig from resolve_fields(MODEL_FIELDS, ...) output.
+    """Build a ModelConfig from resolve_fields(FS_Model.ALL, ...) output.
 
     Parameters
     ----------
     values : dict[str, str or None]
-        Output of resolve_fields(MODEL_FIELDS, None, ...).
+        Output of resolve_fields(FS_Model.ALL, None, ...).
 
     Returns
     -------
     ModelConfig
     """
-    provider = pop_str(values, FS_MODEL_PROVIDER_REF.name)
-    model = pop_str(values, FS_MODEL_NAME.name)
-    raw_dim = values[FS_EMBEDDING_DIM.name]
+    provider = pop_str(values, FS_Model.PROVIDER_REF.name)
+    model = pop_str(values, FS_Model.NAME.name)
+    raw_dim = values[FS_Model.EMBEDDING_DIM.name]
     return ModelConfig(
         provider=provider,
         model=model,
         embedding_dim=int(raw_dim) if raw_dim is not None else None,
-        document_prefix=values[FS_DOCUMENT_PREFIX.name],
-        query_prefix=values[FS_QUERY_PREFIX.name],
+        document_prefix=values[FS_Model.DOCUMENT_PREFIX.name],
+        query_prefix=values[FS_Model.QUERY_PREFIX.name],
     )

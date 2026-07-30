@@ -142,16 +142,12 @@ temperature = 0.0
 
 ## `[tools.<name>]`
 
-Per-package configuration. The `name` must match the package's `tool_name` class variable on its `PackageConfigBase` subclass.
-
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `extra` | table | `{}` | Package-specific key/value pairs. Each package defines its own typed fields that map here. |
+Per-package configuration. The `name` must match the package's `tool_name` class variable on its `PackageConfigBase` subclass. Fields are package-specific; each package defines its own typed schema, validated lazily against its `PackageConfigBase` subclass, not against a fixed set of fields oa-configurator itself knows about.
 
 ### Example: omop_emb
 
 ```toml
-[tools.omop_emb.extra]
+[tools.omop_emb]
 backend             = "sqlitevec"
 embedding_file_root = "/data/embeddings"
 ```

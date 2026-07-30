@@ -14,21 +14,21 @@ After installing a package that supports oa_configurator, run its configure comm
 omop-config configure <package>   # e.g. omop_alchemy, omop_emb
 ```
 
-This prompts for any database connections and package-specific settings that package declares, then writes `~/.config/omop/config.toml`. Packages that own a database resource (such as a CDM database) will prompt for connection details and schema names as part of this step.
-
+This prompts for any database connections and package-specific settings that package declares, then writes `~/.config/omop/config.toml`. Each package that depends on `oa-configurator` for functionality defines its own configuration, which is then interactively generated using the above command.
 To create an empty config file without prompts (useful for scripted setups), use:
 
 ```bash
 omop-config init
 ```
 
-> **Note**: Passwords are stored in plaintext. Keep the file readable only by your user:
-> `chmod 600 ~/.config/omop/config.toml`.
-> Secret management improvements are planned for a future release.
+!!! warning "Safety"
+    Passwords and API Keys are currently stored in plaintext. Keep the file readable only by your user:
+    `chmod 600 ~/.config/omop/config.toml`.
+    Secret management improvements are planned for a future release.
 
 ## 3. Configure an LLM/embedding model (optional)
 
-Packages that call an LLM or embedding model (e.g. `omop-emb`, `omop-spires`) reference one by name via their own package-specific setting (e.g. `omop-emb`'s `embedding_model_name`). For fields the package marks for this, `omop-config configure <package>` resolves them for you: it offers to reuse an existing `[models.*]` entry, or create one on the spot, recursing into `[providers.*]` the same way if the provider doesn't exist yet either.
+Packages that call an LLM or embedding model (e.g. `omop-emb`, `omop-spires`) reference one by name via their own package-specific setting. For fields the package marks for this, `omop-config configure <package>` resolves them for you: it offers to reuse an existing `[models.*]` entry, or create one on the spot, recursing into `[providers.*]` the same way if the provider doesn't exist yet either.
 
 To manage `[providers.*]`/`[models.*]` entries directly, outside of any specific package's configure flow, use the standalone commands:
 

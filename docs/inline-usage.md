@@ -44,7 +44,7 @@ engine = Resolver(config).resolve_resource("cdm").create_engine()
 | `resources` | dict \| None | `{}` | Named `ResourceConfig` objects or raw dicts |
 | `providers` | dict \| None | `{}` | Named `ProviderConfig` objects or raw dicts |
 | `models` | dict \| None | `{}` | Named `ModelConfig` objects or raw dicts |
-| `tools` | dict \| None | `{}` | Named `ToolConfig` objects or raw dicts |
+| `tools` | dict \| None | `{}` | Per-package `[tools.<name>]` sections, as plain dicts |
 | `profiles` | dict \| None | `{}` | Named `ProfileOverrideConfig` objects or raw dicts |
 | `active_profile` | str \| None | `None` | Profile to activate |
 

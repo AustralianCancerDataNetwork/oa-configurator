@@ -1,10 +1,10 @@
-"""Tests for models.py: DatabaseConfig, ResourceConfig, ToolConfig, StackConfig."""
+"""Tests for models.py: DatabaseConfig, ResourceConfig, StackConfig."""
 
 from __future__ import annotations
 
 import pytest
 
-from oa_configurator import DatabaseConfig, ModelConfig, ProviderConfig, ResourceConfig, StackConfig, ToolConfig
+from oa_configurator import DatabaseConfig, ModelConfig, ProviderConfig, ResourceConfig, StackConfig
 from oa_configurator.models import ProfileOverrideConfig
 
 
@@ -72,20 +72,14 @@ class TestResourceConfig:
             ResourceConfig(database="db", cdm_schema="omop", unknown="x")  # type: ignore
 
 
-class TestToolConfig:
-    def test_defaults(self):
-        t = ToolConfig()
-        assert t.extra == {}
-
-    def test_extra_accepts_any_values(self):
-        t = ToolConfig(extra={"backend": "sqlitevec", "path": "/data"})
-        assert t.extra["backend"] == "sqlitevec"
-
-
 class TestStackConfig:
     def test_for_session_minimal(self, minimal_stack):
         assert "db" in minimal_stack.databases
         assert "default" in minimal_stack.resources
+
+    def test_tools_accepts_plain_dicts(self):
+        cfg = StackConfig.for_session(tools={"my_pkg": {"backend": "sqlitevec", "path": "/data"}})
+        assert cfg.tools["my_pkg"]["backend"] == "sqlitevec"
 
     def test_for_session_accepts_raw_dicts(self):
         """Raw, TOML-table-shaped dicts (not ResourceConfig instances) still coerce at validation time."""

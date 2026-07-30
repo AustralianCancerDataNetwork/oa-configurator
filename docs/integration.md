@@ -42,12 +42,12 @@ from oa_configurator import PackageConfigBase
 class MyPackageConfig(PackageConfigBase):
     tool_name: ClassVar[str] = "my_package"   # maps to [tools.my_package] in TOML
 
-    # Declare typed fields; they're backed by ToolConfig.extra in the TOML
+    # Declare typed fields; they're backed by the [tools.my_package] TOML section
     backend: str = Field(default="default", description="Backend to use.")
     data_path: str | None = Field(default=None, description="Path to local data files.")
 ```
 
-`get_config()` is inherited from `PackageConfigBase`: call `MyPackageConfig.get_config()` to load from the active stack config. It delegates to `Resolver.resolve_package_config()`, which reads the `[tools.my_package.extra]` section (applying any active profile override) and validates it against your typed fields. If the section is missing, fields fall back to their defaults.
+`get_config()` is inherited from `PackageConfigBase`: call `MyPackageConfig.get_config()` to load from the active stack config. It delegates to `Resolver.resolve_package_config()`, which reads the `[tools.my_package]` section (applying any active profile override) and validates it against your typed fields. If the section is missing, fields fall back to their defaults.
 
 ---
 
@@ -310,7 +310,7 @@ Requires `omop-config` to be run once. See the
 Add the following to `~/.config/omop/config.toml`:
 
 \`\`\`toml
-[tools.my_package.extra]
+[tools.my_package]
 backend   = "default"
 data_path = "/path/to/data"
 \`\`\`

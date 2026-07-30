@@ -18,23 +18,15 @@ from rich.table import Table
 from .io import patch_active_profile, save_stack_config, write_env_file
 from .loader import CONFIG_PATH, load_stack_config
 from .logging_config import configure_logging
-from .models import DatabaseConfig, ModelConfig, ProviderConfig, ResourceConfig, StackConfig, ToolConfig
-from .package_base import ConfigurationError, ModelFieldSpec, ResourceSpec
-from .resolver import Resolver, _resource_ref_name, _resource_ref_owner_tool_name
+from .models import DatabaseConfig, ModelConfig, ProviderConfig, ResourceConfig, StackConfig
+from .package_base import ConfigurationError, ModelFieldSpec, ResourceSpec, _resource_ref_name, _resource_ref_owner_tool_name
+from .resolver import Resolver
 from .cli_fields import (
-    CDM_SCHEMA_FIELDS,
-    DATABASE_LABEL_FIELDS,
-    FS_API_KEY,
-    FS_BASE_URL,
-    FS_DOCUMENT_PREFIX,
-    FS_EMBEDDING_DIM,
-    FS_MODEL_NAME,
-    FS_MODEL_PROVIDER_REF,
-    FS_PROVIDER_KEY,
-    FS_QUERY_PREFIX,
-    MODEL_FIELDS,
-    NON_CDM_SCHEMA_FIELDS,
-    PROVIDER_FIELDS,
+    FieldSpec,
+    FS_Database,
+    FS_Model,
+    FS_Provider,
+    FS_Schema,
     TEST_FLAG_PREFIX,
     build_database_config,
     build_model_config,
@@ -45,10 +37,106 @@ from .cli_fields import (
     resolve_field_value,
     resolve_fields,
 )
+from pydantic import BaseModel
 
 app = typer.Typer(name="omop-config", no_args_is_help=True, add_completion=False)
 console = Console()
 err_console = Console(stderr=True)
+
+
+def _resolve_field_values(
+    fields: tuple[FieldSpec, ...],
+    existing: BaseModel | None,
+    *,
+    spec: ResourceSpec | None = None,
+    flags: dict[str, str],
+    non_interactive: bool,
+    spec_defaults: dict[str, str] | None = None,
+    prefill: dict[str, str] | None = None,
+    missing_required: list[str],
+) -> dict[str, str | None]:
+    """Resolve one field table into a values dict.
+
+    Shared by every "reuse existing or prompt/flag through a field table"
+    flow (_resolve_resource's two field tables, _resolve_provider_entry,
+    _resolve_model_entry): builds the flags/stored/spec_defaults tiers
+    resolve_field_value expects, then resolves the whole table at once.
+
+    Parameters
+    ----------
+    fields : tuple[FieldSpec, ...]
+        The field table to resolve, e.g. FS_Provider.ALL.
+    existing : pydantic.BaseModel, optional
+        An already-stored config instance to pre-fill from, or None for a
+        fresh entry.
+    spec : ResourceSpec, optional
+        Passed through to resolve_fields for any callable FieldSpec.default.
+    flags : dict[str, str]
+        Explicit CLI flag values, already defaulted to ``{}`` by the caller.
+    non_interactive : bool
+        Whether to skip prompting and fall back to each field's own default,
+        recording anything still missing into missing_required instead.
+    spec_defaults : dict[str, str], optional
+        Package-supplied connection defaults (ResourceSpec.connection_defaults).
+    prefill : dict[str, str], optional
+        Values to silently apply without prompting (e.g. a name chosen a
+        step earlier), merged into the "already known" tier alongside
+        `existing`.
+    missing_required : list[str]
+        Mutable accumulator, shared across multiple calls for the same
+        logical entry (e.g. _resolve_resource's database + schema tables)
+        so the caller can report every missing field in one combined error.
+
+    Returns
+    -------
+    dict[str, str or None]
+        Output of resolve_fields for this field table.
+    """
+    stored = {k: str(v) if v is not None else "" for k, v in existing.model_dump().items()} if existing else {}
+    if prefill:
+        stored.update(prefill)
+    resolve_field = partial(
+        resolve_field_value,
+        flags=flags,
+        stored=stored,
+        spec_defaults=spec_defaults,
+        non_interactive=non_interactive,
+        missing_required=missing_required,
+    )
+    return resolve_fields(fields, spec, resolve_field)
+
+
+def _check_missing_required(
+    display_name: str,
+    missing_required: list[str],
+    *,
+    non_interactive: bool,
+    flag_prefix: str = "",
+) -> None:
+    """Abort with a clear error, naming exact CLI flags, if fields are missing.
+
+    Parameters
+    ----------
+    display_name : str
+        Human-readable name of the entry being resolved, shown in the error.
+    missing_required : list[str]
+        Field names accumulated by _resolve_field_values. Empty means nothing
+        is missing.
+    non_interactive : bool
+        Whether this resolution was non-interactive. Interactive resolutions
+        never have anything in missing_required, since prompting always
+        produces a value.
+    flag_prefix : str, optional
+        Prefix for the flag names shown in the error message (e.g. "test").
+    """
+    if not non_interactive or not missing_required:
+        return
+    flag_names = ", ".join(flag_name(k, flag_prefix) for k in missing_required)
+    err_console.print(
+        f"\n[red bold]Missing required field(s) for {display_name!r}:[/red bold] {flag_names}\n"
+        f"No flag, stored config, or spec default is available for these. Pass them explicitly."
+    )
+    raise typer.Exit(1)
 
 
 def _resolve_resource(
@@ -66,11 +154,11 @@ def _resolve_resource(
     spec : ResourceSpec
         The ResourceSpec describing the resource to resolve.
     config : StackConfig
-        The current StackConfig, used to look up existing stored config for 
+        The current StackConfig, used to look up existing stored config for
         this resource and any existing connections.
     flags : dict[str, str], optional
         A dict of flag values for this resource, keyed by field name
-        (e.g. "host", "port"). Presence of this argument (even if empty) 
+        (e.g. "host", "port"). Presence of this argument (even if empty)
         indicates a non-interactive invocation where no prompts should be shown.
         Non-interactive requires all required fields to be supplied via flags or
         stored config. Missing required fields will be reported.
@@ -80,7 +168,7 @@ def _resolve_resource(
     is_test_resource: bool
         Whether this resource is a test resource. If True, the safety checks around
         test resources are applied (see _configure_test_resources). Default: False
-    
+
     Returns
     -------
     db_name : str
@@ -109,26 +197,14 @@ def _resolve_resource(
         console.print(f"[dim]{spec.description}[/dim]")
         console.print("[dim]Tip: the value shown in [brackets] is the default. Press Enter to accept it.[/dim]\n")
 
-    _stored: dict[str, str] = {}
-    if existing and not declined:
-        _stored.update({k: str(v) if v is not None else "" for k, v in existing.model_dump().items()})
-        _edb = config.databases.get(existing.database)
-        if _edb:
-            _stored.update({k: str(v) if v is not None else "" for k, v in _edb.model_dump().items()})
+    active_existing = existing if not declined else None
+    existing_db = config.databases.get(active_existing.database) if active_existing else None
+    database_prefill = {"database": active_existing.database} if active_existing else None
 
     missing_required: list[str] = []
-
     spec_defaults = (
         {k: str(v) for k, v in spec.connection_defaults.model_dump(exclude_unset=True).items()}
         if spec.connection_defaults else None
-    )
-    _resolve_field = partial(
-        resolve_field_value,
-        flags=flags,
-        stored=_stored,
-        spec_defaults=spec_defaults,
-        non_interactive=non_interactive,
-        missing_required=missing_required,
     )
 
     # Offer reuse of an existing connection when none is configured yet.
@@ -149,61 +225,38 @@ def _resolve_resource(
             if choice != "new" and choice in candidates:
                 reuse_existing_label = choice
 
-    schema_fields = CDM_SCHEMA_FIELDS if spec.is_cdm_database else NON_CDM_SCHEMA_FIELDS
+    schema_fields = FS_Schema.CDM if spec.is_cdm_database else FS_Schema.NON_CDM
+    flag_prefix = TEST_FLAG_PREFIX if is_test_resource else ""
 
     if reuse_existing_label:
         if not non_interactive:
             console.print("\n[dim]Schema configuration[/dim]\n")
-        schema_values = resolve_fields(schema_fields, spec, _resolve_field)
-        _check_missing_required(spec, missing_required, is_test_resource, non_interactive)
+        schema_values = _resolve_field_values(
+            schema_fields, active_existing, spec=spec, flags=flags, non_interactive=non_interactive,
+            spec_defaults=spec_defaults, missing_required=missing_required,
+        )
+        _check_missing_required(spec.display_name, missing_required, non_interactive=non_interactive, flag_prefix=flag_prefix)
         resource = build_resource_config(reuse_existing_label, schema_values, spec.is_cdm_database)
         return reuse_existing_label, None, resource
 
-    conn_values = resolve_fields(DATABASE_LABEL_FIELDS, spec, _resolve_field)
+    conn_values = _resolve_field_values(
+        FS_Database.ALL, existing_db, spec=spec, flags=flags, non_interactive=non_interactive,
+        spec_defaults=spec_defaults, prefill=database_prefill, missing_required=missing_required,
+    )
 
     if not non_interactive:
         console.print("\n[dim]Schema configuration[/dim]\n")
 
-    schema_values = resolve_fields(schema_fields, spec, _resolve_field)
-    _check_missing_required(spec, missing_required, is_test_resource, non_interactive)
+    schema_values = _resolve_field_values(
+        schema_fields, active_existing, spec=spec, flags=flags, non_interactive=non_interactive,
+        spec_defaults=spec_defaults, missing_required=missing_required,
+    )
+    _check_missing_required(spec.display_name, missing_required, non_interactive=non_interactive, flag_prefix=flag_prefix)
 
     db_config, database = build_database_config(conn_values)
     resource = build_resource_config(database, schema_values, spec.is_cdm_database)
 
     return database, db_config, resource
-
-
-def _check_missing_required(
-    spec: ResourceSpec,
-    missing_required: list[str],
-    is_test_resource: bool,
-    non_interactive: bool,
-) -> None:
-    """Abort with a clear error if a non-interactive resolution left required fields unset.
-
-    Parameters
-    ----------
-    spec : ResourceSpec
-        The resource being resolved, used for the display name in the error message.
-    missing_required : list[str]
-        Field names appended to by resolve_field_value while resolving spec. Empty
-        means nothing is missing.
-    is_test_resource : bool
-        Whether spec is a test resource, selects TEST_FLAG_PREFIX for the flag names
-        shown in the error message.
-    non_interactive : bool
-        Whether this resolution was non-interactive. Interactive resolutions never
-        have anything in missing_required, since prompting always produces a value.
-    """
-    if not non_interactive or not missing_required:
-        return
-    prefix = TEST_FLAG_PREFIX if is_test_resource else ""
-    flag_names = ", ".join(flag_name(k, prefix) for k in missing_required)
-    err_console.print(
-        f"\n[red bold]Missing required field(s) for {spec.display_name!r}:[/red bold] {flag_names}\n"
-        f"No flag, stored config, or spec default is available for these. Pass them explicitly."
-    )
-    raise typer.Exit(1)
 
 
 def _resolve_extra_fields(
@@ -431,7 +484,7 @@ def _run_configure_package(
         cls, config, set_dict=set_dict, interactive=flags_arg is None and not any_explicit_flags
     )
 
-    config.tools[tool_name] = ToolConfig(extra=extra)
+    config.tools[tool_name] = extra
     save_stack_config(config)
     console.print(f"\n[green]✓[/green] Saved \\[tools.{tool_name}] to [dim]{CONFIG_PATH}[/dim]")
 
@@ -712,36 +765,24 @@ def _resolve_provider_entry(
     non_interactive = flags is not None
     flags = flags or {}
     existing = config.providers.get(name)
-    stored = {k: str(v) if v is not None else "" for k, v in existing.model_dump().items()} if existing else {}
-    if prefill:
-        stored.update(prefill)
-
     if not non_interactive:
         console.print(f"\n[bold]Provider: {name}[/bold]")
 
     missing_required: list[str] = []
-    resolve_field = partial(
-        resolve_field_value,
-        flags=flags,
-        stored=stored,
-        spec_defaults=None,
-        non_interactive=non_interactive,
-        missing_required=missing_required,
+    values = _resolve_field_values(
+        FS_Provider.ALL, existing, flags=flags, non_interactive=non_interactive,
+        prefill=prefill, missing_required=missing_required,
     )
-    values = resolve_fields(PROVIDER_FIELDS, None, resolve_field)
-    if missing_required:
-        err_console.print(f"[red bold]Missing required field(s):[/red bold] {', '.join(missing_required)}")
-        raise typer.Exit(1)
-
+    _check_missing_required(f"provider {name!r}", missing_required, non_interactive=non_interactive)
     return build_provider_config(values)
 
 
 @providers_app.command("add")
 def providers_add(
     name: Annotated[str, typer.Argument(help="Provider entry name, e.g. 'ollama-local'.")],
-    provider: Annotated[str | None, typer.Option(help=FS_PROVIDER_KEY.label)] = None,
-    base_url: Annotated[str | None, typer.Option(help=FS_BASE_URL.label)] = None,
-    api_key: Annotated[str | None, typer.Option(help=FS_API_KEY.label)] = None,
+    provider: Annotated[str | None, typer.Option(help=FS_Provider.KEY.label)] = None,
+    base_url: Annotated[str | None, typer.Option(help=FS_Provider.BASE_URL.label)] = None,
+    api_key: Annotated[str | None, typer.Option(help=FS_Provider.API_KEY.label)] = None,
 ) -> None:
     r"""Add or update a \[providers.<name>] entry. Prompts for any field not given as a flag."""
     try:
@@ -796,30 +837,19 @@ def _resolve_model_entry(
     non_interactive = flags is not None
     flags = flags or {}
     existing = config.models.get(name)
-    stored = {k: str(v) if v is not None else "" for k, v in existing.model_dump().items()} if existing else {}
-    if prefill:
-        stored.update(prefill)
-
     if not non_interactive:
         console.print(f"\n[bold]Model: {name}[/bold]")
         if config.providers:
             console.print(f"[dim]Configured providers: {', '.join(sorted(config.providers))}[/dim]")
 
     missing_required: list[str] = []
-    resolve_field = partial(
-        resolve_field_value,
-        flags=flags,
-        stored=stored,
-        spec_defaults=None,
-        non_interactive=non_interactive,
-        missing_required=missing_required,
+    values = _resolve_field_values(
+        FS_Model.ALL, existing, flags=flags, non_interactive=non_interactive,
+        prefill=prefill, missing_required=missing_required,
     )
-    values = resolve_fields(MODEL_FIELDS, None, resolve_field)
-    if missing_required:
-        err_console.print(f"[red bold]Missing required field(s):[/red bold] {', '.join(missing_required)}")
-        raise typer.Exit(1)
+    _check_missing_required(f"model {name!r}", missing_required, non_interactive=non_interactive)
 
-    provider_ref = values[FS_MODEL_PROVIDER_REF.name]
+    provider_ref = values[FS_Model.PROVIDER_REF.name]
     if provider_ref not in config.providers:
         err_console.print(
             f"[red bold]Unknown provider {provider_ref!r}.[/red bold] Configure it first: "
@@ -835,11 +865,11 @@ def _resolve_model_entry(
 @models_app.command("add")
 def models_add(
     name: Annotated[str, typer.Argument(help="Model entry name, e.g. 'nomic-embed'.")],
-    provider: Annotated[str | None, typer.Option(help=FS_MODEL_PROVIDER_REF.label)] = None,
-    model: Annotated[str | None, typer.Option(help=FS_MODEL_NAME.label)] = None,
-    embedding_dim: Annotated[str | None, typer.Option(help=FS_EMBEDDING_DIM.label)] = None,
-    document_prefix: Annotated[str | None, typer.Option(help=FS_DOCUMENT_PREFIX.label)] = None,
-    query_prefix: Annotated[str | None, typer.Option(help=FS_QUERY_PREFIX.label)] = None,
+    provider: Annotated[str | None, typer.Option(help=FS_Model.PROVIDER_REF.label)] = None,
+    model: Annotated[str | None, typer.Option(help=FS_Model.NAME.label)] = None,
+    embedding_dim: Annotated[str | None, typer.Option(help=FS_Model.EMBEDDING_DIM.label)] = None,
+    document_prefix: Annotated[str | None, typer.Option(help=FS_Model.DOCUMENT_PREFIX.label)] = None,
+    query_prefix: Annotated[str | None, typer.Option(help=FS_Model.QUERY_PREFIX.label)] = None,
 ) -> None:
     r"""Add or update a \[models.<name>] entry. Prompts for any field not given as a flag."""
     try:

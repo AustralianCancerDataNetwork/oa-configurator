@@ -6,7 +6,7 @@ import pytest
 
 from oa_configurator import Resolver, StackConfig
 from oa_configurator.resolver import ResolvedDatabase, ResolvedModel, ResolvedProvider, ResolvedResource
-from oa_configurator.models import DatabaseConfig, ModelConfig, ProfileOverrideConfig, ProviderConfig, ResourceConfig, ToolConfig
+from oa_configurator.models import DatabaseConfig, ModelConfig, ProfileOverrideConfig, ProviderConfig, ResourceConfig
 
 
 class TestResolveDatabase:
@@ -250,7 +250,7 @@ class TestResolveTool:
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite")},
             resources={"default": ResourceConfig(database="db", cdm_schema="omop")},
-            tools={"omop_emb": ToolConfig(extra={"backend": "sqlitevec", "path": "/data"})},
+            tools={"omop_emb": {"backend": "sqlitevec", "path": "/data"}},
         )
         r = Resolver(cfg)
         tool = r.resolve_tool("omop_emb")
@@ -326,10 +326,10 @@ class TestResolveToolConfigProfileOverlay:
             backend: str = "default_backend"
 
         cfg = StackConfig.for_session(
-            tools={"sample_tool": ToolConfig(extra={"backend": "base"})},
+            tools={"sample_tool": {"backend": "base"}},
             profiles={
                 "test": ProfileOverrideConfig(
-                    tools={"sample_tool": ToolConfig(extra={"backend": "overridden"})},
+                    tools={"sample_tool": {"backend": "overridden"}},
                 ),
             },
             active_profile="test",

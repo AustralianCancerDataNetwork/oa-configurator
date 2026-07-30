@@ -54,6 +54,9 @@ test_only     = false
 
 # ---------------------------------------------------------------------------
 # Resources: map logical OMOP roles to databases and schema names.
+# Referenced by name, either directly or via a typed ResourceRef declared on
+# a consuming package's PackageConfigBase subclass -- there is no renaming
+# mechanism, an owned resource must be configured under its own semantic name.
 # ---------------------------------------------------------------------------
 
 [resources.cdm_db]
@@ -73,18 +76,13 @@ cdm_schema = "public"
 
 # ---------------------------------------------------------------------------
 # Tools: per-package config, managed via `omop-config configure <package>`
+# Fields are package-specific -- each package defines its own typed schema.
 # ---------------------------------------------------------------------------
 
 [tools.omop_alchemy]
-default_resource = "cdm_db"
-
-[tools.omop_alchemy.extra]
 # athena_source_path = "/data/athena"   # path to Athena vocabulary CSVs
 
 [tools.omop_emb]
-default_resource = "cdm_db"
-
-[tools.omop_emb.extra]
 backend                   = "pgvector"
 document_embedding_prefix = ""
 query_embedding_prefix    = ""
@@ -93,16 +91,10 @@ api_key                   = "ollama"
 embedding_model           = "qwen3-embedding:0.6b"
 
 [tools.omop_graph]
-default_resource = "cdm_db"
-
-[tools.omop_graph.extra]
 max_depth = 6
 max_paths = 20
 
 [tools.omop_spires]
-default_resource = "cdm_db"
-
-[tools.omop_spires.extra]
 ollama_api_base  = "http://ollama:11434/v1"
 instructor_model = "mistral-small3.2"
 api_key          = "ollama"
@@ -131,14 +123,6 @@ database       = "prod_cdm"
 cdm_schema     = "omop"
 vocab_schema   = "vocab"
 results_schema = "results"
-
-# ---------------------------------------------------------------------------
-# Resource aliases: let packages use semantic names independent of your
-# resource naming convention. Alias targets must exist at the base level.
-# ---------------------------------------------------------------------------
-
-[resource_aliases]
-# cdm_db = "my_production_cdm"   # uncomment if your resource is named differently
 
 # ---------------------------------------------------------------------------
 # Logging (optional): omit for WARNING-level defaults

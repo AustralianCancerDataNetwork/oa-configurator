@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import tomllib
 
-from oa_configurator import Resolver, StackConfig, DatabaseConfig, ResourceConfig, ToolConfig
+from oa_configurator import Resolver, StackConfig, DatabaseConfig, ResourceConfig
 from oa_configurator.io import patch_active_profile, save_stack_config, write_env_file
 
 
@@ -75,7 +75,7 @@ class TestWriteEnvFile:
                 "omop_emb": ResourceConfig(database="emb", cdm_schema="emb"),
             },
             tools={
-                "omop_emb": ToolConfig(extra={"backend": "pgvector"}),
+                "omop_emb": {"backend": "pgvector"},
             },
         )
         out = tmp_path / "config.env"
@@ -88,7 +88,7 @@ class TestWriteEnvFile:
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
             resources={"default": ResourceConfig(database="db", cdm_schema="omop")},
-            tools={"my_pkg": ToolConfig(extra={"foo": "bar", "count": 3})},
+            tools={"my_pkg": {"foo": "bar", "count": 3}},
         )
         out = tmp_path / "config.env"
         write_env_file(Resolver(cfg), path=out)

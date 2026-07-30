@@ -26,14 +26,14 @@ config = StackConfig.for_session(
         )
     },
     resources={
-        "default": ResourceConfig(
+        "cdm": ResourceConfig(
             database="local",
-            cdm_schema="cdm",
+            cdm_schema="omop",
             vocab_schema="vocab",
         )
     },
 )
-engine = Resolver(config).resolve_resource("default").create_engine()
+engine = Resolver(config).resolve_resource("cdm").create_engine()
 ```
 
 ### Parameters
@@ -42,6 +42,8 @@ engine = Resolver(config).resolve_resource("default").create_engine()
 |-----------|------|---------|-------------|
 | `databases` | dict \| None | `{}` | Named `DatabaseConfig` objects or raw dicts |
 | `resources` | dict \| None | `{}` | Named `ResourceConfig` objects or raw dicts |
+| `providers` | dict \| None | `{}` | Named `ProviderConfig` objects or raw dicts |
+| `models` | dict \| None | `{}` | Named `ModelConfig` objects or raw dicts |
 | `tools` | dict \| None | `{}` | Named `ToolConfig` objects or raw dicts |
 | `profiles` | dict \| None | `{}` | Named `ProfileOverrideConfig` objects or raw dicts |
 | `active_profile` | str \| None | `None` | Profile to activate |
@@ -53,7 +55,7 @@ Cross-references are validated at construction time, same as for file-loaded con
 ```python
 StackConfig.for_session(
     databases={"local": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-    resources={"default": ResourceConfig(database="typo", cdm_schema="omop")},  # raises ValueError
+    resources={"cdm": ResourceConfig(database="typo", cdm_schema="omop")},  # raises ValueError
 )
 ```
 
@@ -67,11 +69,11 @@ from oa_configurator import StackConfig, Resolver
 def test_something():
     cfg = StackConfig.for_session(
         databases={"db": {"dialect": "sqlite", "database_name": ":memory:"}},
-        resources={"default": {"database": "db", "cdm_schema": "omop"}},
+        resources={"cdm": {"database": "db", "cdm_schema": "omop"}},
         tools={"my_package": {"extra": {"backend": "test_backend"}}},
     )
     resolver = Resolver(cfg)
-    engine = resolver.resolve_resource("default").create_engine()
+    engine = resolver.resolve_resource("cdm").create_engine()
     # ...
 ```
 
@@ -95,10 +97,10 @@ engine = (
             "local": DatabaseConfig(dialect="sqlite", database_name=":memory:")
         },
         resources={
-            "default": ResourceConfig(database="local", cdm_schema="omop")
+            "cdm": ResourceConfig(database="local", cdm_schema="omop")
         },
     )
-    .resolve_resource("default")
+    .resolve_resource("cdm")
     .create_engine()
 )
 ```
@@ -107,8 +109,10 @@ engine = (
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `connections` | dict \| None | Entries merged over the existing connections (new keys added; existing keys replaced) |
+| `databases` | dict \| None | Entries merged over the existing databases (new keys added; existing keys replaced) |
 | `resources` | dict \| None | Entries merged over the existing resources |
+| `providers` | dict \| None | Entries merged over the existing providers |
+| `models` | dict \| None | Entries merged over the existing models |
 | `tools` | dict \| None | Entries merged over the existing tools |
 
 ### What is preserved
@@ -123,7 +127,7 @@ Cross-references are checked against the **merged** result. A resource override 
 
 ```python
 Resolver(load_stack_config()).with_overrides(
-    resources={"default": ResourceConfig(database="nonexistent", cdm_schema="omop")}  # raises
+    resources={"cdm": ResourceConfig(database="nonexistent", cdm_schema="omop")}  # raises
 )
 ```
 

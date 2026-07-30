@@ -18,7 +18,7 @@ user          = "omop"
 password      = "prod_secret"
 database_name = "omop_cdm"
 
-[resources.default]
+[resources.cdm]
 database   = "cdm"
 cdm_schema = "omop"
 
@@ -31,7 +31,7 @@ user          = "test_user"
 password      = "test_pass"
 database_name = "omop_test"
 
-[profiles.test.resources.default]
+[profiles.test.resources.cdm]
 database   = "cdm"
 cdm_schema = "test_omop"
 ```
@@ -52,7 +52,7 @@ omop-config use local
 **Per-session**: env var override, does not modify the file:
 
 ```bash
-OA_ACTIVE_PROFILE=test omop-config doctor
+OA_ACTIVE_PROFILE=test omop-config verify
 OA_ACTIVE_PROFILE=prod python my_script.py
 ```
 
@@ -87,7 +87,7 @@ Profiles can introduce new connections not present in the base config:
 dialect       = "sqlite"
 database_name = "/data/vocab.db"
 
-[profiles.local_only.resources.default]
+[profiles.local_only.resources.cdm]
 database       = "cdm"         # uses base cdm database
 vocab_database = "local_vocab"  # new database defined in this profile
 cdm_schema     = "omop"

@@ -30,9 +30,25 @@ A logical role bundle that maps OMOP CDM roles to databases and schema names:
 - `vocab_schema` (optional): falls back to `cdm_schema`
 - `results_schema` (optional): Achilles/Atlas results
 
+### Provider
+
+A concrete LLM/embedding provider connection: provider key, base URL, API key. Stored in `[providers.<name>]`. Peer of `Database` for LLM backends instead of databases.
+
+### Model
+
+A named, reusable, concretely-configured model: which provider it runs through, model name, embedding dimension, prefixes. Stored in `[models.<name>]`, references a `Provider` by name. Peer of `Resource` for LLM backends instead of databases. See [Resource/Model resolution](#resourcemodel-resolution) below: the two pairs resolve the same way.
+
 ### Tool
 
-Per-package configuration in `[tools.<name>]`. The core model stores only `default_resource` and an `extra` dict. Each consuming package defines a typed `PackageConfigBase` subclass that provides a typed view over `extra`.
+Per-package configuration in `[tools.<name>]`. The core model stores only an `extra` dict. Each consuming package defines a typed `PackageConfigBase` subclass that provides a typed view over `extra`.
+
+### ResourceRef
+
+A package that consumes a resource owned by another package (e.g. `omop-graph` using `omop-alchemy`'s CDM database) declares a `ResourceRef(OwningClass, OwningClass.SPEC)` in its `required_resources`. It pairs the owning class (`owning_class.tool_name`, used in "go configure that package" error messages) with the specific `ResourceSpec` (`spec`, since the owning class may declare more than one resource). Resolves to `spec.semantic_name`; the owning package's resource must be configured under that literal name.
+
+### ModelFieldSpec
+
+A CLI-only marker for a package's own field that names a `[models.*]` entry (e.g. `embedding_model_name: str`). `omop-config configure` resolves it interactively: reuse an existing entry, or create one, recursing into `[providers.*]` the same way. No effect at runtime; the field itself stays a plain `str`.
 
 ### Profile
 
@@ -40,32 +56,46 @@ A named overlay (`[profiles.<name>]`) that replaces specific connections, resour
 
 ---
 
+## Resource/Model resolution
+
+`Resource`/`Database` and `Model`/`Provider` are the same two-tier pattern: a mid-tier entry references one leaf-tier entry by name (highlighted below), and `Resolver` resolves the whole pair into one runtime object. Left of each divider is the Python attribute, right is where it lives in `config.toml`. Names below are generic, not this project's real ones.
+
+<iframe src="../diagrams/resource-model-resolution.html" title="Resource/Model resolution diagram" style="width: 100%; border: 0; display: block;" loading="lazy"></iframe>
+<script>
+  (function () {
+    var frame = document.currentScript.previousElementSibling;
+    function resize() {
+      try {
+        frame.style.height = frame.contentWindow.document.body.scrollHeight + "px";
+      } catch (e) {}
+    }
+    frame.addEventListener("load", function () {
+      resize();
+      new ResizeObserver(resize).observe(frame.contentWindow.document.body);
+    });
+  })();
+</script>
+
+
+---
+
 ## Data flow
 
-```
-~/.config/omop/config.toml
-         │
-         ▼
-    load_stack_config()
-         │  reads TOML → StackConfig
-         │  applies active profile overlay
-         ▼
-       Resolver
-         │
-         ├─ resolve_database(name)   → ResolvedDatabaseTarget
-         │                               .url  (plaintext, internal)
-         │                               .safe_url  (redacted, for logs)
-         │                               .create_engine()
-         │
-         ├─ resolve_resource(name)   → ResolvedResource
-         │                               .database / .vocab_database  (ResolvedDatabaseTarget)
-         │                               .cdm_schema / .vocab_schema / .results_schema
-         │                               .schema_translate_map()
-         │                               .create_engine(role="primary"|"vocab")
-         │
-         └─ resolve_tool(name)       → ResolvedToolConfig
-                                         .extra  (raw dict; typed by PackageConfigBase.from_stack())
-```
+<iframe src="../diagrams/config-data-flow.html" title="Config data flow diagram" style="width: 100%; border: 0; display: block;" loading="lazy"></iframe>
+<script>
+  (function () {
+    var frame = document.currentScript.previousElementSibling;
+    function resize() {
+      try {
+        frame.style.height = frame.contentWindow.document.body.scrollHeight + "px";
+      } catch (e) {}
+    }
+    frame.addEventListener("load", function () {
+      resize();
+      new ResizeObserver(resize).observe(frame.contentWindow.document.body);
+    });
+  })();
+</script>
 
 ---
 
@@ -102,7 +132,7 @@ Passwords are stored in plaintext in `~/.config/omop/config.toml`. Restrict perm
 chmod 600 ~/.config/omop/config.toml
 ```
 
-`ResolvedDatabaseTarget.safe_url` and `ResolvedDatabaseTarget.url` are distinct: `safe_url` has the password replaced with `***` and is used for all logging and display. The `.url` value (with plaintext password) is used only for engine creation and never logged by the library.
+`ResolvedDatabase.safe_url` and `ResolvedDatabase.url` are distinct: `safe_url` has the password replaced with `***` and is used for all logging and display. The `.url` value (with plaintext password) is used only for engine creation and never logged by the library.
 
 `RedactingFormatter` (applied by all non-library log presets) scrubs both `key=value` patterns and `://user:password@host` URL patterns from log output.
 
@@ -112,14 +142,12 @@ chmod 600 ~/.config/omop/config.toml
 
 ## Config path
 
-Default: `~/.config/omop/config.toml`. Override with `OA_CONFIG_PATH=<path/to/config.toml>`
-(must end in `.toml`; `~` is expanded). Resolved once at module load time and stored as
-`CONFIG_PATH`. Use `OA_ACTIVE_PROFILE` to switch profiles within a file without changing the path.
+Default: `~/.config/omop/config.toml`. Override with `OA_CONFIG_PATH=<path/to/config.toml>` (must end in `.toml`; `~` is expanded). Resolved once at module load time and stored as `CONFIG_PATH`. Use `OA_ACTIVE_PROFILE` to switch profiles within a file without changing the path.
 
 ---
 
 ## Future work
 
 - `secret_source` on `DatabaseConfig`: `env:VARNAME`, `file:PATH`, Vault, cloud secret managers
-- Async engine factory (`ResolvedDatabaseTarget.create_async_engine()`)
+- Async engine factory (`ResolvedDatabase.create_async_engine()`)
 - Project-local overlay (`./oa-config.toml`) layered over user config

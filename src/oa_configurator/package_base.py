@@ -13,7 +13,11 @@ In ``<my-package>/config.py``::
 
     class MyPackageConfig(PackageConfigBase):
         tool_name: ClassVar[str] = "<my-package>"
-        required_resources: ClassVar[tuple[str, ...]] = ("cdm_db",)
+        required_resources: ClassVar[tuple[str, ...]] = ("cdm_db",)  # owned by this package
+        # or, for a resource owned by another package:
+        # required_resources: ClassVar[tuple[ResourceRef, ...]] = (
+        #     ResourceRef(OtherPackageConfig, OtherPackageConfig.SOME_RESOURCE),
+        # )
         <additional typed fields here>
 
     config = MyPackageConfig.get_config()
@@ -31,7 +35,7 @@ from typing import Any, ClassVar, Self
 
 from pydantic import BaseModel
 
-from .models import DatabaseConfig, StackConfig
+from .models import DatabaseConfig
 
 
 @dataclass(frozen=True)
@@ -72,6 +76,47 @@ class ResourceSpec:
     connection_defaults: DatabaseConfig | None = field(default=None, compare=False)
 
 
+@dataclass(frozen=True)
+class ResourceRef:
+    """Typed reference to a resource owned by another package.
+
+    Used in ``required_resources`` when the resource is declared (via
+    ``owned_resources``) on a *different* package's ``PackageConfigBase``
+    subclass, instead of matching against a bare semantic-name string.
+    Carries both where to look (``owning_class.tool_name``, for actionable
+    error messages) and precisely what for (``spec``, since the owning class
+    may declare more than one resource).
+
+    Resolves directly to ``spec.semantic_name`` -- the owning package's
+    resource must be configured under that literal name. Renaming an owned
+    resource for cross-package consumption (e.g. via a saved-name pointer on
+    the owning package's own tool config) is not yet supported.
+    """
+
+    owning_class: type["PackageConfigBase"]
+    spec: ResourceSpec
+
+
+@dataclass(frozen=True)
+class ModelFieldSpec:
+    """Marks one of a package's own fields as naming a ``[models.*]`` entry.
+
+    Packages with a field like ``embedding_model_name: str`` add a matching
+    entry to ``referenced_models`` on their ``PackageConfigBase`` subclass.
+    ``omop-config configure`` then resolves that field by offering to reuse
+    an existing ``[models.*]`` entry or create one on the spot -- recursing
+    into ``[providers.*]`` the same way when the chosen provider doesn't
+    exist either -- instead of blindly prompting for a raw string.
+
+    ``referenced_models`` is a CLI-only concern; it has no effect at runtime.
+    The package's own field stays a plain ``str`` naming the resolved entry.
+    """
+
+    field_name: str
+    display_name: str
+    description: str
+
+
 class ConfigurationError(ValueError):
     """Raised when a required resource or connection is missing from the stack config."""
 
@@ -79,18 +124,18 @@ class ConfigurationError(ValueError):
 class PackageConfigBase(BaseModel):
     """Typed view over a package's ``[tools.<tool_name>]`` TOML section.
 
-    Subclass this and declare the class variables below. Users who name their
-    resource differently can add a ``[resource_aliases]`` section to
-    config.toml (e.g. ``cdm_db = "my_prod"``) so all packages resolve
-    correctly without per-package ``default_resource`` overrides.
+    Subclass this and declare the class variables below.
 
     Attributes
     ----------
     tool_name : str
         Key used in ``[tools.<name>]``. Must be set on every subclass.
-    required_resources : tuple[str, ...]
-        Canonical resource names this package depends on. A missing resource
-        at :meth:`from_stack` time raises :exc:`ConfigurationError`.
+    required_resources : tuple[ResourceRef | ResourceSpec | str, ...]
+        Resources this package depends on. A ``ResourceSpec`` (or bare
+        semantic-name ``str``) means a resource this package owns itself; a
+        ``ResourceRef`` means a resource owned by another package. A missing
+        resource at :meth:`~oa_configurator.Resolver.resolve_package_config`
+        time raises :exc:`ConfigurationError`.
     owned_resources : tuple[ResourceSpec, ...]
         Resources this package is responsible for configuring interactively.
         ``omop-config configure`` prompts for these before package extras.
@@ -99,6 +144,10 @@ class PackageConfigBase(BaseModel):
         Y/N prompt for these after the main resource flow. Marked with a
         DROP SCHEMA warning; a collision check prevents pointing at any
         already-configured non-test resource.
+    referenced_models : tuple[ModelFieldSpec, ...]
+        Package fields that name a ``[models.*]`` entry. ``omop-config
+        configure`` resolves these interactively (reuse or create, recursing
+        into ``[providers.*]``) instead of prompting for a raw string.
     extra_logging_namespaces : tuple[str, ...]
         Logger namespaces of transitive dependencies to configure alongside
         this package. The package's own ``tool_name``
@@ -107,56 +156,17 @@ class PackageConfigBase(BaseModel):
     """
 
     tool_name: ClassVar[str]
-    required_resources: ClassVar[tuple[str, ...]] = ()
+    required_resources: ClassVar[tuple[ResourceRef | ResourceSpec | str, ...]] = ()
     owned_resources: ClassVar[tuple[ResourceSpec, ...]] = ()
     test_resources: ClassVar[tuple[ResourceSpec, ...]] = ()
+    referenced_models: ClassVar[tuple[ModelFieldSpec, ...]] = ()
     extra_logging_namespaces: ClassVar[tuple[str, ...]] = ()
-
-    @classmethod
-    def from_stack(cls, config: StackConfig) -> Self:
-        """Load this package's section from a :class:`StackConfig`.
-
-        Validates that all :attr:`required_resources` (or the
-        ``default_resource`` override) are present in the config before
-        instantiating. Alias resolution via ``config.resource_aliases`` is
-        applied before the existence check. Raises :exc:`ConfigurationError`
-        with an actionable message if any are missing.
-        """
-        tool = config.tools.get(cls.tool_name)
-        override = tool.default_resource if tool else None
-
-        available: set[str] = set(config.resource_names())
-        if config.active_profile and config.active_profile in config.profiles:
-            available |= set(config.profiles[config.active_profile].resources)
-
-        # default_resource is a user-level alias for required_resources[0]. Treat it as a
-        # substitute for the first entry but still validate the rest of required_resources.
-        if override and cls.required_resources:
-            names_to_check: list[str] = [override] + list(cls.required_resources[1:])
-        else:
-            names_to_check = list(cls.required_resources)
-        for check_name in names_to_check:
-            resolved_check = config.resource_aliases.get(check_name, check_name)
-            if resolved_check not in available:
-                alias_hint = (
-                    f"\nTip: if you named your resource differently, add:\n"
-                    f"  [resource_aliases]\n  {check_name} = \"your-resource-name\""
-                )
-                raise ConfigurationError(
-                    f"{cls.__name__} requires resource {check_name!r} "
-                    f"but it is not configured.\n"
-                    f"Available: {sorted(available) or '(none)'}\n"
-                    f"Run 'omop-config configure {cls.tool_name}' to set up your configuration."
-                    + alias_hint
-                )
-
-        return cls.model_validate(tool.extra if tool else {})
 
     @classmethod
     def get_config(cls) -> Self:
         """Load this package's config from the active stack config file."""
-        from .loader import load_stack_config
-        return cls.from_stack(load_stack_config())
+        from .resolver import Resolver
+        return Resolver.from_active_config().resolve_package_config(cls)
 
     @classmethod
     def configure_logging(cls, config=None, *, verbosity: int = 0, console=None) -> None:
@@ -170,32 +180,21 @@ class PackageConfigBase(BaseModel):
         )
 
     @classmethod
-    def get_engine(cls, resource_name: str | None = None, **engine_kwargs: Any) -> Any:
+    def get_engine(cls, resource: "ResourceRef | ResourceSpec | str", **engine_kwargs: Any) -> Any:
         """Create a SQLAlchemy engine for a resource.
 
         Parameters
         ----------
-        resource_name:
-            Resource to resolve. If ``None``, uses ``tool.default_resource``
-            from the config file, or falls back to ``required_resources[0]``.
+        resource:
+            Resource to resolve: a ``ResourceRef`` (owned by another
+            package), a ``ResourceSpec`` (owned by this package), or a bare
+            resource name. No zero-argument defaulting -- pass the resource
+            explicitly.
         **engine_kwargs:
             Forwarded to :meth:`~oa_configurator.resolver.ResolvedResource.create_engine`.
-
-        Raises
-        ------
-        ConfigurationError
-            If no resource name can be determined.
         """
-        from .loader import load_stack_config
         from .resolver import Resolver
-        stack = load_stack_config()
-        tool = stack.tools.get(cls.tool_name)
-        name = resource_name or (tool.default_resource if tool else None) or (
-            cls.required_resources[0] if cls.required_resources else None
-        )
-        if name is None:
-            raise ConfigurationError(f"{cls.__name__} has no resources to resolve.")
-        return Resolver(stack).resolve_resource(name).create_engine(**engine_kwargs)
+        return Resolver.from_active_config().resolve_engine(resource, **engine_kwargs)
 
     def to_extra_dict(self) -> dict[str, Any]:
         """Serialize back to the dict stored in ``ToolConfig.extra``."""

@@ -1,11 +1,11 @@
-"""Tests for resolver.py: Resolver, ResolvedDatabaseTarget, ResolvedResource, ResolvedProvider, ResolvedModel."""
+"""Tests for resolver.py: Resolver, ResolvedDatabase, ResolvedResource, ResolvedProvider, ResolvedModel."""
 
 from __future__ import annotations
 
 import pytest
 
 from oa_configurator import Resolver, StackConfig
-from oa_configurator.resolver import ResolvedDatabaseTarget, ResolvedModel, ResolvedProvider, ResolvedResource
+from oa_configurator.resolver import ResolvedDatabase, ResolvedModel, ResolvedProvider, ResolvedResource
 from oa_configurator.models import DatabaseConfig, ModelConfig, ProfileOverrideConfig, ProviderConfig, ResourceConfig, ToolConfig
 
 
@@ -13,7 +13,7 @@ class TestResolveDatabase:
     def test_sqlite_url(self, minimal_stack):
         r = Resolver(minimal_stack)
         target = r.resolve_database("db")
-        assert isinstance(target, ResolvedDatabaseTarget)
+        assert isinstance(target, ResolvedDatabase)
         assert target.url == "sqlite:///:memory:"
         assert target.safe_url == "sqlite:///:memory:"
 
@@ -291,41 +291,51 @@ class TestWithOverrides:
         assert r.resolve_database("db").url == "sqlite:///:memory:"
 
 
-class TestResourceAliases:
-    def test_alias_resolves_resource(self):
+class TestEffectiveResourceNames:
+    def test_base_only(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"my_prod": ResourceConfig(database="db", cdm_schema="main")},
-            resource_aliases={"cdm_db": "my_prod"},
+            resources={"cdm_db": ResourceConfig(database="db", cdm_schema="main")},
         )
-        r = Resolver(cfg)
-        res = r.resolve_resource("cdm_db")
-        assert res.cdm_schema == "main"
-        assert res.database.name == "db"
+        assert Resolver(cfg).effective_resource_names() == frozenset({"cdm_db"})
 
-    def test_alias_with_profile_override(self):
+    def test_includes_profile_overlay(self):
         cfg = StackConfig.for_session(
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"my_prod": ResourceConfig(database="db", cdm_schema="base")},
+            resources={"cdm_db": ResourceConfig(database="db", cdm_schema="main")},
             profiles={
                 "test": ProfileOverrideConfig(
-                    resources={"my_prod": ResourceConfig(database="db", cdm_schema="test_schema")},
+                    resources={"test_db": ResourceConfig(database="db", cdm_schema="test_schema")},
                 ),
             },
-            resource_aliases={"cdm_db": "my_prod"},
             active_profile="test",
         )
-        r = Resolver(cfg)
-        res = r.resolve_resource("cdm_db")
-        assert res.cdm_schema == "test_schema"
+        assert Resolver(cfg).effective_resource_names() == {"cdm_db", "test_db"}
 
-    def test_unknown_alias_target_raises_at_construction(self):
-        with pytest.raises(ValueError, match="resource_aliases"):
-            StackConfig.for_session(
-                databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-                resources={},
-                resource_aliases={"cdm_db": "does_not_exist"},
-            )
+
+class TestResolveToolConfigProfileOverlay:
+    """Confirms resolve_package_config applies profile overlays -- the bug
+    PackageConfigBase.from_stack()'s independent lookup used to miss."""
+
+    def test_profile_tool_override_takes_precedence(self):
+        from oa_configurator import PackageConfigBase
+        from typing import ClassVar
+
+        class SampleConfig(PackageConfigBase):
+            tool_name: ClassVar[str] = "sample_tool"
+            backend: str = "default_backend"
+
+        cfg = StackConfig.for_session(
+            tools={"sample_tool": ToolConfig(extra={"backend": "base"})},
+            profiles={
+                "test": ProfileOverrideConfig(
+                    tools={"sample_tool": ToolConfig(extra={"backend": "overridden"})},
+                ),
+            },
+            active_profile="test",
+        )
+        result = Resolver(cfg).resolve_package_config(SampleConfig)
+        assert result.backend == "overridden"
 
 
 class TestDiscovery:

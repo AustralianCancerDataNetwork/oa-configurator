@@ -28,7 +28,9 @@ omop-config init
 
 ## 3. Configure an LLM/embedding model (optional)
 
-Packages that call an LLM or embedding model (e.g. `omop-emb`, `omop-spires`) reference one by name, via their own package-specific setting (e.g. `omop-emb`'s `embedding_model_name`). Set up the model itself in two steps:
+Packages that call an LLM or embedding model (e.g. `omop-emb`, `omop-spires`) reference one by name via their own package-specific setting (e.g. `omop-emb`'s `embedding_model_name`). For fields the package marks for this, `omop-config configure <package>` resolves them for you: it offers to reuse an existing `[models.*]` entry, or create one on the spot, recursing into `[providers.*]` the same way if the provider doesn't exist yet either.
+
+To manage `[providers.*]`/`[models.*]` entries directly, outside of any specific package's configure flow, use the standalone commands:
 
 ```bash
 omop-config providers add <provider-name>   # e.g. local-ollama
@@ -45,9 +47,6 @@ omop-config models list
 ```
 
 See [Config reference](config-reference.md#providersname) for the full field list, and `omop-llm`'s [Asymmetric Embeddings guide](https://AustralianCancerDataNetwork.github.io/omop-llm/usage/asymmetric-embeddings/) for what `document_prefix`/`query_prefix` are for.
-
-!!! note
-    `omop-config configure <package>` doesn't (yet) prompt you through this step automatically — recursively resolving "does this package's model exist, and if not, let's create it" from inside a package's own `configure` flow is still on the roadmap. For now, configure the model/provider separately first, then point the package's own config field at it.
 
 ## 4. Verify
 

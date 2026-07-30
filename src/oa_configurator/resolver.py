@@ -18,12 +18,32 @@ from .models import (
     StackConfig,
     ToolConfig,
 )
+from .package_base import ConfigurationError, PackageConfigBase, ResourceRef, ResourceSpec
 
 T = TypeVar("T")
+TConfig = TypeVar("TConfig", bound=PackageConfigBase)
 logger = logging.getLogger(__name__)
 
+
+def _resource_ref_name(item: "ResourceRef | ResourceSpec | str") -> str:
+    """Return the literal resource name a required-resource declaration points at."""
+    if isinstance(item, ResourceRef):
+        return item.spec.semantic_name
+    if isinstance(item, ResourceSpec):
+        return item.semantic_name
+    return item
+
+
+def _resource_ref_owner_tool_name(
+    item: "ResourceRef | ResourceSpec | str", default_owner: type[PackageConfigBase]
+) -> str:
+    """Return the tool_name of the package responsible for configuring *item*."""
+    if isinstance(item, ResourceRef):
+        return item.owning_class.tool_name
+    return default_owner.tool_name
+
 @dataclass(frozen=True)
-class ResolvedDatabaseTarget:
+class ResolvedDatabase:
     """Concrete database connection ready for engine creation.
 
     Attributes
@@ -62,7 +82,7 @@ class ResolvedDatabaseTarget:
         return sa.create_engine(self.url, **kwargs)
 
     def __repr__(self) -> str:
-        return f"ResolvedDatabaseTarget(name={self.name!r}, safe_url={self.safe_url!r})"
+        return f"ResolvedDatabase(name={self.name!r}, safe_url={self.safe_url!r})"
 
 
 @dataclass(frozen=True)
@@ -73,9 +93,9 @@ class ResolvedResource:
     ----------
     name : str
         Logical name of the resource as declared in the config or an alias.
-    database : ResolvedDatabaseTarget
+    database : ResolvedDatabase
         Resolved primary database target for this resource.
-    vocab_database : ResolvedDatabaseTarget
+    vocab_database : ResolvedDatabase
         Resolved vocabulary database target for this resource. May be the same as
         *database* if no separate vocab database is configured.
     cdm_schema : str
@@ -88,13 +108,13 @@ class ResolvedResource:
     """
 
     name: str
-    database: ResolvedDatabaseTarget
-    vocab_database: ResolvedDatabaseTarget
+    database: ResolvedDatabase
+    vocab_database: ResolvedDatabase
     cdm_schema: str
     vocab_schema: str
     results_schema: str | None
 
-    def database_target(self, role: Literal["primary", "vocab"] = "primary") -> ResolvedDatabaseTarget:
+    def database_target(self, role: Literal["primary", "vocab"] = "primary") -> ResolvedDatabase:
         """Return the resolved database target for a given role.
 
         Parameters
@@ -106,7 +126,7 @@ class ResolvedResource:
 
         Returns
         -------
-        ResolvedDatabaseTarget
+        ResolvedDatabase
             The concrete database target for *role*.
 
         Raises
@@ -255,15 +275,10 @@ class ResolvedToolConfig:
     """Resolved tool section with raw extra dict for PackageConfigBase consumption."""
 
     name: str
-    default_resource: str | None
     extra: dict[str, Any]
 
     def __repr__(self) -> str:
-        return (
-            f"ResolvedToolConfig(name={self.name!r}, "
-            f"default_resource={self.default_resource!r}, "
-            f"extra_keys={sorted(self.extra)!r})"
-        )
+        return f"ResolvedToolConfig(name={self.name!r}, extra_keys={sorted(self.extra)!r})"
 
 
 class Resolver:
@@ -272,13 +287,13 @@ class Resolver:
     def __init__(self, config: StackConfig) -> None:
         self.config = config
 
-    def resolve_database(self, name: str) -> ResolvedDatabaseTarget:
+    def resolve_database(self, name: str) -> ResolvedDatabase:
         """Resolve a database name to a concrete target.
 
         Profile overlay databases take precedence over base databases.
         """
         db = self.effective_database(name)
-        target = ResolvedDatabaseTarget(
+        target = ResolvedDatabase(
             name=name,
             url=db.build_url(),
             safe_url=db.safe_url(),
@@ -319,15 +334,14 @@ class Resolver:
     def resolve_resource(self, name: str) -> ResolvedResource:
         """Resolve a resource name to a concrete bundle of DB targets and schemas.
 
-        Applies profile overlays and resource aliases. The vocab DB falls back
-        to the primary DB when not explicitly configured; the vocab schema falls
-        back to the CDM schema under the same condition.
+        Applies profile overlays. The vocab DB falls back to the primary DB
+        when not explicitly configured; the vocab schema falls back to the
+        CDM schema under the same condition.
 
         Parameters
         ----------
         name : str
-            Resource name or alias as declared in ``[resources]`` or
-            ``[resource_aliases]``.
+            Resource name as declared in ``[resources]`` or a profile overlay.
 
         Returns
         -------
@@ -367,9 +381,7 @@ class Resolver:
 
         Applies profile overlays. The unit consuming packages use directly:
         a package's own config just names an entry here (e.g.
-        ``embedding_model = "embed-default"``), the same way
-        ``default_resource`` names a :class:`~oa_configurator.models.ResourceConfig`
-        entry.
+        ``embedding_model_name = "embed-default"``).
 
         Parameters
         ----------
@@ -412,8 +424,8 @@ class Resolver:
         Returns
         -------
         ResolvedToolConfig
-            Resolved config with the raw extra dict intact for consumption
-            by ``PackageConfigBase.from_stack``.
+            Resolved config with the raw extra dict intact. Prefer
+            :meth:`resolve_package_config` for the typed, validated equivalent.
 
         Raises
         ------
@@ -421,13 +433,75 @@ class Resolver:
             If *name* does not exist in the config.
         """
         tool = self._effective_tool(name)
-        resolved = ResolvedToolConfig(
-            name=name,
-            default_resource=tool.default_resource,
-            extra=dict(tool.extra),
-        )
-        logger.debug("Resolved tool %r with default_resource=%r", name, resolved.default_resource)
+        resolved = ResolvedToolConfig(name=name, extra=dict(tool.extra))
+        logger.debug("Resolved tool %r with %d extra key(s)", name, len(resolved.extra))
         return resolved
+
+    def resolve_package_config(self, cls: type[TConfig]) -> TConfig:
+        """Resolve and validate a package's own typed ``[tools.<name>]`` section.
+
+        Profile-aware (checks the active profile's tool overlay first, the
+        same ``_effective_tool`` machinery every other ``resolve_*`` method
+        already uses), replacing ``PackageConfigBase.from_stack()``'s
+        previous independent, profile-unaware lookup. Validates that every
+        entry in ``cls.required_resources`` is configured before
+        instantiating -- unlike :meth:`resolve_tool`, a missing tool section
+        is not an error here, since a package's own fields may all have
+        usable defaults even before ``omop-config configure`` has been run.
+
+        Parameters
+        ----------
+        cls : type[PackageConfigBase]
+            The package's ``PackageConfigBase`` subclass to resolve.
+
+        Returns
+        -------
+        PackageConfigBase
+            An instance of *cls* validated from its ``[tools.<name>]``
+            section (or an empty dict, if not yet configured).
+
+        Raises
+        ------
+        ConfigurationError
+            If an entry in ``cls.required_resources`` is not configured.
+        """
+        profile = self._active_profile()
+        if profile and cls.tool_name in profile.tools:
+            tool = profile.tools[cls.tool_name]
+        else:
+            tool = self.config.tools.get(cls.tool_name)
+
+        available = self.effective_resource_names()
+        for item in cls.required_resources:
+            name = _resource_ref_name(item)
+            if name not in available:
+                owner_tool = _resource_ref_owner_tool_name(item, cls)
+                raise ConfigurationError(
+                    f"{cls.__name__} requires resource {name!r} but it is not configured.\n"
+                    f"Available: {sorted(available) or '(none)'}\n"
+                    f"Run 'omop-config configure {owner_tool}' to set it up."
+                )
+
+        return cls.model_validate(tool.extra if tool is not None else {})
+
+    def resolve_engine(self, resource: "ResourceRef | ResourceSpec | str", **kwargs: Any) -> Engine:
+        """Resolve a resource -- owned directly or consumed from another package -- into an engine.
+
+        Parameters
+        ----------
+        resource : ResourceRef | ResourceSpec | str
+            A ``ResourceRef`` (a resource owned by another package), a
+            ``ResourceSpec`` (owned by the caller's own package), or a bare
+            resource name. No zero-argument defaulting: the resource must be
+            named explicitly.
+        **kwargs
+            Forwarded to :meth:`ResolvedResource.create_engine`.
+
+        Returns
+        -------
+        sqlalchemy.engine.Engine
+        """
+        return self.resolve_resource(_resource_ref_name(resource)).create_engine(**kwargs)
 
     def with_overrides(
         self,
@@ -450,7 +524,6 @@ class Resolver:
             providers={**self.config.providers, **(providers or {})},
             models={**self.config.models, **(models or {})},
             tools={**self.config.tools, **(tools or {})},
-            resource_aliases=self.config.resource_aliases,
             logging=self.config.logging,
         )
         if self.config.loaded_path is not None:
@@ -464,6 +537,22 @@ class Resolver:
     def resource_names(self) -> tuple[str, ...]:
         """Return a sorted tuple of configured resource names."""
         return self.config.resource_names()
+
+    def effective_resource_names(self) -> frozenset[str]:
+        """Return resource names available under the active profile.
+
+        Union of base ``[resources]`` and the active profile's resource
+        overlay, if any. The single canonical way to check "is this resource
+        configured" -- used by :meth:`resolve_package_config`'s
+        ``required_resources`` validation, and by consumers that need the
+        same check outside a tool's own config (e.g. an optional
+        cross-package resource that isn't declared as required).
+        """
+        names = set(self.config.resource_names())
+        profile = self._active_profile()
+        if profile:
+            names |= set(profile.resources)
+        return frozenset(names)
 
     def provider_names(self) -> tuple[str, ...]:
         """Return a sorted tuple of configured provider names."""
@@ -490,6 +579,17 @@ class Resolver:
             return None
         return self.config.profiles.get(self.config.active_profile)
 
+    def _effective(self, name: str, *, profile_dict: dict[str, T] | None, base_dict: dict[str, T], kind: str) -> T:
+        """Resolve a name against a profile overlay dict first, then the base dict.
+
+        Shared lookup shared by every effective_*/_effective_* method below
+        (database, resource, provider, model, tool) -- they differ only in
+        which two dicts and which label to use, not in the lookup logic.
+        """
+        if profile_dict and name in profile_dict:
+            return profile_dict[name]
+        return _get_named(base_dict, kind, name)
+
     def effective_database(self, name: str) -> DatabaseConfig:
         """Return the active DatabaseConfig for a database name.
 
@@ -514,16 +614,15 @@ class Resolver:
             If *name* does not exist in the base config or the active profile.
         """
         profile = self._active_profile()
-        if profile and name in profile.databases:
-            return profile.databases[name]
-        return _get_named(self.config.databases, "database", name)
+        return self._effective(
+            name, profile_dict=profile.databases if profile else None, base_dict=self.config.databases, kind="database"
+        )
 
     def _effective_resource(self, name: str) -> ResourceConfig:
         profile = self._active_profile()
-        actual_name = self.config.resource_aliases.get(name, name)
-        if profile and actual_name in profile.resources:
-            return profile.resources[actual_name]
-        return _get_named(self.config.resources, "resource", actual_name)
+        return self._effective(
+            name, profile_dict=profile.resources if profile else None, base_dict=self.config.resources, kind="resource"
+        )
 
     def effective_provider(self, name: str) -> ProviderConfig:
         """Return the active ProviderConfig for a provider name.
@@ -548,21 +647,21 @@ class Resolver:
             If *name* does not exist in the base config or the active profile.
         """
         profile = self._active_profile()
-        if profile and name in profile.providers:
-            return profile.providers[name]
-        return _get_named(self.config.providers, "provider", name)
+        return self._effective(
+            name, profile_dict=profile.providers if profile else None, base_dict=self.config.providers, kind="provider"
+        )
 
     def _effective_model(self, name: str) -> ModelConfig:
         profile = self._active_profile()
-        if profile and name in profile.models:
-            return profile.models[name]
-        return _get_named(self.config.models, "model", name)
+        return self._effective(
+            name, profile_dict=profile.models if profile else None, base_dict=self.config.models, kind="model"
+        )
 
     def _effective_tool(self, name: str) -> ToolConfig:
         profile = self._active_profile()
-        if profile and name in profile.tools:
-            return profile.tools[name]
-        return _get_named(self.config.tools, "tool", name)
+        return self._effective(
+            name, profile_dict=profile.tools if profile else None, base_dict=self.config.tools, kind="tool"
+        )
 
     @classmethod
     def from_active_config(cls) -> Resolver:

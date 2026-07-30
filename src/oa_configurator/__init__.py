@@ -26,10 +26,10 @@ from .models import (
     StackConfig,
     ToolConfig,
 )
-from .package_base import ConfigurationError, PackageConfigBase, ResourceSpec
+from .package_base import ConfigurationError, ModelFieldSpec, PackageConfigBase, ResourceRef, ResourceSpec
 from .resolver import (
     Resolver,
-    ResolvedDatabaseTarget,
+    ResolvedDatabase,
     ResolvedModel,
     ResolvedProvider,
     ResolvedResource,
@@ -55,14 +55,16 @@ __all__ = [
     "DatabaseConfig",
     "LoggingConfig",
     "ModelConfig",
+    "ModelFieldSpec",
     "RedactingFormatter",
     "PackageConfigBase",
     "ProviderConfig",
+    "ResourceRef",
     "ResourceSpec",
     "ProfileOverrideConfig",
     "ResourceConfig",
     "Resolver",
-    "ResolvedDatabaseTarget",
+    "ResolvedDatabase",
     "ResolvedModel",
     "ResolvedProvider",
     "ResolvedResource",

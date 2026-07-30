@@ -18,9 +18,9 @@ from rich.table import Table
 from .io import patch_active_profile, save_stack_config, write_env_file
 from .loader import CONFIG_PATH, load_stack_config
 from .logging_config import configure_logging
-from .models import DatabaseConfig, ResourceConfig, StackConfig, ToolConfig
-from .package_base import ConfigurationError, ResourceSpec
-from .resolver import Resolver
+from .models import DatabaseConfig, ModelConfig, ProviderConfig, ResourceConfig, StackConfig, ToolConfig
+from .package_base import ConfigurationError, ModelFieldSpec, ResourceSpec
+from .resolver import Resolver, _resource_ref_name, _resource_ref_owner_tool_name
 from .cli_fields import (
     CDM_SCHEMA_FIELDS,
     DATABASE_LABEL_FIELDS,
@@ -93,8 +93,7 @@ def _resolve_resource(
     non_interactive = flags is not None
     flags = flags or {}
     resource_name = semantic_name_override or spec.semantic_name
-    resolved = config.resource_aliases.get(resource_name, resource_name)
-    existing = config.resources.get(resolved)
+    existing = config.resources.get(resource_name)
 
     declined = False
     if existing and not non_interactive:
@@ -235,10 +234,12 @@ def _resolve_extra_fields(
         Resolved extra field values, keyed by field name.
     """
     try:
-        current = cls.from_stack(config)
+        current = Resolver(config).resolve_package_config(cls)
         current_dict = current.to_extra_dict()
     except ConfigurationError:
         current_dict = {}
+
+    model_field_specs = {s.field_name: s for s in cls.referenced_models}
 
     extra: dict = {}
     for field_name, field_info in cls.model_fields.items():
@@ -248,6 +249,10 @@ def _resolve_extra_fields(
             extra[field_name] = set_dict[field_name]
         elif field_name in current_dict:
             extra[field_name] = current_dict[field_name]
+        elif interactive and field_name in model_field_specs:
+            resolved_name = _resolve_model_field(model_field_specs[field_name], config)
+            if resolved_name:
+                extra[field_name] = resolved_name
         elif interactive:
             desc = field_info.description or ""
             label = f"{field_name}" + (f"  ({desc})" if desc else "")
@@ -410,44 +415,23 @@ def _run_configure_package(
             config.resources[save_name] = new_resource
 
     owned_names = {spec.semantic_name for spec in cls.owned_resources}
-    for rname in cls.required_resources:
+    for item in cls.required_resources:
+        rname = _resource_ref_name(item)
         if rname in owned_names:
             continue
-        resolved_rname = config.resource_aliases.get(rname, rname)
-        if resolved_rname not in config.resources:
+        if rname not in config.resources:
+            owner_tool = _resource_ref_owner_tool_name(item, cls)
             console.print(
                 f"\n[yellow]Warning:[/yellow] Required resource {rname!r} is not configured. "
-                f"It may be provided by another package. Run that package's configure command."
+                f"It is provided by the {owner_tool!r} package. "
+                f"Run: omop-config configure {owner_tool}"
             )
 
     extra = _resolve_extra_fields(
         cls, config, set_dict=set_dict, interactive=flags_arg is None and not any_explicit_flags
     )
 
-    existing_tool = config.tools.get(tool_name)
-    existing_default = existing_tool.default_resource if existing_tool else None
-    available_resources = sorted(config.resource_names())
-    relevant_names = {s.semantic_name for s in cls.owned_resources} | set(cls.required_resources)
-    if resource_name:
-        relevant_names.add(resource_name)
-    relevant_resources = [r for r in available_resources if r in relevant_names]
-
-    if len(relevant_resources) > 1 and flags_arg is None and not any_explicit_flags:
-        console.print(f"\n[dim]Available resources for this package: {', '.join(relevant_resources)}[/dim]")
-        prompt_default = resource_name or existing_default or relevant_resources[0]
-        new_default_resource = (
-            typer.prompt(
-                "Default resource  (which resource should this package use)",
-                default=prompt_default,
-            )
-            or None
-        )
-    elif len(relevant_resources) > 1:
-        new_default_resource = resource_name or existing_default or relevant_resources[0]
-    else:
-        new_default_resource = existing_default or (relevant_resources[0] if relevant_resources else None)
-
-    config.tools[tool_name] = ToolConfig(default_resource=new_default_resource, extra=extra)
+    config.tools[tool_name] = ToolConfig(extra=extra)
     save_stack_config(config)
     console.print(f"\n[green]✓[/green] Saved \\[tools.{tool_name}] to [dim]{CONFIG_PATH}[/dim]")
 
@@ -706,28 +690,31 @@ app.add_typer(providers_app, name="providers")
 app.add_typer(models_app, name="models")
 
 
-@providers_app.command("add")
-def providers_add(
-    name: Annotated[str, typer.Argument(help="Provider entry name, e.g. 'ollama-local'.")],
-    provider: Annotated[str | None, typer.Option(help=FS_PROVIDER_KEY.label)] = None,
-    base_url: Annotated[str | None, typer.Option(help=FS_BASE_URL.label)] = None,
-    api_key: Annotated[str | None, typer.Option(help=FS_API_KEY.label)] = None,
-) -> None:
-    r"""Add or update a \[providers.<name>] entry. Prompts for any field not given as a flag."""
-    try:
-        config = load_stack_config()
-    except FileNotFoundError:
-        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        config = StackConfig()
+def _resolve_provider_entry(
+    name: str,
+    config: StackConfig,
+    *,
+    flags: dict[str, str] | None = None,
+    prefill: dict[str, str] | None = None,
+) -> ProviderConfig:
+    """Resolve one [providers.<name>] entry: flags (non-interactive) or stored-then-prompt.
 
-    flags = {
-        k: v
-        for k, v in {"provider": provider, "base_url": base_url, "api_key": api_key}.items()
-        if v is not None
-    }
-    non_interactive = bool(flags)
+    Shared by the standalone `providers add` command and `_resolve_model_field`'s
+    nested recursion into providers.
+
+    Parameters
+    ----------
+    prefill : dict[str, str], optional
+        Values to silently apply without prompting (e.g. a provider chosen a
+        step earlier), merged into the "already known" tier alongside any
+        stored config for an existing entry. Does not affect non_interactive.
+    """
+    non_interactive = flags is not None
+    flags = flags or {}
     existing = config.providers.get(name)
     stored = {k: str(v) if v is not None else "" for k, v in existing.model_dump().items()} if existing else {}
+    if prefill:
+        stored.update(prefill)
 
     if not non_interactive:
         console.print(f"\n[bold]Provider: {name}[/bold]")
@@ -746,7 +733,30 @@ def providers_add(
         err_console.print(f"[red bold]Missing required field(s):[/red bold] {', '.join(missing_required)}")
         raise typer.Exit(1)
 
-    config.providers[name] = build_provider_config(values)
+    return build_provider_config(values)
+
+
+@providers_app.command("add")
+def providers_add(
+    name: Annotated[str, typer.Argument(help="Provider entry name, e.g. 'ollama-local'.")],
+    provider: Annotated[str | None, typer.Option(help=FS_PROVIDER_KEY.label)] = None,
+    base_url: Annotated[str | None, typer.Option(help=FS_BASE_URL.label)] = None,
+    api_key: Annotated[str | None, typer.Option(help=FS_API_KEY.label)] = None,
+) -> None:
+    r"""Add or update a \[providers.<name>] entry. Prompts for any field not given as a flag."""
+    try:
+        config = load_stack_config()
+    except FileNotFoundError:
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        config = StackConfig()
+
+    flags = {
+        k: v
+        for k, v in {"provider": provider, "base_url": base_url, "api_key": api_key}.items()
+        if v is not None
+    } or None
+
+    config.providers[name] = _resolve_provider_entry(name, config, flags=flags)
     save_stack_config(config)
     console.print(f"[green]✓[/green] Saved \\[providers.{name}] to [dim]{CONFIG_PATH}[/dim]")
 
@@ -771,36 +781,24 @@ def providers_list() -> None:
     console.print(table)
 
 
-@models_app.command("add")
-def models_add(
-    name: Annotated[str, typer.Argument(help="Model entry name, e.g. 'nomic-embed'.")],
-    provider: Annotated[str | None, typer.Option(help=FS_MODEL_PROVIDER_REF.label)] = None,
-    model: Annotated[str | None, typer.Option(help=FS_MODEL_NAME.label)] = None,
-    embedding_dim: Annotated[str | None, typer.Option(help=FS_EMBEDDING_DIM.label)] = None,
-    document_prefix: Annotated[str | None, typer.Option(help=FS_DOCUMENT_PREFIX.label)] = None,
-    query_prefix: Annotated[str | None, typer.Option(help=FS_QUERY_PREFIX.label)] = None,
-) -> None:
-    r"""Add or update a \[models.<name>] entry. Prompts for any field not given as a flag."""
-    try:
-        config = load_stack_config()
-    except FileNotFoundError:
-        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        config = StackConfig()
+def _resolve_model_entry(
+    name: str,
+    config: StackConfig,
+    *,
+    flags: dict[str, str] | None = None,
+    prefill: dict[str, str] | None = None,
+) -> ModelConfig:
+    """Resolve one [models.<name>] entry: flags (non-interactive) or stored-then-prompt.
 
-    flags = {
-        k: v
-        for k, v in {
-            "provider": provider,
-            "model": model,
-            "embedding_dim": embedding_dim,
-            "document_prefix": document_prefix,
-            "query_prefix": query_prefix,
-        }.items()
-        if v is not None
-    }
-    non_interactive = bool(flags)
+    Shared by the standalone `models add` command and `_resolve_model_field`.
+    See `_resolve_provider_entry` for the `prefill` parameter's semantics.
+    """
+    non_interactive = flags is not None
+    flags = flags or {}
     existing = config.models.get(name)
     stored = {k: str(v) if v is not None else "" for k, v in existing.model_dump().items()} if existing else {}
+    if prefill:
+        stored.update(prefill)
 
     if not non_interactive:
         console.print(f"\n[bold]Model: {name}[/bold]")
@@ -831,9 +829,89 @@ def models_add(
 
     new_model = build_model_config(values)
     new_model.configuration = existing.configuration if existing else {}
-    config.models[name] = new_model
+    return new_model
+
+
+@models_app.command("add")
+def models_add(
+    name: Annotated[str, typer.Argument(help="Model entry name, e.g. 'nomic-embed'.")],
+    provider: Annotated[str | None, typer.Option(help=FS_MODEL_PROVIDER_REF.label)] = None,
+    model: Annotated[str | None, typer.Option(help=FS_MODEL_NAME.label)] = None,
+    embedding_dim: Annotated[str | None, typer.Option(help=FS_EMBEDDING_DIM.label)] = None,
+    document_prefix: Annotated[str | None, typer.Option(help=FS_DOCUMENT_PREFIX.label)] = None,
+    query_prefix: Annotated[str | None, typer.Option(help=FS_QUERY_PREFIX.label)] = None,
+) -> None:
+    r"""Add or update a \[models.<name>] entry. Prompts for any field not given as a flag."""
+    try:
+        config = load_stack_config()
+    except FileNotFoundError:
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        config = StackConfig()
+
+    flags = {
+        k: v
+        for k, v in {
+            "provider": provider,
+            "model": model,
+            "embedding_dim": embedding_dim,
+            "document_prefix": document_prefix,
+            "query_prefix": query_prefix,
+        }.items()
+        if v is not None
+    } or None
+
+    config.models[name] = _resolve_model_entry(name, config, flags=flags)
     save_stack_config(config)
     console.print(f"[green]✓[/green] Saved \\[models.{name}] to [dim]{CONFIG_PATH}[/dim]")
+
+
+def _resolve_model_field(spec: ModelFieldSpec, config: StackConfig) -> str | None:
+    """Resolve a ModelFieldSpec field to a [models.*] entry name, interactively.
+
+    Mirrors `_resolve_resource`'s reuse-or-create shape, one level deeper:
+    offers reuse of an existing [models.*] entry, or creates one on the spot,
+    recursing into [providers.*] the same way when the chosen provider
+    doesn't exist yet either. Mutates `config.providers`/`config.models` in
+    place; the caller (`_run_configure_package`) persists everything in one
+    combined `save_stack_config` call, same as it already does for resources.
+    """
+    console.print(f"\n[bold]{spec.display_name}[/bold]")
+    console.print(f"[dim]{spec.description}[/dim]")
+
+    choice = "new"
+    if config.models:
+        candidates = sorted(config.models)
+        console.print(f"  Configured models: {', '.join(candidates)}")
+        choice = typer.prompt("  Point to an existing model, or 'new' to create one", default=candidates[0])
+        if choice != "new" and choice in config.models:
+            return choice
+    else:
+        console.print("  No models configured yet.")
+
+    name = typer.prompt("  New model entry name (e.g. 'embedding-default')") if choice == "new" else choice
+
+    provider_choice = "new"
+    if config.providers:
+        provider_candidates = sorted(config.providers)
+        console.print(f"  Configured providers: {', '.join(provider_candidates)}")
+        provider_choice = typer.prompt(
+            "  Point to an existing provider, or 'new' to create one", default=provider_candidates[0]
+        )
+    else:
+        console.print("  No providers configured yet.")
+
+    if provider_choice == "new" or provider_choice not in config.providers:
+        provider_name = (
+            typer.prompt("  New provider entry name (e.g. 'ollama-local')")
+            if provider_choice == "new"
+            else provider_choice
+        )
+        config.providers[provider_name] = _resolve_provider_entry(provider_name, config)
+    else:
+        provider_name = provider_choice
+
+    config.models[name] = _resolve_model_entry(name, config, prefill={"provider": provider_name})
+    return name
 
 
 @models_app.command("list")

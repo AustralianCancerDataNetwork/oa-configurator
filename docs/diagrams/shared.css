@@ -1,0 +1,159 @@
+/* Shared tokens and components for oa-configurator's docs diagrams. */
+
+:root {
+  --bg: #f6f6fb;
+  --ink: #191b29;
+  --ink-muted: #6c6f83;
+  --border: #e2e3ec;
+  --surface: #ffffff;
+
+  --py: #4f46e5;
+  --py-tint: #eef0fd;
+  --toml: #b4530a;
+  --toml-tint: #fdf1e4;
+  --resolved: #0f9d6e;
+  --resolved-tint: #e7f7f0;
+
+  --grp-resource: #2f6fb0;
+  --grp-resource-tint: #eef4fb;
+  --grp-model: #a03f7d;
+  --grp-model-tint: #faeef5;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14151d;
+    --ink: #eceefb;
+    --ink-muted: #9497ad;
+    --border: #2c2e3d;
+    --surface: #1b1c27;
+
+    --py: #a9a2ff;
+    --py-tint: #24243a;
+    --toml: #f0a862;
+    --toml-tint: #2c2418;
+    --resolved: #4fd39c;
+    --resolved-tint: #16281f;
+
+    --grp-resource: #7fb2e8;
+    --grp-resource-tint: #1b2532;
+    --grp-model: #e69bc4;
+    --grp-model-tint: #2b1e26;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  padding: 1.25rem;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.3rem;
+  margin: 0 0 1.25rem;
+  font-size: 0.78rem;
+  color: var(--ink-muted);
+}
+.legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+.swatch { width: 0.65rem; height: 0.65rem; border-radius: 3px; display: inline-block; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(20, 20, 40, 0.04);
+}
+
+.card-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  border-bottom: 1px solid var(--border);
+}
+.card-head .name {
+  padding: 0.5rem 0.8rem;
+  font: 700 0.82rem/1.2 ui-monospace, "SF Mono", Menlo, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.card-head .py-name { color: var(--py); background: var(--py-tint); }
+.card-head .toml-name { color: var(--toml); background: var(--toml-tint); text-align: right; }
+
+.card-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  font: 0.8rem/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+}
+.field { display: contents; }
+.py-cell, .toml-cell {
+  padding: 0.4rem 0.8rem;
+  border-top: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.field:first-child .py-cell,
+.field:first-child .toml-cell { border-top: none; }
+.py-cell { background: var(--py-tint); border-right: 1px solid var(--border); color: var(--ink); }
+.toml-cell { background: var(--toml-tint); color: var(--ink); }
+
+.attr .type { color: var(--ink-muted); }
+.attr.linked { color: var(--py); font-weight: 700; }
+.toml-cell .k { color: var(--ink-muted); }
+.toml-cell .v.linked { color: var(--toml); font-weight: 700; }
+.toml-cell .placeholder { color: var(--ink-muted); font-style: italic; }
+
+.connector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.5rem 0;
+}
+.connector .stem {
+  width: 2px;
+  height: 0.9rem;
+  background: var(--ink-muted);
+}
+.connector .label {
+  font: 600 0.7rem/1.2 ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+}
+.connector .arrowhead {
+  width: 0; height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 7px solid var(--ink-muted);
+  margin-top: -1px;
+}
+.connector.resolve .stem { background: var(--resolved); }
+.connector.resolve .arrowhead { border-top-color: var(--resolved); }
+.connector.resolve .label { color: var(--resolved); border-color: var(--resolved); }
+
+.resolved-card {
+  background: var(--resolved-tint);
+  border: 1px solid var(--resolved);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.resolved-card .name {
+  padding: 0.5rem 0.8rem;
+  font: 700 0.82rem/1.2 ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--resolved);
+  border-bottom: 1px solid var(--border);
+}
+.resolved-card .body {
+  padding: 0.5rem 0.8rem;
+  font: 0.8rem/1.6 ui-monospace, "SF Mono", Menlo, monospace;
+}
+.resolved-card .body .type { color: var(--ink-muted); }

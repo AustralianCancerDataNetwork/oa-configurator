@@ -12,9 +12,9 @@ The `Resolver` turns logical names in a `StackConfig` into concrete typed handle
 
 ::: oa_configurator.resolver.ResolvedResource
 
-### ResolvedDatabaseTarget
+### ResolvedDatabase
 
-::: oa_configurator.resolver.ResolvedDatabaseTarget
+::: oa_configurator.resolver.ResolvedDatabase
 
 ### ResolvedProvider
 

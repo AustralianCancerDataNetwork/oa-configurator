@@ -10,7 +10,7 @@ A shared configuration layer for the OMOP-oriented Python stack.
 - **Connection**: A concrete database endpoint (host, dialect, credentials)
 - **Resource**:  A logical role bundle, e.g. primary OMOP CDM DB, embedding DB, artficat paths
 - **Profile**: A named environment (e.g. `local`, `prod`) that patches resources and tools
-- **Tool**:  Per-tool defaults, e.g. backend, default resource, storage roots
+- **Tool**:  Per-tool settings, e.g. backend, storage roots
 - **Logging**: One call configures consistent log output for the entire OMOP Python stack
 
 !!! info
@@ -26,7 +26,7 @@ A shared configuration layer for the OMOP-oriented Python stack.
     config = load_stack_config()                        # reads CONFIG_PATH (default ~/.config/omop/config.toml)
     resolver = Resolver(config)
 
-    resource = resolver.resolve_resource("default")
+    resource = resolver.resolve_resource("cdm")
     engine   = resource.create_engine()                # SQLAlchemy Engine, schema_translate_map applied
     ```
 
@@ -38,9 +38,9 @@ A shared configuration layer for the OMOP-oriented Python stack.
     config = StackConfig.for_session(
         databases={"local": DatabaseConfig(dialect="postgresql", host="localhost",
                                            database_name="omop", password="omop")},
-        resources={"default": ResourceConfig(database="local", cdm_schema="cdm")},
+        resources={"cdm": ResourceConfig(database="local", cdm_schema="omop")},
     )
-    engine = Resolver(config).resolve_resource("default").create_engine()
+    engine = Resolver(config).resolve_resource("cdm").create_engine()
     ```
 
 === "Session override"
@@ -53,9 +53,9 @@ A shared configuration layer for the OMOP-oriented Python stack.
         Resolver(load_stack_config())
         .with_overrides(
             databases={"local": DatabaseConfig(dialect="sqlite", database_name="/data/local.db")},
-            resources={"default": ResourceConfig(database="local", cdm_schema="omop")},
+            resources={"cdm": ResourceConfig(database="local", cdm_schema="omop")},
         )
-        .resolve_resource("default")
+        .resolve_resource("cdm")
         .create_engine()
     )
     ```

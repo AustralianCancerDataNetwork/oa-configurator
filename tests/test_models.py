@@ -75,7 +75,6 @@ class TestResourceConfig:
 class TestToolConfig:
     def test_defaults(self):
         t = ToolConfig()
-        assert t.default_resource is None
         assert t.extra == {}
 
     def test_extra_accepts_any_values(self):
@@ -102,14 +101,6 @@ class TestStackConfig:
             StackConfig.for_session(
                 databases={},
                 resources={"r": ResourceConfig(database="missing", cdm_schema="s")},
-            )
-
-    def test_cross_ref_validation_unknown_resource_in_tool(self):
-        with pytest.raises(ValueError, match="unknown resource"):
-            StackConfig.for_session(
-                databases={"c": DatabaseConfig(dialect="sqlite")},
-                resources={},
-                tools={"t": ToolConfig(default_resource="missing")},
             )
 
     def test_cross_ref_validation_vocab_database(self):

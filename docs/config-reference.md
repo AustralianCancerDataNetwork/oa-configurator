@@ -69,7 +69,7 @@ A resource maps logical OMOP CDM roles to named connections and schema names.
 ### Example: all in one schema
 
 ```toml
-[resources.default]
+[resources.cdm]
 database   = "cdm"
 cdm_schema = "omop"
 ```
@@ -77,7 +77,7 @@ cdm_schema = "omop"
 ### Example: separate vocab and results schemas
 
 ```toml
-[resources.default]
+[resources.cdm]
 database       = "cdm"
 cdm_schema     = "omop"
 vocab_schema   = "omop_vocab"
@@ -87,7 +87,7 @@ results_schema = "results"
 ### Example vocabulary on a separate server
 
 ```toml
-[resources.default]
+[resources.cdm]
 database      = "cdm"
 vocab_database = "central_vocab"
 cdm_schema    = "omop"
@@ -115,7 +115,7 @@ base_url = "http://localhost:11434"
 
 ## `[models.<name>]`
 
-A named, reusable, concretely-configured model, served through a `[providers.*]` entry. Consuming packages reference it by name (e.g. an `embedding_model` field on their own `[tools.*]` extra just names an entry here). Managed via `omop-config models add <name>` / `omop-config models list`, or hand-edited.
+A named, reusable, concretely-configured model, served through a `[providers.*]` entry. Consuming packages reference it by name (e.g. an `embedding_model_name` field on their own `[tools.*]` extra just names an entry here). Managed via `omop-config models add <name>` / `omop-config models list`, or hand-edited.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -146,15 +146,11 @@ Per-package configuration. The `name` must match the package's `tool_name` class
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `default_resource` | string | `null` | Resource name this tool uses when none is specified |
 | `extra` | table | `{}` | Package-specific key/value pairs. Each package defines its own typed fields that map here. |
 
 ### Example: omop_emb
 
 ```toml
-[tools.omop_emb]
-default_resource = "default"
-
 [tools.omop_emb.extra]
 backend             = "sqlitevec"
 embedding_file_root = "/data/embeddings"
@@ -170,6 +166,8 @@ A profile overlays connections, resources, and tools over the base config when a
 |---|---|---|
 | `databases` | table | Database configs that replace base databases with the same name, or add new ones |
 | `resources` | table | Resource configs that replace base resources with the same name, or add new ones |
+| `providers` | table | Provider configs that replace base providers with the same name, or add new ones |
+| `models` | table | Model configs that replace base models with the same name, or add new ones |
 | `tools` | table | Tool configs that replace base tools with the same name, or add new ones |
 
 Profile entries use the same field definitions as the base sections above.
@@ -185,7 +183,7 @@ user          = "test_user"
 password      = "test_pass"
 database_name = "omop_test"
 
-[profiles.test.resources.default]
+[profiles.test.resources.cdm]
 database   = "cdm"
 cdm_schema = "test_omop"
 ```
@@ -196,12 +194,11 @@ Activate it: `omop-config use test` or `OA_ACTIVE_PROFILE=test`.
 
 ## `[logging]`
 
-Controls log output for `oa_configurator` and any consuming packages. Defaults to library preset (WARNING, no handler).
+Controls log output for `oa_configurator` and any consuming packages. Defaults to WARNING with no handler until `configure_logging()` is called.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `preset` | string | `"library"` | One of `library`, `notebook`, `application`, `production` |
-| `level` | string | `null` | Override the preset's level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
+| `level` | string | `null` | Override the verbosity-derived level for all OMOP loggers: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
 | `loggers` | table | `{}` | Fine-grained level overrides for specific loggers, e.g. `{"sqlalchemy.engine": "INFO"}` |
 
 See [Logging](logging.md) for full details.

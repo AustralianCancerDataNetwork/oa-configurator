@@ -145,10 +145,9 @@ class ModelConfig(BaseModel):
 
     Peer of :class:`ResourceConfig` for LLM/embedding backends instead of
     databases. The unit that consuming packages reference by name (e.g. a
-    package's ``embedding_model`` field just names an entry here, the same
-    way a package's ``default_resource`` names a :class:`ResourceConfig`
-    entry). Each entry under ``[models]`` in ``config.toml`` maps to one
-    instance of this model.
+    package's ``embedding_model_name`` field just names an entry here).
+    Each entry under ``[models]`` in ``config.toml`` maps to one instance
+    of this model.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -210,17 +209,12 @@ class ResourceConfig(BaseModel):
 class ToolConfig(BaseModel):
     """Per-package section in ``config.toml`` (``[tools.<name>]``).
 
-    ``default_resource`` names which resource this package reads from.
     ``extra`` holds the package-specific typed fields declared on the
     package's :class:`~oa_configurator.PackageConfigBase` subclass.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    default_resource: str | None = Field(
-        default=None,
-        description="Resource name this tool uses when none is specified by the caller.",
-    )
     extra: dict[str, Any] = Field(
         default_factory=dict,
         description="Package-specific key/value pairs. Each package defines its own typed fields that map here.",
@@ -300,15 +294,6 @@ class StackConfig(BaseModel):
         default_factory=dict,
         description="Named environment overlays.",
     )
-    resource_aliases: dict[str, str] = Field(
-        default_factory=dict,
-        description=(
-            "Maps semantic resource names to user-chosen resource names. "
-            "Example: cdm_db = 'my_production_cdm'; all packages that look "
-            "for 'cdm_db' automatically resolve to 'my_production_cdm'. "
-            "Alias targets must exist at the base config level, not only inside a profile."
-        ),
-    )
     logging: LoggingConfig = Field(
         default_factory=LoggingConfig,
         description="Logging configuration. Optional; defaults to WARNING level with no handler.",
@@ -322,24 +307,13 @@ class StackConfig(BaseModel):
             self._check_resource_refs(resource, self.databases, f"resources.{rname}")
         for mname, model in self.models.items():
             self._check_model_refs(model, self.providers, f"models.{mname}")
-        for tname, tool in self.tools.items():
-            self._check_tool_refs(tool, self.resources, self.resource_aliases, f"tools.{tname}")
         for pname, profile in self.profiles.items():
             effective_dbs = {**self.databases, **profile.databases}
-            effective_res = {**self.resources, **profile.resources}
             effective_providers = {**self.providers, **profile.providers}
             for rname, resource in profile.resources.items():
                 self._check_resource_refs(resource, effective_dbs, f"profiles.{pname}.resources.{rname}")
             for mname, model in profile.models.items():
                 self._check_model_refs(model, effective_providers, f"profiles.{pname}.models.{mname}")
-            for tname, tool in profile.tools.items():
-                self._check_tool_refs(tool, effective_res, self.resource_aliases, f"profiles.{pname}.tools.{tname}")
-        for alias_key, alias_target in self.resource_aliases.items():
-            if alias_target not in self.resources:
-                raise ValueError(
-                    f"resource_aliases.{alias_key!r} references unknown resource {alias_target!r}. "
-                    "Note: alias targets must exist at the base config level, not only inside a profile."
-                )
         return self
 
     @staticmethod
@@ -365,20 +339,6 @@ class StackConfig(BaseModel):
                 f"{location}.provider references unknown provider {model.provider!r}"
             )
 
-    @staticmethod
-    def _check_tool_refs(
-        tool: ToolConfig,
-        resources: dict[str, ResourceConfig],
-        resource_aliases: dict[str, str],
-        location: str,
-    ) -> None:
-        if tool.default_resource is not None:
-            effective = resource_aliases.get(tool.default_resource, tool.default_resource)
-            if effective not in resources:
-                raise ValueError(
-                    f"{location}.default_resource references unknown resource {tool.default_resource!r}"
-                )
-
     @classmethod
     def for_session(
         cls,
@@ -390,7 +350,6 @@ class StackConfig(BaseModel):
         tools: dict[str, ToolConfig] | None = None,
         profiles: dict[str, ProfileOverrideConfig] | None = None,
         active_profile: str | None = None,
-        resource_aliases: dict[str, str] | None = None,
     ) -> StackConfig:
         """Build a config in memory without a TOML file.
 
@@ -414,7 +373,6 @@ class StackConfig(BaseModel):
             models=models or {},
             tools=tools or {},
             profiles=profiles or {},
-            resource_aliases=resource_aliases or {},
         )
 
     def bind_loaded_path(self, path: Path) -> None:

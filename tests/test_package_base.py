@@ -9,6 +9,9 @@ import pytest
 from oa_configurator import (
     ConfigurationError,
     PackageConfigBase,
+    Resolver,
+    ResourceRef,
+    ResourceSpec,
     StackConfig,
     DatabaseConfig,
     ResourceConfig,
@@ -24,25 +27,25 @@ class SampleConfig(PackageConfigBase):
 
 
 class TestPackageConfigBase:
-    def test_from_stack_reads_extra(self):
+    def test_resolve_package_config_reads_extra(self):
         cfg = StackConfig.for_session(
             tools={"sample_tool": ToolConfig(extra={"backend": "custom", "file_path": "/data"})}
         )
-        sample = SampleConfig.from_stack(cfg)
+        sample = Resolver(cfg).resolve_package_config(SampleConfig)
         assert sample.backend == "custom"
         assert sample.file_path == "/data"
 
-    def test_from_stack_uses_defaults_when_tool_missing(self):
+    def test_resolve_package_config_uses_defaults_when_tool_missing(self):
         cfg = StackConfig.for_session()
-        sample = SampleConfig.from_stack(cfg)
+        sample = Resolver(cfg).resolve_package_config(SampleConfig)
         assert sample.backend == "default_backend"
         assert sample.file_path is None
 
-    def test_from_stack_uses_defaults_when_extra_empty(self):
+    def test_resolve_package_config_uses_defaults_when_extra_empty(self):
         cfg = StackConfig.for_session(
             tools={"sample_tool": ToolConfig(extra={})}
         )
-        sample = SampleConfig.from_stack(cfg)
+        sample = Resolver(cfg).resolve_package_config(SampleConfig)
         assert sample.backend == "default_backend"
 
     def test_to_extra_dict_excludes_none(self):
@@ -62,7 +65,7 @@ class TestPackageConfigBase:
         cfg = StackConfig.for_session(
             tools={"sample_tool": ToolConfig(extra=extra)}
         )
-        restored = SampleConfig.from_stack(cfg)
+        restored = Resolver(cfg).resolve_package_config(SampleConfig)
         assert restored.backend == "sqlitevec"
         assert restored.file_path == "/embeddings"
 
@@ -86,42 +89,16 @@ class TestRequiredResources:
             databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
             resources={"cdm_db": ResourceConfig(database="db", cdm_schema="main")},
         )
-        result = RequiredConfig.from_stack(cfg)
+        result = Resolver(cfg).resolve_package_config(RequiredConfig)
         assert result.value == "default_value"
 
     def test_raises_when_resource_missing(self):
         cfg = StackConfig.for_session()
         with pytest.raises(ConfigurationError) as exc_info:
-            RequiredConfig.from_stack(cfg)
+            Resolver(cfg).resolve_package_config(RequiredConfig)
         msg = str(exc_info.value)
         assert "cdm_db" in msg
         assert "omop-config configure required_tool" in msg
-
-    def test_raises_includes_alias_hint(self):
-        cfg = StackConfig.for_session()
-        with pytest.raises(ConfigurationError) as exc_info:
-            RequiredConfig.from_stack(cfg)
-        msg = str(exc_info.value)
-        assert "[resource_aliases]" in msg
-        assert 'cdm_db = "your-resource-name"' in msg
-
-    def test_passes_when_resource_aliased(self):
-        cfg = StackConfig.for_session(
-            databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"my_prod": ResourceConfig(database="db", cdm_schema="main")},
-            resource_aliases={"cdm_db": "my_prod"},
-        )
-        result = RequiredConfig.from_stack(cfg)
-        assert result.value == "default_value"
-
-    def test_respects_default_resource_override(self):
-        cfg = StackConfig.for_session(
-            databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"my_custom": ResourceConfig(database="db", cdm_schema="main")},
-            tools={"required_tool": ToolConfig(default_resource="my_custom")},
-        )
-        result = RequiredConfig.from_stack(cfg)
-        assert result.value == "default_value"
 
     def test_recognises_profile_resources(self):
         cfg = StackConfig.for_session(
@@ -133,10 +110,58 @@ class TestRequiredResources:
             },
             active_profile="test",
         )
-        result = RequiredConfig.from_stack(cfg)
+        result = Resolver(cfg).resolve_package_config(RequiredConfig)
         assert result.value == "default_value"
 
     def test_empty_required_resources_always_passes(self):
         cfg = StackConfig.for_session()
-        result = SampleConfig.from_stack(cfg)
+        result = Resolver(cfg).resolve_package_config(SampleConfig)
         assert result.backend == "default_backend"
+
+
+class OwnerConfig(PackageConfigBase):
+    """Stand-in for another package that owns a resource, e.g. omop_alchemy."""
+
+    CDM_DB: ClassVar[ResourceSpec] = ResourceSpec(
+        semantic_name="cdm_db",
+        display_name="CDM Database",
+        description="Owned by OwnerConfig.",
+    )
+    tool_name: ClassVar[str] = "owner_tool"
+    owned_resources: ClassVar[tuple[ResourceSpec, ...]] = (CDM_DB,)
+
+
+class ConsumerConfig(PackageConfigBase):
+    """Stand-in for a package consuming another package's owned resource."""
+
+    tool_name: ClassVar[str] = "consumer_tool"
+    required_resources: ClassVar[tuple[ResourceRef, ...]] = (
+        ResourceRef(OwnerConfig, OwnerConfig.CDM_DB),
+    )
+
+
+class TestResourceRef:
+    def test_resolves_through_owning_package(self):
+        cfg = StackConfig.for_session(
+            databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
+            resources={"cdm_db": ResourceConfig(database="db", cdm_schema="main")},
+        )
+        result = Resolver(cfg).resolve_package_config(ConsumerConfig)
+        assert result is not None
+
+    def test_error_names_the_owning_package_not_the_consumer(self):
+        cfg = StackConfig.for_session()
+        with pytest.raises(ConfigurationError) as exc_info:
+            Resolver(cfg).resolve_package_config(ConsumerConfig)
+        msg = str(exc_info.value)
+        assert "cdm_db" in msg
+        assert "omop-config configure owner_tool" in msg
+        assert "consumer_tool" not in msg
+
+    def test_resolve_engine_accepts_resource_ref(self):
+        cfg = StackConfig.for_session(
+            databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
+            resources={"cdm_db": ResourceConfig(database="db", cdm_schema="main")},
+        )
+        engine = Resolver(cfg).resolve_engine(ResourceRef(OwnerConfig, OwnerConfig.CDM_DB))
+        assert engine is not None

@@ -1,8 +1,8 @@
 """Root config model: StackConfig and the cross-domain RefTo machinery it validates.
 
 The concrete per-domain schemas (ConnectionConfig/DatabaseConfig,
-ProviderConfig/ModelConfig) live under :mod:`oa_configurator.domains` --
-this module is the one place that needs to know about all of them at once,
+ProviderConfig/ModelConfig) live under :mod:`oa_configurator.domains`.
+This module is the one place that needs to know about all of them at once,
 to build ``_REF_SECTIONS`` and the root :class:`StackConfig`.
 """
 
@@ -39,7 +39,7 @@ def unresolved_refs(instance: BaseModel, config: StackConfig) -> list[tuple[str,
 
     One pure walk shared by every caller that needs to check this (a
     StackConfig-level validator, a resolved package config, a freshly-built
-    CLI entry before it's saved) -- each wraps the same walk with its own
+    CLI entry before it's saved). Each wraps the same walk with its own
     error type instead of re-implementing it.
     """
     problems: list[tuple[str, str, str]] = []

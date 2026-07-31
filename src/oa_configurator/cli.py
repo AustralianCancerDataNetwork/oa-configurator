@@ -5,7 +5,7 @@ subcommands and mounts each domain's own `<section> add/list` sub-app
 (domains/resources/cli.py, domains/llm/cli.py). Per-package field
 resolution/save lives on PackageConfigBase (resolve_fields/run_configure);
 the generic recursive resolution engine lives in resolver.py; shared
-`<section> add/list` plumbing lives in cli_support.py -- this module owns
+`<section> add/list` plumbing lives in cli_support.py. This module owns
 only discovery/dispatch and the handful of top-level commands
 (init/show/verify/export-env).
 """
@@ -49,7 +49,7 @@ app.add_typer(models_app, name="models")
 # ------------------
 # Dynamic configure command that discovers packages via entry points and generates a subcommand for each.
 # Per-package field resolution/save itself lives on PackageConfigBase
-# (resolve_fields/run_configure) -- this just discovers and dispatches.
+# (resolve_fields/run_configure). This part just discovers and dispatches.
 # ------------------
 
 class _DynamicConfigureGroup(TyperGroup):

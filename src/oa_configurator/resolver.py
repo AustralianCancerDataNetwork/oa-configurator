@@ -57,8 +57,8 @@ class ResolvedToolConfig:
 # Generic recursive resolution machinery: reuse an existing entry, or create
 # one on the spot, recursing into any RefTo field the entry's own schema has
 # (e.g. a new database recurses into resolving/creating its connection).
-# Domain-agnostic -- shared by cli.py's interactive commands and (via
-# PackageConfigBase.run_configure) package-field configuration alike.
+# It is domain-agnostic, shared by cli.py's interactive commands and, via
+# PackageConfigBase.run_configure, package-field configuration alike.
 # typer/rich are already unconditional oa-configurator dependencies (see
 # pyproject.toml); imported lazily inside each function body regardless, so
 # a consumer that only ever calls resolve_database()/get_engine() doesn't
@@ -77,13 +77,13 @@ def _is_flag_settable(info: Any) -> bool:
     """Whether a field can be set via a CLI flag, ``--set`` value, or
     interactive prompt/confirm at all.
 
-    Excludes dict/list fields (e.g. ModelConfig.configuration -- a
+    Excludes dict/list fields (e.g. ModelConfig.configuration, a
     free-form escape hatch with no sensible single-flag or single-line
-    representation; left to its own default_factory). Bool fields (e.g.
-    ConnectionConfig.test_only) ARE flag-settable -- as a
-    true/false/yes/no flag value, or an interactive confirm -- just never
-    through a free-text prompt (see the ``is_bool`` branch in
-    :func:`_resolve_named_entry`).
+    representation, left to its own default_factory). Bool fields (e.g.
+    ConnectionConfig.test_only) ARE flag-settable, either as a
+    true/false/yes/no flag value or through an interactive confirm. They
+    never go through a free-text prompt, though (see the ``is_bool``
+    branch in :func:`_resolve_named_entry`).
     """
     return get_origin(info.annotation) not in (dict, list) and info.annotation is not dict
 
@@ -113,10 +113,10 @@ def _check_missing_required(
 ) -> None:
     """Abort with a clear error, naming exact CLI flags, if fields are missing.
 
-    A dotted name (e.g. ``"cdm_db.connection"``, from a nested ``--set``
-    creation -- see :func:`_resolve_nested_flag_value`) is reported as a
-    ``--set path=value`` hint instead of a plain flag, since no such flag
-    exists.
+    A dotted name (e.g. ``"cdm_db.connection"``, produced by the nested
+    ``--set`` creation described in :func:`_resolve_nested_flag_value`)
+    is reported as a ``--set path=value`` hint instead of a plain flag,
+    since no such flag exists.
     """
     if not non_interactive or not missing_required:
         return
@@ -160,7 +160,7 @@ def _resolve_ref(
     is_test: bool = False,
 ) -> str | None:
     """Resolve a RefTo(target)-marked field interactively: offer reuse of an
-    existing entry in target's section, or create one on the spot -- recursing
+    existing entry in target's section, or create one on the spot, recursing
     into any RefTo fields *target* itself has.
     """
     import typer
@@ -243,18 +243,19 @@ def _resolve_nested_flag_value(
 
     Lets a non-interactive caller create a brand-new target (e.g. a
     database and the connection it points at, in the same call) instead of
-    requiring the target to already exist -- restores one-shot creation of
-    a whole reference chain from a single ``configure`` invocation.
+    requiring the target to already exist. This restores one-shot creation
+    of a whole reference chain from a single ``configure`` invocation.
 
-    *raw* may include a ``name`` key to choose the entry's name explicitly;
-    otherwise the field's own default (or *name_hint*, or the field name
+    *raw* may include a ``name`` key to choose the entry's name explicitly.
+    Otherwise the field's own default (or *name_hint*, or the field name
     itself) is used, matching the interactive wizard's own naming default.
-    An entry already saved under that name is updated -- its stored fields
-    carry over for anything *raw* doesn't mention -- not replaced outright.
+    An entry already saved under that name is updated rather than replaced
+    outright: its stored fields carry over for anything *raw* doesn't
+    mention.
 
-    Returns None (appending dotted ``field_name.subfield`` paths to
-    *missing_required* instead) when the nested entry itself is missing a
-    required field -- lets the caller report every missing field from one
+    Returns None when the nested entry itself is missing a required field,
+    appending dotted ``field_name.subfield`` paths to *missing_required*
+    instead. This lets the caller report every missing field from one
     non-interactive call in a single error, at any nesting depth.
     """
     has_default = info.default not in (None, PydanticUndefined)
@@ -285,28 +286,29 @@ def _resolve_named_entry(
     is_test: bool = False,
 ) -> BaseModel | None:
     """Resolve one entry of *target*: flag, then stored value (from
-    *existing*), then -- interactively -- a prompt seeded with the stored
-    value as its default when one exists, recursing into any RefTo field
-    via :func:`_resolve_ref`. Non-interactively, an unresolved RefTo field
-    just uses its own default; existence is validated by ``StackConfig``'s
+    *existing*), then an interactive prompt seeded with the stored value
+    as its default when one exists, recursing into any RefTo field via
+    :func:`_resolve_ref`. Non-interactively, an unresolved RefTo field just
+    uses its own default; existence is validated by ``StackConfig``'s
     cross-reference check once the entry is saved.
 
-    A RefTo field's flag value may also be a nested ``dict`` (built from
-    repeated ``--set field.subfield=value`` flags) instead of a plain
-    string -- see :func:`_resolve_nested_flag_value`. Bool fields (e.g.
+    A RefTo field's flag value may also be a nested ``dict`` instead of a
+    plain string, built from repeated ``--set field.subfield=value``
+    flags (see :func:`_resolve_nested_flag_value`). Bool fields (e.g.
     ``ConnectionConfig.test_only``) are resolved via flag, an interactive
-    ``typer.confirm``, or their own default -- never a free-text prompt.
+    ``typer.confirm``, or their own default; they never go through a
+    free-text prompt.
 
     *name_hint* and *is_test* only matter for the brand-new-entry path (no
-    *flags*, no *existing*): *name_hint* is the fallback default offered
+    *flags*, no *existing*). *name_hint* is the fallback default offered
     when recursing into a required nested ref with no default of its own
-    (e.g. a newly-named database recursing into naming its connection);
+    (e.g. a newly-named database recursing into naming its connection).
     *is_test* propagates the test-only wizard's "keep this in the test-only
     pool" choice into that same recursion, and marks a freshly-created
     :class:`ConnectionConfig` as ``test_only``.
 
     Returns None (instead of constructing *target*, which could raise) when
-    a required field is missing non-interactively -- the caller is expected
+    a required field is missing non-interactively. The caller is expected
     to check *missing_required* (e.g. via :func:`_check_missing_required`)
     before using the result.
     """
@@ -349,8 +351,8 @@ def _resolve_named_entry(
             continue
 
         if field_name == "test_only" and is_test:
-            # forced by the recursive test-database wizard -- never asked,
-            # never overridable by a stored/default value here
+            # Forced by the recursive test-database wizard. Never asked
+            # here, and never overridable by a stored or default value.
             values[field_name] = True
             continue
 
@@ -395,7 +397,8 @@ def _resolve_named_entry(
                 missing_required.append(field_name)
             elif has_default:
                 values[field_name] = info.default
-            # else: field has a default_factory (e.g. dict) -- omit, let pydantic apply it
+            # else: field has a default_factory (e.g. dict). Omit it and
+            # let pydantic apply its own default.
             continue
 
         default_value = str(stored) if stored is not None else (str(info.default) if has_default else "")
@@ -417,7 +420,7 @@ class Resolver:
 
     Thin dispatch: each ``resolve_*`` method looks up the raw config entry
     (via the matching ``get_*``) and delegates to that entry's own
-    ``.resolve()`` method -- the resolution logic itself lives on the
+    ``.resolve()`` method. The resolution logic itself lives on the
     schema classes in :mod:`oa_configurator.domains`, next to the data it
     resolves.
     """
@@ -540,8 +543,8 @@ class Resolver:
         """Resolve and validate a package's own typed ``[tools.<name>]`` section.
 
         Validates every ``RefTo``-marked field (e.g. a package's own
-        ``cdm_db``/``embedding_model_name``) resolves to a configured entry
-        -- unlike :meth:`resolve_tool`, a missing tool section itself is not
+        ``cdm_db``/``embedding_model_name``) resolves to a configured entry.
+        Unlike :meth:`resolve_tool`, a missing tool section itself is not
         an error here, since a package's own fields may all have usable
         defaults even before ``omop-config configure`` has been run.
 

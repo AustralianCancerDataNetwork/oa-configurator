@@ -36,9 +36,9 @@ def _build_entry_params(target: type[BaseModel]) -> list[Any]:
 
 def _check_entry_refs(entry: BaseModel, config: StackConfig) -> None:
     """Verify every RefTo-marked field on *entry* resolves, aborting with a
-    clear error immediately -- rather than silently saving a dangling
-    reference that would only surface as a load-time error the next time
-    anyone reads the config file.
+    clear error immediately. Otherwise a dangling reference would save
+    silently and only surface as a load-time error the next time anyone
+    reads the config file.
     """
     import typer
     from rich.console import Console

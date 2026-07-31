@@ -1,14 +1,14 @@
-"""OA_Configurator pytest plugin — auto-loaded via the ``pytest11`` entry point.
+"""OA_Configurator pytest plugin, auto-loaded via the ``pytest11`` entry point.
 
 # NOTE: This is currently pgvector heavy. A future feature request will support other backends.
 
 Provides the ``requires_database`` marker, the ``resolve_test_database`` fixture
 helper, and standalone PostgreSQL database lifecycle utilities:
 
-- ``ensure_test_db_exists(url)`` — create the target database if absent
-- ``create_fresh_test_db(url)`` — drop and recreate (used by omop-emb)
-- ``drop_test_db(url)`` — terminate connections and drop the database
-- ``require_pg_extension(url, ext)`` — skip if a required extension is absent
+- ``ensure_test_db_exists(url)``: creates the target database if absent
+- ``create_fresh_test_db(url)``: drops and recreates (used by omop-emb)
+- ``drop_test_db(url)``: terminates connections and drops the database
+- ``require_pg_extension(url, ext)``: skips if a required extension is absent
 
 All DDL-construction uses ``psycopg.sql.Identifier`` / ``Literal`` for safe
 quoting. Admin credentials are sourced from the stack config (non-test-only DB
@@ -91,7 +91,7 @@ def ensure_test_db_exists(url: str | sa.URL) -> None:
     within the database without needing CREATEDB or SUPERUSER.
 
     Falls back to the test user's own credentials when no admin DB is found.
-    Safe to call repeatedly — idempotent.
+    Safe to call repeatedly, since it is idempotent.
     """
     target = sa.engine.make_url(url)
     db_name = target.database
@@ -188,11 +188,12 @@ def ensure_test_user_exists(test_url: str | sa.URL) -> None:
     ``SET session_replication_role = 'replica'``, which requires SUPERUSER in
     PostgreSQL (no narrower privilege exists; ``ALTER TABLE ... DISABLE TRIGGER
     ALL`` has the same requirement for FK constraint triggers). CREATEDB and
-    REPLICATION are not granted — the admin creates databases.
+    REPLICATION are not granted, since the admin account is the one that
+    creates databases.
 
-    This is PostgreSQL-specific — see feature request for dialect-agnostic
-    user provisioning and the FK-bypass-without-SUPERUSER feature request for
-    the long-term fix.
+    This is PostgreSQL-specific. See the feature request for dialect-agnostic
+    user provisioning, and the FK-bypass-without-SUPERUSER feature request,
+    for the long-term fix.
     """
     target = sa.engine.make_url(test_url)
     username = target.username
@@ -237,7 +238,8 @@ def require_pg_extension(db_url: str | sa.URL, extension: str) -> None:
 
     Extensions must be pre-installed by a DBA or container init script
     (e.g. an entrypoint that runs ``CREATE EXTENSION`` as the postgres
-    superuser). This function only checks — it never creates.
+    superuser). This function only checks whether the extension is present.
+    It never creates one itself.
 
     Must be called from pytest fixture or conftest code (uses ``pytest.skip``).
     """
@@ -263,7 +265,8 @@ def require_pg_extension(db_url: str | sa.URL, extension: str) -> None:
 try:
     import pytest
 except ImportError:
-    # Not running under pytest — nothing to register, module stays importable.
+    # Not running under pytest, so there is nothing to register. The module
+    # stays importable regardless.
     pass
 else:
     from .resolver import Resolver

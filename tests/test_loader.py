@@ -24,7 +24,7 @@ from oa_configurator.stack_config import ConnectionConfig, StackConfig
 
 @pytest.fixture(autouse=True)
 def _clear_cache():
-    """Every test starts and ends with an empty process-local cache -- tests
+    """Every test starts and ends with an empty process-local cache. Tests
     must never see another test's cached entries, or leak their own."""
     invalidate_cache()
     yield
@@ -134,7 +134,7 @@ class TestLoadFromPath:
 
 class TestLoadFromPathCaching:
     """Exercises the real cache through _load_from_path, not just _ConfigCache
-    in isolation -- proves the whole read path, not just the cache class."""
+    in isolation. Proves the whole read path, not just the cache class."""
 
     def test_second_load_is_a_cache_hit(self, tmp_path, monkeypatch):
         path = _make_config_file(tmp_path)
@@ -196,7 +196,7 @@ class TestLoadFromPathCaching:
 
 class TestConfigCache:
     """Unit-level coverage of _ConfigCache itself, independent of the TOML
-    read/parse path -- isolates the deep-copy and key-matching contract."""
+    read/parse path. Isolates the deep-copy and key-matching contract."""
 
     def test_put_then_get_returns_a_deep_copy(self, tmp_path):
         path = tmp_path / "config.toml"

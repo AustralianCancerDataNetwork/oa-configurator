@@ -78,7 +78,7 @@ class TestPackageConfigBase:
 
 class DatabaseUserConfig(PackageConfigBase):
     """Stand-in for a package that needs a CDM database: a plain field, no
-    separate declaration list -- the field itself is the requirement."""
+    separate declaration list. The field itself is the requirement."""
 
     tool_name: ClassVar[str] = "database_user_tool"
     cdm_db: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"
@@ -131,7 +131,7 @@ class TestRefToPackageField:
 
 class OtherDatabaseUserConfig(PackageConfigBase):
     """A second, unrelated package whose field happens to default to the
-    same database name as DatabaseUserConfig -- no import of that class."""
+    same database name as DatabaseUserConfig. No import of that class."""
 
     tool_name: ClassVar[str] = "other_database_user_tool"
     cdm_database: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"
@@ -139,7 +139,7 @@ class OtherDatabaseUserConfig(PackageConfigBase):
 
 class TestConventionBasedSharing:
     """Two packages share a database purely by their fields' default values
-    matching -- no cross-package reference object of any kind."""
+    matching. No cross-package reference object of any kind is involved."""
 
     def test_two_packages_resolve_to_the_same_database(self):
         cfg = StackConfig.for_session(

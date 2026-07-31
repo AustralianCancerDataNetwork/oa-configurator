@@ -295,7 +295,7 @@ class TestResolveRef:
 
 class DemoConfig(PackageConfigBase):
     """Stand-in package: a required database, an opt-in test database, and
-    a plain extra field -- exercises PackageConfigBase.run_configure end to end."""
+    a plain extra field. Exercises PackageConfigBase.run_configure end to end."""
 
     tool_name: ClassVar[str] = "demo_tool"
     cdm_db: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"
@@ -331,14 +331,14 @@ class TestRunConfigurePackage:
         assert "cdm_db" in config.databases
         assert config.databases["cdm_db"].connection in config.connections
         assert config.databases["cdm_db"].cdm_schema == "omop"
-        # vocab_connection is optional -- never auto-created
+        # vocab_connection is optional, so it is never auto-created
         assert config.databases["cdm_db"].vocab_connection is None
-        # test database was declined -- not written at all
+        # test database was declined, so it was not written at all
         assert "test_cdm_db" not in config.tools["demo_tool"]
 
     def test_interactive_opts_into_test_database(self, isolated_config, monkeypatch):
         # Give the second-ever host prompt (the test database's) a distinct
-        # value, so it doesn't collide with the production one -- both would
+        # value, so it doesn't collide with the production one. Both would
         # otherwise get identical blank host/port/database_name and trip the
         # DANGER collision check, correctly, just not what this test is about.
         seen: dict[str, int] = {}
@@ -363,7 +363,7 @@ class TestRunConfigurePackage:
 
     def test_interactive_reconfigure_reprompts_with_stored_default(self, isolated_config, monkeypatch):
         """A field that's already configured must be offered for change, not
-        silently reused -- the prompt default should be the stored value,
+        silently reused. The prompt default should be the stored value,
         and a different answer should actually change it."""
         _seed(isolated_config, StackConfig.for_session(
             connections={"db": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
@@ -472,7 +472,7 @@ class TestParseSetFlags:
 
 class TestConfigureSetFlag:
     """Full CLI dispatch (not just PackageConfigBase.run_configure directly)
-    for the --set flag, via a faked entry point -- proves --set is actually
+    for the --set flag, via a faked entry point. Proves --set is actually
     wired through Click/Typer parsing, not just the underlying resolution."""
 
     def test_set_flag_creates_nested_entry_via_full_cli(self, isolated_config, monkeypatch):

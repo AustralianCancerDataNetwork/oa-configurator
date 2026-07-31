@@ -325,7 +325,7 @@ command: >
   "
 ```
 
-`cdm_db` here is the name of the package's own field (`Annotated[str, RefTo(DatabaseConfig)]`); `connection` is `DatabaseConfig`'s own field naming a `[connections.*]` entry -- the dotted path can go as deep as the reference chain does. The connection this creates is named after the database (`cdm_db`, from the field's own default), or pass `--set cdm_db.connection.name=<explicit-name>` to choose one. Prefer the three-command form above when more than one package needs to point at the same database -- `--set` creates a fresh one per call.
+`cdm_db` here is the name of the package's own field (`Annotated[str, RefTo(DatabaseConfig)]`), and `connection` is `DatabaseConfig`'s own field naming a `[connections.*]` entry. The dotted path can go as deep as the reference chain does. The connection this creates is named after the database (`cdm_db`, from the field's own default), or pass `--set cdm_db.connection.name=<explicit-name>` to choose one. Prefer the three-command form above when more than one package needs to point at the same database, since `--set` creates a fresh one per call.
 
 ### Security note
 

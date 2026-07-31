@@ -1,20 +1,20 @@
 # Migrating from 0.x to 1.0
 
-`oa-configurator` 1.0 is a breaking rewrite of the config schema and the Python/CLI surface. It was done pre-1.0, before any PyPI release depended on the old shape, so nothing here is deprecated first and removed later — it's a clean cutover. This page lists what changed and walks through migrating an existing `~/.config/omop/config.toml` by hand.
+`oa-configurator` 1.0 is a breaking rewrite of the config schema and the Python/CLI surface. It was done pre-1.0, before any PyPI release depended on the old shape, so nothing here is deprecated first and removed later. It's a clean cutover. This page lists what changed and walks through migrating an existing `~/.config/omop/config.toml` by hand.
 
 ---
 
 ## Breaking changes at a glance
 
 - **TOML sections renamed and swapped.** `[resources.*]` is now `[databases.*]`; the old `[databases.*]` (raw connections) is now `[connections.*]`. See [TOML migration](#toml-migration) below for the exact field renames that go with this.
-- **Profiles removed entirely.** `[profiles.*]`, `active_profile`, `OA_ACTIVE_PROFILE`, and `omop-config use <profile>` no longer exist. Use distinctly-named connections/databases per environment instead (e.g. `cdm_db_prod`, `test_cdm_db`) — see [Replacing profiles](#replacing-profiles) below.
+- **Profiles removed entirely.** `[profiles.*]`, `active_profile`, `OA_ACTIVE_PROFILE`, and `omop-config use <profile>` no longer exist. Use distinctly-named connections/databases per environment instead (e.g. `cdm_db_prod`, `test_cdm_db`). See [Replacing profiles](#replacing-profiles) below for the full pattern.
 - **`default_resource`/resource aliases removed.** A package's `[tools.<name>]` section no longer has a `default_resource` field or participates in an alias dict. Instead, each package declares its own typed field (e.g. `cdm_db`) that names a `[databases.*]` entry directly.
-- **`ResourceRef`/`ResourceSpec`/`owned_resources`/`required_resources` removed.** If you maintain a package that integrates with `oa-configurator`, see [Python API changes for package authors](#python-api-changes-for-package-authors) below — this is the biggest change if you have custom `PackageConfigBase` code.
+- **`ResourceRef`/`ResourceSpec`/`owned_resources`/`required_resources` removed.** If you maintain a package that integrates with `oa-configurator`, see [Python API changes for package authors](#python-api-changes-for-package-authors) below. This is the biggest change if you have custom `PackageConfigBase` code.
 - **CLI commands renamed to match the section swap**: `omop-config databases add/list` (old, connections) → `omop-config connections add/list`; `omop-config resources add/list` (old) → `omop-config databases add/list`.
 - **`--resource-name` flag removed.** To point a package at a non-default database, pass the package's own field flag directly (e.g. `--cdm-db cdm_db_prod`), not a generic `--resource-name`.
 - **Non-interactive one-shot creation works differently.** `omop-config configure my_pkg --host ... --dialect ...` (flat flags matching the target schema) no longer works.  A package's own `configure` flags now come from the package's own fields, not the target's. Two replacements: create the connection and database first with `connections add`/`databases add`, then point `configure` at them by name; or do it in one call with `--set field.subfield=value` (repeatable, arbitrarily nested), e.g. `configure my_pkg --set cdm_db.connection.dialect=... --set cdm_db.connection.host=...`. See [Integration](integration.md#docker-compose) for both forms.
 - **`test_only` is now an ordinary flag** on `connections add` (`--test-only true`, accepts true/false/yes/no/1/0), and via `--set ....test_only=true` when created inline through `configure`.
-- **`read_only` removed.** It was never wired to anything (stored, but never read by `oa-configurator` or any consumer) and its description ("hint only") was misleading about that. If you were setting it, it's simply gone — dropping it from `[connections.*]` is enough.
+- **`read_only` removed.** It was never wired to anything (stored, but never read by `oa-configurator` or any consumer) and its description ("hint only") was misleading about that. If you were setting it, it's simply gone. Dropping it from `[connections.*]` is enough.
 - **Python API renames**: `resolve_resource()` → `resolve_database()`; old `resolve_database()` (raw connection) → `resolve_connection()`; `ResolvedResource` → `ResolvedDatabase`; old `ResolvedDatabase`/`ResolvedDatabaseTarget` → `ResolvedConnection`; `role="vocab"` string → the `Role` enum (`Role.VOCAB`); pytest plugin's `requires_resource` marker → `requires_database`, `resolve_test_resource` → `resolve_test_database`.
 - **`oa_configurator.models` renamed to `oa_configurator.stack_config`.** Only matters if you imported from the submodule directly (`from oa_configurator.models import ...`) instead of the top-level package (`from oa_configurator import ...`). The top-level re-exports are unchanged.
 
@@ -26,7 +26,7 @@ Take each section of your existing `config.toml` and apply these renames, in ord
 
 ### 1. Rename `[databases.*]` to `[connections.*]`
 
-`dialect`, `host`, `port`, `user`, `password`, `database_name` all keep their names. `read_only` is gone (never wired to anything, see above — drop it if you had it set). `test_only` is new (defaults to `false`; only relevant if you use the [test-database convention](integration.md#integration-tests-a-dedicated-test-database)).
+`dialect`, `host`, `port`, `user`, `password`, `database_name` all keep their names. `read_only` is gone. It was never wired to anything (see above), so drop it if you had it set. `test_only` is new (defaults to `false`; only relevant if you use the [test-database convention](integration.md#integration-tests-a-dedicated-test-database)).
 
 ```diff
 -[databases.cdm]
@@ -71,7 +71,7 @@ There is no direct TOML equivalent. For each profile you had, create separately-
 
 ### 4. Remove `default_resource` from `[tools.<name>]` sections
 
-Each package's own typed field (e.g. `cdm_db`) now carries this information directly — it will already be present in `[tools.<name>]` if you re-run `omop-config configure <package>` after migrating, or you can add it by hand once you know the field name (check the package's `PackageConfigBase` subclass, or run `omop-config configure <package> --help`).
+Each package's own typed field (e.g. `cdm_db`) now carries this information directly. It will already be present in `[tools.<name>]` if you re-run `omop-config configure <package>` after migrating, or you can add it by hand once you know the field name (check the package's `PackageConfigBase` subclass, or run `omop-config configure <package> --help`).
 
 ```diff
  [tools.omop_alchemy]
@@ -82,7 +82,7 @@ Each package's own typed field (e.g. `cdm_db`) now carries this information dire
 
 ### 5. `[providers.*]` / `[models.*]`
 
-No change — these sections were introduced alongside this redesign and already use the current shape.
+No change. These sections were introduced alongside this redesign and already use the current shape.
 
 ---
 
@@ -149,7 +149,7 @@ class MyPackageConfig(PackageConfigBase):
     cdm_db: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"
 ```
 
-There is no equivalent of `required_resources`/`ResourceRef` for consuming a *different* package's database. Declare a field with the same `RefTo(DatabaseConfig)` type and the same default name as the owning package's field — the two packages share the entry simply because both fields resolve to the same name. See [Integration](integration.md#cross-package-database-references).
+There is no equivalent of `required_resources`/`ResourceRef` for consuming a *different* package's database. Declare a field with the same `RefTo(DatabaseConfig)` type and the same default name as the owning package's field. The two packages share the entry simply because both fields resolve to the same name. See [Integration](integration.md#cross-package-database-references).
 
 Engine creation: replace `resolver.resolve_resource(name).create_engine()` with `resolver.resolve_database(name).create_engine()`. For the vocabulary connection, replace `create_engine(role="vocab")` with `create_engine(role=Role.VOCAB)` (`from oa_configurator import Role`).
 

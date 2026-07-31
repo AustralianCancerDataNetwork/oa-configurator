@@ -15,12 +15,12 @@ In ``<my-package>/config.py``::
     class MyPackageConfig(PackageConfigBase):
         tool_name: ClassVar[str] = "<my-package>"
         # A field naming an entry in another section. `omop-config configure`
-        # offers to reuse an existing one or create it on the spot -- recursing
+        # offers to reuse an existing one or create it on the spot, recursing
         # into any RefTo fields the target itself has (e.g. a database's own
         # connection). No separate declaration list: the field IS the
-        # declaration, whether the entry ends up shared with another package
-        # or not -- that's just a matter of both packages' fields resolving
-        # to the same name.
+        # declaration. Whether the entry ends up shared with another package
+        # is simply a matter of both packages' fields resolving to the same
+        # name.
         cdm_db: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"
         embedding_model_name: Annotated[str, RefTo(ModelConfig)] = "embed-default"
         <additional typed fields here>
@@ -54,12 +54,12 @@ class PackageConfigBase(BaseModel):
     Subclass this and declare typed fields for whatever this package needs.
     A field typed ``Annotated[str, RefTo(DatabaseConfig)]`` (or ``RefTo(ModelConfig)``/
     ``RefTo(ProviderConfig)``/``RefTo(ConnectionConfig)``) names an entry in that
-    section. ``omop-config configure`` resolves it interactively (reuse an
-    existing entry, or create one -- recursing into any ``RefTo`` fields the
-    target itself has, e.g. a database's own connection);
+    section. ``omop-config configure`` resolves it interactively: reuse an
+    existing entry, or create one, recursing into any ``RefTo`` fields the
+    target itself has (e.g. a database's own connection).
     :meth:`~oa_configurator.Resolver.resolve_package_config` validates that it
     resolves, raising :exc:`ConfigurationError` if not. There is no separate
-    "required"/"owned" declaration -- the field itself is the declaration,
+    "required"/"owned" declaration. The field itself is the declaration,
     and two packages share an entry simply by their fields resolving to the
     same name.
 
@@ -116,16 +116,16 @@ class PackageConfigBase(BaseModel):
     @classmethod
     def resolve_fields(cls, config: StackConfig, *, set_dict: dict[str, Any], interactive: bool) -> dict[str, Any]:
         """Resolve this package's own fields: flag (``--set`` or the field's
-        own auto-generated flag), then stored, then -- interactively --
-        prompt (seeded with the stored value as its default when one
-        exists), recursing into any ``RefTo``-marked field via the generic
-        resolver machinery in :mod:`~oa_configurator.resolver`.
+        own auto-generated flag), then stored, then an interactive prompt
+        (seeded with the stored value as its default when one exists),
+        recursing into any ``RefTo``-marked field via the generic resolver
+        machinery in :mod:`~oa_configurator.resolver`.
 
         A ``RefTo``-marked field's ``set_dict`` value may also be a nested
-        ``dict`` (built from repeated ``--set field.subfield=value`` CLI
-        flags) instead of a plain string -- this creates the target entry
-        from the nested flags in the same call, instead of requiring it to
-        already exist.
+        ``dict`` instead of a plain string, built from repeated
+        ``--set field.subfield=value`` CLI flags. Using a nested dict
+        creates the target entry from those flags in the same call,
+        instead of requiring it to already exist.
 
         Parameters
         ----------

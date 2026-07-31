@@ -19,10 +19,10 @@ if TYPE_CHECKING:
 class Role(str, Enum):
     """Which physical target a database's logical role maps to.
 
-    Shared between :meth:`ResolvedDatabase.connection_target` (picks a
-    concrete connection -- only PRIMARY/VOCAB apply, RESULTS has no
-    connection of its own) and :meth:`ResolvedDatabase.schema_translate_map`
-    (picks a schema name -- all three apply). One enum instead of two
+    Shared between :meth:`ResolvedDatabase.connection_target`, which picks
+    a concrete connection (only PRIMARY/VOCAB apply; RESULTS has no
+    connection of its own), and :meth:`ResolvedDatabase.schema_translate_map`,
+    which picks a schema name (all three apply). One enum instead of two
     separately-typed, overlapping string sets.
     """
 
@@ -76,7 +76,7 @@ class ConnectionConfig(BaseModel):
         Docker Compose ``env_file:``. Field names are uppercased directly
         (e.g. ``host`` → ``PREFIX_HOST``), so adding a new field here
         automatically appears in the export without touching ``io.py``.
-        The ``test_only`` config-only flag is excluded — it is not a
+        The ``test_only`` config-only flag is excluded, since it is not a
         database connection parameter.
         """
         return [
@@ -136,12 +136,13 @@ class ConnectionConfig(BaseModel):
 class DatabaseConfig(BaseModel):
     """Maps the OMOP logical roles (CDM, vocab, results) to named connections and schema names.
 
-    What a consuming package actually treats as "its database" -- the
-    logical CDM/vocab/results bundle, as opposed to :class:`ConnectionConfig`
-    (the physical server address and credentials underneath it). The unit
-    that consuming packages configure once and reference by name. Most
-    packages only need a single ``cdm_db`` database. Each entry under
-    ``[databases]`` in ``config.toml`` maps to one instance of this model.
+    This is what a consuming package actually treats as "its database":
+    the logical CDM/vocab/results bundle, as opposed to
+    :class:`ConnectionConfig` (the physical server address and credentials
+    underneath it). The unit that consuming packages configure once and
+    reference by name. Most packages only need a single ``cdm_db``
+    database. Each entry under ``[databases]`` in ``config.toml`` maps to
+    one instance of this model.
     """
 
     model_config = ConfigDict(extra="forbid")

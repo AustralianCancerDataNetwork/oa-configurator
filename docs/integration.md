@@ -12,7 +12,7 @@ Each package that integrates with `oa-configurator`:
 1. Subclasses `PackageConfigBase` with its typed config fields
 2. Registers the class via an entry point in `pyproject.toml`
 3. Calls `MyPackageConfig.get_config()` to read its config
-4. Uses `Resolver.from_active_config().resolve_resource("cdm").create_engine()` for SQLAlchemy
+4. Uses `Resolver.from_active_config().resolve_database("cdm").create_engine()` for SQLAlchemy
 5. Calls `configure_logging(verbosity=verbose, extra_namespaces=["<package>"])` at startup
 
 ---
@@ -34,20 +34,24 @@ In your `pyproject.toml`:
 In `src/<package>/config.py`:
 
 ```python
-from typing import ClassVar
+from typing import Annotated, ClassVar
 from pydantic import Field
-from oa_configurator import PackageConfigBase
+from oa_configurator import DatabaseConfig, PackageConfigBase, RefTo
 
 
 class MyPackageConfig(PackageConfigBase):
     tool_name: ClassVar[str] = "my_package"   # maps to [tools.my_package] in TOML
 
-    # Declare typed fields; they're backed by the [tools.my_package] TOML section
+    # A field naming an entry in [databases.*]. `omop-config configure` offers
+    # to reuse an existing one or create it on the spot.
+    cdm_db: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"
+
+    # Plain typed fields, backed by the [tools.my_package] TOML section
     backend: str = Field(default="default", description="Backend to use.")
     data_path: str | None = Field(default=None, description="Path to local data files.")
 ```
 
-`get_config()` is inherited from `PackageConfigBase`: call `MyPackageConfig.get_config()` to load from the active stack config. It delegates to `Resolver.resolve_package_config()`, which reads the `[tools.my_package]` section (applying any active profile override) and validates it against your typed fields. If the section is missing, fields fall back to their defaults.
+`get_config()` is inherited from `PackageConfigBase`: call `MyPackageConfig.get_config()` to load from the active stack config. It delegates to `Resolver.resolve_package_config()`, which reads the `[tools.my_package]` section and validates every `RefTo`-marked field against it. If the section is missing, fields fall back to their defaults.
 
 ---
 
@@ -67,7 +71,8 @@ After installing your package, `omop-config configure my_package` will find and 
 ```python
 from oa_configurator import Resolver
 
-engine = Resolver.from_active_config().resolve_resource("cdm").create_engine()
+config = MyPackageConfig.get_config()
+engine = Resolver.from_active_config().resolve_database(config.cdm_db).create_engine()
 ```
 
 `create_engine()` applies the `schema_translate_map` automatically so OMOP ORM models route to the right schemas without changes.
@@ -75,7 +80,9 @@ engine = Resolver.from_active_config().resolve_resource("cdm").create_engine()
 For the vocabulary database:
 
 ```python
-vocab_engine = Resolver.from_active_config().resolve_resource("cdm").create_engine(role="vocab")
+from oa_configurator import Role
+
+vocab_engine = Resolver.from_active_config().resolve_database(config.cdm_db).create_engine(role=Role.VOCAB)
 ```
 
 ---
@@ -112,9 +119,9 @@ from oa_configurator import StackConfig, Resolver
 
 def test_something(monkeypatch):
     cfg = StackConfig.for_session(
-        databases={"db": {"dialect": "sqlite", "database_name": ":memory:"}},
-        resources={"cdm": {"database": "db", "cdm_schema": "omop"}},
-        tools={"my_package": {"extra": {"backend": "test_backend"}}},
+        connections={"db": {"dialect": "sqlite", "database_name": ":memory:"}},
+        databases={"cdm": {"connection": "db", "cdm_schema": "omop"}},
+        tools={"my_package": {"backend": "test_backend"}},
     )
     monkeypatch.setattr("my_package.module.load_stack_config", lambda: cfg)
     # ... test against the in-memory config
@@ -126,84 +133,96 @@ This covers the vast majority of tests. No file I/O, no environment-specific set
     `for_session()` + `monkeypatch` is for isolated unit tests where only config *values* matter, not config *source*. It **MUST NEVER** be used to paper over missing configuration in CI or local dev. If a code path needs `get_config()`/`load_stack_config()` to succeed at all, you
     need to provide a real configuration for the test case.
 
-### Integration tests: dedicated test resource
+### Integration tests: a dedicated test database
 
-For tests that exercise a real database (e.g. PostgreSQL-specific SQL, bulk loading, trigger management), use a **dedicated named resource** in the user's config and never a profile override of the production resource.
+For tests that exercise a real database (e.g. PostgreSQL-specific SQL, bulk loading, trigger management), use a **dedicated named database** in the user's config, never a copy of the production database under a different guise.
 
-The canonical resource name is `test_<package>_db` (e.g. `test_cdm_db` for omop-alchemy). Keeping the name distinct from the production resource (`cdm_db`) is a mandatory safety guard: the test suite must never accidentally connect to a production database.
+The convention is `test_<package>_db` (e.g. `test_cdm_db` for omop-alchemy). Keeping the name distinct from the production database (`cdm_db`) is a mandatory safety guard: the test suite must never accidentally connect to a production database.
 
-In `conftest.py`, resolve the test resource via the `resolve_test_resource` pytest-plugin helper, which skips cleanly whether `config.toml` is entirely missing or simply doesn't have this resource configured yet:
+In `conftest.py`, resolve the test database via the `resolve_test_database` pytest-plugin helper, which skips cleanly whether `config.toml` is entirely missing or simply doesn't have this database configured yet:
 
 ```python
 @pytest.fixture(scope="session")
 def pg_engine():
-    from oa_configurator.pytest_plugin import resolve_test_resource
+    from oa_configurator.pytest_plugin import resolve_test_database
     from my_package.config import MyPackageConfig
 
-    url = resolve_test_resource(MyPackageConfig.TEST_DB)
+    url = resolve_test_database(MyPackageConfig.TEST_DB)
     engine = sa.create_engine(url, future=True)
     yield engine
     engine.dispose()
 ```
 
-**Why not `OA_ACTIVE_PROFILE=test`?** Setting `OA_ACTIVE_PROFILE` globally in `conftest.py` affects every test that calls `load_stack_config()`, including unit tests that monkeypatch it. A dedicated resource name scopes the real-DB resolution to only the fixture that needs it, and leaves `cdm_db` unambiguously pointing at production data throughout the test session.
+#### Provisioning the test database
 
-#### Provisioning the test resource
+The test database must be provisioned for real before pytest runs. There is no fallback that papers over a missing one, by design (see the callout above).
 
-The test resource must be provisioned for real before pytest runs. There is no fallback that papers over a missing one, by design (see the callout above). `omop-config configure <package>` accepts `--test-*` flags (mirroring every owned-resource flag, e.g. `--test-host`, `--test-port`, `--test-database-name`) for exactly this. The `test-` prefix is fixed and the same for every package; it is not configurable per package.
+A package field marked with a `test_`-prefixed name (e.g. `test_cdm_db: Annotated[str | None, RefTo(DatabaseConfig)] = None`) gets special handling in `omop-config configure <package>`'s **interactive** flow only: it asks whether to configure a test database, and if you accept, recurses through creating both the connection and the database, marking the connection `test_only = true` automatically and refusing to reuse (or collide with) a non-test connection's host/database combination.
+
+!!! warning "No non-interactive path for test_only yet"
+    Setting `test_only = true` non-interactively is a known gap: the standalone `omop-config connections add`/`databases add` commands don't currently expose a `--test-only` flag at all, so there is no scripted, one-command way to provision a *marked* test connection for CI today.
+
+    Until that lands, the working non-interactive sequence is to create the connection and database as ordinary (non-test) entries, hand-edit `test_only = true` into the connection's TOML block afterward, then point the package's `test_*` field at the database by name:
+
+    ```bash
+    omop-config connections add test_cdm \
+      --dialect postgresql+psycopg --host localhost --port 5432 \
+      --user test --password test --database-name test_db
+    # then set test_only = true under [connections.test_cdm] by hand
+
+    omop-config databases add test_cdm_db --connection test_cdm --cdm-schema public
+
+    omop-config configure <package> --test-cdm-db test_cdm_db
+    ```
+
+    The `--test-cdm-db` flag above is the field's own auto-generated flag (`test_cdm_db` -> `--test-cdm-db`), not a special mechanism; it just points the field at an already-created database by name, same as any other `RefTo` field passed non-interactively.
 
 === "Local development"
 
-    Run `omop-config configure <package>` and answer `Y` when asked to configure a test database resource, or pass `--test-*` flags directly for the same one-shot, non-interactive result CI uses.
+    Run `omop-config configure <package>` and answer `Y` when asked to configure a test database field.
 
 === "CI"
 
-    pass `--test-*` flags as part of the same `omop-config configure <package>` step that configures the package's owned resource (if it has one):
-
-    ```bash
-    omop-config configure <db-package> \
-      --test-dialect postgresql+psycopg --test-database test_cdm \
-      --test-host localhost --test-port 5432 --test-cdm-schema public \
-      --test-user test --test-password test --test-database-name test_db
-    ```
-    `--test-*` flags work independently of the owned resource flags. This means that we can just provide the test flags if the resource itself is not needed in the CI but the test configuration is.
+    Provision the connection and database ahead of time (as part of image build or a setup step), then pass the package's test-field flag as part of the same `omop-config configure <package>` step, as shown above.
 
 !!! info "Safety"
-    The test resource must point to a dedicated, empty database.
+    The test database must point to a dedicated, empty database.
     If your test session drops and recreates schemas, add a runtime guard that compares the
-    resolved URL of `test_cdm_db` against all other configured resources and calls
+    resolved URL of `test_cdm_db` against all other configured databases and calls
     `pytest.fail()` on any match.
 
 ---
 
 ## Multiple environments
 
-### Adding a second resource of the same type
+### Adding a second database of the same kind
 
-The `omop-config configure` command creates one resource per semantic name by default (e.g. `cdm_db` for omop-alchemy). To add a second, for example a production CDM alongside a local development one, use `--resource-name`:
+A package's own field just names a database by default (e.g. `cdm_db: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"`). To point at a second one, for example a production CDM alongside a local development one, create the extra database under its own name and pass the field's own flag:
 
 ```bash
-omop-config configure omop_alchemy --resource-name cdm_db_prod
+omop-config databases add cdm_db_prod --connection cdm_prod --cdm-schema omop
+omop-config configure omop_alchemy --cdm-db cdm_db_prod
 ```
 
-This creates `cdm_db_prod` without touching the existing `cdm_db`.
+This creates `cdm_db_prod` without touching the existing `cdm_db`, and points `omop_alchemy` at it.
 
-### Choosing between resources of the same type
+### Choosing between databases of the same kind
 
-There is no config-level "default resource" toggle. When more than one resource of the same kind exists, the caller names the one it wants explicitly:
+There is no config-level "default database" toggle. When more than one database of the same kind exists, the caller names the one it wants explicitly:
 
 ```python
 from omop_alchemy.config import OmopAlchemyConfig
 
+config = OmopAlchemyConfig.get_config()
 prod_engine = OmopAlchemyConfig.get_engine("cdm_db_prod")
-dev_engine = OmopAlchemyConfig.get_engine(OmopAlchemyConfig.CDM_DB)  # "cdm_db"
+dev_engine = OmopAlchemyConfig.get_engine(config.cdm_db)  # whatever cdm_db currently resolves to
 ```
 
-For switching between whole environments (dev vs. prod) rather than picking one resource among several, use [profiles](profiles.md) instead: a profile can override which physical database a given resource name points to, so application code doesn't change at all.
+For switching between whole environments (dev vs. prod) rather than picking one database among several, use distinctly-named connections and databases per environment, and point each deployment's `omop-config configure` flags at the right ones. There is no profile/overlay mechanism; naming is the only axis.
 
-### Cross-package resource references
+### Cross-package database references
 
-A package that consumes a resource owned by another package (e.g. `omop-graph` using `omop-alchemy`'s CDM database) declares a typed `ResourceRef` pointing at the owning package's `ResourceSpec`. See [architecture.md](architecture.md) for the full shape. The owned resource must be configured under its own `semantic_name` (e.g. `cdm_db`) for the reference to resolve; there is no renaming/aliasing mechanism for cross-package references.
+A package that consumes a database owned by another package (e.g. `omop-graph` using `omop-alchemy`'s CDM database) declares its own field with the same `RefTo(DatabaseConfig)` type and the same default name (e.g. `cdm_db: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"`). There is no typed cross-package pointer: two packages share an entry simply because both fields resolve to the same name. The shared database must be configured once, under that name, for both packages' references to resolve.
 
 ---
 
@@ -216,8 +235,7 @@ A package that consumes a resource owned by another package (e.g. `omop-graph` u
 The workflow:
 
 1. A gitignored `.env` file holds secrets that Docker Compose substitutes into its YAML.
-2. The container's startup command calls `omop-config configure <package>` with `--flags`,
-   writing those values into `config.toml` **once at startup**.
+2. The container's startup command calls `omop-config connections add`/`databases add` with `--flags`, then `omop-config configure <package>` to point the package at what was just created, writing those values into `config.toml` **once at startup**.
 3. After that, the app reads `config.toml` normally without any environment variables involved.
 
 The `.env` file is a Docker Compose concern only. It is never loaded by the Python app.
@@ -251,11 +269,12 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     command: >
       bash -c "
-        omop-config configure my_package
-          --database cdm --dialect postgresql+psycopg
-          --host db --port 5432
+        omop-config connections add cdm
+          --dialect postgresql+psycopg --host db --port 5432
           --user $$POSTGRES_USER --password $$POSTGRES_PASSWORD
-          --database-name $$POSTGRES_DB --cdm-schema omop &&
+          --database-name $$POSTGRES_DB &&
+        omop-config databases add cdm_db --connection cdm --cdm-schema omop &&
+        omop-config configure my_package --cdm-db cdm_db &&
         exec my_app_entrypoint
       "
 ```
@@ -264,26 +283,23 @@ services:
     Use `$$VAR` (double dollar) inside a `command:` string so Docker Compose passes the
     literal variable name to the shell rather than substituting it at YAML-parse time.
 
-If your stack has more than one package (e.g., `my_package` and `omop_alchemy`), add a separate `omop-config configure` call for each, chained with `&&`:
+If your stack has more than one package pointing at the same database (e.g., `my_package` and `omop_alchemy`), the `connections add`/`databases add` steps only need to run once; add one `configure` call per package, chained with `&&`:
 
 ```yaml
 command: >
   bash -c "
-    omop-config configure omop_alchemy
-      --database cdm --dialect postgresql+psycopg
-      --host db --port 5432
+    omop-config connections add cdm
+      --dialect postgresql+psycopg --host db --port 5432
       --user $$POSTGRES_USER --password $$POSTGRES_PASSWORD
-      --database-name $$POSTGRES_DB --cdm-schema omop &&
-    omop-config configure my_package
-      --database cdm --dialect postgresql+psycopg
-      --host db --port 5432
-      --user $$POSTGRES_USER --password $$POSTGRES_PASSWORD
-      --database-name $$POSTGRES_DB --cdm-schema omop &&
+      --database-name $$POSTGRES_DB &&
+    omop-config databases add cdm_db --connection cdm --cdm-schema omop &&
+    omop-config configure omop_alchemy --cdm-db cdm_db &&
+    omop-config configure my_package --cdm-db cdm_db &&
     exec my_app_entrypoint
   "
 ```
 
-Each call is scoped to its own package. The `--host` value for `omop_alchemy` configures the CDM database; the `--host` value for `my_package` configures that package's database. No prefix is needed because the package name is the namespace.
+Each `configure` call is scoped to its own package's flags; `connections add`/`databases add` are shared setup steps run once regardless of how many packages point at the result.
 
 ### Security note
 

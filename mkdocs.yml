@@ -58,7 +58,7 @@ plugins:
             - src
           options:
             show_source: false
-            docstring_style: google
+            docstring_style: numpy
             merge_init_into_class: true
             separate_signature: true
             show_signature_annotations: true
@@ -71,13 +71,14 @@ nav:
   - User Guide:
       - Config File Reference: config-reference.md
       - Secrets: secrets.md
-      - Profiles & Overlays: profiles.md
       - Inline & Session Usage: inline-usage.md
       - Logging: logging.md
       - Integration: integration.md
   - API Reference:
       - Loader: api/loader.md
-      - Models: api/models.md
+      - Stack Config: api/stack-config.md
+      - Resources: api/resources.md
+      - LLM: api/llm.md
       - Resolver: api/resolver.md
       - PackageConfigBase: api/package-base.md
       #- Persistence: api/persistence.md

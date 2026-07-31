@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Resource/Model resolution</title>
+<title>Database/Model resolution</title>
 <link rel="stylesheet" href="shared.css">
 <style>
   .pairs {
@@ -37,28 +37,28 @@
   <span><i class="swatch" style="background:var(--py)"></i>Python attribute</span>
   <span><i class="swatch" style="background:var(--toml)"></i>config.toml value</span>
   <span><i class="swatch" style="background:var(--resolved)"></i>Resolver output</span>
-  <span><i class="swatch" style="background:var(--grp-resource)"></i>Resource pair</span>
+  <span><i class="swatch" style="background:var(--grp-resource)"></i>Database pair</span>
   <span><i class="swatch" style="background:var(--grp-model)"></i>Model pair</span>
 </div>
 
 <div class="pairs">
 
   <div class="group resource">
-    <p class="group-label">Resource pair</p>
+    <p class="group-label">Database pair</p>
 
     <div class="card">
       <div class="card-head">
-        <div class="name py-name">ResourceConfig</div>
-        <div class="name toml-name">[resources.myresource]</div>
+        <div class="name py-name">DatabaseConfig</div>
+        <div class="name toml-name">[databases.mydb]</div>
       </div>
       <div class="card-body">
         <div class="field">
-          <div class="py-cell"><span class="attr linked">database <span class="type">: str</span></span></div>
-          <div class="toml-cell"><span class="k">database</span> = <span class="v linked">"mydb"</span></div>
+          <div class="py-cell"><span class="attr linked">connection <span class="type">: str</span></span></div>
+          <div class="toml-cell"><span class="k">connection</span> = <span class="v linked">"myconn"</span></div>
         </div>
         <div class="field">
-          <div class="py-cell"><span class="attr">vocab_database <span class="type">: str | None</span></span></div>
-          <div class="toml-cell"><span class="placeholder">unset, falls back to database</span></div>
+          <div class="py-cell"><span class="attr">vocab_connection <span class="type">: str | None</span></span></div>
+          <div class="toml-cell"><span class="placeholder">unset, falls back to connection</span></div>
         </div>
         <div class="field">
           <div class="py-cell"><span class="attr">cdm_schema <span class="type">: str</span></span></div>
@@ -77,14 +77,14 @@
 
     <div class="connector">
       <div class="stem"></div>
-      <div class="label">database</div>
+      <div class="label">connection</div>
       <div class="arrowhead"></div>
     </div>
 
     <div class="card">
       <div class="card-head">
-        <div class="name py-name">DatabaseConfig</div>
-        <div class="name toml-name">[databases.mydb]</div>
+        <div class="name py-name">ConnectionConfig</div>
+        <div class="name toml-name">[connections.myconn]</div>
       </div>
       <div class="card-body">
         <div class="field">
@@ -108,14 +108,14 @@
 
     <div class="connector resolve">
       <div class="stem"></div>
-      <div class="label">resolve_resource()</div>
+      <div class="label">resolve_database()</div>
       <div class="arrowhead"></div>
     </div>
 
     <div class="resolved-card">
-      <div class="name">ResolvedResource</div>
+      <div class="name">ResolvedDatabase</div>
       <div class="body">
-        database <span class="type">: ResolvedDatabase</span><br>
+        connection <span class="type">: ResolvedConnection</span><br>
         cdm_schema <span class="type">: str</span><br>
         create_engine() <span class="type">-&gt; Engine</span>
       </div>

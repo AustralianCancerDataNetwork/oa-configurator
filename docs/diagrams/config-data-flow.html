@@ -86,7 +86,7 @@
 
   <div class="plain-card">
     <div class="name">StackConfig</div>
-    <div class="note">active profile overlay applied</div>
+    <div class="note">cross-references validated</div>
   </div>
 
   <div class="connector">
@@ -106,11 +106,11 @@
       <div class="branch">
         <div class="connector resolve">
           <div class="stem"></div>
-          <div class="label">resolve_database(name)</div>
+          <div class="label">resolve_connection(name)</div>
           <div class="arrowhead"></div>
         </div>
         <div class="resolved-card">
-          <div class="name">ResolvedDatabase</div>
+          <div class="name">ResolvedConnection</div>
           <div class="body">
             url <span class="type">: str (plaintext)</span><br>
             safe_url <span class="type">: str (redacted)</span><br>
@@ -122,13 +122,13 @@
       <div class="branch">
         <div class="connector resolve">
           <div class="stem"></div>
-          <div class="label">resolve_resource(name)</div>
+          <div class="label">resolve_database(name)</div>
           <div class="arrowhead"></div>
         </div>
         <div class="resolved-card">
-          <div class="name">ResolvedResource</div>
+          <div class="name">ResolvedDatabase</div>
           <div class="body">
-            database <span class="type">: ResolvedDatabase</span><br>
+            connection <span class="type">: ResolvedConnection</span><br>
             cdm_schema, vocab_schema, results_schema<br>
             schema_translate_map(), create_engine(role=...)
           </div>

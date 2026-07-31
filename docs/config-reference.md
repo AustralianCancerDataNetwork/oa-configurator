@@ -3,21 +3,12 @@
 !!! note
     Configuration lives at `~/.config/omop/config.toml` by default. Override the path by setting
     `OA_CONFIG_PATH` to any `.toml` file (e.g. `OA_CONFIG_PATH=~/projects/omop.toml`).
-    Use `OA_ACTIVE_PROFILE` to switch profiles within a file at runtime.
 
 ---
 
-## Top-level fields
+## `[connections.<name>]`
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `active_profile` | string | `null` | Name of the profile to activate. Can be overridden by the `OA_ACTIVE_PROFILE` env var. |
-
----
-
-## `[databases.<name>]`
-
-One section per named database endpoint. The name is referenced by resources and profiles.
+One section per named physical connection: server address, credentials, target database. The name is referenced by databases (`[databases.*].connection`/`vocab_connection`).
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -28,6 +19,7 @@ One section per named database endpoint. The name is referenced by resources and
 | `password` | string | no | Plaintext password *(see security note below)* |
 | `database_name` | string | no | Database name on the server. For SQLite, use `:memory:` or an absolute path. |
 | `read_only` | bool | `false` | Hint only; enforcement depends on the dialect |
+| `test_only` | bool | `false` | Marks this connection as intended for testing only. Excluded from production database prompts; used as a safety check to prevent accidental test operations on production data. |
 
 !!! warning "Security note"
     Passwords are stored in plaintext in this file. Restrict permissions with `chmod 600 ~/.config/omop/config.toml`. Secret-management support (env-backed passwords, Vault, etc.) is planned for a future release.
@@ -35,7 +27,7 @@ One section per named database endpoint. The name is referenced by resources and
 ### Example: PostgreSQL
 
 ```toml
-[databases.cdm]
+[connections.cdm]
 dialect       = "postgresql+psycopg"
 host          = "localhost"
 port          = 5432
@@ -47,50 +39,50 @@ database_name = "omop_cdm"
 ### Example: SQLite in-memory (for tests)
 
 ```toml
-[databases.test_db]
+[connections.test_db]
 dialect       = "sqlite"
 database_name = ":memory:"
 ```
 
 ---
 
-## `[resources.<name>]`
+## `[databases.<name>]`
 
-A resource maps logical OMOP CDM roles to named connections and schema names.
+A database maps logical OMOP CDM roles to named connections and schema names.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `database` | string | **yes** | Database name (from `[databases.*]`) for the CDM server |
-| `vocab_database` | string | no | Separate database if vocabulary lives on a different server. Falls back to `database`. |
-| `cdm_schema` | string | **yes** | Schema where CDM clinical tables live |
+| `connection` | string | **yes** | Connection name (from `[connections.*]`) used as the primary CDM server |
+| `vocab_connection` | string | no | Separate connection if vocabulary lives on a different server. Falls back to `connection`. |
+| `cdm_schema` | string | no | Schema where CDM clinical tables live. Defaults to `"omop"`. |
 | `vocab_schema` | string | no | Vocabulary schema. Falls back to `cdm_schema` when not set. |
 | `results_schema` | string | no | Achilles / Atlas results schema |
 
 ### Example: all in one schema
 
 ```toml
-[resources.cdm]
-database   = "cdm"
+[databases.cdm]
+connection = "cdm"
 cdm_schema = "omop"
 ```
 
 ### Example: separate vocab and results schemas
 
 ```toml
-[resources.cdm]
-database       = "cdm"
+[databases.cdm]
+connection     = "cdm"
 cdm_schema     = "omop"
 vocab_schema   = "omop_vocab"
 results_schema = "results"
 ```
 
-### Example vocabulary on a separate server
+### Example: vocabulary on a separate server
 
 ```toml
-[resources.cdm]
-database      = "cdm"
-vocab_database = "central_vocab"
-cdm_schema    = "omop"
+[databases.cdm]
+connection       = "cdm"
+vocab_connection = "central_vocab"
+cdm_schema       = "omop"
 ```
 
 ---
@@ -151,40 +143,6 @@ Per-package configuration. The `name` must match the package's `tool_name` class
 backend             = "sqlitevec"
 embedding_file_root = "/data/embeddings"
 ```
-
----
-
-## `[profiles.<name>]`
-
-A profile overlays connections, resources, and tools over the base config when active.
-
-| Field | Type | Description |
-|---|---|---|
-| `databases` | table | Database configs that replace base databases with the same name, or add new ones |
-| `resources` | table | Resource configs that replace base resources with the same name, or add new ones |
-| `providers` | table | Provider configs that replace base providers with the same name, or add new ones |
-| `models` | table | Model configs that replace base models with the same name, or add new ones |
-| `tools` | table | Tool configs that replace base tools with the same name, or add new ones |
-
-Profile entries use the same field definitions as the base sections above.
-
-**Example test profile pointing to a local test database**:
-
-```toml
-[profiles.test.databases.cdm]
-dialect       = "postgresql+psycopg"
-host          = "localhost"
-port          = 5433
-user          = "test_user"
-password      = "test_pass"
-database_name = "omop_test"
-
-[profiles.test.resources.cdm]
-database   = "cdm"
-cdm_schema = "test_omop"
-```
-
-Activate it: `omop-config use test` or `OA_ACTIVE_PROFILE=test`.
 
 ---
 

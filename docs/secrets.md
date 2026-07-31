@@ -9,16 +9,16 @@ In the current version, passwords are stored as plaintext in `~/.config/omop/con
 chmod 600 ~/.config/omop/config.toml
 ```
 
-`ResolvedDatabase.safe_url` redacts passwords in all display and log output. The plaintext `.url` is used only internally for engine creation.
+`ResolvedConnection.safe_url` redacts passwords in all display and log output. The plaintext `.url` is used only internally for engine creation.
 
 ---
 
 ## Planned: `secret_source`
 
-A future `secret_source` field on `DatabaseConfig` (and `ProviderConfig`, for API keys) will support indirect credential lookup, keeping secrets out of the TOML file entirely:
+A future `secret_source` field on `ConnectionConfig` (and `ProviderConfig`, for API keys) will support indirect credential lookup, keeping secrets out of the TOML file entirely:
 
 ```toml
-[databases.prod]
+[connections.prod]
 dialect       = "postgresql+psycopg"
 host          = "prod.hospital.org"
 database_name = "omop_cdm"

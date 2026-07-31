@@ -52,17 +52,6 @@ class PackageConfigBase(BaseModel):
     """Typed view over a package's ``[tools.<tool_name>]`` TOML section.
 
     Subclass this and declare typed fields for whatever this package needs.
-
-    Attributes
-    ----------
-    tool_name : str
-        Key used in ``[tools.<name>]``. Must be set on every subclass.
-    extra_logging_namespaces : tuple[str, ...]
-        Logger namespaces of transitive dependencies to configure alongside
-        this package. The package's own ``tool_name``
-        are always included -> only list additional roots here, e.g.
-        ``("<my_extra_package_to_log",)``. Missing namespaces are harmless.
-
     A field typed ``Annotated[str, RefTo(DatabaseConfig)]`` (or ``RefTo(ModelConfig)``/
     ``RefTo(ProviderConfig)``/``RefTo(ConnectionConfig)``) names an entry in that
     section. ``omop-config configure`` resolves it interactively (reuse an
@@ -73,6 +62,16 @@ class PackageConfigBase(BaseModel):
     "required"/"owned" declaration -- the field itself is the declaration,
     and two packages share an entry simply by their fields resolving to the
     same name.
+
+    Attributes
+    ----------
+    tool_name : str
+        Key used in ``[tools.<name>]``. Must be set on every subclass.
+    extra_logging_namespaces : tuple[str, ...]
+        Logger namespaces of transitive dependencies to configure alongside
+        this package. The package's own ``tool_name``
+        is always included; only list additional roots here, e.g.
+        ``("my_extra_package_to_log",)``. Missing namespaces are harmless.
     """
 
     tool_name: ClassVar[str]

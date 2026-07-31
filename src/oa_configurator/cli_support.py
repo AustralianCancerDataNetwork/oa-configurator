@@ -16,24 +16,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from .stack_config import StackConfig, unresolved_refs
-from .resolver import _is_promptable, _resolve_named_entry
-
-
-def _flag_name(name: str) -> str:
-    """Build a Click flag name from a field name.
-
-    Parameters
-    ----------
-    name : str
-        The field name, e.g. "database_name" or "test_cdm_db". Underscores
-        become hyphens.
-
-    Returns
-    -------
-    str
-        The flag name, e.g. "--database-name" or "--test-cdm-db".
-    """
-    return f"--{name.replace('_', '-')}"
+from .resolver import _check_missing_required, _flag_name, _is_flag_settable, _resolve_named_entry
 
 
 def _build_entry_params(target: type[BaseModel]) -> list[Any]:
@@ -49,27 +32,6 @@ def _build_entry_params(target: type[BaseModel]) -> list[Any]:
         )
         for name, info in target.model_fields.items()
     ]
-
-
-def _check_missing_required(
-    display_name: str,
-    missing_required: list[str],
-    *,
-    non_interactive: bool,
-) -> None:
-    """Abort with a clear error, naming exact CLI flags, if fields are missing."""
-    if not non_interactive or not missing_required:
-        return
-    import typer
-    from rich.console import Console
-
-    err_console = Console(stderr=True)
-    flag_names = ", ".join(_flag_name(k) for k in missing_required)
-    err_console.print(
-        f"\n[red bold]Missing required field(s) for {display_name!r}:[/red bold] {flag_names}\n"
-        f"No flag or stored config is available for these. Pass them explicitly."
-    )
-    raise typer.Exit(1)
 
 
 def _check_entry_refs(entry: BaseModel, config: StackConfig) -> None:
@@ -96,7 +58,7 @@ def _check_entry_refs(entry: BaseModel, config: StackConfig) -> None:
 # providers/models in domains/llm).
 # ------------------
 
-def _add_entry(target: type[BaseModel], section: str, name: str, flags: dict[str, str] | None) -> None:
+def _add_entry(target: type[BaseModel], section: str, name: str, flags: dict[str, Any] | None) -> None:
     """Shared body for every `<section> add <name>` command."""
     from rich.console import Console
 
@@ -146,7 +108,7 @@ def _list_entries(target: type[BaseModel], section: str) -> None:
         console.print(f"[yellow]No {section} configured.[/yellow]")
         return
 
-    field_names = [n for n, info in target.model_fields.items() if _is_promptable(info)]
+    field_names = [n for n, info in target.model_fields.items() if _is_flag_settable(info)]
     table = Table("Name", *field_names)
     for entry_name in sorted(section_dict):
         entry = section_dict[entry_name]

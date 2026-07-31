@@ -12,8 +12,9 @@
 - **`ResourceRef`/`ResourceSpec`/`owned_resources`/`required_resources` removed.** If you maintain a package that integrates with `oa-configurator`, see [Python API changes for package authors](#python-api-changes-for-package-authors) below — this is the biggest change if you have custom `PackageConfigBase` code.
 - **CLI commands renamed to match the section swap**: `omop-config databases add/list` (old, connections) → `omop-config connections add/list`; `omop-config resources add/list` (old) → `omop-config databases add/list`.
 - **`--resource-name` flag removed.** To point a package at a non-default database, pass the package's own field flag directly (e.g. `--cdm-db cdm_db_prod`), not a generic `--resource-name`.
-- **Non-interactive one-shot creation no longer works.** `omop-config configure my_pkg --host ... --dialect ...` used to create a connection and database in one call. It doesn't anymore — non-interactive `configure` now only points at already-existing entries. Create them first with `connections add`/`databases add`, then point `configure` at them. See [Integration](integration.md#docker-compose) for the current scripted flow.
-- **`test_only` still can't be set non-interactively.** There is currently no `--test-only` flag on `connections add`. Use the interactive `configure <package>` flow to create a marked test connection, or hand-edit `test_only = true` into the TOML after creating it non-interactively. Tracked as a known gap, not a design decision.
+- **Non-interactive one-shot creation works differently.** `omop-config configure my_pkg --host ... --dialect ...` (flat flags matching the target schema) no longer works.  A package's own `configure` flags now come from the package's own fields, not the target's. Two replacements: create the connection and database first with `connections add`/`databases add`, then point `configure` at them by name; or do it in one call with `--set field.subfield=value` (repeatable, arbitrarily nested), e.g. `configure my_pkg --set cdm_db.connection.dialect=... --set cdm_db.connection.host=...`. See [Integration](integration.md#docker-compose) for both forms.
+- **`test_only` is now an ordinary flag** on `connections add` (`--test-only true`, accepts true/false/yes/no/1/0), and via `--set ....test_only=true` when created inline through `configure`.
+- **`read_only` removed.** It was never wired to anything (stored, but never read by `oa-configurator` or any consumer) and its description ("hint only") was misleading about that. If you were setting it, it's simply gone — dropping it from `[connections.*]` is enough.
 - **Python API renames**: `resolve_resource()` → `resolve_database()`; old `resolve_database()` (raw connection) → `resolve_connection()`; `ResolvedResource` → `ResolvedDatabase`; old `ResolvedDatabase`/`ResolvedDatabaseTarget` → `ResolvedConnection`; `role="vocab"` string → the `Role` enum (`Role.VOCAB`); pytest plugin's `requires_resource` marker → `requires_database`, `resolve_test_resource` → `resolve_test_database`.
 - **`oa_configurator.models` renamed to `oa_configurator.stack_config`.** Only matters if you imported from the submodule directly (`from oa_configurator.models import ...`) instead of the top-level package (`from oa_configurator import ...`). The top-level re-exports are unchanged.
 
@@ -25,7 +26,7 @@ Take each section of your existing `config.toml` and apply these renames, in ord
 
 ### 1. Rename `[databases.*]` to `[connections.*]`
 
-No field changes — `dialect`, `host`, `port`, `user`, `password`, `database_name`, `read_only` all keep their names. `test_only` is new (defaults to `false`; only relevant if you use the [test-database convention](integration.md#integration-tests-a-dedicated-test-database)).
+`dialect`, `host`, `port`, `user`, `password`, `database_name` all keep their names. `read_only` is gone (never wired to anything, see above — drop it if you had it set). `test_only` is new (defaults to `false`; only relevant if you use the [test-database convention](integration.md#integration-tests-a-dedicated-test-database)).
 
 ```diff
 -[databases.cdm]

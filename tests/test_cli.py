@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 from typing import Annotated, ClassVar
@@ -71,6 +72,24 @@ class TestConnectionsAdd:
         assert config.connections["cdm"].dialect == "sqlite"
         assert config.connections["cdm"].host == "otherhost"
 
+    def test_test_only_flag_sets_bool_field(self, isolated_config):
+        result = runner.invoke(
+            cli.app,
+            ["connections", "add", "test_cdm", "--dialect", "sqlite", "--test-only", "true"],
+        )
+        assert result.exit_code == 0, result.output
+        config = _load_from_path(isolated_config)
+        assert config.connections["test_cdm"].test_only is True
+
+    def test_test_only_flag_accepts_false_variants(self, isolated_config):
+        result = runner.invoke(
+            cli.app,
+            ["connections", "add", "cdm", "--dialect", "sqlite", "--test-only", "no"],
+        )
+        assert result.exit_code == 0, result.output
+        config = _load_from_path(isolated_config)
+        assert config.connections["cdm"].test_only is False
+
 
 class TestConnectionsList:
     def test_empty(self, isolated_config):
@@ -85,6 +104,15 @@ class TestConnectionsList:
         assert result.exit_code == 0
         assert "cdm" in result.output
         assert "sqlite" in result.output
+
+    def test_lists_test_only_column(self, isolated_config):
+        _seed(isolated_config, StackConfig.for_session(
+            connections={"test_cdm": ConnectionConfig(dialect="sqlite", test_only=True)},
+        ))
+        result = runner.invoke(cli.app, ["connections", "list"])
+        assert result.exit_code == 0
+        assert "test_only" in result.output
+        assert "True" in result.output
 
 
 class TestDatabasesAdd:
@@ -332,6 +360,149 @@ class TestRunConfigurePackage:
         assert test_name in config.databases
         test_conn_name = config.databases[test_name].connection
         assert config.connections[test_conn_name].test_only is True
+
+    def test_interactive_reconfigure_reprompts_with_stored_default(self, isolated_config, monkeypatch):
+        """A field that's already configured must be offered for change, not
+        silently reused -- the prompt default should be the stored value,
+        and a different answer should actually change it."""
+        _seed(isolated_config, StackConfig.for_session(
+            connections={"db": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={"cdm_db": DatabaseConfig(connection="db")},
+        ))
+        DemoConfig.run_configure({"cdm_db": "cdm_db", "backend": "first_value"}, interactive=False)
+
+        seen_defaults: dict[str, str] = {}
+
+        def prompt(text, default="", **kwargs):
+            seen_defaults[text] = default
+            return "second_value" if text == "backend" else default
+
+        monkeypatch.setattr(cli.typer, "prompt", prompt)
+        monkeypatch.setattr(cli.typer, "confirm", lambda *a, **k: False)
+
+        DemoConfig.run_configure({}, interactive=True)
+
+        assert seen_defaults["backend"] == "first_value"
+        config = _load_from_path(isolated_config)
+        assert config.tools["demo_tool"]["backend"] == "second_value"
+
+    def test_interactive_reconfigure_reprompts_refto_field_with_stored_default(self, isolated_config, monkeypatch):
+        """Same as above but for a RefTo field: _resolve_ref must be offered
+        the stored database name as its suggested default, not skipped."""
+        _seed(isolated_config, StackConfig.for_session(
+            connections={"db": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={"cdm_db": DatabaseConfig(connection="db")},
+        ))
+        DemoConfig.run_configure({"cdm_db": "cdm_db", "backend": "x"}, interactive=False)
+
+        seen_defaults: dict[str, str] = {}
+
+        def prompt(text, default="", **kwargs):
+            seen_defaults[text] = default
+            return default
+
+        monkeypatch.setattr(cli.typer, "prompt", prompt)
+        monkeypatch.setattr(cli.typer, "confirm", lambda *a, **k: False)
+
+        DemoConfig.run_configure({}, interactive=True)
+
+        assert seen_defaults["  Point to an existing entry, or 'new' to create one"] == "cdm_db"
+        config = _load_from_path(isolated_config)
+        assert config.tools["demo_tool"]["cdm_db"] == "cdm_db"
+
+    def test_non_interactive_one_shot_creates_database_and_connection(self, isolated_config):
+        """--set-style nested flags create the whole reference chain (a new
+        connection, and the database pointing at it) in one non-interactive
+        call, restoring the old one-shot Docker Compose workflow."""
+        _seed(isolated_config, StackConfig.for_session())
+
+        DemoConfig.run_configure(
+            {
+                "backend": "custom",
+                "cdm_db": {
+                    "connection": {
+                        "dialect": "sqlite",
+                        "database_name": ":memory:",
+                    },
+                    "cdm_schema": "omop",
+                },
+            },
+            interactive=False,
+        )
+
+        config = _load_from_path(isolated_config)
+        cdm_db_name = config.tools["demo_tool"]["cdm_db"]
+        assert cdm_db_name in config.databases
+        conn_name = config.databases[cdm_db_name].connection
+        assert config.connections[conn_name].dialect == "sqlite"
+        assert config.databases[cdm_db_name].cdm_schema == "omop"
+
+    def test_non_interactive_one_shot_missing_required_nested_field_fails(self, isolated_config):
+        _seed(isolated_config, StackConfig.for_session())
+
+        with pytest.raises(typer.Exit):
+            DemoConfig.run_configure(
+                {"cdm_db": {"cdm_schema": "omop"}},  # missing connection.dialect etc.
+                interactive=False,
+            )
+
+
+class TestParseSetFlags:
+    def test_flat_key(self):
+        assert cli._parse_set_flags(("backend=custom",)) == {"backend": "custom"}
+
+    def test_nested_key(self):
+        assert cli._parse_set_flags(("cdm_db.dialect=sqlite", "cdm_db.host=db")) == {
+            "cdm_db": {"dialect": "sqlite", "host": "db"}
+        }
+
+    def test_deeply_nested_key(self):
+        assert cli._parse_set_flags(("cdm_db.connection.dialect=sqlite",)) == {
+            "cdm_db": {"connection": {"dialect": "sqlite"}}
+        }
+
+    def test_missing_equals_raises(self):
+        with pytest.raises(typer.BadParameter):
+            cli._parse_set_flags(("cdm_db.dialect",))
+
+    def test_path_conflict_raises(self):
+        with pytest.raises(typer.BadParameter):
+            cli._parse_set_flags(("cdm_db=name", "cdm_db.dialect=sqlite"))
+
+
+class TestConfigureSetFlag:
+    """Full CLI dispatch (not just PackageConfigBase.run_configure directly)
+    for the --set flag, via a faked entry point -- proves --set is actually
+    wired through Click/Typer parsing, not just the underlying resolution."""
+
+    def test_set_flag_creates_nested_entry_via_full_cli(self, isolated_config, monkeypatch):
+        class FakeEP:
+            name = "demo_tool"
+
+            def load(self):
+                return DemoConfig
+
+        monkeypatch.setattr(
+            cli, "entry_points",
+            lambda group=None: [FakeEP()] if group == cli.ENTRY_POINT_GROUP else [],
+        )
+        result = runner.invoke(
+            cli.app,
+            [
+                "configure", "demo_tool",
+                "--backend", "custom",
+                "--set", "cdm_db.connection.dialect=sqlite",
+                "--set", "cdm_db.connection.database_name=:memory:",
+                "--set", "cdm_db.cdm_schema=omop",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        config = _load_from_path(isolated_config)
+        assert config.tools["demo_tool"]["backend"] == "custom"
+        cdm_db_name = config.tools["demo_tool"]["cdm_db"]
+        assert cdm_db_name in config.databases
+        conn_name = config.databases[cdm_db_name].connection
+        assert config.connections[conn_name].dialect == "sqlite"
 
 
 class TestModelsList:

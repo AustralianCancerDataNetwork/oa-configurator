@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import time
 from importlib.metadata import entry_points
-from typing import Annotated
+from typing import Annotated, Any
 
 import click
 import rich
@@ -66,19 +66,56 @@ class _DynamicConfigureGroup(TyperGroup):
         return _build_package_command(cmd_name, ep.load()) if ep else None
 
 
+def _parse_set_flags(raw: tuple[str, ...]) -> dict[str, Any]:
+    """Parse repeated ``--set path.to.field=value`` strings into a nested dict.
+
+    A dotted path builds nested dicts, so ``--set cdm_db.dialect=sqlite
+    --set cdm_db.host=db`` becomes ``{"cdm_db": {"dialect": "sqlite", "host": "db"}}``.
+    Lets a non-interactive ``configure`` call create a brand-new RefTo
+    target (e.g. a database and the connection it points at) in the same
+    call that points a package's field at it, instead of requiring the
+    target to already exist.
+    """
+    tree: dict[str, Any] = {}
+    for item in raw:
+        path, sep, value = item.partition("=")
+        if not sep or not path:
+            raise typer.BadParameter(f"--set value must be path=value, got {item!r}")
+        *parents, leaf = path.split(".")
+        node = tree
+        for part in parents:
+            node = node.setdefault(part, {})
+            if not isinstance(node, dict):
+                raise typer.BadParameter(f"--set path conflict at {part!r} in {path!r}")
+        node[leaf] = value
+    return tree
+
+
 def _build_package_command(ep_name: str, cls: type[PackageConfigBase]) -> click.Command:
     """Build a Click command for one registered package entry point."""
     extra_params = _build_entry_params(cls)
     extra_names = {p.name for p in extra_params}
+    set_param = click.Option(
+        ["--set", "set_values"],
+        multiple=True,
+        default=(),
+        help=(
+            "Set a nested field non-interactively, e.g. --set cdm_db.dialect=sqlite "
+            "(repeatable). Lets a RefTo field's target be created in this same call "
+            "instead of pointing at an already-existing entry."
+        ),
+    )
 
     def callback(**kwargs):
-        set_dict = {k: str(v) for k, v in kwargs.items() if k in extra_names and v is not None}
+        set_values = kwargs.pop("set_values", ())
+        set_dict: dict[str, Any] = {k: str(v) for k, v in kwargs.items() if k in extra_names and v is not None}
+        set_dict.update(_parse_set_flags(tuple(set_values)))
         cls.run_configure(set_dict, interactive=not set_dict)
 
     return click.Command(
         name=ep_name,
         callback=callback,
-        params=extra_params,
+        params=[*extra_params, set_param],
         help=f"Configure {cls.tool_name} settings in config.toml.",
     )
 

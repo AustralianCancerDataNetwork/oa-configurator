@@ -22,12 +22,17 @@ def connections_add(
     user: Annotated[str | None, typer.Option(help=ConnectionConfig.model_fields["user"].description)] = None,
     password: Annotated[str | None, typer.Option(help=ConnectionConfig.model_fields["password"].description)] = None,
     database_name: Annotated[str | None, typer.Option(help=ConnectionConfig.model_fields["database_name"].description)] = None,
+    test_only: Annotated[str | None, typer.Option(help=ConnectionConfig.model_fields["test_only"].description)] = None,
 ) -> None:
-    r"""Add or update a \[connections.<name>] entry. Prompts for any field not given as a flag."""
+    r"""Add or update a \[connections.<name>] entry. Prompts for any field not given as a flag.
+
+    ``--test-only`` accepts true/false/yes/no/1/0.
+    """
     flags = {
         k: v for k, v in {
             "dialect": dialect, "host": host, "port": port,
             "user": user, "password": password, "database_name": database_name,
+            "test_only": test_only,
         }.items() if v is not None
     } or None
     _add_entry(ConnectionConfig, "connections", name, flags)

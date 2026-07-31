@@ -157,25 +157,30 @@ def pg_engine():
 
 The test database must be provisioned for real before pytest runs. There is no fallback that papers over a missing one, by design (see the callout above).
 
-A package field marked with a `test_`-prefixed name (e.g. `test_cdm_db: Annotated[str | None, RefTo(DatabaseConfig)] = None`) gets special handling in `omop-config configure <package>`'s **interactive** flow only: it asks whether to configure a test database, and if you accept, recurses through creating both the connection and the database, marking the connection `test_only = true` automatically and refusing to reuse (or collide with) a non-test connection's host/database combination.
+A package field marked with a `test_`-prefixed name (e.g. `test_cdm_db: Annotated[str | None, RefTo(DatabaseConfig)] = None`) gets special handling in `omop-config configure <package>`'s **interactive** flow: it asks whether to configure a test database, and if you accept, recurses through creating both the connection and the database, marking the connection `test_only = true` automatically and refusing to reuse (or collide with) a non-test connection's host/database combination.
 
-!!! warning "No non-interactive path for test_only yet"
-    Setting `test_only = true` non-interactively is a known gap: the standalone `omop-config connections add`/`databases add` commands don't currently expose a `--test-only` flag at all, so there is no scripted, one-command way to provision a *marked* test connection for CI today.
+Non-interactively, `--test-only` is an ordinary flag on `connections add` (accepting `true`/`false`/`yes`/`no`/`1`/`0`):
 
-    Until that lands, the working non-interactive sequence is to create the connection and database as ordinary (non-test) entries, hand-edit `test_only = true` into the connection's TOML block afterward, then point the package's `test_*` field at the database by name:
+```bash
+omop-config connections add test_cdm \
+  --dialect postgresql+psycopg --host localhost --port 5432 \
+  --user test --password test --database-name test_db --test-only true
 
-    ```bash
-    omop-config connections add test_cdm \
-      --dialect postgresql+psycopg --host localhost --port 5432 \
-      --user test --password test --database-name test_db
-    # then set test_only = true under [connections.test_cdm] by hand
+omop-config databases add test_cdm_db --connection test_cdm --cdm-schema public
 
-    omop-config databases add test_cdm_db --connection test_cdm --cdm-schema public
+omop-config configure <package> --test-cdm-db test_cdm_db
+```
 
-    omop-config configure <package> --test-cdm-db test_cdm_db
-    ```
+The `--test-cdm-db` flag above is the field's own auto-generated flag (`test_cdm_db` -> `--test-cdm-db`); it points the field at an already-created database by name, same as any other `RefTo` field passed non-interactively. Or do it in the single `configure` call directly with `--set` (see [Docker Compose](#docker-compose) below):
 
-    The `--test-cdm-db` flag above is the field's own auto-generated flag (`test_cdm_db` -> `--test-cdm-db`), not a special mechanism; it just points the field at an already-created database by name, same as any other `RefTo` field passed non-interactively.
+```bash
+omop-config configure <package> \
+  --set test_cdm_db.connection.dialect=postgresql+psycopg \
+  --set test_cdm_db.connection.host=localhost \
+  --set test_cdm_db.connection.database_name=test_db \
+  --set test_cdm_db.connection.test_only=true \
+  --set test_cdm_db.cdm_schema=public
+```
 
 === "Local development"
 
@@ -183,7 +188,7 @@ A package field marked with a `test_`-prefixed name (e.g. `test_cdm_db: Annotate
 
 === "CI"
 
-    Provision the connection and database ahead of time (as part of image build or a setup step), then pass the package's test-field flag as part of the same `omop-config configure <package>` step, as shown above.
+    Either provision the connection and database ahead of time (as part of image build or a setup step) and pass the package's test-field flag, or do it all in one `--set`-based `configure` call, as shown above.
 
 !!! info "Safety"
     The test database must point to a dedicated, empty database.
@@ -300,6 +305,27 @@ command: >
 ```
 
 Each `configure` call is scoped to its own package's flags; `connections add`/`databases add` are shared setup steps run once regardless of how many packages point at the result.
+
+### One-shot alternative: `--set`
+
+For a single package pointing at a database nobody else needs to share, `configure` can create the connection and database in the same call via repeated `--set field.subfield=value` flags, instead of the three separate commands above:
+
+```yaml
+command: >
+  bash -c "
+    omop-config configure my_package
+      --set cdm_db.connection.dialect=postgresql+psycopg
+      --set cdm_db.connection.host=db
+      --set cdm_db.connection.port=5432
+      --set cdm_db.connection.user=$$POSTGRES_USER
+      --set cdm_db.connection.password=$$POSTGRES_PASSWORD
+      --set cdm_db.connection.database_name=$$POSTGRES_DB
+      --set cdm_db.cdm_schema=omop &&
+    exec my_app_entrypoint
+  "
+```
+
+`cdm_db` here is the name of the package's own field (`Annotated[str, RefTo(DatabaseConfig)]`); `connection` is `DatabaseConfig`'s own field naming a `[connections.*]` entry -- the dotted path can go as deep as the reference chain does. The connection this creates is named after the database (`cdm_db`, from the field's own default), or pass `--set cdm_db.connection.name=<explicit-name>` to choose one. Prefer the three-command form above when more than one package needs to point at the same database -- `--set` creates a fresh one per call.
 
 ### Security note
 

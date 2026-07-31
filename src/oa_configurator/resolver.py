@@ -73,16 +73,66 @@ def _nested_ref(info: Any) -> RefTo | None:
     return None
 
 
-def _is_promptable(info: Any) -> bool:
-    """Whether a field is something the wizard should ask about at all.
+def _is_flag_settable(info: Any) -> bool:
+    """Whether a field can be set via a CLI flag, ``--set`` value, or
+    interactive prompt/confirm at all.
 
-    Excludes bool fields (e.g. ConnectionConfig.test_only -- programmatic
-    only, never something a user picks by typing True/False) and dict/other
-    non-scalar fields (e.g. ModelConfig.configuration -- a free-form escape
-    hatch with no sensible single-line prompt; left to its own
-    default_factory).
+    Excludes dict/list fields (e.g. ModelConfig.configuration -- a
+    free-form escape hatch with no sensible single-flag or single-line
+    representation; left to its own default_factory). Bool fields (e.g.
+    ConnectionConfig.test_only) ARE flag-settable -- as a
+    true/false/yes/no flag value, or an interactive confirm -- just never
+    through a free-text prompt (see the ``is_bool`` branch in
+    :func:`_resolve_named_entry`).
     """
-    return get_origin(info.annotation) not in (dict, list) and info.annotation not in (bool, dict)
+    return get_origin(info.annotation) not in (dict, list) and info.annotation is not dict
+
+
+def _flag_name(name: str) -> str:
+    """Build a Click flag name from a field name.
+
+    Parameters
+    ----------
+    name : str
+        The field name, e.g. "database_name" or "test_cdm_db". Underscores
+        become hyphens.
+
+    Returns
+    -------
+    str
+        The flag name, e.g. "--database-name" or "--test-cdm-db".
+    """
+    return f"--{name.replace('_', '-')}"
+
+
+def _check_missing_required(
+    display_name: str,
+    missing_required: list[str],
+    *,
+    non_interactive: bool,
+) -> None:
+    """Abort with a clear error, naming exact CLI flags, if fields are missing.
+
+    A dotted name (e.g. ``"cdm_db.connection"``, from a nested ``--set``
+    creation -- see :func:`_resolve_nested_flag_value`) is reported as a
+    ``--set path=value`` hint instead of a plain flag, since no such flag
+    exists.
+    """
+    if not non_interactive or not missing_required:
+        return
+    import typer
+    from rich.console import Console
+
+    err_console = Console(stderr=True)
+    hints = ", ".join(
+        f"--set {k}=<value>" if "." in k else _flag_name(k)
+        for k in missing_required
+    )
+    err_console.print(
+        f"\n[red bold]Missing required field(s) for {display_name!r}:[/red bold] {hints}\n"
+        f"No flag or stored config is available for these. Pass them explicitly."
+    )
+    raise typer.Exit(1)
 
 
 def _is_test_marked(name: str, target: type[BaseModel], config: StackConfig) -> bool:
@@ -177,21 +227,75 @@ def _check_test_collision(new_conn: ConnectionConfig, config: StackConfig) -> No
             raise typer.Exit(1)
 
 
+def _resolve_nested_flag_value(
+    field_name: str,
+    info: Any,
+    nested: RefTo,
+    raw: dict[str, str],
+    config: StackConfig,
+    *,
+    name_hint: str | None,
+    is_test: bool,
+    missing_required: list[str],
+) -> str | None:
+    """Resolve a RefTo field's nested ``--set field.subfield=value`` dict
+    into a saved entry, returning the name it was saved under.
+
+    Lets a non-interactive caller create a brand-new target (e.g. a
+    database and the connection it points at, in the same call) instead of
+    requiring the target to already exist -- restores one-shot creation of
+    a whole reference chain from a single ``configure`` invocation.
+
+    *raw* may include a ``name`` key to choose the entry's name explicitly;
+    otherwise the field's own default (or *name_hint*, or the field name
+    itself) is used, matching the interactive wizard's own naming default.
+    An entry already saved under that name is updated -- its stored fields
+    carry over for anything *raw* doesn't mention -- not replaced outright.
+
+    Returns None (appending dotted ``field_name.subfield`` paths to
+    *missing_required* instead) when the nested entry itself is missing a
+    required field -- lets the caller report every missing field from one
+    non-interactive call in a single error, at any nesting depth.
+    """
+    has_default = info.default not in (None, PydanticUndefined)
+    section_dict: dict[str, Any] = getattr(config, _REF_SECTIONS[nested.target])
+    sub_flags = dict(raw)
+    name = sub_flags.pop("name", None) or (str(info.default) if has_default else (name_hint or field_name))
+
+    nested_missing: list[str] = []
+    nested_entry = _resolve_named_entry(
+        nested.target, config, flags=sub_flags, existing=section_dict.get(name),
+        missing_required=nested_missing, name_hint=name, is_test=is_test,
+    )
+    if nested_missing:
+        missing_required.extend(f"{field_name}.{m}" for m in nested_missing)
+        return None
+    section_dict[name] = nested_entry
+    return name
+
+
 def _resolve_named_entry(
     target: type[BaseModel],
     config: StackConfig,
     *,
-    flags: dict[str, str] | None,
+    flags: dict[str, Any] | None,
     existing: BaseModel | None,
     missing_required: list[str],
     name_hint: str | None = None,
     is_test: bool = False,
 ) -> BaseModel | None:
     """Resolve one entry of *target*: flag, then stored value (from
-    *existing*), then -- interactively -- a prompt, recursing into any
-    RefTo field via :func:`_resolve_ref`. Non-interactively, an unresolved
-    RefTo field just uses its own default; existence is validated by
-    ``StackConfig``'s cross-reference check once the entry is saved.
+    *existing*), then -- interactively -- a prompt seeded with the stored
+    value as its default when one exists, recursing into any RefTo field
+    via :func:`_resolve_ref`. Non-interactively, an unresolved RefTo field
+    just uses its own default; existence is validated by ``StackConfig``'s
+    cross-reference check once the entry is saved.
+
+    A RefTo field's flag value may also be a nested ``dict`` (built from
+    repeated ``--set field.subfield=value`` flags) instead of a plain
+    string -- see :func:`_resolve_nested_flag_value`. Bool fields (e.g.
+    ``ConnectionConfig.test_only``) are resolved via flag, an interactive
+    ``typer.confirm``, or their own default -- never a free-text prompt.
 
     *name_hint* and *is_test* only matter for the brand-new-entry path (no
     *flags*, no *existing*): *name_hint* is the fallback default offered
@@ -203,7 +307,7 @@ def _resolve_named_entry(
 
     Returns None (instead of constructing *target*, which could raise) when
     a required field is missing non-interactively -- the caller is expected
-    to check *missing_required* (e.g. via ``_check_missing_required``)
+    to check *missing_required* (e.g. via :func:`_check_missing_required`)
     before using the result.
     """
     import typer
@@ -214,51 +318,96 @@ def _resolve_named_entry(
 
     for field_name, info in target.model_fields.items():
         stored = getattr(existing, field_name, None) if existing is not None else None
-        if not _is_promptable(info):
-            # bool/dict/etc: programmatic-only, never interactively prompted --
+        if not _is_flag_settable(info):
+            # dict/list/etc: no sensible single-flag/prompt representation --
             # but an existing value (e.g. ModelConfig.configuration) is still
             # carried over on update; otherwise leave unset for pydantic's
             # own default/default_factory to apply.
             if stored is not None:
                 values[field_name] = stored
             continue
+
+        is_bool = info.annotation is bool
         nested = _nested_ref(info)
         has_default = info.default not in (None, PydanticUndefined)
+        raw = flags.get(field_name)
 
-        if (raw := flags.get(field_name)) is not None:
-            values[field_name] = raw if info.is_required() else (raw or None)
-        elif stored is not None:
-            values[field_name] = stored
-        elif nested is not None:
+        if isinstance(raw, dict) and nested is not None:
+            resolved_name = _resolve_nested_flag_value(
+                field_name, info, nested, raw, config,
+                name_hint=name_hint, is_test=is_test, missing_required=missing_required,
+            )
+            if resolved_name is not None:
+                values[field_name] = resolved_name
+            continue
+
+        if raw is not None:
+            if is_bool:
+                values[field_name] = str(raw).strip().lower() in ("1", "true", "yes", "on")
+            else:
+                values[field_name] = raw if info.is_required() else (raw or None)
+            continue
+
+        if field_name == "test_only" and is_test:
+            # forced by the recursive test-database wizard -- never asked,
+            # never overridable by a stored/default value here
+            values[field_name] = True
+            continue
+
+        if is_bool:
+            if non_interactive:
+                if stored is not None:
+                    values[field_name] = stored
+                elif has_default:
+                    values[field_name] = info.default
+                # else: no default and non-interactive -> omit, let pydantic apply it
+            else:
+                values[field_name] = typer.confirm(
+                    info.description or field_name,
+                    default=bool(stored) if stored is not None else (bool(info.default) if has_default else False),
+                )
+            continue
+
+        if nested is not None:
             if not info.is_required():
-                pass  # optional nested ref: stays unset unless a flag/stored value set it above
+                if stored is not None:
+                    values[field_name] = stored
+                # else: optional nested ref stays unset unless a flag/stored value set it above
             elif non_interactive:
-                if not has_default:
+                if stored is not None:
+                    values[field_name] = stored
+                elif not has_default:
                     missing_required.append(field_name)
                 else:
                     values[field_name] = info.default
             else:
-                default_name = str(info.default) if has_default else (name_hint or "")
+                default_name = stored if stored is not None else (str(info.default) if has_default else (name_hint or ""))
                 values[field_name] = _resolve_ref(
                     field_name, info.description or "", nested.target, config,
                     default_name=default_name, is_test=is_test,
                 )
-        elif non_interactive:
-            if not has_default and info.is_required():
+            continue
+
+        if non_interactive:
+            if stored is not None:
+                values[field_name] = stored
+            elif not has_default and info.is_required():
                 missing_required.append(field_name)
             elif has_default:
                 values[field_name] = info.default
             # else: field has a default_factory (e.g. dict) -- omit, let pydantic apply it
-        else:
-            default_value = str(info.default) if has_default else ""
-            raw = typer.prompt(info.description or field_name, default=default_value, hide_input=is_sensitive(info))
-            values[field_name] = raw if info.is_required() else (raw or None)
+            continue
+
+        default_value = str(stored) if stored is not None else (str(info.default) if has_default else "")
+        raw_input = typer.prompt(info.description or field_name, default=default_value, hide_input=is_sensitive(info))
+        values[field_name] = raw_input if info.is_required() else (raw_input or None)
 
     if non_interactive and missing_required:
         return None
     entry = target(**values)
     if is_test and isinstance(entry, ConnectionConfig):
         entry.test_only = True
+    if isinstance(entry, ConnectionConfig) and entry.test_only:
         _check_test_collision(entry, config)
     return entry
 

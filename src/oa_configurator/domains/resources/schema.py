@@ -59,10 +59,6 @@ class ConnectionConfig(BaseModel):
         default=None,
         description="Database name on the server. For SQLite use ':memory:' or an absolute path.",
     )
-    read_only: bool = Field(
-        default=False,
-        description="Hint only; enforcement depends on the dialect.",
-    )
     test_only: bool = Field(
         default=False,
         description=(
@@ -80,13 +76,13 @@ class ConnectionConfig(BaseModel):
         Docker Compose ``env_file:``. Field names are uppercased directly
         (e.g. ``host`` → ``PREFIX_HOST``), so adding a new field here
         automatically appears in the export without touching ``io.py``.
-        Config-only flags (``read_only``, ``test_only``) are excluded — they
-        are not database connection parameters.
+        The ``test_only`` config-only flag is excluded — it is not a
+        database connection parameter.
         """
         return [
             f"{prefix}_{k.upper()}={v}"
             for k, v in self.model_dump().items()
-            if v is not None and k not in {"read_only", "test_only"}
+            if v is not None and k != "test_only"
         ]
 
     def _build_url(self, hide_password: bool) -> str:
@@ -220,16 +216,12 @@ class ResolvedConnection:
         Parameters
         ----------
         **kwargs
-            Forwarded to ``sqlalchemy.create_engine``. The ``read_only``
-            keyword is silently removed for SQLite connections, which do
-            not support it.
+            Forwarded to ``sqlalchemy.create_engine``.
 
         Returns
         -------
         sqlalchemy.engine.Engine
         """
-        if self.url.startswith("sqlite") and "read_only" in kwargs:
-            kwargs.pop("read_only", None)
         return sa.create_engine(self.url, **kwargs)
 
     def __repr__(self) -> str:

@@ -114,33 +114,50 @@ class PackageConfigBase(BaseModel):
         return self.model_dump(exclude_none=True)
 
     @classmethod
-    def resolve_fields(cls, config: StackConfig, *, set_dict: dict[str, str], interactive: bool) -> dict[str, Any]:
+    def resolve_fields(cls, config: StackConfig, *, set_dict: dict[str, Any], interactive: bool) -> dict[str, Any]:
         """Resolve this package's own fields: flag (``--set`` or the field's
         own auto-generated flag), then stored, then -- interactively --
-        prompt, recursing into any ``RefTo``-marked field via the generic
+        prompt (seeded with the stored value as its default when one
+        exists), recursing into any ``RefTo``-marked field via the generic
         resolver machinery in :mod:`~oa_configurator.resolver`.
+
+        A ``RefTo``-marked field's ``set_dict`` value may also be a nested
+        ``dict`` (built from repeated ``--set field.subfield=value`` CLI
+        flags) instead of a plain string -- this creates the target entry
+        from the nested flags in the same call, instead of requiring it to
+        already exist.
 
         Parameters
         ----------
         config : StackConfig
             The current StackConfig, used to read any already-stored extras.
-        set_dict : dict[str, str]
-            Flag values, keyed by field name. Checked first.
+        set_dict : dict[str, Any]
+            Flag values, keyed by field name. Checked first. A value is
+            either the field's plain string value, or (for a ``RefTo``
+            field only) a nested ``dict`` of the target's own field values.
         interactive : bool
             Whether to prompt for fields not covered by set_dict or stored
-            config. Non-interactively, such fields are simply omitted (they
-            fall back to the field's own pydantic default when the config
-            class is loaded).
+            config, and whether an already-stored value is offered as a
+            re-promptable default rather than reused silently.
+            Non-interactively, fields covered by neither are simply omitted
+            (they fall back to the field's own pydantic default when the
+            config class is loaded).
 
         Returns
         -------
         dict[str, Any]
             Resolved extra field values, keyed by field name.
+
+        Raises
+        ------
+        typer.Exit
+            If a nested ``--set`` creation (see above) is missing a
+            required field of the target it's creating, non-interactively.
         """
         import typer
         from rich.console import Console
 
-        from .resolver import Resolver, _nested_ref, _resolve_ref
+        from .resolver import Resolver, _check_missing_required, _nested_ref, _resolve_nested_flag_value, _resolve_ref
 
         console = Console()
 
@@ -151,15 +168,28 @@ class PackageConfigBase(BaseModel):
             current_dict = {}
 
         extra: dict[str, Any] = {}
+        missing_required: list[str] = []
         for field_name, info in cls.model_fields.items():
             nested = _nested_ref(info)
-            if field_name in set_dict:
-                extra[field_name] = set_dict[field_name]
-            elif field_name in current_dict:
-                extra[field_name] = current_dict[field_name]
-            elif interactive and nested is not None:
+            stored = current_dict.get(field_name)
+            raw_set = set_dict.get(field_name)
+
+            if isinstance(raw_set, dict) and nested is not None:
                 is_test = field_name.startswith("test_")
-                if is_test and info.default is None:
+                resolved_name = _resolve_nested_flag_value(
+                    field_name, info, nested, raw_set, config,
+                    name_hint=field_name, is_test=is_test, missing_required=missing_required,
+                )
+                if resolved_name is not None:
+                    extra[field_name] = resolved_name
+            elif field_name in set_dict:
+                extra[field_name] = set_dict[field_name]
+            elif not interactive:
+                if stored is not None:
+                    extra[field_name] = stored
+            elif nested is not None:
+                is_test = field_name.startswith("test_")
+                if is_test and stored is None and info.default is None:
                     console.print("\n[dim]─── Test database (optional) ───[/dim]")
                     console.print(
                         "[yellow]⚠[/yellow]  Test databases are used by the test suite, which runs"
@@ -168,23 +198,28 @@ class PackageConfigBase(BaseModel):
                     )
                     if not typer.confirm(f"Configure {field_name}?", default=False):
                         continue
-                default_name = str(info.default) if info.default not in (None, PydanticUndefined) else field_name
+                default_name = stored if stored is not None else (
+                    str(info.default) if info.default not in (None, PydanticUndefined) else field_name
+                )
                 resolved = _resolve_ref(
                     field_name, info.description or "", nested.target, config,
                     default_name=default_name, is_test=is_test,
                 )
                 if resolved:
                     extra[field_name] = resolved
-            elif interactive:
+            else:
                 desc = info.description or ""
                 label = f"{field_name}" + (f"  ({desc})" if desc else "")
-                raw = typer.prompt(label, default=str(info.default) if info.default is not None else "")
+                default_value = stored if stored is not None else (str(info.default) if info.default is not None else "")
+                raw = typer.prompt(label, default=default_value)
                 if raw and raw != "None":
                     extra[field_name] = raw
+
+        _check_missing_required(f"tool {cls.tool_name!r}", missing_required, non_interactive=not interactive)
         return extra
 
     @classmethod
-    def run_configure(cls, set_dict: dict[str, str], *, interactive: bool) -> None:
+    def run_configure(cls, set_dict: dict[str, Any], *, interactive: bool) -> None:
         """Run the configure flow for this package: resolve every one of its
         own fields (see :meth:`resolve_fields`) and save to the active
         stack config file.

@@ -50,10 +50,6 @@ class TestConnectionConfig:
         with pytest.raises(Exception):
             ConnectionConfig(dialect="sqlite", unknown_field="x")  # type: ignore
 
-    def test_read_only_flag(self):
-        db = ConnectionConfig(dialect="sqlite", database_name=":memory:", read_only=True)
-        assert db.read_only is True
-
 
 class TestDatabaseConfig:
     def test_minimal(self):

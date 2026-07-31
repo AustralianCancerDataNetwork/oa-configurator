@@ -18,7 +18,6 @@ One section per named physical connection: server address, credentials, target d
 | `user` | string | no | Database username |
 | `password` | string | no | Plaintext password *(see security note below)* |
 | `database_name` | string | no | Database name on the server. For SQLite, use `:memory:` or an absolute path. |
-| `read_only` | bool | `false` | Hint only; enforcement depends on the dialect |
 | `test_only` | bool | `false` | Marks this connection as intended for testing only. Excluded from production database prompts; used as a safety check to prevent accidental test operations on production data. |
 
 !!! warning "Security note"

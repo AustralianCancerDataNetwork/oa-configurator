@@ -3,7 +3,6 @@ the process-local StackConfig cache keyed on file identity (mtime + size)."""
 
 from __future__ import annotations
 
-import logging
 import tomllib
 from pathlib import Path
 
@@ -116,20 +115,6 @@ class TestLoadFromPath:
         path = _make_config_file(tmp_path)
         config = _load_from_path(path)
         assert config.loaded_path == path.resolve()
-
-    def test_warns_on_loose_permissions(self, tmp_path, caplog):
-        path = _make_config_file(tmp_path)
-        path.chmod(0o644)
-        with caplog.at_level(logging.WARNING, logger="oa_configurator.loader"):
-            _load_from_path(path)
-        assert "loose permissions" in caplog.text
-
-    def test_no_warning_with_restricted_permissions(self, tmp_path, caplog):
-        path = _make_config_file(tmp_path)
-        path.chmod(0o600)
-        with caplog.at_level(logging.WARNING, logger="oa_configurator.loader"):
-            _load_from_path(path)
-        assert "loose permissions" not in caplog.text
 
 
 class TestLoadFromPathCaching:

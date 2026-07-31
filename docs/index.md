@@ -62,6 +62,7 @@ A shared configuration layer for the OMOP-oriented Python stack.
 
 ## Next Steps
 
+- [Migrating from 0.x to 1.0](migration-1.0.md): upgrading an existing config? Start here.
 - [Quick Start](quickstart.md): install and get a working engine in minutes
 - [Config File Reference](config-reference.md): every TOML field documented
 - [Logging](logging.md): consistent log output across the entire OMOP stack

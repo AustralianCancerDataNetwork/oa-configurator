@@ -2,21 +2,21 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import Annotated, ClassVar
 
 import pytest
 
 from oa_configurator import (
     ConfigurationError,
-    PackageConfigBase,
-    Resolver,
-    ResourceRef,
-    ResourceSpec,
-    StackConfig,
+    ConnectionConfig,
     DatabaseConfig,
-    ResourceConfig,
+    ModelConfig,
+    PackageConfigBase,
+    ProviderConfig,
+    RefTo,
+    Resolver,
+    StackConfig,
 )
-from oa_configurator.models import ProfileOverrideConfig
 
 
 class SampleConfig(PackageConfigBase):
@@ -76,91 +76,76 @@ class TestPackageConfigBase:
             BadConfig().tool_name  # type: ignore[attr-defined]
 
 
-class RequiredConfig(PackageConfigBase):
-    tool_name: ClassVar[str] = "required_tool"
-    required_resources: ClassVar[tuple[str, ...]] = ("cdm_db",)
-    value: str = "default_value"
+class DatabaseUserConfig(PackageConfigBase):
+    """Stand-in for a package that needs a CDM database: a plain field, no
+    separate declaration list -- the field itself is the requirement."""
+
+    tool_name: ClassVar[str] = "database_user_tool"
+    cdm_db: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"
 
 
-class TestRequiredResources:
-    def test_passes_when_resource_present(self):
+class EmbeddingConfig(PackageConfigBase):
+    """Stand-in for a package with its own field naming a [models.*] entry."""
+
+    tool_name: ClassVar[str] = "embedding_tool"
+    embedding_model_name: Annotated[str, RefTo(ModelConfig)] = "embed-default"
+
+
+class TestRefToPackageField:
+    """resolve_package_config validates a package's own RefTo-marked fields --
+    the same mechanism for databases and models, no ResourceSpec/required_resources
+    needed."""
+
+    def test_passes_when_referenced_database_exists(self):
         cfg = StackConfig.for_session(
-            databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"cdm_db": ResourceConfig(database="db", cdm_schema="main")},
+            connections={"db": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={"cdm_db": DatabaseConfig(connection="db")},
         )
-        result = Resolver(cfg).resolve_package_config(RequiredConfig)
-        assert result.value == "default_value"
+        result = Resolver(cfg).resolve_package_config(DatabaseUserConfig)
+        assert result.cdm_db == "cdm_db"
 
-    def test_raises_when_resource_missing(self):
+    def test_raises_when_referenced_database_missing(self):
         cfg = StackConfig.for_session()
         with pytest.raises(ConfigurationError) as exc_info:
-            Resolver(cfg).resolve_package_config(RequiredConfig)
+            Resolver(cfg).resolve_package_config(DatabaseUserConfig)
         msg = str(exc_info.value)
         assert "cdm_db" in msg
-        assert "omop-config configure required_tool" in msg
+        assert "omop-config configure database_user_tool" in msg
 
-    def test_recognises_profile_resources(self):
+    def test_passes_when_referenced_model_exists(self):
         cfg = StackConfig.for_session(
-            databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            profiles={
-                "test": ProfileOverrideConfig(
-                    resources={"cdm_db": ResourceConfig(database="db", cdm_schema="test_schema")},
-                ),
-            },
-            active_profile="test",
+            providers={"p": ProviderConfig(provider="ollama")},
+            models={"embed-default": ModelConfig(provider="p", model="nomic-embed-text")},
         )
-        result = Resolver(cfg).resolve_package_config(RequiredConfig)
-        assert result.value == "default_value"
+        result = Resolver(cfg).resolve_package_config(EmbeddingConfig)
+        assert result.embedding_model_name == "embed-default"
 
-    def test_empty_required_resources_always_passes(self):
-        cfg = StackConfig.for_session()
-        result = Resolver(cfg).resolve_package_config(SampleConfig)
-        assert result.backend == "default_backend"
-
-
-class OwnerConfig(PackageConfigBase):
-    """Stand-in for another package that owns a resource, e.g. omop_alchemy."""
-
-    CDM_DB: ClassVar[ResourceSpec] = ResourceSpec(
-        semantic_name="cdm_db",
-        display_name="CDM Database",
-        description="Owned by OwnerConfig.",
-    )
-    tool_name: ClassVar[str] = "owner_tool"
-    owned_resources: ClassVar[tuple[ResourceSpec, ...]] = (CDM_DB,)
-
-
-class ConsumerConfig(PackageConfigBase):
-    """Stand-in for a package consuming another package's owned resource."""
-
-    tool_name: ClassVar[str] = "consumer_tool"
-    required_resources: ClassVar[tuple[ResourceRef, ...]] = (
-        ResourceRef(OwnerConfig, OwnerConfig.CDM_DB),
-    )
-
-
-class TestResourceRef:
-    def test_resolves_through_owning_package(self):
-        cfg = StackConfig.for_session(
-            databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"cdm_db": ResourceConfig(database="db", cdm_schema="main")},
-        )
-        result = Resolver(cfg).resolve_package_config(ConsumerConfig)
-        assert result is not None
-
-    def test_error_names_the_owning_package_not_the_consumer(self):
+    def test_raises_when_referenced_model_missing(self):
         cfg = StackConfig.for_session()
         with pytest.raises(ConfigurationError) as exc_info:
-            Resolver(cfg).resolve_package_config(ConsumerConfig)
+            Resolver(cfg).resolve_package_config(EmbeddingConfig)
         msg = str(exc_info.value)
-        assert "cdm_db" in msg
-        assert "omop-config configure owner_tool" in msg
-        assert "consumer_tool" not in msg
+        assert "embed-default" in msg
+        assert "omop-config configure embedding_tool" in msg
 
-    def test_resolve_engine_accepts_resource_ref(self):
+
+class OtherDatabaseUserConfig(PackageConfigBase):
+    """A second, unrelated package whose field happens to default to the
+    same database name as DatabaseUserConfig -- no import of that class."""
+
+    tool_name: ClassVar[str] = "other_database_user_tool"
+    cdm_database: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"
+
+
+class TestConventionBasedSharing:
+    """Two packages share a database purely by their fields' default values
+    matching -- no cross-package reference object of any kind."""
+
+    def test_two_packages_resolve_to_the_same_database(self):
         cfg = StackConfig.for_session(
-            databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"cdm_db": ResourceConfig(database="db", cdm_schema="main")},
+            connections={"db": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={"cdm_db": DatabaseConfig(connection="db")},
         )
-        engine = Resolver(cfg).resolve_engine(ResourceRef(OwnerConfig, OwnerConfig.CDM_DB))
-        assert engine is not None
+        a = Resolver(cfg).resolve_package_config(DatabaseUserConfig)
+        b = Resolver(cfg).resolve_package_config(OtherDatabaseUserConfig)
+        assert a.cdm_db == b.cdm_database == "cdm_db"

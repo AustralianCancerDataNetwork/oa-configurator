@@ -1,9 +1,18 @@
-"""CLI for omop-config: initialise, inspect, switch profiles, test connections, configure packages."""
+"""CLI for omop-config: initialise, inspect, test connections, configure packages.
+
+Pure aggregator: discovers/dispatches registered packages' `configure`
+subcommands and mounts each domain's own `<section> add/list` sub-app
+(domains/resources/cli.py, domains/llm/cli.py). Per-package field
+resolution/save lives on PackageConfigBase (resolve_fields/run_configure);
+the generic recursive resolution engine lives in resolver.py; shared
+`<section> add/list` plumbing lives in cli_support.py -- this module owns
+only discovery/dispatch and the handful of top-level commands
+(init/show/verify/export-env).
+"""
 
 from __future__ import annotations
 
 import time
-from functools import partial
 from importlib.metadata import entry_points
 from typing import Annotated
 
@@ -15,307 +24,32 @@ from typer.core import TyperGroup
 from rich.console import Console
 from rich.table import Table
 
-from .io import patch_active_profile, save_stack_config, write_env_file
+from .cli_support import _build_entry_params
+from .domains.llm.cli import models_app, providers_app
+from .domains.resources.cli import connections_app, databases_app
+from .io import save_stack_config, write_env_file
 from .loader import CONFIG_PATH, load_stack_config
 from .logging_config import configure_logging
-from .models import DatabaseConfig, ModelConfig, ProviderConfig, ResourceConfig, StackConfig
-from .package_base import ConfigurationError, ModelFieldSpec, ResourceSpec, _resource_ref_name, _resource_ref_owner_tool_name
+from .stack_config import StackConfig
+from .package_base import PackageConfigBase
 from .resolver import Resolver
-from .cli_fields import (
-    FieldSpec,
-    FS_Database,
-    FS_Model,
-    FS_Provider,
-    FS_Schema,
-    TEST_FLAG_PREFIX,
-    build_database_config,
-    build_model_config,
-    build_provider_config,
-    build_resource_config,
-    build_resource_params,
-    flag_name,
-    resolve_field_value,
-    resolve_fields,
-)
-from pydantic import BaseModel
 
 app = typer.Typer(name="omop-config", no_args_is_help=True, add_completion=False)
 console = Console()
 err_console = Console(stderr=True)
 
+ENTRY_POINT_GROUP = "omop.config"
 
-def _resolve_field_values(
-    fields: tuple[FieldSpec, ...],
-    existing: BaseModel | None,
-    *,
-    spec: ResourceSpec | None = None,
-    flags: dict[str, str],
-    non_interactive: bool,
-    spec_defaults: dict[str, str] | None = None,
-    prefill: dict[str, str] | None = None,
-    missing_required: list[str],
-) -> dict[str, str | None]:
-    """Resolve one field table into a values dict.
+app.add_typer(connections_app, name="connections")
+app.add_typer(databases_app, name="databases")
+app.add_typer(providers_app, name="providers")
+app.add_typer(models_app, name="models")
 
-    Shared by every "reuse existing or prompt/flag through a field table"
-    flow (_resolve_resource's two field tables, _resolve_provider_entry,
-    _resolve_model_entry): builds the flags/stored/spec_defaults tiers
-    resolve_field_value expects, then resolves the whole table at once.
-
-    Parameters
-    ----------
-    fields : tuple[FieldSpec, ...]
-        The field table to resolve, e.g. FS_Provider.ALL.
-    existing : pydantic.BaseModel, optional
-        An already-stored config instance to pre-fill from, or None for a
-        fresh entry.
-    spec : ResourceSpec, optional
-        Passed through to resolve_fields for any callable FieldSpec.default.
-    flags : dict[str, str]
-        Explicit CLI flag values, already defaulted to ``{}`` by the caller.
-    non_interactive : bool
-        Whether to skip prompting and fall back to each field's own default,
-        recording anything still missing into missing_required instead.
-    spec_defaults : dict[str, str], optional
-        Package-supplied connection defaults (ResourceSpec.connection_defaults).
-    prefill : dict[str, str], optional
-        Values to silently apply without prompting (e.g. a name chosen a
-        step earlier), merged into the "already known" tier alongside
-        `existing`.
-    missing_required : list[str]
-        Mutable accumulator, shared across multiple calls for the same
-        logical entry (e.g. _resolve_resource's database + schema tables)
-        so the caller can report every missing field in one combined error.
-
-    Returns
-    -------
-    dict[str, str or None]
-        Output of resolve_fields for this field table.
-    """
-    stored = {k: str(v) if v is not None else "" for k, v in existing.model_dump().items()} if existing else {}
-    if prefill:
-        stored.update(prefill)
-    resolve_field = partial(
-        resolve_field_value,
-        flags=flags,
-        stored=stored,
-        spec_defaults=spec_defaults,
-        non_interactive=non_interactive,
-        missing_required=missing_required,
-    )
-    return resolve_fields(fields, spec, resolve_field)
-
-
-def _check_missing_required(
-    display_name: str,
-    missing_required: list[str],
-    *,
-    non_interactive: bool,
-    flag_prefix: str = "",
-) -> None:
-    """Abort with a clear error, naming exact CLI flags, if fields are missing.
-
-    Parameters
-    ----------
-    display_name : str
-        Human-readable name of the entry being resolved, shown in the error.
-    missing_required : list[str]
-        Field names accumulated by _resolve_field_values. Empty means nothing
-        is missing.
-    non_interactive : bool
-        Whether this resolution was non-interactive. Interactive resolutions
-        never have anything in missing_required, since prompting always
-        produces a value.
-    flag_prefix : str, optional
-        Prefix for the flag names shown in the error message (e.g. "test").
-    """
-    if not non_interactive or not missing_required:
-        return
-    flag_names = ", ".join(flag_name(k, flag_prefix) for k in missing_required)
-    err_console.print(
-        f"\n[red bold]Missing required field(s) for {display_name!r}:[/red bold] {flag_names}\n"
-        f"No flag, stored config, or spec default is available for these. Pass them explicitly."
-    )
-    raise typer.Exit(1)
-
-
-def _resolve_resource(
-    spec: ResourceSpec,
-    config: StackConfig,
-    *,
-    flags: dict[str, str] | None = None,
-    semantic_name_override: str | None = None,
-    is_test_resource: bool = False,
-) -> tuple[str, DatabaseConfig | None, ResourceConfig] | None:
-    """Resolve or create a database config + resource for a ResourceSpec.
-
-    Parameters
-    ----------
-    spec : ResourceSpec
-        The ResourceSpec describing the resource to resolve.
-    config : StackConfig
-        The current StackConfig, used to look up existing stored config for
-        this resource and any existing connections.
-    flags : dict[str, str], optional
-        A dict of flag values for this resource, keyed by field name
-        (e.g. "host", "port"). Presence of this argument (even if empty)
-        indicates a non-interactive invocation where no prompts should be shown.
-        Non-interactive requires all required fields to be supplied via flags or
-        stored config. Missing required fields will be reported.
-    semantic_name_override: str, optional
-        When given, this name is used instead of spec.semantic_name for looking up
-        existing config and for the saved resource name.
-    is_test_resource: bool
-        Whether this resource is a test resource. If True, the safety checks around
-        test resources are applied (see _configure_test_resources). Default: False
-
-    Returns
-    -------
-    db_name : str
-        The name of the database config to use for this resource (either existing or new).
-    db_config : DatabaseConfig, optional
-        The new DatabaseConfig to save for this resource, or None to reuse an existing one.
-    resource : ResourceConfig
-        The ResourceConfig to save for this resource (either existing with updates or new).
-    """
-    non_interactive = flags is not None
-    flags = flags or {}
-    resource_name = semantic_name_override or spec.semantic_name
-    existing = config.resources.get(resource_name)
-
-    declined = False
-    if existing and not non_interactive:
-        if typer.confirm(
-            f"{spec.display_name} is already configured (resource: {resource_name!r}). Keep it?",
-            default=True,
-        ):
-            return None
-        declined = True
-
-    if not non_interactive:
-        console.print(f"\n[bold]{spec.display_name}[/bold]")
-        console.print(f"[dim]{spec.description}[/dim]")
-        console.print("[dim]Tip: the value shown in [brackets] is the default. Press Enter to accept it.[/dim]\n")
-
-    active_existing = existing if not declined else None
-    existing_db = config.databases.get(active_existing.database) if active_existing else None
-    database_prefill = {"database": active_existing.database} if active_existing else None
-
-    missing_required: list[str] = []
-    spec_defaults = (
-        {k: str(v) for k, v in spec.connection_defaults.model_dump(exclude_unset=True).items()}
-        if spec.connection_defaults else None
-    )
-
-    # Offer reuse of an existing connection when none is configured yet.
-    reuse_existing_label: str | None = None
-    if not existing and not non_interactive and config.databases:
-        if is_test_resource:
-            candidates = [n for n, db in config.databases.items() if db.test_only]
-        else:
-            candidates = [n for n, db in config.databases.items() if not db.test_only]
-        if candidates:
-            hint = spec.connection_name_hint or ""
-            suggested = hint if hint in candidates else candidates[0]
-            console.print(f"  Existing connections: {', '.join(candidates)}")
-            choice = typer.prompt(
-                "  Point to an existing connection, or 'new' to create one",
-                default=suggested,
-            )
-            if choice != "new" and choice in candidates:
-                reuse_existing_label = choice
-
-    schema_fields = FS_Schema.CDM if spec.is_cdm_database else FS_Schema.NON_CDM
-    flag_prefix = TEST_FLAG_PREFIX if is_test_resource else ""
-
-    if reuse_existing_label:
-        if not non_interactive:
-            console.print("\n[dim]Schema configuration[/dim]\n")
-        schema_values = _resolve_field_values(
-            schema_fields, active_existing, spec=spec, flags=flags, non_interactive=non_interactive,
-            spec_defaults=spec_defaults, missing_required=missing_required,
-        )
-        _check_missing_required(spec.display_name, missing_required, non_interactive=non_interactive, flag_prefix=flag_prefix)
-        resource = build_resource_config(reuse_existing_label, schema_values, spec.is_cdm_database)
-        return reuse_existing_label, None, resource
-
-    conn_values = _resolve_field_values(
-        FS_Database.ALL, existing_db, spec=spec, flags=flags, non_interactive=non_interactive,
-        spec_defaults=spec_defaults, prefill=database_prefill, missing_required=missing_required,
-    )
-
-    if not non_interactive:
-        console.print("\n[dim]Schema configuration[/dim]\n")
-
-    schema_values = _resolve_field_values(
-        schema_fields, active_existing, spec=spec, flags=flags, non_interactive=non_interactive,
-        spec_defaults=spec_defaults, missing_required=missing_required,
-    )
-    _check_missing_required(spec.display_name, missing_required, non_interactive=non_interactive, flag_prefix=flag_prefix)
-
-    db_config, database = build_database_config(conn_values)
-    resource = build_resource_config(database, schema_values, spec.is_cdm_database)
-
-    return database, db_config, resource
-
-
-def _resolve_extra_fields(
-    cls,
-    config: StackConfig,
-    *,
-    set_dict: dict[str, str],
-    interactive: bool,
-) -> dict:
-    """Resolve package-specific extra fields using flag (--set) then stored then prompt.
-
-    Parameters
-    ----------
-    cls
-        The package's PackageConfigBase subclass, whose model_fields are resolved.
-    config : StackConfig
-        The current StackConfig, used to read any already-stored extras.
-    set_dict : dict[str, str]
-        Flag values from ``--set``, keyed by field name. Checked first.
-    interactive : bool
-        Whether to prompt for fields not covered by set_dict or stored config.
-        Non-interactively, such fields are simply omitted (they fall back to the
-        field's own pydantic default when the config class is loaded).
-
-    Returns
-    -------
-    dict
-        Resolved extra field values, keyed by field name.
-    """
-    try:
-        current = Resolver(config).resolve_package_config(cls)
-        current_dict = current.to_extra_dict()
-    except ConfigurationError:
-        current_dict = {}
-
-    model_field_specs = {s.field_name: s for s in cls.referenced_models}
-
-    extra: dict = {}
-    for field_name, field_info in cls.model_fields.items():
-        if field_name == "tool_name":
-            continue
-        if field_name in set_dict:
-            extra[field_name] = set_dict[field_name]
-        elif field_name in current_dict:
-            extra[field_name] = current_dict[field_name]
-        elif interactive and field_name in model_field_specs:
-            resolved_name = _resolve_model_field(model_field_specs[field_name], config)
-            if resolved_name:
-                extra[field_name] = resolved_name
-        elif interactive:
-            desc = field_info.description or ""
-            label = f"{field_name}" + (f"  ({desc})" if desc else "")
-            raw = typer.prompt(label, default=str(field_info.default) if field_info.default is not None else "")
-            if raw and raw != "None":
-                extra[field_name] = raw
-    return extra
 
 # ------------------
 # Dynamic configure command that discovers packages via entry points and generates a subcommand for each.
+# Per-package field resolution/save itself lives on PackageConfigBase
+# (resolve_fields/run_configure) -- this just discovers and dispatches.
 # ------------------
 
 class _DynamicConfigureGroup(TyperGroup):
@@ -324,74 +58,39 @@ class _DynamicConfigureGroup(TyperGroup):
         super().__init__(**kwargs)
 
     def list_commands(self, ctx):
-        return sorted(ep.name for ep in entry_points(group="omop.config"))
+        return sorted(ep.name for ep in entry_points(group=ENTRY_POINT_GROUP))
 
     def get_command(self, ctx, cmd_name):
-        eps = {ep.name: ep for ep in entry_points(group="omop.config")}
+        eps = {ep.name: ep for ep in entry_points(group=ENTRY_POINT_GROUP)}
         ep = eps.get(cmd_name)
         return _build_package_command(cmd_name, ep.load()) if ep else None
 
 
-def _build_extra_params(cls) -> list[click.Parameter]:
-    """Generate Click options for a package's extra fields from its model_fields."""
-    return [
-        click.Option(
-            [flag_name(name)],
-            default=None,
-            type=click.STRING,
-            help=info.description or "",
-        )
-        for name, info in cls.model_fields.items()
-    ]
-
-
-def _build_package_command(ep_name: str, cls) -> click.Command:
+def _build_package_command(ep_name: str, cls: type[PackageConfigBase]) -> click.Command:
     """Build a Click command for one registered package entry point."""
-    resource_params = [p for spec in cls.owned_resources for p in build_resource_params(spec)]
-    test_resource_params = [
-        p for spec in cls.test_resources for p in build_resource_params(spec, prefix=TEST_FLAG_PREFIX)
-    ]
-    extra_params = _build_extra_params(cls)
-    resource_names = {p.name for p in resource_params}
-    test_resource_names = {p.name for p in test_resource_params}
+    extra_params = _build_entry_params(cls)
     extra_names = {p.name for p in extra_params}
 
-    resource_name_opt = click.Option(
-        ["--resource-name"],
-        default=None,
-        help=(
-            "Create or update the resource under this name instead of the package default. "
-            "Use to add a second instance (e.g. --resource-name cdm_db_prod)."
-        ),
-    )
-
     def callback(**kwargs):
-        flags_arg = {k: str(v) for k, v in kwargs.items()
-                     if k in resource_names and v is not None} or None
-        test_flags_arg = {
-            k[len("test_"):]: str(v) for k, v in kwargs.items()
-            if k in test_resource_names and v is not None
-        } or None
-        set_dict = {k: str(v) for k, v in kwargs.items()
-                    if k in extra_names and v is not None}
-        _run_configure_package(cls, flags_arg, set_dict, kwargs.get("resource_name"), test_flags_arg)
+        set_dict = {k: str(v) for k, v in kwargs.items() if k in extra_names and v is not None}
+        cls.run_configure(set_dict, interactive=not set_dict)
 
     return click.Command(
         name=ep_name,
         callback=callback,
-        params=resource_params + test_resource_params + extra_params + [resource_name_opt],
+        params=extra_params,
         help=f"Configure {cls.tool_name} settings in config.toml.",
     )
 
 
 def _list_packages() -> None:
-    eps = entry_points(group="omop.config")
+    eps = entry_points(group=ENTRY_POINT_GROUP)
     registered = {ep.name: ep for ep in eps}
     if not registered:
         console.print("[yellow]No packages registered under 'omop.config' entry points.[/yellow]")
         console.print(
             "\nPackages add support in their pyproject.toml:\n"
-            '  [project.entry-points."omop.config"]\n'
+            f'  [project.entry-points."{ENTRY_POINT_GROUP}"]\n'
             '  my-package = "my-package.config:MyPackageConfig"'
         )
     else:
@@ -399,180 +98,6 @@ def _list_packages() -> None:
         for name in sorted(registered):
             console.print(f"  • {name}")
 
-def _run_configure_package(
-    cls,
-    flags_arg: dict[str, str] | None,
-    set_dict: dict[str, str],
-    resource_name: str | None,
-    test_flags_arg: dict[str, str] | None = None,
-) -> None:
-    """Run the configure flow for one package.
-
-    Parameters
-    ----------
-    cls
-        The package's PackageConfigBase subclass.
-    flags_arg : dict[str, str], optional
-        Flag values for the package's owned resource(s), keyed by field name.
-        None means no owned-resource flags were given on this invocation.
-    set_dict : dict[str, str]
-        Flag values for ``--set`` package extras, keyed by field name.
-    resource_name : str or None
-        Resource name override from ``--resource-name``.
-    test_flags_arg : dict[str, str] or None, optional
-        Flag values for the package's test resource(s), keyed by field name.
-        None means no ``--test-*`` flags were given. Default: None
-
-    Notes
-    -----
-    Interactivity is decided per resource, not globally. The invocation is
-    non-interactive as a whole the moment any of flags_arg, test_flags_arg or
-    set_dict is given, but that alone does not mean every resource is
-    touched:
-
-    1. The owned resource is only resolved when flags_arg is not None, i.e.
-       at least one of its own flags was given. An invocation with only
-       ``--test-*`` flags (e.g. a CI job that only needs a test database)
-       leaves the owned resource completely untouched, rather than prompting
-       for it (no TTY, would abort) or writing defaults nobody asked for.
-    2. The test resource is resolved non-interactively whenever
-       test_flags_arg is not None. The interactive prompt only fires 
-       for a fully bare invocation, with no flags anywhere.
-    3. Within a resource that is being resolved, individual missing fields
-       still fall back to stored config, a spec default, or a safe default
-       value. See _resolve_resource for which fields error out instead.
-    """
-    try:
-        config = load_stack_config()
-    except FileNotFoundError:
-        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        config = StackConfig()
-
-    tool_name = cls.tool_name
-    console.print(f"\n[bold]Configuring [cyan]{tool_name}[/cyan][/bold]")
-    console.print(f"[dim]TOML section: \\[tools.{tool_name}][/dim]")
-
-
-    any_explicit_flags = flags_arg is not None or test_flags_arg is not None or bool(set_dict)
-
-    for spec in cls.owned_resources:
-        if flags_arg is None and any_explicit_flags:
-            continue
-        effective_name = resource_name if (resource_name and len(cls.owned_resources) == 1) else None
-        result = _resolve_resource(spec, config, flags=flags_arg, semantic_name_override=effective_name)
-        if result is not None:
-            db_label, new_db, new_resource = result
-            if new_db is not None:
-                config.databases[db_label] = new_db
-            save_name = effective_name or spec.semantic_name
-            config.resources[save_name] = new_resource
-
-    owned_names = {spec.semantic_name for spec in cls.owned_resources}
-    for item in cls.required_resources:
-        rname = _resource_ref_name(item)
-        if rname in owned_names:
-            continue
-        if rname not in config.resources:
-            owner_tool = _resource_ref_owner_tool_name(item, cls)
-            console.print(
-                f"\n[yellow]Warning:[/yellow] Required resource {rname!r} is not configured. "
-                f"It is provided by the {owner_tool!r} package. "
-                f"Run: omop-config configure {owner_tool}"
-            )
-
-    extra = _resolve_extra_fields(
-        cls, config, set_dict=set_dict, interactive=flags_arg is None and not any_explicit_flags
-    )
-
-    config.tools[tool_name] = extra
-    save_stack_config(config)
-    console.print(f"\n[green]✓[/green] Saved \\[tools.{tool_name}] to [dim]{CONFIG_PATH}[/dim]")
-
-    if cls.test_resources:
-        if test_flags_arg is not None:
-            _configure_test_resources(cls, config, test_flags_arg)
-        elif not any_explicit_flags:
-            console.print("\n[dim]─── Test database (optional) ───[/dim]")
-            console.print(
-                "[yellow]⚠[/yellow]  Test resources are used by the test suite, which runs"
-                " DROP SCHEMA CASCADE on every run.\n"
-                "   Point to a [bold]dedicated test_only connection[/bold], never to real data.\n"
-                "   Existing test_only connections will be offered for reuse."
-            )
-            want_test = typer.confirm("Configure a test database resource?", default=False)
-            if want_test:
-                _configure_test_resources(cls, config, None)
-        # else: any_explicit_flags is True but no --test-* flags were given.
-        # Test resources are opt-in, so leave them untouched.
-
-def _configure_test_resources(
-    cls,
-    config: StackConfig,
-    flags: dict[str, str] | None,
-) -> None:
-    """Resolve and save every spec in cls.test_resources, applying the test_only safety guard.
-
-    Parameters
-    ----------
-    cls
-        The package's PackageConfigBase subclass, whose test_resources are resolved.
-    config : StackConfig
-        The current StackConfig, updated in place with each resolved test resource.
-    flags : dict[str, str] or None
-        ``--test-*`` flag values, keyed by field name (without the test- prefix).
-        None means this came from the interactive confirm-driven flow instead.
-
-    Notes
-    -----
-    Shared by both the interactive confirm-driven flow and the non-interactive
-    ``--test-*`` flag flow. The safety checks (test_only marking, production
-    collision detection) must hold identically in both.
-    """
-    test_names = {s.semantic_name for s in cls.test_resources}
-    for spec in cls.test_resources:
-        result = _resolve_resource(spec, config, flags=flags, is_test_resource=True)
-        if result is None:
-            continue
-        db_label, new_db, new_resource = result
-
-        if new_db is not None:
-            # New connection: set test_only flag and check for production collision.
-            new_db.test_only = True
-            for res_name, existing_res in config.resources.items():
-                if res_name in test_names:
-                    continue
-                existing_conn = config.databases.get(existing_res.database)
-                if existing_conn is None or existing_conn.test_only:
-                    continue
-                if (
-                    existing_conn.host == new_db.host
-                    and existing_conn.database_name == new_db.database_name
-                    and existing_conn.port == new_db.port
-                ):
-                    err_console.print(
-                        f"\n[red bold]DANGER[/red bold]: these connection details match the"
-                        f" [bold]{res_name!r}[/bold] resource (same host and database name).\n"
-                        f"Tests run DROP SCHEMA CASCADE, which would destroy your data.\n"
-                        f"Use a different [bold]host[/bold] or [bold]database name[/bold]."
-                    )
-                    raise typer.Exit(1)
-            config.databases[db_label] = new_db
-        else:
-            # Reuse: verify the referenced connection is actually test_only.
-            existing_db = config.databases.get(db_label)
-            if existing_db is not None and not existing_db.test_only:
-                err_console.print(
-                    f"\n[red bold]DANGER[/red bold]: the connection {db_label!r} is not"
-                    f" marked test_only=true. Point test resources only to test_only"
-                    f" connections.\n"
-                )
-                raise typer.Exit(1)
-
-        config.resources[spec.semantic_name] = new_resource
-        save_stack_config(config)
-        console.print(
-            f"[green]✓[/green] Test resource [bold]{spec.semantic_name!r}[/bold] written."
-        )
 
 @app.callback()  # required by Typer to attach global --verbose/-v before any subcommand
 def _main(
@@ -609,7 +134,7 @@ def init(
     save_stack_config(StackConfig())
     console.print(f"[green]✓[/green] Created [dim]{CONFIG_PATH}[/dim]")
 
-    eps = entry_points(group="omop.config")
+    eps = entry_points(group=ENTRY_POINT_GROUP)
     if eps:
         console.print("\nRun configure for each installed package:")
         for ep in sorted(eps, key=lambda e: e.name):
@@ -618,12 +143,7 @@ def init(
         console.print("\nNo packages registered yet. Install a package that supports oa_configurator.")
 
 @app.command()
-def show(
-    profile: Annotated[
-        str | None,
-        typer.Option("--profile", "-p", help="Activate this profile for the shown output."),
-    ] = None,
-) -> None:
+def show() -> None:
     """Print the resolved configuration as JSON."""
     try:
         config = load_stack_config()
@@ -631,46 +151,11 @@ def show(
         err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
         err_console.print("Run [bold]omop-config init[/bold] to create it.")
         raise typer.Exit(1)
-    if profile is not None:
-        config.active_profile = profile
     rich.print_json(config.model_dump_json(exclude_none=True, indent=2))
 
 
 @app.command()
-def use(
-    profile: Annotated[str, typer.Argument(help="Profile name to activate.")],
-) -> None:
-    """Set the active profile in config.toml and re-export config.env."""
-    try:
-        config = load_stack_config()
-    except FileNotFoundError:
-        err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
-        raise typer.Exit(1)
-
-    if profile not in config.profiles and profile != "default":
-        err_console.print(
-            f"[yellow]Warning:[/yellow] profile {profile!r} not found in config.toml, but"
-            " it will be set anyway. Add connections/resources to it when ready."
-        )
-
-    patch_active_profile(profile)
-    console.print(f"[green]✓[/green] Active profile set to [bold]{profile}[/bold]")
-
-    config.active_profile = profile
-    try:
-        env_path = write_env_file(Resolver(config))
-        console.print(f"[green]✓[/green] Exported [dim]{env_path}[/dim]")
-    except Exception as exc:
-        err_console.print(f"[yellow]Warning:[/yellow] Could not export config.env: {exc}")
-
-
-@app.command()
-def verify(
-    profile: Annotated[
-        str | None,
-        typer.Option("--profile", "-p", help="Profile to test."),
-    ] = None,
-) -> None:
+def verify() -> None:
     """Test all configured connections and report status."""
     try:
         config = load_stack_config()
@@ -678,20 +163,17 @@ def verify(
         err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
         raise typer.Exit(1)
 
-    if profile is not None:
-        config.active_profile = profile
-
-    if not config.databases:
-        console.print("[yellow]No databases configured.[/yellow]")
+    if not config.connections:
+        console.print("[yellow]No connections configured.[/yellow]")
         return
 
     resolver = Resolver(config)
-    table = Table("Database", "URL", "Status", "Latency")
+    table = Table("Connection", "URL", "Status", "Latency")
     all_ok = True
 
-    for name in sorted(config.databases):
+    for name in sorted(config.connections):
         try:
-            target = resolver.resolve_database(name)
+            target = resolver.resolve_connection(name)
         except Exception as exc:
             table.add_row(name, "?", "[red]FAIL[/red]", str(exc)[:60])
             all_ok = False
@@ -713,12 +195,7 @@ def verify(
 
 
 @app.command("export-env")
-def export_env(
-    profile: Annotated[
-        str | None,
-        typer.Option("--profile", "-p", help="Profile to use for export."),
-    ] = None,
-) -> None:
+def export_env() -> None:
     """Write CONFIG_PATH's sibling .env file (default ~/.config/omop/config.env) for Docker Compose env_file:."""
     try:
         config = load_stack_config()
@@ -726,249 +203,8 @@ def export_env(
         err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
         raise typer.Exit(1)
 
-    if profile is not None:
-        config.active_profile = profile
-
     env_path = write_env_file(Resolver(config))
     console.print(f"[green]✓[/green] Wrote [dim]{env_path}[/dim]")
-
-
-providers_app = typer.Typer(
-    name="providers", no_args_is_help=True, help="Manage [providers] entries (LLM/embedding provider connections)."
-)
-models_app = typer.Typer(
-    name="models", no_args_is_help=True, help="Manage [models] entries (named, concretely-configured models)."
-)
-app.add_typer(providers_app, name="providers")
-app.add_typer(models_app, name="models")
-
-
-def _resolve_provider_entry(
-    name: str,
-    config: StackConfig,
-    *,
-    flags: dict[str, str] | None = None,
-    prefill: dict[str, str] | None = None,
-) -> ProviderConfig:
-    """Resolve one [providers.<name>] entry: flags (non-interactive) or stored-then-prompt.
-
-    Shared by the standalone `providers add` command and `_resolve_model_field`'s
-    nested recursion into providers.
-
-    Parameters
-    ----------
-    prefill : dict[str, str], optional
-        Values to silently apply without prompting (e.g. a provider chosen a
-        step earlier), merged into the "already known" tier alongside any
-        stored config for an existing entry. Does not affect non_interactive.
-    """
-    non_interactive = flags is not None
-    flags = flags or {}
-    existing = config.providers.get(name)
-    if not non_interactive:
-        console.print(f"\n[bold]Provider: {name}[/bold]")
-
-    missing_required: list[str] = []
-    values = _resolve_field_values(
-        FS_Provider.ALL, existing, flags=flags, non_interactive=non_interactive,
-        prefill=prefill, missing_required=missing_required,
-    )
-    _check_missing_required(f"provider {name!r}", missing_required, non_interactive=non_interactive)
-    return build_provider_config(values)
-
-
-@providers_app.command("add")
-def providers_add(
-    name: Annotated[str, typer.Argument(help="Provider entry name, e.g. 'ollama-local'.")],
-    provider: Annotated[str | None, typer.Option(help=FS_Provider.KEY.label)] = None,
-    base_url: Annotated[str | None, typer.Option(help=FS_Provider.BASE_URL.label)] = None,
-    api_key: Annotated[str | None, typer.Option(help=FS_Provider.API_KEY.label)] = None,
-) -> None:
-    r"""Add or update a \[providers.<name>] entry. Prompts for any field not given as a flag."""
-    try:
-        config = load_stack_config()
-    except FileNotFoundError:
-        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        config = StackConfig()
-
-    flags = {
-        k: v
-        for k, v in {"provider": provider, "base_url": base_url, "api_key": api_key}.items()
-        if v is not None
-    } or None
-
-    config.providers[name] = _resolve_provider_entry(name, config, flags=flags)
-    save_stack_config(config)
-    console.print(f"[green]✓[/green] Saved \\[providers.{name}] to [dim]{CONFIG_PATH}[/dim]")
-
-
-@providers_app.command("list")
-def providers_list() -> None:
-    """List configured provider entries."""
-    try:
-        config = load_stack_config()
-    except FileNotFoundError:
-        err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
-        raise typer.Exit(1)
-
-    if not config.providers:
-        console.print("[yellow]No providers configured.[/yellow]")
-        return
-
-    table = Table("Name", "Provider", "Base URL")
-    for pname in sorted(config.providers):
-        p = config.providers[pname]
-        table.add_row(pname, p.provider, p.base_url or "[dim]-[/dim]")
-    console.print(table)
-
-
-def _resolve_model_entry(
-    name: str,
-    config: StackConfig,
-    *,
-    flags: dict[str, str] | None = None,
-    prefill: dict[str, str] | None = None,
-) -> ModelConfig:
-    """Resolve one [models.<name>] entry: flags (non-interactive) or stored-then-prompt.
-
-    Shared by the standalone `models add` command and `_resolve_model_field`.
-    See `_resolve_provider_entry` for the `prefill` parameter's semantics.
-    """
-    non_interactive = flags is not None
-    flags = flags or {}
-    existing = config.models.get(name)
-    if not non_interactive:
-        console.print(f"\n[bold]Model: {name}[/bold]")
-        if config.providers:
-            console.print(f"[dim]Configured providers: {', '.join(sorted(config.providers))}[/dim]")
-
-    missing_required: list[str] = []
-    values = _resolve_field_values(
-        FS_Model.ALL, existing, flags=flags, non_interactive=non_interactive,
-        prefill=prefill, missing_required=missing_required,
-    )
-    _check_missing_required(f"model {name!r}", missing_required, non_interactive=non_interactive)
-
-    provider_ref = values[FS_Model.PROVIDER_REF.name]
-    if provider_ref not in config.providers:
-        err_console.print(
-            f"[red bold]Unknown provider {provider_ref!r}.[/red bold] Configure it first: "
-            f"omop-config providers add {provider_ref}"
-        )
-        raise typer.Exit(1)
-
-    new_model = build_model_config(values)
-    new_model.configuration = existing.configuration if existing else {}
-    return new_model
-
-
-@models_app.command("add")
-def models_add(
-    name: Annotated[str, typer.Argument(help="Model entry name, e.g. 'nomic-embed'.")],
-    provider: Annotated[str | None, typer.Option(help=FS_Model.PROVIDER_REF.label)] = None,
-    model: Annotated[str | None, typer.Option(help=FS_Model.NAME.label)] = None,
-    embedding_dim: Annotated[str | None, typer.Option(help=FS_Model.EMBEDDING_DIM.label)] = None,
-    document_prefix: Annotated[str | None, typer.Option(help=FS_Model.DOCUMENT_PREFIX.label)] = None,
-    query_prefix: Annotated[str | None, typer.Option(help=FS_Model.QUERY_PREFIX.label)] = None,
-) -> None:
-    r"""Add or update a \[models.<name>] entry. Prompts for any field not given as a flag."""
-    try:
-        config = load_stack_config()
-    except FileNotFoundError:
-        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        config = StackConfig()
-
-    flags = {
-        k: v
-        for k, v in {
-            "provider": provider,
-            "model": model,
-            "embedding_dim": embedding_dim,
-            "document_prefix": document_prefix,
-            "query_prefix": query_prefix,
-        }.items()
-        if v is not None
-    } or None
-
-    config.models[name] = _resolve_model_entry(name, config, flags=flags)
-    save_stack_config(config)
-    console.print(f"[green]✓[/green] Saved \\[models.{name}] to [dim]{CONFIG_PATH}[/dim]")
-
-
-def _resolve_model_field(spec: ModelFieldSpec, config: StackConfig) -> str | None:
-    """Resolve a ModelFieldSpec field to a [models.*] entry name, interactively.
-
-    Mirrors `_resolve_resource`'s reuse-or-create shape, one level deeper:
-    offers reuse of an existing [models.*] entry, or creates one on the spot,
-    recursing into [providers.*] the same way when the chosen provider
-    doesn't exist yet either. Mutates `config.providers`/`config.models` in
-    place; the caller (`_run_configure_package`) persists everything in one
-    combined `save_stack_config` call, same as it already does for resources.
-    """
-    console.print(f"\n[bold]{spec.display_name}[/bold]")
-    console.print(f"[dim]{spec.description}[/dim]")
-
-    choice = "new"
-    if config.models:
-        candidates = sorted(config.models)
-        console.print(f"  Configured models: {', '.join(candidates)}")
-        choice = typer.prompt("  Point to an existing model, or 'new' to create one", default=candidates[0])
-        if choice != "new" and choice in config.models:
-            return choice
-    else:
-        console.print("  No models configured yet.")
-
-    name = typer.prompt("  New model entry name (e.g. 'embedding-default')") if choice == "new" else choice
-
-    provider_choice = "new"
-    if config.providers:
-        provider_candidates = sorted(config.providers)
-        console.print(f"  Configured providers: {', '.join(provider_candidates)}")
-        provider_choice = typer.prompt(
-            "  Point to an existing provider, or 'new' to create one", default=provider_candidates[0]
-        )
-    else:
-        console.print("  No providers configured yet.")
-
-    if provider_choice == "new" or provider_choice not in config.providers:
-        provider_name = (
-            typer.prompt("  New provider entry name (e.g. 'ollama-local')")
-            if provider_choice == "new"
-            else provider_choice
-        )
-        config.providers[provider_name] = _resolve_provider_entry(provider_name, config)
-    else:
-        provider_name = provider_choice
-
-    config.models[name] = _resolve_model_entry(name, config, prefill={"provider": provider_name})
-    return name
-
-
-@models_app.command("list")
-def models_list() -> None:
-    """List configured model entries."""
-    try:
-        config = load_stack_config()
-    except FileNotFoundError:
-        err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
-        raise typer.Exit(1)
-
-    if not config.models:
-        console.print("[yellow]No models configured.[/yellow]")
-        return
-
-    table = Table("Name", "Provider", "Model", "Embedding dim", "Document prefix", "Query prefix")
-    for mname in sorted(config.models):
-        m = config.models[mname]
-        table.add_row(
-            mname,
-            m.provider,
-            m.model,
-            str(m.embedding_dim) if m.embedding_dim is not None else "[dim]-[/dim]",
-            m.document_prefix or "[dim]-[/dim]",
-            m.query_prefix or "[dim]-[/dim]",
-        )
-    console.print(table)
 
 
 @app.command(name="configure", cls=_DynamicConfigureGroup)  # ty: ignore[invalid-argument-type]

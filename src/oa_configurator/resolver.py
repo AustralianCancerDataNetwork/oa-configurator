@@ -4,258 +4,42 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Literal, TypeVar
+from typing import Any, TypeVar, get_origin
 
-import sqlalchemy as sa
+from pydantic import BaseModel
+from pydantic_core import PydanticUndefined
 from sqlalchemy.engine import Engine
 
-from .models import (
+from .domains.llm.schema import ModelConfig, ProviderConfig, ResolvedModel, ResolvedProvider
+from .domains.resources.schema import (
+    ConnectionConfig,
     DatabaseConfig,
-    ModelConfig,
-    ProfileOverrideConfig,
-    ProviderConfig,
-    ResourceConfig,
-    StackConfig,
+    ResolvedConnection,
+    ResolvedDatabase,
+    Role,
 )
-from .package_base import (
-    ConfigurationError,
-    PackageConfigBase,
-    ResourceLike,
-    _resource_ref_name,
-    _resource_ref_owner_tool_name,
-)
+from .stack_config import _REF_SECTIONS, StackConfig, unresolved_refs
+from .package_base import ConfigurationError, PackageConfigBase
+from .refs import RefTo, _iter_refs, is_sensitive
+
+__all__ = [
+    "ConfigurationError",
+    "ConnectionConfig",
+    "DatabaseConfig",
+    "ModelConfig",
+    "ProviderConfig",
+    "Resolver",
+    "ResolvedConnection",
+    "ResolvedDatabase",
+    "ResolvedModel",
+    "ResolvedProvider",
+    "ResolvedToolConfig",
+    "Role",
+]
 
 T = TypeVar("T")
 TConfig = TypeVar("TConfig", bound=PackageConfigBase)
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class ResolvedDatabase:
-    """Concrete database connection ready for engine creation.
-
-    Attributes
-    ----------
-    name : str
-        Logical name of the connection as declared in the config.
-    url : str
-        Full database URL including credentials.
-        TODO: make this a private attribute to avoid accidental password exposure;
-        requires a factory method or ``__post_init__`` since dataclass field
-        visibility can't be changed without breaking callers.
-    safe_url : str
-        Database URL with credentials redacted, safe for logging and display.
-    """
-
-    name: str
-    url: str
-    safe_url: str
-
-    def create_engine(self, **kwargs: Any) -> Engine:
-        """Create a SQLAlchemy engine for this connection.
-
-        Parameters
-        ----------
-        **kwargs
-            Forwarded to ``sqlalchemy.create_engine``. The ``read_only``
-            keyword is silently removed for SQLite connections, which do
-            not support it.
-
-        Returns
-        -------
-        sqlalchemy.engine.Engine
-        """
-        if self.url.startswith("sqlite") and "read_only" in kwargs:
-            kwargs.pop("read_only", None)
-        return sa.create_engine(self.url, **kwargs)
-
-    def __repr__(self) -> str:
-        return f"ResolvedDatabase(name={self.name!r}, safe_url={self.safe_url!r})"
-
-
-@dataclass(frozen=True)
-class ResolvedResource:
-    """Resolved logical resource with concrete DB targets and effective schema names.
-    
-    Attributes
-    ----------
-    name : str
-        Logical name of the resource as declared in the config or an alias.
-    database : ResolvedDatabase
-        Resolved primary database target for this resource.
-    vocab_database : ResolvedDatabase
-        Resolved vocabulary database target for this resource. May be the same as
-        *database* if no separate vocab database is configured.
-    cdm_schema : str
-        Effective CDM schema name for this resource.
-    vocab_schema : str
-        Effective vocabulary schema name for this resource. May be the same as
-        *cdm_schema* if no separate vocab schema is configured.
-    results_schema : str | None
-        Effective results schema name for this resource, or None if not configured.
-    """
-
-    name: str
-    database: ResolvedDatabase
-    vocab_database: ResolvedDatabase
-    cdm_schema: str
-    vocab_schema: str
-    results_schema: str | None
-
-    def database_target(self, role: Literal["primary", "vocab"] = "primary") -> ResolvedDatabase:
-        """Return the resolved database target for a given role.
-
-        Parameters
-        ----------
-        role : {"primary", "vocab"}, optional
-            Which database target to return. Defaults to ``"primary"``.
-            When ``vocab_database`` was not configured, ``"vocab"`` returns the
-            same target as ``"primary"``.
-
-        Returns
-        -------
-        ResolvedDatabase
-            The concrete database target for *role*.
-
-        Raises
-        ------
-        ValueError
-            If *role* is not ``"primary"`` or ``"vocab"``.
-        """
-        if role == "primary":
-            return self.database
-        if role == "vocab":
-            return self.vocab_database
-        raise ValueError(f"Unknown role: {role!r}. Valid roles: 'primary', 'vocab'")
-
-    def schema_translate_map(self) -> dict[str | None, str | None]:
-        """SQLAlchemy schema translate map for OMOP ORM models.
-
-        Maps:
-          None      → cdm_schema  (default / unqualified tables → CDM)
-          "vocab"   → vocab_schema (or cdm_schema as fallback)
-          "results" → results_schema (omitted when not configured)
-        """
-        m: dict[str | None, str | None] = {
-            None: self.cdm_schema,
-            "vocab": self.vocab_schema,
-        }
-        if self.results_schema is not None:
-            m["results"] = self.results_schema
-        return m
-
-    def create_engine(
-        self,
-        role: Literal["primary", "vocab"] = "primary",
-        *,
-        execution_options: dict[str, Any] | None = None,
-        **kwargs: Any,
-    ) -> Engine:
-        """Create a SQLAlchemy engine with the schema translate map applied.
-
-        The schema translate map routes OMOP ORM models to the correct schemas
-        automatically (``None`` -> cdm_schema, ``"vocab"`` -> vocab_schema,
-        ``"results"`` -> results_schema when configured).
-
-        Parameters
-        ----------
-        role : {"primary", "vocab"}, optional
-            Which database target to create an engine for. Defaults to
-            ``"primary"``.
-        execution_options : dict, optional
-            Additional execution options merged into the engine. The
-            ``schema_translate_map`` key is set automatically and must
-            not be supplied here.
-        **kwargs
-            Forwarded to ``sqlalchemy.create_engine``.
-
-        Returns
-        -------
-        sqlalchemy.engine.Engine
-            Engine configured with ``schema_translate_map`` for OMOP ORM routing.
-        """
-        engine = self.database_target(role).create_engine(**kwargs)
-        stm = self.schema_translate_map()
-        merged_opts = dict(execution_options or {})
-        merged_opts.setdefault("schema_translate_map", stm)
-        return engine.execution_options(**merged_opts)
-
-    def __repr__(self) -> str:
-        return (
-            f"ResolvedResource(name={self.name!r}, "
-            f"database={self.database.name!r}, "
-            f"cdm_schema={self.cdm_schema!r}, "
-            f"vocab_schema={self.vocab_schema!r}, "
-            f"results_schema={self.results_schema!r})"
-        )
-
-
-@dataclass(frozen=True)
-class ResolvedProvider:
-    """Concrete LLM provider connection, ready to be served through.
-
-    Attributes
-    ----------
-    name : str
-        Logical name of the provider as declared in the config.
-    provider : str
-        Provider key, e.g. ``'ollama'``, ``'llamacpp'``, ``'openai'``.
-    base_url : str, optional
-        Resolved base URL for this deployment.
-    api_key : str, optional
-        Resolved API key for this deployment.
-    """
-
-    name: str
-    provider: str
-    base_url: str | None
-    api_key: str | None
-
-    def __repr__(self) -> str:
-        return f"ResolvedProvider(name={self.name!r}, provider={self.provider!r})"
-
-
-@dataclass(frozen=True)
-class ResolvedModel:
-    """Concrete, backend-agnostic model configuration.
-    No explicit methods as it is just a data struct that can be used
-    by the consuming package to construct a backend-specific model handle.
-
-    Attributes
-    ----------
-    name : str
-        Logical name of the model as declared in the config.
-    provider : ResolvedProvider
-        Resolved provider this model is served through.
-    model : str
-        Model name or identifier passed to the provider.
-    embedding_dim : int, optional
-        Embedding dimension override, or None to let the provider's own
-        discovery determine it.
-    document_prefix : str, optional
-        Prefix prepended to document/passage text before embedding, for
-        asymmetric embedding models.
-    query_prefix : str, optional
-        Prefix prepended to query text before embedding, for asymmetric
-        embedding models.
-    configuration : dict[str, Any]
-        Free-form per-model knobs (max_tokens, temperature, and so on) with
-        no dedicated field.
-    """
-
-    name: str
-    provider: ResolvedProvider
-    model: str
-    embedding_dim: int | None
-    document_prefix: str | None
-    query_prefix: str | None
-    configuration: dict[str, Any]
-
-    def __repr__(self) -> str:
-        return (
-            f"ResolvedModel(name={self.name!r}, "
-            f"provider={self.provider.provider!r}, model={self.model!r})"
-        )
 
 
 @dataclass(frozen=True)
@@ -269,35 +53,242 @@ class ResolvedToolConfig:
         return f"ResolvedToolConfig(name={self.name!r}, extra_keys={sorted(self.extra)!r})"
 
 
+# ------------------
+# Generic recursive resolution machinery: reuse an existing entry, or create
+# one on the spot, recursing into any RefTo field the entry's own schema has
+# (e.g. a new database recurses into resolving/creating its connection).
+# Domain-agnostic -- shared by cli.py's interactive commands and (via
+# PackageConfigBase.run_configure) package-field configuration alike.
+# typer/rich are already unconditional oa-configurator dependencies (see
+# pyproject.toml); imported lazily inside each function body regardless, so
+# a consumer that only ever calls resolve_database()/get_engine() doesn't
+# pay to load them.
+# ------------------
+
+def _nested_ref(info: Any) -> RefTo | None:
+    """Return the RefTo marker on a FieldInfo, if it has one."""
+    for marker in info.metadata:
+        if isinstance(marker, RefTo):
+            return marker
+    return None
+
+
+def _is_promptable(info: Any) -> bool:
+    """Whether a field is something the wizard should ask about at all.
+
+    Excludes bool fields (e.g. ConnectionConfig.test_only -- programmatic
+    only, never something a user picks by typing True/False) and dict/other
+    non-scalar fields (e.g. ModelConfig.configuration -- a free-form escape
+    hatch with no sensible single-line prompt; left to its own
+    default_factory).
+    """
+    return get_origin(info.annotation) not in (dict, list) and info.annotation not in (bool, dict)
+
+
+def _is_test_marked(name: str, target: type[BaseModel], config: StackConfig) -> bool:
+    """Whether an existing entry is marked test-only, checked recursively
+    through any RefTo field it has (e.g. a database is test-only iff the
+    connection it points to is)."""
+    entry = getattr(config, _REF_SECTIONS[target]).get(name)
+    if entry is None:
+        return False
+    if isinstance(entry, ConnectionConfig):
+        return entry.test_only
+    return any(
+        (value := getattr(entry, field_name)) is not None and _is_test_marked(value, ref.target, config)
+        for field_name, ref in _iter_refs(target)
+    )
+
+
+def _resolve_ref(
+    field_name: str,
+    description: str,
+    target: type[BaseModel],
+    config: StackConfig,
+    *,
+    default_name: str,
+    is_test: bool = False,
+) -> str | None:
+    """Resolve a RefTo(target)-marked field interactively: offer reuse of an
+    existing entry in target's section, or create one on the spot -- recursing
+    into any RefTo fields *target* itself has.
+    """
+    import typer
+    from rich.console import Console
+    from rich.markup import escape
+
+    console = Console()
+    err_console = Console(stderr=True)
+
+    section = _REF_SECTIONS[target]
+    section_dict: dict[str, Any] = getattr(config, section)
+    candidates = sorted(n for n in section_dict if _is_test_marked(n, target, config) == is_test)
+
+    console.print(f"\n[bold]{escape(field_name)}[/bold]")
+    if description:
+        console.print(f"[dim]{escape(description)}[/dim]")
+
+    if candidates:
+        console.print(f"  Configured {section}: {', '.join(candidates)}")
+        suggested = default_name if default_name in candidates else candidates[0]
+        choice = typer.prompt("  Point to an existing entry, or 'new' to create one", default=suggested)
+        if choice != "new" and choice in candidates:
+            return choice
+        name = typer.prompt(f"  New {section[:-1]} name", default=default_name) if choice == "new" else choice
+    else:
+        console.print(f"  No {section} configured yet.")
+        name = typer.prompt(f"  New {section[:-1]} name", default=default_name)
+
+    if name not in section_dict:
+        section_dict[name] = _resolve_named_entry(
+            target, config, flags=None, existing=None, missing_required=[],
+            name_hint=name, is_test=is_test,
+        )
+    elif is_test != _is_test_marked(name, target, config):
+        err_console.print(
+            f"\n[red bold]DANGER[/red bold]: {name!r} is not marked test_only=true. "
+            f"Point test databases only to test_only connections.\n"
+        )
+        raise typer.Exit(1)
+    return name
+
+
+def _check_test_collision(new_conn: ConnectionConfig, config: StackConfig) -> None:
+    """Abort if a new test-only connection's details match a real, non-test one.
+
+    Test databases run DROP SCHEMA CASCADE; pointing one at production data
+    by mistake (e.g. copy-pasted host/database name) would destroy it.
+    """
+    import typer
+    from rich.console import Console
+
+    err_console = Console(stderr=True)
+    for db_name, db in config.databases.items():
+        conn = config.connections.get(db.connection)
+        if conn is None or conn.test_only:
+            continue
+        if conn.host == new_conn.host and conn.database_name == new_conn.database_name and conn.port == new_conn.port:
+            err_console.print(
+                f"\n[red bold]DANGER[/red bold]: these connection details match the"
+                f" [bold]{db_name!r}[/bold] database (same host and database name).\n"
+                f"Tests run DROP SCHEMA CASCADE, which would destroy your data.\n"
+                f"Use a different [bold]host[/bold] or [bold]database name[/bold]."
+            )
+            raise typer.Exit(1)
+
+
+def _resolve_named_entry(
+    target: type[BaseModel],
+    config: StackConfig,
+    *,
+    flags: dict[str, str] | None,
+    existing: BaseModel | None,
+    missing_required: list[str],
+    name_hint: str | None = None,
+    is_test: bool = False,
+) -> BaseModel | None:
+    """Resolve one entry of *target*: flag, then stored value (from
+    *existing*), then -- interactively -- a prompt, recursing into any
+    RefTo field via :func:`_resolve_ref`. Non-interactively, an unresolved
+    RefTo field just uses its own default; existence is validated by
+    ``StackConfig``'s cross-reference check once the entry is saved.
+
+    *name_hint* and *is_test* only matter for the brand-new-entry path (no
+    *flags*, no *existing*): *name_hint* is the fallback default offered
+    when recursing into a required nested ref with no default of its own
+    (e.g. a newly-named database recursing into naming its connection);
+    *is_test* propagates the test-only wizard's "keep this in the test-only
+    pool" choice into that same recursion, and marks a freshly-created
+    :class:`ConnectionConfig` as ``test_only``.
+
+    Returns None (instead of constructing *target*, which could raise) when
+    a required field is missing non-interactively -- the caller is expected
+    to check *missing_required* (e.g. via ``_check_missing_required``)
+    before using the result.
+    """
+    import typer
+
+    non_interactive = flags is not None
+    flags = flags or {}
+    values: dict[str, Any] = {}
+
+    for field_name, info in target.model_fields.items():
+        stored = getattr(existing, field_name, None) if existing is not None else None
+        if not _is_promptable(info):
+            # bool/dict/etc: programmatic-only, never interactively prompted --
+            # but an existing value (e.g. ModelConfig.configuration) is still
+            # carried over on update; otherwise leave unset for pydantic's
+            # own default/default_factory to apply.
+            if stored is not None:
+                values[field_name] = stored
+            continue
+        nested = _nested_ref(info)
+        has_default = info.default not in (None, PydanticUndefined)
+
+        if (raw := flags.get(field_name)) is not None:
+            values[field_name] = raw if info.is_required() else (raw or None)
+        elif stored is not None:
+            values[field_name] = stored
+        elif nested is not None:
+            if not info.is_required():
+                pass  # optional nested ref: stays unset unless a flag/stored value set it above
+            elif non_interactive:
+                if not has_default:
+                    missing_required.append(field_name)
+                else:
+                    values[field_name] = info.default
+            else:
+                default_name = str(info.default) if has_default else (name_hint or "")
+                values[field_name] = _resolve_ref(
+                    field_name, info.description or "", nested.target, config,
+                    default_name=default_name, is_test=is_test,
+                )
+        elif non_interactive:
+            if not has_default and info.is_required():
+                missing_required.append(field_name)
+            elif has_default:
+                values[field_name] = info.default
+            # else: field has a default_factory (e.g. dict) -- omit, let pydantic apply it
+        else:
+            default_value = str(info.default) if has_default else ""
+            raw = typer.prompt(info.description or field_name, default=default_value, hide_input=is_sensitive(info))
+            values[field_name] = raw if info.is_required() else (raw or None)
+
+    if non_interactive and missing_required:
+        return None
+    entry = target(**values)
+    if is_test and isinstance(entry, ConnectionConfig):
+        entry.test_only = True
+        _check_test_collision(entry, config)
+    return entry
+
+
 class Resolver:
-    """Resolves logical names in a StackConfig into typed, usable handles."""
+    """Resolves logical names in a StackConfig into typed, usable handles.
+
+    Thin dispatch: each ``resolve_*`` method looks up the raw config entry
+    (via the matching ``get_*``) and delegates to that entry's own
+    ``.resolve()`` method -- the resolution logic itself lives on the
+    schema classes in :mod:`oa_configurator.domains`, next to the data it
+    resolves.
+    """
 
     def __init__(self, config: StackConfig) -> None:
         self.config = config
 
-    def resolve_database(self, name: str) -> ResolvedDatabase:
-        """Resolve a database name to a concrete target.
-
-        Profile overlay databases take precedence over base databases.
-        """
-        db = self.effective_database(name)
-        target = ResolvedDatabase(
-            name=name,
-            url=db.build_url(),
-            safe_url=db.safe_url(),
-        )
-        logger.debug("Resolved database %r → %s", name, target.safe_url)
+    def resolve_connection(self, name: str) -> ResolvedConnection:
+        """Resolve a connection name to a concrete target."""
+        target = self.get_connection(name).resolve(name)
+        logger.debug("Resolved connection %r → %s", name, target.safe_url)
         return target
 
     def resolve_provider(self, name: str) -> ResolvedProvider:
         """Resolve a provider name to a concrete connection.
 
-        Profile overlay providers take precedence over base providers.
-
         Parameters
         ----------
         name : str
-            Provider name as declared in ``[providers]`` or a profile overlay.
+            Provider name as declared in ``[providers]``.
 
         Returns
         -------
@@ -309,57 +300,38 @@ class Resolver:
         KeyError
             If *name* does not exist in the config.
         """
-        provider = self.effective_provider(name)
-        resolved = ResolvedProvider(
-            name=name,
-            provider=provider.provider,
-            base_url=provider.base_url,
-            api_key=provider.api_key,
-        )
+        resolved = self.get_provider(name).resolve(name)
         logger.debug("Resolved provider %r → %s", name, resolved.provider)
         return resolved
 
-    def resolve_resource(self, name: str) -> ResolvedResource:
-        """Resolve a resource name to a concrete bundle of DB targets and schemas.
+    def resolve_database(self, name: str) -> ResolvedDatabase:
+        """Resolve a database name to a concrete bundle of connections and schemas.
 
-        Applies profile overlays. The vocab DB falls back to the primary DB
-        when not explicitly configured; the vocab schema falls back to the
-        CDM schema under the same condition.
+        The vocab connection falls back to the primary connection when not
+        explicitly configured; the vocab schema falls back to the CDM
+        schema under the same condition.
 
         Parameters
         ----------
         name : str
-            Resource name as declared in ``[resources]`` or a profile overlay.
+            Database name as declared in ``[databases]``.
 
         Returns
         -------
-        ResolvedResource
-            Fully resolved resource with concrete database targets and
+        ResolvedDatabase
+            Fully resolved database with concrete connection targets and
             effective schema names.
 
         Raises
         ------
         KeyError
-            If *name* (after alias resolution) does not exist in the config.
+            If *name* does not exist in the config.
         """
-        resource = self._effective_resource(name)
-
-        primary = self.resolve_database(resource.database)
-        vocab = self.resolve_database(resource.vocab_database or resource.database)
-        effective_vocab_schema = resource.vocab_schema or resource.cdm_schema
-
-        resolved = ResolvedResource(
-            name=name,
-            database=primary,
-            vocab_database=vocab,
-            cdm_schema=resource.cdm_schema,
-            vocab_schema=effective_vocab_schema,
-            results_schema=resource.results_schema,
-        )
+        resolved = self.get_database(name).resolve(name, self.config)
         logger.debug(
-            "Resolved resource %r → database=%s cdm_schema=%r",
+            "Resolved database %r → connection=%s cdm_schema=%r",
             name,
-            resolved.database.safe_url,
+            resolved.connection.safe_url,
             resolved.cdm_schema,
         )
         return resolved
@@ -367,14 +339,13 @@ class Resolver:
     def resolve_model(self, name: str) -> ResolvedModel:
         """Resolve a model name to a concrete, backend-ready configuration.
 
-        Applies profile overlays. The unit consuming packages use directly:
-        a package's own config just names an entry here (e.g.
-        ``embedding_model_name = "embed-default"``).
+        The unit consuming packages use directly: a package's own config
+        just names an entry here (e.g. ``embedding_model_name = "embed-default"``).
 
         Parameters
         ----------
         name : str
-            Model name as declared in ``[models]`` or a profile overlay.
+            Model name as declared in ``[models]``.
 
         Returns
         -------
@@ -386,19 +357,10 @@ class Resolver:
         KeyError
             If *name* (or its provider) does not exist in the config.
         """
-        model = self._effective_model(name)
-        provider = self.resolve_provider(model.provider)
-
-        resolved = ResolvedModel(
-            name=name,
-            provider=provider,
-            model=model.model,
-            embedding_dim=model.embedding_dim,
-            document_prefix=model.document_prefix,
-            query_prefix=model.query_prefix,
-            configuration=dict(model.configuration),
+        resolved = self.get_model(name).resolve(name, self.config)
+        logger.debug(
+            "Resolved model %r → provider=%s model=%r", name, resolved.provider.provider, resolved.model
         )
-        logger.debug("Resolved model %r → provider=%s model=%r", name, provider.provider, resolved.model)
         return resolved
 
     def resolve_tool(self, name: str) -> ResolvedToolConfig:
@@ -420,7 +382,7 @@ class Resolver:
         KeyError
             If *name* does not exist in the config.
         """
-        tool = self._effective_tool(name)
+        tool = self.get_tool(name)
         resolved = ResolvedToolConfig(name=name, extra=dict(tool))
         logger.debug("Resolved tool %r with %d extra key(s)", name, len(resolved.extra))
         return resolved
@@ -428,14 +390,11 @@ class Resolver:
     def resolve_package_config(self, cls: type[TConfig]) -> TConfig:
         """Resolve and validate a package's own typed ``[tools.<name>]`` section.
 
-        Profile-aware (checks the active profile's tool overlay first, the
-        same ``_effective_tool`` machinery every other ``resolve_*`` method
-        already uses), replacing ``PackageConfigBase.from_stack()``'s
-        previous independent, profile-unaware lookup. Validates that every
-        entry in ``cls.required_resources`` is configured before
-        instantiating -- unlike :meth:`resolve_tool`, a missing tool section
-        is not an error here, since a package's own fields may all have
-        usable defaults even before ``omop-config configure`` has been run.
+        Validates every ``RefTo``-marked field (e.g. a package's own
+        ``cdm_db``/``embedding_model_name``) resolves to a configured entry
+        -- unlike :meth:`resolve_tool`, a missing tool section itself is not
+        an error here, since a package's own fields may all have usable
+        defaults even before ``omop-config configure`` has been run.
 
         Parameters
         ----------
@@ -451,51 +410,41 @@ class Resolver:
         Raises
         ------
         ConfigurationError
-            If an entry in ``cls.required_resources`` is not configured.
+            If a ``RefTo``-marked field names an entry that doesn't exist.
         """
-        profile = self._active_profile()
-        if profile and cls.tool_name in profile.tools:
-            tool = profile.tools[cls.tool_name]
-        else:
-            tool = self.config.tools.get(cls.tool_name)
+        tool = self.config.tools.get(cls.tool_name)
+        instance = cls.model_validate(tool if tool is not None else {})
 
-        available = self.effective_resource_names()
-        for item in cls.required_resources:
-            name = _resource_ref_name(item)
-            if name not in available:
-                owner_tool = _resource_ref_owner_tool_name(item, cls)
-                raise ConfigurationError(
-                    f"{cls.__name__} requires resource {name!r} but it is not configured.\n"
-                    f"Available: {sorted(available) or '(none)'}\n"
-                    f"Run 'omop-config configure {owner_tool}' to set it up."
-                )
+        for field_name, value, section in unresolved_refs(instance, self.config):
+            raise ConfigurationError(
+                f"{cls.__name__}.{field_name} references unknown {section[:-1]} {value!r}.\n"
+                f"Run 'omop-config configure {cls.tool_name}' to set it up."
+            )
 
-        return cls.model_validate(tool if tool is not None else {})
+        return instance
 
-    def resolve_engine(self, resource: ResourceLike, **kwargs: Any) -> Engine:
-        """Resolve a resource -- owned directly or consumed from another package -- into an engine.
+    def resolve_engine(self, database: str, **kwargs: Any) -> Engine:
+        """Resolve a database name into an engine.
 
         Parameters
         ----------
-        resource : ResourceRef | ResourceSpec | str
-            A ``ResourceRef`` (a resource owned by another package), a
-            ``ResourceSpec`` (owned by the caller's own package), or a bare
-            resource name. No zero-argument defaulting: the resource must be
-            named explicitly.
+        database : str
+            The database name to resolve. No zero-argument defaulting: the
+            database must be named explicitly.
         **kwargs
-            Forwarded to :meth:`ResolvedResource.create_engine`.
+            Forwarded to :meth:`ResolvedDatabase.create_engine`.
 
         Returns
         -------
         sqlalchemy.engine.Engine
         """
-        return self.resolve_resource(_resource_ref_name(resource)).create_engine(**kwargs)
+        return self.resolve_database(database).create_engine(**kwargs)
 
     def with_overrides(
         self,
         *,
+        connections: dict[str, ConnectionConfig] | None = None,
         databases: dict[str, DatabaseConfig] | None = None,
-        resources: dict[str, ResourceConfig] | None = None,
         providers: dict[str, ProviderConfig] | None = None,
         models: dict[str, ModelConfig] | None = None,
         tools: dict[str, dict[str, Any]] | None = None,
@@ -505,10 +454,8 @@ class Resolver:
         Useful for session-level overrides without touching the TOML file.
         """
         new_config = StackConfig(
-            active_profile=self.config.active_profile,
-            profiles=self.config.profiles,
+            connections={**self.config.connections, **(connections or {})},
             databases={**self.config.databases, **(databases or {})},
-            resources={**self.config.resources, **(resources or {})},
             providers={**self.config.providers, **(providers or {})},
             models={**self.config.models, **(models or {})},
             tools={**self.config.tools, **(tools or {})},
@@ -518,29 +465,13 @@ class Resolver:
             new_config.bind_loaded_path(self.config.loaded_path)
         return Resolver(new_config)
 
+    def connection_names(self) -> tuple[str, ...]:
+        """Return a sorted tuple of configured connection names."""
+        return self.config.connection_names()
+
     def database_names(self) -> tuple[str, ...]:
         """Return a sorted tuple of configured database names."""
         return self.config.database_names()
-
-    def resource_names(self) -> tuple[str, ...]:
-        """Return a sorted tuple of configured resource names."""
-        return self.config.resource_names()
-
-    def effective_resource_names(self) -> frozenset[str]:
-        """Return resource names available under the active profile.
-
-        Union of base ``[resources]`` and the active profile's resource
-        overlay, if any. The single canonical way to check "is this resource
-        configured" -- used by :meth:`resolve_package_config`'s
-        ``required_resources`` validation, and by consumers that need the
-        same check outside a tool's own config (e.g. an optional
-        cross-package resource that isn't declared as required).
-        """
-        names = set(self.config.resource_names())
-        profile = self._active_profile()
-        if profile:
-            names |= set(profile.resources)
-        return frozenset(names)
 
     def provider_names(self) -> tuple[str, ...]:
         """Return a sorted tuple of configured provider names."""
@@ -554,102 +485,62 @@ class Resolver:
         """Return a sorted tuple of configured tool names."""
         return self.config.tool_names()
 
-    def profile_names(self) -> tuple[str, ...]:
-        """Return a sorted tuple of configured profile names."""
-        return self.config.profile_names()
+    def get_connection(self, name: str) -> ConnectionConfig:
+        """Return the raw ConnectionConfig for a connection name.
 
-    def active_profile_name(self) -> str | None:
-        """Return the name of the currently active profile, or None."""
-        return self.config.active_profile
-
-    def _active_profile(self) -> ProfileOverrideConfig | None:
-        if self.config.active_profile is None:
-            return None
-        return self.config.profiles.get(self.config.active_profile)
-
-    def _effective(self, name: str, *, profile_dict: dict[str, T] | None, base_dict: dict[str, T], kind: str) -> T:
-        """Resolve a name against a profile overlay dict first, then the base dict.
-
-        Shared lookup shared by every effective_*/_effective_* method below
-        (database, resource, provider, model, tool) -- they differ only in
-        which two dicts and which label to use, not in the lookup logic.
-        """
-        if profile_dict and name in profile_dict:
-            return profile_dict[name]
-        return _get_named(base_dict, kind, name)
-
-    def effective_database(self, name: str) -> DatabaseConfig:
-        """Return the active DatabaseConfig for a database name.
-
-        Profile overlay databases take precedence over base databases.
-        Unlike ``resolve_database``, this returns the raw config object
+        Unlike ``resolve_connection``, this returns the raw config object
         rather than a resolved target; useful when individual fields (host,
         port, etc.) are needed directly.
 
-        Parameters
-        ----------
-        name : str
-            Database name as it appears in ``[databases]`` or a profile overlay.
+        Raises
+        ------
+        KeyError
+            If *name* does not exist in the config.
+        """
+        return _get_named(self.config.connections, "connection", name)
 
-        Returns
-        -------
-        DatabaseConfig
-            The effective database config for the active profile.
+    def get_database(self, name: str) -> DatabaseConfig:
+        """Return the raw DatabaseConfig for a database name.
 
         Raises
         ------
         KeyError
-            If *name* does not exist in the base config or the active profile.
+            If *name* does not exist in the config.
         """
-        profile = self._active_profile()
-        return self._effective(
-            name, profile_dict=profile.databases if profile else None, base_dict=self.config.databases, kind="database"
-        )
+        return _get_named(self.config.databases, "database", name)
 
-    def _effective_resource(self, name: str) -> ResourceConfig:
-        profile = self._active_profile()
-        return self._effective(
-            name, profile_dict=profile.resources if profile else None, base_dict=self.config.resources, kind="resource"
-        )
+    def get_provider(self, name: str) -> ProviderConfig:
+        """Return the raw ProviderConfig for a provider name.
 
-    def effective_provider(self, name: str) -> ProviderConfig:
-        """Return the active ProviderConfig for a provider name.
-
-        Profile overlay providers take precedence over base providers.
         Unlike ``resolve_provider``, this returns the raw config object
         rather than a resolved target.
 
-        Parameters
-        ----------
-        name : str
-            Provider name as it appears in ``[providers]`` or a profile overlay.
+        Raises
+        ------
+        KeyError
+            If *name* does not exist in the config.
+        """
+        return _get_named(self.config.providers, "provider", name)
 
-        Returns
-        -------
-        ProviderConfig
-            The effective provider config for the active profile.
+    def get_model(self, name: str) -> ModelConfig:
+        """Return the raw ModelConfig for a model name.
 
         Raises
         ------
         KeyError
-            If *name* does not exist in the base config or the active profile.
+            If *name* does not exist in the config.
         """
-        profile = self._active_profile()
-        return self._effective(
-            name, profile_dict=profile.providers if profile else None, base_dict=self.config.providers, kind="provider"
-        )
+        return _get_named(self.config.models, "model", name)
 
-    def _effective_model(self, name: str) -> ModelConfig:
-        profile = self._active_profile()
-        return self._effective(
-            name, profile_dict=profile.models if profile else None, base_dict=self.config.models, kind="model"
-        )
+    def get_tool(self, name: str) -> dict[str, Any]:
+        """Return the raw ``[tools.<name>]`` dict for a tool name.
 
-    def _effective_tool(self, name: str) -> dict[str, Any]:
-        profile = self._active_profile()
-        return self._effective(
-            name, profile_dict=profile.tools if profile else None, base_dict=self.config.tools, kind="tool"
-        )
+        Raises
+        ------
+        KeyError
+            If *name* does not exist in the config.
+        """
+        return _get_named(self.config.tools, "tool", name)
 
     @classmethod
     def from_active_config(cls) -> Resolver:
@@ -659,9 +550,9 @@ class Resolver:
 
     def __repr__(self) -> str:
         return (
-            f"Resolver(active_profile={self.config.active_profile!r}, "
+            f"Resolver("
+            f"connections={len(self.config.connections)}, "
             f"databases={len(self.config.databases)}, "
-            f"resources={len(self.config.resources)}, "
             f"providers={len(self.config.providers)}, "
             f"models={len(self.config.models)}, "
             f"tools={len(self.config.tools)})"

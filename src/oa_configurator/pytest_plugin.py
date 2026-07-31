@@ -2,7 +2,7 @@
 
 # NOTE: This is currently pgvector heavy. A future feature request will support other backends.
 
-Provides the ``requires_resource`` marker, the ``resolve_test_resource`` fixture
+Provides the ``requires_database`` marker, the ``resolve_test_database`` fixture
 helper, and standalone PostgreSQL database lifecycle utilities:
 
 - ``ensure_test_db_exists(url)`` — create the target database if absent
@@ -18,16 +18,8 @@ bypass via ``session_replication_role``; CREATEDB and REPLICATION are not
 granted). A fallback to the test user's own credentials is used when no admin
 DB is found (standalone containers where the test user is the superuser).
 
-Accepts two forms for the resource argument to ``requires_resource``:
-
-- A ``ResourceSpec`` instance — checks ``spec.semantic_name`` (preferred, e.g.
-  ``@pytest.mark.requires_resource(OrmLoaderConfig.TEST_DB)``).
-- A plain ``str`` — used as the resource name directly (last-resort fallback).
-
-Note: passing a ``PackageConfigBase`` subclass directly as a marker argument does
-NOT work in pytest ≥ 9 — pytest treats any class argument as a test class and
-applies the mark to it rather than forwarding it as a marker arg.  Use the named
-``ClassVar[ResourceSpec]`` attribute instead.
+The database argument to ``requires_database`` is a plain database-name
+string, e.g. ``@pytest.mark.requires_database("test_cdm_db")``.
 """
 
 from __future__ import annotations
@@ -66,14 +58,14 @@ def _find_admin_url(host: str | None) -> sa.URL | None:
         config = load_stack_config()
     except (FileNotFoundError, ValueError):
         return None
-    admin_db = next(
-        (db for db in config.databases.values()
-         if not db.test_only and db.host == host),
+    admin_conn = next(
+        (conn for conn in config.connections.values()
+         if not conn.test_only and conn.host == host),
         None,
     )
-    if admin_db is None:
+    if admin_conn is None:
         return None
-    return sa.engine.make_url(admin_db.build_url())
+    return sa.engine.make_url(admin_conn.build_url())
 
 
 def _admin_engine(test_url: sa.URL) -> sa.Engine:
@@ -274,23 +266,17 @@ except ImportError:
     # Not running under pytest — nothing to register, module stays importable.
     pass
 else:
-    from .package_base import ResourceSpec
     from .resolver import Resolver
 
     # ---------------------------------------------------------------------------
     # Internal helpers
     # ---------------------------------------------------------------------------
 
-    def _resource_names(arg: object) -> list[str]:
-        if isinstance(arg, ResourceSpec):
-            return [arg.semantic_name]
-        return [str(arg)]
-
     def _skip_message(name: str) -> str:
         return (
-            f"Resource {name!r} not configured.\n"
-            f"  Run: omop-config configure <package>\n"
-            f"  (answer Y when asked to configure a test database resource)"
+            f"Database {name!r} not configured.\n"
+            f"  Run: omop-config databases add {name} ...\n"
+            f"  (or configure it interactively via omop-config configure <package>)"
         )
 
     # ---------------------------------------------------------------------------
@@ -300,47 +286,35 @@ else:
     def pytest_configure(config: pytest.Config) -> None:
         config.addinivalue_line(
             "markers",
-            "requires_resource(*args): skip when a named OA_Configurator resource is absent. "
-            "Accepts a ResourceSpec (e.g. OrmLoaderConfig.TEST_DB) or a resource-name string.",
+            "requires_database(*args): skip when a named OA_Configurator database is absent. "
+            "Accepts one or more database-name strings.",
         )
 
     def pytest_runtest_setup(item: pytest.Item) -> None:
-        for marker in item.iter_markers("requires_resource"):
-            for arg in marker.args:
-                for name in _resource_names(arg):
-                    try:
-                        Resolver.from_active_config().resolve_resource(name)
-                    except Exception:
-                        pytest.skip(_skip_message(name))
+        for marker in item.iter_markers("requires_database"):
+            for name in marker.args:
+                try:
+                    Resolver.from_active_config().resolve_database(str(name))
+                except Exception:
+                    pytest.skip(_skip_message(str(name)))
 
     # ---------------------------------------------------------------------------
     # Fixture-level helper (used in conftest.py)
     # ---------------------------------------------------------------------------
 
-    def resolve_test_resource(spec_or_name: ResourceSpec | str) -> str:
-        """Return the database URL for a test resource, or ``pytest.skip()`` the test.
+    def resolve_test_database(name: str) -> str:
+        """Return the connection URL for a test database, or ``pytest.skip()`` the test.
 
         Designed for use inside session-scoped fixtures in conftest.py::
 
             @pytest.fixture(scope="session")
             def pg_engine():
-                url = resolve_test_resource(OmopAlchemyConfig.TEST_DB)
+                url = resolve_test_database("test_cdm_db")
                 engine = sa.create_engine(url)
                 yield engine
                 engine.dispose()
-
-        Parameters
-        ----------
-        spec_or_name:
-            A ``ResourceSpec`` (preferred — no string duplication) or a bare resource
-            name string.
         """
-        name = (
-            spec_or_name.semantic_name
-            if isinstance(spec_or_name, ResourceSpec)
-            else str(spec_or_name)
-        )
         try:
-            return Resolver.from_active_config().resolve_resource(name).database.url
+            return Resolver.from_active_config().resolve_database(name).connection.url
         except Exception:
             pytest.skip(_skip_message(name))

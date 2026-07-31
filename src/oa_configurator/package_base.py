@@ -8,16 +8,21 @@ Example
 -------
 In ``<my-package>/config.py``::
 
-    from oa_configurator import PackageConfigBase
-    from typing import ClassVar
+    from typing import Annotated, ClassVar
+
+    from oa_configurator import DatabaseConfig, ModelConfig, PackageConfigBase, RefTo
 
     class MyPackageConfig(PackageConfigBase):
         tool_name: ClassVar[str] = "<my-package>"
-        required_resources: ClassVar[tuple[str, ...]] = ("cdm_db",)  # owned by this package
-        # or, for a resource owned by another package:
-        # required_resources: ClassVar[tuple[ResourceRef, ...]] = (
-        #     ResourceRef(OtherPackageConfig, OtherPackageConfig.SOME_RESOURCE),
-        # )
+        # A field naming an entry in another section. `omop-config configure`
+        # offers to reuse an existing one or create it on the spot -- recursing
+        # into any RefTo fields the target itself has (e.g. a database's own
+        # connection). No separate declaration list: the field IS the
+        # declaration, whether the entry ends up shared with another package
+        # or not -- that's just a matter of both packages' fields resolving
+        # to the same name.
+        cdm_db: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"
+        embedding_model_name: Annotated[str, RefTo(ModelConfig)] = "embed-default"
         <additional typed fields here>
 
     config = MyPackageConfig.get_config()
@@ -30,158 +35,47 @@ In ``pyproject.toml``::
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, ClassVar, Self, TypeAlias
+from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 from pydantic import BaseModel
+from pydantic_core import PydanticUndefined
 
-from .models import DatabaseConfig
-
-
-@dataclass(frozen=True)
-class ResourceSpec:
-    """Declares a resource that a package owns and can configure interactively.
-
-    Packages that own a resource (i.e. they are responsible for prompting the
-    user to set it up) add instances to ``owned_resources`` on their
-    ``PackageConfigBase`` subclass.  The ``omop-config configure`` command
-    reads this tuple and invokes the connection + schema prompts for each
-    spec before asking for package-specific extras.
-
-    ``owned_resources`` is a CLI-only concern; it has no effect at runtime.
-
-    Attributes
-    ----------
-    cdm_schema_default
-        Default value for the schema prompt. Defaults to ``"omop"`` for OMOP
-        CDM databases. Set to ``"public"`` for non-CDM databases (e.g. the
-        pgvector embedding database).
-    is_cdm_database
-        When ``False``, the configure prompt skips the vocab schema and
-        results schema questions — those are OMOP CDM-specific concepts that
-        do not apply to other databases such as the pgvector embedding store.
-    connection_defaults
-        Optional pre-fill values for the connection prompts (dialect, host, port,
-        user, password, database_name), as a ``DatabaseConfig`` instance. Only the
-        fields actually set are used; the rest fall through to each field's own
-        default. Applied when there is no stored config for a field.
-    """
-
-    semantic_name: str
-    display_name: str
-    description: str
-    connection_name_hint: str = ""
-    cdm_schema_default: str = "omop"
-    is_cdm_database: bool = True
-    connection_defaults: DatabaseConfig | None = field(default=None, compare=False)
-
-
-@dataclass(frozen=True)
-class ResourceRef:
-    """Typed reference to a resource owned by another package.
-
-    Used in ``required_resources`` when the resource is declared (via
-    ``owned_resources``) on a *different* package's ``PackageConfigBase``
-    subclass, instead of matching against a bare semantic-name string.
-    Carries both where to look (``owning_class.tool_name``, for actionable
-    error messages) and precisely what for (``spec``, since the owning class
-    may declare more than one resource).
-
-    Resolves directly to ``spec.semantic_name`` -- the owning package's
-    resource must be configured under that literal name. Renaming an owned
-    resource for cross-package consumption (e.g. via a saved-name pointer on
-    the owning package's own tool config) is not yet supported.
-    """
-
-    owning_class: type["PackageConfigBase"]
-    spec: ResourceSpec
-
-
-ResourceLike: TypeAlias = "ResourceRef | ResourceSpec | str"
-"""A required-resource declaration: a cross-package reference, a self-owned
-spec, or a bare resource name. Shared by every function that accepts or
-resolves one, so the union only needs spelling out once."""
-
-
-def _resource_ref_name(item: ResourceLike) -> str:
-    """Return the literal resource name a required-resource declaration points at."""
-    if isinstance(item, ResourceRef):
-        return item.spec.semantic_name
-    if isinstance(item, ResourceSpec):
-        return item.semantic_name
-    return item
-
-
-def _resource_ref_owner_tool_name(item: ResourceLike, default_owner: type["PackageConfigBase"]) -> str:
-    """Return the tool_name of the package responsible for configuring *item*."""
-    if isinstance(item, ResourceRef):
-        return item.owning_class.tool_name
-    return default_owner.tool_name
-
-
-@dataclass(frozen=True)
-class ModelFieldSpec:
-    """Marks one of a package's own fields as naming a ``[models.*]`` entry.
-
-    Packages with a field like ``embedding_model_name: str`` add a matching
-    entry to ``referenced_models`` on their ``PackageConfigBase`` subclass.
-    ``omop-config configure`` then resolves that field by offering to reuse
-    an existing ``[models.*]`` entry or create one on the spot -- recursing
-    into ``[providers.*]`` the same way when the chosen provider doesn't
-    exist either -- instead of blindly prompting for a raw string.
-
-    ``referenced_models`` is a CLI-only concern; it has no effect at runtime.
-    The package's own field stays a plain ``str`` naming the resolved entry.
-    """
-
-    field_name: str
-    display_name: str
-    description: str
+if TYPE_CHECKING:
+    from .stack_config import StackConfig
 
 
 class ConfigurationError(ValueError):
-    """Raised when a required resource or connection is missing from the stack config."""
+    """Raised when a required database or connection is missing from the stack config."""
 
 
 class PackageConfigBase(BaseModel):
     """Typed view over a package's ``[tools.<tool_name>]`` TOML section.
 
-    Subclass this and declare the class variables below.
+    Subclass this and declare typed fields for whatever this package needs.
 
     Attributes
     ----------
     tool_name : str
         Key used in ``[tools.<name>]``. Must be set on every subclass.
-    required_resources : tuple[ResourceRef | ResourceSpec | str, ...]
-        Resources this package depends on. A ``ResourceSpec`` (or bare
-        semantic-name ``str``) means a resource this package owns itself; a
-        ``ResourceRef`` means a resource owned by another package. A missing
-        resource at :meth:`~oa_configurator.Resolver.resolve_package_config`
-        time raises :exc:`ConfigurationError`.
-    owned_resources : tuple[ResourceSpec, ...]
-        Resources this package is responsible for configuring interactively.
-        ``omop-config configure`` prompts for these before package extras.
-    test_resources : tuple[ResourceSpec, ...]
-        Optional test-only resources. ``omop-config configure`` presents a
-        Y/N prompt for these after the main resource flow. Marked with a
-        DROP SCHEMA warning; a collision check prevents pointing at any
-        already-configured non-test resource.
-    referenced_models : tuple[ModelFieldSpec, ...]
-        Package fields that name a ``[models.*]`` entry. ``omop-config
-        configure`` resolves these interactively (reuse or create, recursing
-        into ``[providers.*]``) instead of prompting for a raw string.
     extra_logging_namespaces : tuple[str, ...]
         Logger namespaces of transitive dependencies to configure alongside
         this package. The package's own ``tool_name``
         are always included -> only list additional roots here, e.g.
         ``("<my_extra_package_to_log",)``. Missing namespaces are harmless.
+
+    A field typed ``Annotated[str, RefTo(DatabaseConfig)]`` (or ``RefTo(ModelConfig)``/
+    ``RefTo(ProviderConfig)``/``RefTo(ConnectionConfig)``) names an entry in that
+    section. ``omop-config configure`` resolves it interactively (reuse an
+    existing entry, or create one -- recursing into any ``RefTo`` fields the
+    target itself has, e.g. a database's own connection);
+    :meth:`~oa_configurator.Resolver.resolve_package_config` validates that it
+    resolves, raising :exc:`ConfigurationError` if not. There is no separate
+    "required"/"owned" declaration -- the field itself is the declaration,
+    and two packages share an entry simply by their fields resolving to the
+    same name.
     """
 
     tool_name: ClassVar[str]
-    required_resources: ClassVar[tuple[ResourceLike, ...]] = ()
-    owned_resources: ClassVar[tuple[ResourceSpec, ...]] = ()
-    test_resources: ClassVar[tuple[ResourceSpec, ...]] = ()
-    referenced_models: ClassVar[tuple[ModelFieldSpec, ...]] = ()
     extra_logging_namespaces: ClassVar[tuple[str, ...]] = ()
 
     @classmethod
@@ -202,22 +96,120 @@ class PackageConfigBase(BaseModel):
         )
 
     @classmethod
-    def get_engine(cls, resource: ResourceLike, **engine_kwargs: Any) -> Any:
-        """Create a SQLAlchemy engine for a resource.
+    def get_engine(cls, database: str, **engine_kwargs: Any) -> Any:
+        """Create a SQLAlchemy engine for a database.
 
         Parameters
         ----------
-        resource:
-            Resource to resolve: a ``ResourceRef`` (owned by another
-            package), a ``ResourceSpec`` (owned by this package), or a bare
-            resource name. No zero-argument defaulting -- pass the resource
-            explicitly.
+        database : str
+            The database name to resolve, typically read off your own
+            resolved config (e.g. ``MyPackageConfig.get_config().cdm_db``).
         **engine_kwargs:
-            Forwarded to :meth:`~oa_configurator.resolver.ResolvedResource.create_engine`.
+            Forwarded to :meth:`~oa_configurator.resolver.ResolvedDatabase.create_engine`.
         """
         from .resolver import Resolver
-        return Resolver.from_active_config().resolve_engine(resource, **engine_kwargs)
+        return Resolver.from_active_config().resolve_engine(database, **engine_kwargs)
 
     def to_extra_dict(self) -> dict[str, Any]:
         """Serialize back to the dict stored under ``[tools.<tool_name>]``."""
         return self.model_dump(exclude_none=True)
+
+    @classmethod
+    def resolve_fields(cls, config: StackConfig, *, set_dict: dict[str, str], interactive: bool) -> dict[str, Any]:
+        """Resolve this package's own fields: flag (``--set`` or the field's
+        own auto-generated flag), then stored, then -- interactively --
+        prompt, recursing into any ``RefTo``-marked field via the generic
+        resolver machinery in :mod:`~oa_configurator.resolver`.
+
+        Parameters
+        ----------
+        config : StackConfig
+            The current StackConfig, used to read any already-stored extras.
+        set_dict : dict[str, str]
+            Flag values, keyed by field name. Checked first.
+        interactive : bool
+            Whether to prompt for fields not covered by set_dict or stored
+            config. Non-interactively, such fields are simply omitted (they
+            fall back to the field's own pydantic default when the config
+            class is loaded).
+
+        Returns
+        -------
+        dict[str, Any]
+            Resolved extra field values, keyed by field name.
+        """
+        import typer
+        from rich.console import Console
+
+        from .resolver import Resolver, _nested_ref, _resolve_ref
+
+        console = Console()
+
+        try:
+            current = Resolver(config).resolve_package_config(cls)
+            current_dict = current.to_extra_dict()
+        except (ConfigurationError, ValueError):
+            current_dict = {}
+
+        extra: dict[str, Any] = {}
+        for field_name, info in cls.model_fields.items():
+            nested = _nested_ref(info)
+            if field_name in set_dict:
+                extra[field_name] = set_dict[field_name]
+            elif field_name in current_dict:
+                extra[field_name] = current_dict[field_name]
+            elif interactive and nested is not None:
+                is_test = field_name.startswith("test_")
+                if is_test and info.default is None:
+                    console.print("\n[dim]─── Test database (optional) ───[/dim]")
+                    console.print(
+                        "[yellow]⚠[/yellow]  Test databases are used by the test suite, which runs"
+                        " DROP SCHEMA CASCADE on every run.\n"
+                        "   Point to a [bold]dedicated test_only connection[/bold], never to real data."
+                    )
+                    if not typer.confirm(f"Configure {field_name}?", default=False):
+                        continue
+                default_name = str(info.default) if info.default not in (None, PydanticUndefined) else field_name
+                resolved = _resolve_ref(
+                    field_name, info.description or "", nested.target, config,
+                    default_name=default_name, is_test=is_test,
+                )
+                if resolved:
+                    extra[field_name] = resolved
+            elif interactive:
+                desc = info.description or ""
+                label = f"{field_name}" + (f"  ({desc})" if desc else "")
+                raw = typer.prompt(label, default=str(info.default) if info.default is not None else "")
+                if raw and raw != "None":
+                    extra[field_name] = raw
+        return extra
+
+    @classmethod
+    def run_configure(cls, set_dict: dict[str, str], *, interactive: bool) -> None:
+        """Run the configure flow for this package: resolve every one of its
+        own fields (see :meth:`resolve_fields`) and save to the active
+        stack config file.
+        """
+        from rich.console import Console
+
+        from .io import save_stack_config
+        from .loader import CONFIG_PATH, load_stack_config
+        from .stack_config import StackConfig
+
+        console = Console()
+
+        try:
+            config = load_stack_config()
+        except FileNotFoundError:
+            CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            config = StackConfig()
+
+        tool_name = cls.tool_name
+        console.print(f"\n[bold]Configuring [cyan]{tool_name}[/cyan][/bold]")
+        console.print(f"[dim]TOML section: \\[tools.{tool_name}][/dim]")
+
+        extra = cls.resolve_fields(config, set_dict=set_dict, interactive=interactive)
+
+        config.tools[tool_name] = extra
+        save_stack_config(config)
+        console.print(f"\n[green]✓[/green] Saved \\[tools.{tool_name}] to [dim]{CONFIG_PATH}[/dim]")

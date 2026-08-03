@@ -282,6 +282,16 @@ else:
             f"  (or configure it interactively via omop-config configure <package>)"
         )
 
+    def _not_test_only_message(name: str, connection_name: str) -> str:
+        return (
+            f"SAFETY ABORT: database {name!r} resolves to connection {connection_name!r}, "
+            "which is not marked test_only=true.\n"
+            "  Refusing to use it as a test database -- this guards against tests running"
+            " destructive operations (DROP SCHEMA, TRUNCATE, ...) against real data.\n"
+            f"  Run: omop-config connections add {connection_name} ... --test-only true"
+            " (or mark the existing connection test_only=true directly in config.toml)"
+        )
+
     # ---------------------------------------------------------------------------
     # Plugin hooks
     # ---------------------------------------------------------------------------
@@ -308,6 +318,14 @@ else:
     def resolve_test_database(name: str) -> str:
         """Return the connection URL for a test database, or ``pytest.skip()`` the test.
 
+        Load-bearing safety check: the resolved database's underlying
+        connection must be marked ``test_only=true`` in the stack config, or
+        this fails loudly (``pytest.fail``, not a skip -- a misconfigured
+        test database pointing at real data is a problem to surface, not
+        quietly route around). This is the one place that check is enforced
+        for every consumer, rather than each repo's own conftest.py needing
+        to hand-roll it.
+
         Designed for use inside session-scoped fixtures in conftest.py::
 
             @pytest.fixture(scope="session")
@@ -317,7 +335,12 @@ else:
                 yield engine
                 engine.dispose()
         """
+        resolver = Resolver.from_active_config()
         try:
-            return Resolver.from_active_config().resolve_database(name).connection.url
+            resolved = resolver.resolve_database(name)
         except Exception:
             pytest.skip(_skip_message(name))
+        connection_name = resolved.connection.name
+        if not resolver.config.connections[connection_name].test_only:
+            pytest.fail(_not_test_only_message(name, connection_name))
+        return resolved.connection.url

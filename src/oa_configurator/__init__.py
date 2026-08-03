@@ -12,7 +12,7 @@ from .stack_config import (
     Sensitive,
     StackConfig,
 )
-from .package_base import ConfigurationError, PackageConfigBase
+from .package_base import TEST_PREFIX, ConfigurationError, PackageConfigBase, with_test_prefix
 from .resolver import (
     Resolver,
     ResolvedConnection,
@@ -44,9 +44,11 @@ __all__ = [
     "Role",
     "Sensitive",
     "StackConfig",
+    "TEST_PREFIX",
     "configure_logging",
     "get_logger",
     "load_stack_config",
     "save_stack_config",
+    "with_test_prefix",
     "write_env_file",
 ]

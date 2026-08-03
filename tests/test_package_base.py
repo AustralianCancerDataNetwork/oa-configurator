@@ -7,6 +7,7 @@ from typing import Annotated, ClassVar
 import pytest
 
 from oa_configurator import (
+    TEST_PREFIX,
     ConfigurationError,
     ConnectionConfig,
     DatabaseConfig,
@@ -16,6 +17,7 @@ from oa_configurator import (
     RefTo,
     Resolver,
     StackConfig,
+    with_test_prefix,
 )
 
 
@@ -149,3 +151,19 @@ class TestConventionBasedSharing:
         a = Resolver(cfg).resolve_package_config(DatabaseUserConfig)
         b = Resolver(cfg).resolve_package_config(OtherDatabaseUserConfig)
         assert a.cdm_db == b.cdm_database == "cdm_db"
+
+
+class TestWithTestPrefix:
+    """with_test_prefix is the single source of truth for the "test_" naming
+    convention."""
+
+    def test_uses_the_exported_constant(self):
+        assert TEST_PREFIX == "test_"
+        assert with_test_prefix("emb_db") == f"{TEST_PREFIX}emb_db"
+
+    def test_matches_resolve_fields_is_test_detection(self):
+        """A name built by with_test_prefix must be recognised as a test
+        field by resolve_fields' own field_name.startswith(TEST_PREFIX)
+        check -- the whole point of sharing one constant."""
+        name = with_test_prefix("cdm_db")
+        assert name.startswith(TEST_PREFIX)

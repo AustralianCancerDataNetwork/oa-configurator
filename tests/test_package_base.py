@@ -7,7 +7,6 @@ from typing import Annotated, ClassVar
 import pytest
 
 from oa_configurator import (
-    TEST_PREFIX,
     ConfigurationError,
     ConnectionConfig,
     DatabaseConfig,
@@ -17,7 +16,6 @@ from oa_configurator import (
     RefTo,
     Resolver,
     StackConfig,
-    with_test_prefix,
 )
 
 
@@ -153,17 +151,87 @@ class TestConventionBasedSharing:
         assert a.cdm_db == b.cdm_database == "cdm_db"
 
 
-class TestWithTestPrefix:
-    """with_test_prefix is the single source of truth for the "test_" naming
-    convention."""
+class TestRefToIsTest:
+    """is_test lives on RefTo itself now -- a field self-declares its
+    test-ness instead of the framework inferring it from whether the
+    field's own Python name happens to start with "test_"."""
 
-    def test_uses_the_exported_constant(self):
-        assert TEST_PREFIX == "test_"
-        assert with_test_prefix("emb_db") == f"{TEST_PREFIX}emb_db"
+    def test_defaults_to_false(self):
+        assert RefTo(DatabaseConfig).is_test is False
 
-    def test_matches_resolve_fields_is_test_detection(self):
-        """A name built by with_test_prefix must be recognised as a test
-        field by resolve_fields' own field_name.startswith(TEST_PREFIX)
-        check -- the whole point of sharing one constant."""
-        name = with_test_prefix("cdm_db")
-        assert name.startswith(TEST_PREFIX)
+    def test_explicit_true(self):
+        assert RefTo(DatabaseConfig, is_test=True).is_test is True
+
+    def test_field_name_has_no_bearing_on_is_test(self):
+        """A field named without any "test_" prefix can still be is_test,
+        and one named with the prefix can still default to False -- the
+        Python attribute name carries no meaning anymore."""
+
+        class OddlyNamedConfig(PackageConfigBase):
+            tool_name: ClassVar[str] = "oddly_named_tool"
+            playground_db: Annotated[str | None, RefTo(DatabaseConfig, is_test=True)] = None
+            test_flavoured_prod_db: Annotated[str, RefTo(DatabaseConfig)] = "prod_db"
+
+        fields = dict(OddlyNamedConfig.model_fields)
+        playground_ref = next(m for m in fields["playground_db"].metadata if isinstance(m, RefTo))
+        prod_ref = next(m for m in fields["test_flavoured_prod_db"].metadata if isinstance(m, RefTo))
+        assert playground_ref.is_test is True
+        assert prod_ref.is_test is False
+
+
+class TestIsTestOnlyMatchEnforcement:
+    """resolve_package_config checks that a field's is_test declaration
+    agrees with the test_only flag on whatever connection it resolves to,
+    in both directions."""
+
+    def test_test_field_pointed_at_real_connection_raises(self):
+        cfg = StackConfig.for_session(
+            connections={"prod": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=False)},
+            databases={"test_cdm_db": DatabaseConfig(connection="prod")},
+        )
+
+        class NeedsTestDb(PackageConfigBase):
+            tool_name: ClassVar[str] = "needs_test_db_tool"
+            test_cdm_db: Annotated[str | None, RefTo(DatabaseConfig, is_test=True)] = "test_cdm_db"
+
+        with pytest.raises(ConfigurationError, match="is_test=True"):
+            Resolver(cfg).resolve_package_config(NeedsTestDb)
+
+    def test_prod_field_pointed_at_test_only_connection_raises(self):
+        cfg = StackConfig.for_session(
+            connections={"test_conn": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=True)},
+            databases={"cdm_db": DatabaseConfig(connection="test_conn")},
+        )
+
+        class NeedsProdDb(PackageConfigBase):
+            tool_name: ClassVar[str] = "needs_prod_db_tool"
+            cdm_db: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"
+
+        with pytest.raises(ConfigurationError, match="is_test=False"):
+            Resolver(cfg).resolve_package_config(NeedsProdDb)
+
+    def test_matching_is_test_and_test_only_passes(self):
+        cfg = StackConfig.for_session(
+            connections={"test_conn": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=True)},
+            databases={"test_cdm_db": DatabaseConfig(connection="test_conn")},
+        )
+
+        class NeedsTestDb(PackageConfigBase):
+            tool_name: ClassVar[str] = "matching_test_db_tool"
+            test_cdm_db: Annotated[str | None, RefTo(DatabaseConfig, is_test=True)] = "test_cdm_db"
+
+        result = Resolver(cfg).resolve_package_config(NeedsTestDb)
+        assert result.test_cdm_db == "test_cdm_db"
+
+    def test_matching_non_test_passes(self):
+        cfg = StackConfig.for_session(
+            connections={"prod": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=False)},
+            databases={"cdm_db": DatabaseConfig(connection="prod")},
+        )
+
+        class NeedsProdDb(PackageConfigBase):
+            tool_name: ClassVar[str] = "matching_prod_db_tool"
+            cdm_db: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"
+
+        result = Resolver(cfg).resolve_package_config(NeedsProdDb)
+        assert result.cdm_db == "cdm_db"

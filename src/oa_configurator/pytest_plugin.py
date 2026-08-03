@@ -2,8 +2,10 @@
 
 # NOTE: This is currently pgvector heavy. A future feature request will support other backends.
 
-Provides the ``requires_database`` marker, the ``resolve_test_database`` fixture
-helper, and standalone PostgreSQL database lifecycle utilities:
+Provides the ``requires_database`` marker, the ``resolve_test_database(cls,
+field_name)`` fixture helper (resolves a package's own named test-database
+field, see its docstring for why it doesn't just go through
+``cls.get_config()``), and standalone PostgreSQL database lifecycle utilities:
 
 - ``ensure_test_db_exists(url)``: creates the target database if absent
 - ``create_fresh_test_db(url)``: drops and recreates (used by omop-emb)
@@ -269,6 +271,8 @@ except ImportError:
     # stays importable regardless.
     pass
 else:
+    from .loader import load_stack_config
+    from .package_base import PackageConfigBase
     from .resolver import Resolver
 
     # ---------------------------------------------------------------------------
@@ -315,28 +319,54 @@ else:
     # Fixture-level helper (used in conftest.py)
     # ---------------------------------------------------------------------------
 
-    def resolve_test_database(name: str) -> str:
-        """Return the connection URL for a test database, or ``pytest.skip()`` the test.
+    def resolve_test_database(cls: type[PackageConfigBase], field_name: str) -> str:
+        """Resolve a package's own test-database field to a URL, or skip/fail.
+
+        *field_name* names the field directly, e.g. ``"test_cdm_db"`` leads to
+        no auto-discovery. Use-case: Multiple ``RefTo(DatabaseConfig, is_test=True)`` 
+        fields, that are otherwise not auto-discoverable.
+
+        Deliberately does not go through ``cls.get_config()`` to avoid
+        validating every ``RefTo`` field on the class at once. A CI runner 
+        usually does not have production resources configured, which would
+        fail the test before it even reaches the test database field.
+        This resolves just the one named field directly off ``[tools.<name>]``, 
+        tolerating everything else on the class being unconfigured.
 
         Load-bearing safety check: the resolved database's underlying
         connection must be marked ``test_only=true`` in the stack config, or
-        this fails loudly (``pytest.fail``, not a skip -- a misconfigured
-        test database pointing at real data is a problem to surface, not
-        quietly route around). This is the one place that check is enforced
-        for every consumer, rather than each repo's own conftest.py needing
-        to hand-roll it.
+        this fails loudly (``pytest.fail``).
+
+        Parameters
+        ----------
+        cls : type[PackageConfigBase]
+            The package's config class.
+        field_name : str
+            Name of the ``is_test`` field/attribute to resolve from the respective `PackageConfigBase`, 
+            e.g. ``"test_cdm_db"``.
+
+        Returns
+        -------
+        str
+            Connection URL, or the test is skipped/failed (see above).
 
         Designed for use inside session-scoped fixtures in conftest.py::
 
             @pytest.fixture(scope="session")
             def pg_engine():
-                url = resolve_test_database("test_cdm_db")
+                url = resolve_test_database(OmopAlchemyConfig, "test_cdm_db")
                 engine = sa.create_engine(url)
                 yield engine
                 engine.dispose()
         """
-        resolver = Resolver.from_active_config()
         try:
+            stored = load_stack_config().tools.get(cls.tool_name, {})
+        except FileNotFoundError:
+            stored = {}
+        name = stored.get(field_name, field_name)
+
+        try:
+            resolver = Resolver.from_active_config()
             resolved = resolver.resolve_database(name)
         except Exception:
             pytest.skip(_skip_message(name))

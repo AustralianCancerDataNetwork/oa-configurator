@@ -562,7 +562,10 @@ class Resolver:
         Raises
         ------
         ConfigurationError
-            If a ``RefTo``-marked field names an entry that doesn't exist.
+            If a ``RefTo``-marked field names an entry that doesn't exist,
+            or names a database whose connection's ``test_only`` flag
+            disagrees with the field's own ``is_test`` declaration (a
+            production field pointed at a test connection, or vice versa).
         """
         tool = self.config.tools.get(cls.tool_name)
         instance = cls.model_validate(tool if tool is not None else {})
@@ -572,6 +575,25 @@ class Resolver:
                 f"{cls.__name__}.{field_name} references unknown {section[:-1]} {value!r}.\n"
                 f"Run 'omop-config configure {cls.tool_name}' to set it up."
             )
+
+        for field_name, ref in _iter_refs(cls):
+            if ref.target is not DatabaseConfig:
+                continue
+            value = getattr(instance, field_name)
+            if value is None:
+                continue
+            db = self.config.databases.get(value)
+            if db is None:
+                continue
+            connection = self.config.connections.get(db.connection)
+            if connection is not None and connection.test_only != ref.is_test:
+                raise ConfigurationError(
+                    f"{cls.__name__}.{field_name} is marked is_test={ref.is_test}, but resolves "
+                    f"to database {value!r} whose connection {db.connection!r} has "
+                    f"test_only={connection.test_only}.\n"
+                    "A test field must point at a test_only connection, and a non-test field "
+                    "must not."
+                )
 
         return instance
 

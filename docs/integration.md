@@ -137,7 +137,7 @@ This covers the vast majority of tests. No file I/O, no environment-specific set
 
 For tests that exercise a real database (e.g. PostgreSQL-specific SQL, bulk loading, trigger management), use a **dedicated named database** in the user's config, never a copy of the production database under a different guise.
 
-The convention is `test_<package>_db` (e.g. `test_cdm_db` for omop-alchemy). Keeping the name distinct from the production database (`cdm_db`) is a mandatory safety guard: the test suite must never accidentally connect to a production database.
+The convention is `test_<package>_db` (e.g. `test_cdm_db` for omop-alchemy) for readability, but what actually marks a field as a test field is `RefTo(DatabaseConfig, is_test=True)`. The field's own Python name carries no meaning to `oa-configurator` itself. Keeping the *value* distinct from the production database (`cdm_db`) is still a mandatory safety guard: the test suite must never accidentally connect to a production database.
 
 In `conftest.py`, resolve the test database via the `resolve_test_database` pytest-plugin helper, which skips cleanly whether `config.toml` is entirely missing or simply doesn't have this database configured yet:
 
@@ -147,17 +147,19 @@ def pg_engine():
     from oa_configurator.pytest_plugin import resolve_test_database
     from my_package.config import MyPackageConfig
 
-    url = resolve_test_database(MyPackageConfig.TEST_DB)
+    url = resolve_test_database(MyPackageConfig)
     engine = sa.create_engine(url, future=True)
     yield engine
     engine.dispose()
 ```
 
+`resolve_test_database` resolves your package's own `is_test` field directly (auto-discovered when there's exactly one; pass a second `field_name` argument if the class has more than one), without requiring the rest of your package's config (e.g. a required `cdm_db` field) to also be configured. That's deliberate: a CI runner that only provisions a test database shouldn't need a "production" database configured just to find it.
+
 #### Provisioning the test database
 
 The test database must be provisioned for real before pytest runs. There is no fallback that papers over a missing one, by design (see the callout above).
 
-A package field marked with a `test_`-prefixed name (e.g. `test_cdm_db: Annotated[str | None, RefTo(DatabaseConfig)] = None`) gets special handling in `omop-config configure <package>`'s **interactive** flow: it asks whether to configure a test database, and if you accept, recurses through creating both the connection and the database, marking the connection `test_only = true` automatically and refusing to reuse (or collide with) a non-test connection's host/database combination.
+A package field marked `is_test=True` (e.g. `test_cdm_db: Annotated[str | None, RefTo(DatabaseConfig, is_test=True)] = None`) gets special handling in `omop-config configure <package>`'s **interactive** flow: it asks whether to configure a test database, and if you accept, recurses through creating both the connection and the database, marking the connection `test_only = true` automatically and refusing to reuse (or collide with) a non-test connection's host/database combination. `resolve_package_config()` (used by `get_config()` and this interactive flow alike) separately enforces, every time your config loads, that an `is_test=True` field always resolves to a `test_only=true` connection and an `is_test=False` field never does. Pointing either one at the wrong kind of connection raises `ConfigurationError` immediately, not just when a test happens to run.
 
 Non-interactively, `--test-only` is an ordinary flag on `connections add` (accepting `true`/`false`/`yes`/`no`/`1`/`0`):
 

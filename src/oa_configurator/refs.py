@@ -25,9 +25,23 @@ class RefTo:
     It replaces a hand-written validator per pair and the separate
     ``ModelFieldSpec``/``referenced_models`` side-list that used to carry the
     same information for consumer fields.
+
+    Attributes
+    ----------
+    target : type[BaseModel]
+        The section this field's value should name an entry in.
+    is_test : bool
+        Whether this field is expected to resolve to a ``test_only``
+        connection (for ``target=DatabaseConfig`` fields). Replaces a
+        previous, unreliable convention of inferring this from whether the
+        field's own Python name started with ``"test_"``. Drives both the
+        CLI wizard's "Test database (optional)" prompt and the symmetric
+        ``is_test``/``test_only`` match enforced by
+        :meth:`~oa_configurator.resolver.Resolver.resolve_package_config`.
     """
 
     target: type[BaseModel]
+    is_test: bool = False
 
 
 @dataclass(frozen=True)

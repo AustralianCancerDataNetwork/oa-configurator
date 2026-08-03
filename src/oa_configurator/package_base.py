@@ -35,32 +35,13 @@ In ``pyproject.toml``::
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar, Final, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 from pydantic import BaseModel
 from pydantic_core import PydanticUndefined
 
 if TYPE_CHECKING:
     from .stack_config import StackConfig
-
-
-TEST_PREFIX: Final[str] = "test_"
-"""The naming-convention prefix marking a field/name as a test resource.
-
-Single source of truth: :meth:`PackageConfigBase.resolve_fields` keys its
-``is_test`` detection off this constant, and :func:`with_test_prefix` is the
-one place that should ever concatenate it onto a base name.
-"""
-
-
-def with_test_prefix(name: str) -> str:
-    """Build a test-resource name from a base name, e.g. ``"cdm_db"`` -> ``"test_cdm_db"``.
-
-    Use this wherever a package declares a ``TEST_DB``-style constant (or any
-    other test-resource name) instead of concatenating :data:`TEST_PREFIX`
-    by hand.
-    """
-    return f"{TEST_PREFIX}{name}"
 
 
 class ConfigurationError(ValueError):
@@ -194,7 +175,7 @@ class PackageConfigBase(BaseModel):
             raw_set = set_dict.get(field_name)
 
             if isinstance(raw_set, dict) and nested is not None:
-                is_test = field_name.startswith(TEST_PREFIX)
+                is_test = nested.is_test
                 resolved_name = _resolve_nested_flag_value(
                     field_name, info, nested, raw_set, config,
                     name_hint=field_name, is_test=is_test, missing_required=missing_required,
@@ -207,7 +188,7 @@ class PackageConfigBase(BaseModel):
                 if stored is not None:
                     extra[field_name] = stored
             elif nested is not None:
-                is_test = field_name.startswith(TEST_PREFIX)
+                is_test = nested.is_test
                 if is_test and stored is None and info.default is None:
                     console.print("\n[dim]─── Test database (optional) ───[/dim]")
                     console.print(

@@ -299,7 +299,7 @@ class DemoConfig(PackageConfigBase):
 
     tool_name: ClassVar[str] = "demo_tool"
     cdm_db: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"
-    test_cdm_db: Annotated[str | None, RefTo(DatabaseConfig)] = None
+    test_cdm_db: Annotated[str | None, RefTo(DatabaseConfig, is_test=True)] = None
     backend: str = "default_backend"
 
 

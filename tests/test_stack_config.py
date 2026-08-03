@@ -80,7 +80,7 @@ class TestStackConfig:
         """Raw, TOML-table-shaped dicts (not DatabaseConfig instances) still coerce at validation time."""
         cfg = StackConfig.for_session(
             connections={"c": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
-            databases={"r": {"connection": "c", "cdm_schema": "s"}},  # type: ignore[dict-item]
+            databases={"r": {"connection": "c", "cdm_schema": "s"}},  # ty: ignore[invalid-argument-type]
         )
         assert isinstance(cfg.connections["c"], ConnectionConfig)
         assert isinstance(cfg.databases["r"], DatabaseConfig)

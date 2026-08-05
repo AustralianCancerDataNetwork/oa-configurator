@@ -5,8 +5,20 @@ from __future__ import annotations
 import pytest
 
 from oa_configurator import Resolver, StackConfig
-from oa_configurator.resolver import ResolvedConnection, ResolvedDatabase, ResolvedModel, ResolvedProvider
-from oa_configurator.stack_config import ConnectionConfig, DatabaseConfig, ModelConfig, ProviderConfig
+from oa_configurator.resolver import (
+    ResolvedConnection,
+    ResolvedDatabase,
+    ResolvedModel,
+    ResolvedProvider,
+    ResolvedVectorStore,
+)
+from oa_configurator.stack_config import (
+    ConnectionConfig,
+    DatabaseConfig,
+    ModelConfig,
+    ProviderConfig,
+    VectorStoreConfig,
+)
 
 
 class TestResolveConnection:
@@ -159,6 +171,60 @@ class TestResolveModel:
         assert model.model == "local-chat"
 
 
+class TestResolveVectorStore:
+    def test_database_backed(self):
+        cfg = StackConfig.for_session(
+            connections={"db": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={"default": DatabaseConfig(connection="db", cdm_schema="omop")},
+            vector_stores={"vs": VectorStoreConfig(backend_type="pgvector", database="default")},
+        )
+        r = Resolver(cfg)
+        vs = r.resolve_vector_store("vs")
+        assert isinstance(vs, ResolvedVectorStore)
+        assert vs.backend_type == "pgvector"
+        assert vs.database is not None
+        assert vs.database.name == "default"
+        assert vs.sqlite_path is None
+
+    def test_file_backed(self):
+        cfg = StackConfig.for_session(
+            vector_stores={"vs": VectorStoreConfig(backend_type="sqlitevec", sqlite_path="/data/emb.db")},
+        )
+        r = Resolver(cfg)
+        vs = r.resolve_vector_store("vs")
+        assert vs.backend_type == "sqlitevec"
+        assert vs.database is None
+        assert vs.sqlite_path == "/data/emb.db"
+
+    def test_configuration_passthrough(self):
+        cfg = StackConfig.for_session(
+            vector_stores={
+                "vs": VectorStoreConfig(
+                    backend_type="sqlitevec", sqlite_path="/data/emb.db",
+                    configuration={"faiss_cache_dir": "/data/faiss"},
+                ),
+            },
+        )
+        r = Resolver(cfg)
+        vs = r.resolve_vector_store("vs")
+        assert vs.configuration == {"faiss_cache_dir": "/data/faiss"}
+
+    def test_unknown_vector_store_raises(self):
+        cfg = StackConfig.for_session()
+        r = Resolver(cfg)
+        with pytest.raises(KeyError, match="Unknown vector store"):
+            r.resolve_vector_store("does_not_exist")
+
+    def test_dangling_database_reference_rejected_at_construction(self):
+        """oa-configurator never imports the owning package's BackendType enum
+        (backend_type is a plain string), but a RefTo(DatabaseConfig) target
+        still has to actually exist, same as any other domain."""
+        with pytest.raises(ValueError, match="unknown database"):
+            StackConfig.for_session(
+                vector_stores={"vs": VectorStoreConfig(backend_type="pgvector", database="does_not_exist")},
+            )
+
+
 class TestSchemaTranslateMap:
     def test_no_results_schema(self, minimal_stack):
         r = Resolver(minimal_stack)
@@ -245,3 +311,10 @@ class TestDiscovery:
         r = Resolver(cfg)
         assert r.provider_names() == ("p",)
         assert r.model_names() == ("m",)
+
+    def test_vector_store_names(self):
+        cfg = StackConfig.for_session(
+            vector_stores={"vs": VectorStoreConfig(backend_type="sqlitevec", sqlite_path="/data/emb.db")},
+        )
+        r = Resolver(cfg)
+        assert r.vector_store_names() == ("vs",)

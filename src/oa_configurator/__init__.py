@@ -11,6 +11,7 @@ from .stack_config import (
     RefTo,
     Sensitive,
     StackConfig,
+    VectorStoreConfig,
 )
 from .package_base import ConfigurationError, PackageConfigBase
 from .resolver import (
@@ -20,6 +21,7 @@ from .resolver import (
     ResolvedModel,
     ResolvedProvider,
     ResolvedToolConfig,
+    ResolvedVectorStore,
     Role,
 )
 
@@ -41,9 +43,11 @@ __all__ = [
     "ResolvedModel",
     "ResolvedProvider",
     "ResolvedToolConfig",
+    "ResolvedVectorStore",
     "Role",
     "Sensitive",
     "StackConfig",
+    "VectorStoreConfig",
     "configure_logging",
     "get_logger",
     "load_stack_config",

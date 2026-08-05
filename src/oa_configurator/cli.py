@@ -27,6 +27,7 @@ from rich.table import Table
 from .cli_support import _build_entry_params
 from .domains.llm.cli import models_app, providers_app
 from .domains.resources.cli import connections_app, databases_app
+from .domains.vector_stores.cli import vector_stores_app
 from .io import save_stack_config, write_env_file
 from .loader import CONFIG_PATH, load_stack_config
 from .logging_config import configure_logging
@@ -44,6 +45,7 @@ app.add_typer(connections_app, name="connections")
 app.add_typer(databases_app, name="databases")
 app.add_typer(providers_app, name="providers")
 app.add_typer(models_app, name="models")
+app.add_typer(vector_stores_app, name="vector-stores")
 
 
 # ------------------

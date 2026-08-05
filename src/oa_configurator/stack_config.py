@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from .domains.llm.schema import ModelConfig, ProviderConfig
 from .domains.resources.schema import ConnectionConfig, DatabaseConfig
+from .domains.vector_stores.schema import VectorStoreConfig
 from .logging_config import LoggingConfig
 from .refs import RefTo, Sensitive, _iter_refs, is_sensitive
 
@@ -26,6 +27,7 @@ __all__ = [
     "RefTo",
     "Sensitive",
     "StackConfig",
+    "VectorStoreConfig",
     "is_sensitive",
     "unresolved_refs",
 ]
@@ -58,6 +60,7 @@ _REF_SECTIONS: dict[type[BaseModel], str] = {
     ProviderConfig: "providers",
     ModelConfig: "models",
     DatabaseConfig: "databases",
+    VectorStoreConfig: "vector_stores",
 }
 """Which StackConfig dict a RefTo(target) marker resolves against."""
 
@@ -90,6 +93,10 @@ class StackConfig(BaseModel):
         default_factory=dict,
         description="Named, concretely-configured models, each served through a provider.",
     )
+    vector_stores: dict[str, VectorStoreConfig] = Field(
+        default_factory=dict,
+        description="Named vector-store backend configurations, referenced by embedding-capable packages.",
+    )
     tools: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
         description="Per-package [tools.<name>] sections, keyed by tool_name.",
@@ -107,6 +114,8 @@ class StackConfig(BaseModel):
             self._check_refs(database, f"databases.{name}")
         for mname, model in self.models.items():
             self._check_refs(model, f"models.{mname}")
+        for vname, vector_store in self.vector_stores.items():
+            self._check_refs(vector_store, f"vector_stores.{vname}")
         return self
 
     def _check_refs(self, instance: BaseModel, location: str) -> None:
@@ -123,6 +132,7 @@ class StackConfig(BaseModel):
         databases: dict[str, DatabaseConfig] | None = None,
         providers: dict[str, ProviderConfig] | None = None,
         models: dict[str, ModelConfig] | None = None,
+        vector_stores: dict[str, VectorStoreConfig] | None = None,
         tools: dict[str, dict[str, Any]] | None = None,
     ) -> StackConfig:
         """Build a config in memory without a TOML file.
@@ -147,6 +157,7 @@ class StackConfig(BaseModel):
             databases=databases or {},
             providers=providers or {},
             models=models or {},
+            vector_stores=vector_stores or {},
             tools=tools or {},
         )
 
@@ -174,6 +185,10 @@ class StackConfig(BaseModel):
     def model_names(self) -> tuple[str, ...]:
         """Return a sorted tuple of configured model names."""
         return tuple(sorted(self.models))
+
+    def vector_store_names(self) -> tuple[str, ...]:
+        """Return a sorted tuple of configured vector store names."""
+        return tuple(sorted(self.vector_stores))
 
     def tool_names(self) -> tuple[str, ...]:
         """Return a sorted tuple of configured tool names."""

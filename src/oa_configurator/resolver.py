@@ -18,6 +18,7 @@ from .domains.resources.schema import (
     ResolvedDatabase,
     Role,
 )
+from .domains.vector_stores.schema import ResolvedVectorStore, VectorStoreConfig
 from .stack_config import _REF_SECTIONS, StackConfig, unresolved_refs
 from .package_base import ConfigurationError, PackageConfigBase
 from .refs import RefTo, _iter_refs, is_sensitive
@@ -34,7 +35,9 @@ __all__ = [
     "ResolvedModel",
     "ResolvedProvider",
     "ResolvedToolConfig",
+    "ResolvedVectorStore",
     "Role",
+    "VectorStoreConfig",
 ]
 
 T = TypeVar("T")
@@ -515,6 +518,32 @@ class Resolver:
         )
         return resolved
 
+    def resolve_vector_store(self, name: str) -> ResolvedVectorStore:
+        """Resolve a vector store name to a concrete, backend-ready configuration.
+
+        The unit consuming packages use directly: a package's own config
+        just names an entry here (e.g. ``vector_store_name = "vector_store"``).
+
+        Parameters
+        ----------
+        name : str
+            Vector store name as declared in ``[vector_stores]``.
+
+        Returns
+        -------
+        ResolvedVectorStore
+            Fully resolved vector store, with a concrete database when
+            configured.
+
+        Raises
+        ------
+        KeyError
+            If *name* (or its database) does not exist in the config.
+        """
+        resolved = self.get_vector_store(name).resolve(name, self.config)
+        logger.debug("Resolved vector store %r → backend_type=%r", name, resolved.backend_type)
+        return resolved
+
     def resolve_tool(self, name: str) -> ResolvedToolConfig:
         """Resolve a tool name to its configuration.
 
@@ -621,6 +650,7 @@ class Resolver:
         databases: dict[str, DatabaseConfig] | None = None,
         providers: dict[str, ProviderConfig] | None = None,
         models: dict[str, ModelConfig] | None = None,
+        vector_stores: dict[str, VectorStoreConfig] | None = None,
         tools: dict[str, dict[str, Any]] | None = None,
     ) -> Resolver:
         """Return a new Resolver with entries merged over the current config.
@@ -632,6 +662,7 @@ class Resolver:
             databases={**self.config.databases, **(databases or {})},
             providers={**self.config.providers, **(providers or {})},
             models={**self.config.models, **(models or {})},
+            vector_stores={**self.config.vector_stores, **(vector_stores or {})},
             tools={**self.config.tools, **(tools or {})},
             logging=self.config.logging,
         )
@@ -654,6 +685,10 @@ class Resolver:
     def model_names(self) -> tuple[str, ...]:
         """Return a sorted tuple of configured model names."""
         return self.config.model_names()
+
+    def vector_store_names(self) -> tuple[str, ...]:
+        """Return a sorted tuple of configured vector store names."""
+        return self.config.vector_store_names()
 
     def tool_names(self) -> tuple[str, ...]:
         """Return a sorted tuple of configured tool names."""
@@ -706,6 +741,16 @@ class Resolver:
         """
         return _get_named(self.config.models, "model", name)
 
+    def get_vector_store(self, name: str) -> VectorStoreConfig:
+        """Return the raw VectorStoreConfig for a vector store name.
+
+        Raises
+        ------
+        KeyError
+            If *name* does not exist in the config.
+        """
+        return _get_named(self.config.vector_stores, "vector store", name)
+
     def get_tool(self, name: str) -> dict[str, Any]:
         """Return the raw ``[tools.<name>]`` dict for a tool name.
 
@@ -729,6 +774,7 @@ class Resolver:
             f"databases={len(self.config.databases)}, "
             f"providers={len(self.config.providers)}, "
             f"models={len(self.config.models)}, "
+            f"vector_stores={len(self.config.vector_stores)}, "
             f"tools={len(self.config.tools)})"
         )
 

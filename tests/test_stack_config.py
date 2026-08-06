@@ -4,7 +4,17 @@ from __future__ import annotations
 
 import pytest
 
-from oa_configurator import ConnectionConfig, DatabaseConfig, ModelConfig, ProviderConfig, StackConfig
+from oa_configurator import (
+    CDMDatabaseConfig,
+    ConnectionConfig,
+    DatabaseConfig,
+    DatabaseKind,
+    GenericDatabaseConfig,
+    ModelConfig,
+    ProviderConfig,
+    StackConfig,
+)
+from oa_configurator.stack_config import mismatched_kind_refs
 
 
 class TestConnectionConfig:
@@ -51,20 +61,92 @@ class TestConnectionConfig:
             ConnectionConfig(dialect="sqlite", unknown_field="x")  # type: ignore
 
 
-class TestDatabaseConfig:
+class TestGenericDatabaseConfig:
     def test_minimal(self):
-        r = DatabaseConfig(connection="db", cdm_schema="omop")
+        r = GenericDatabaseConfig(connection="db")
+        assert r.kind == DatabaseKind.GENERIC
+        assert r.schema_name is None
+
+    def test_extra_fields_forbidden(self):
+        with pytest.raises(Exception):
+            GenericDatabaseConfig(connection="db", vocab_schema="x")  # type: ignore
+
+    def test_kind_cannot_be_overridden(self):
+        with pytest.raises(Exception):
+            GenericDatabaseConfig(connection="db", kind="cdm")  # type: ignore
+
+
+class TestCDMDatabaseConfig:
+    def test_minimal(self):
+        r = CDMDatabaseConfig(connection="db")
+        assert r.kind == DatabaseKind.CDM
         assert r.vocab_connection is None
         assert r.vocab_schema is None
         assert r.results_schema is None
 
-    def test_cdm_schema_defaults_to_omop(self):
-        r = DatabaseConfig(connection="db")
-        assert r.cdm_schema == "omop"
+    def test_schema_name_defaults_to_omop(self):
+        r = CDMDatabaseConfig(connection="db")
+        assert r.schema_name == "omop"
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(Exception):
-            DatabaseConfig(connection="db", cdm_schema="omop", unknown="x")  # type: ignore
+            CDMDatabaseConfig(connection="db", unknown="x")  # type: ignore
+
+
+class TestDatabaseKindDiscrimination:
+    def test_missing_kind_rejected(self):
+        with pytest.raises(Exception, match="kind"):
+            StackConfig.for_session(
+                connections={"c": ConnectionConfig(dialect="sqlite")},
+                databases={"r": {"connection": "c"}},  # ty: ignore[invalid-argument-type]
+            )
+
+    def test_raw_dict_dispatches_by_kind(self):
+        cfg = StackConfig.for_session(
+            connections={"c": ConnectionConfig(dialect="sqlite")},
+            databases={
+                "g": {"kind": "generic", "connection": "c"},  # ty: ignore[invalid-argument-type]
+                "d": {"kind": "cdm", "connection": "c"},  # ty: ignore[invalid-argument-type]
+            },
+        )
+        assert isinstance(cfg.databases["g"], GenericDatabaseConfig)
+        assert isinstance(cfg.databases["d"], CDMDatabaseConfig)
+
+    def test_unknown_kind_rejected(self):
+        with pytest.raises(Exception):
+            StackConfig.for_session(
+                connections={"c": ConnectionConfig(dialect="sqlite")},
+                databases={"r": {"kind": "bogus", "connection": "c"}},  # ty: ignore[invalid-argument-type]
+            )
+
+
+class TestMismatchedKindRefs:
+    def test_no_op_for_matching_kind(self, pg_stack):
+        db = pg_stack.databases["default"]
+        assert mismatched_kind_refs(db, pg_stack) == []
+
+    def test_flags_wrong_subtype(self):
+        cfg = StackConfig.for_session(
+            connections={"c": ConnectionConfig(dialect="sqlite")},
+            databases={"g": GenericDatabaseConfig(connection="c")},
+        )
+        from oa_configurator.domains.vector_stores.schema import VectorStoreConfig
+
+        vs = VectorStoreConfig(backend_type="pgvector", database="g")
+        assert mismatched_kind_refs(vs, cfg) == []
+
+        cfg2 = StackConfig.for_session(
+            connections={"c": ConnectionConfig(dialect="sqlite")},
+            databases={"d": CDMDatabaseConfig(connection="c")},
+        )
+        vs2 = VectorStoreConfig(backend_type="pgvector", database="d")
+        problems = mismatched_kind_refs(vs2, cfg2)
+        assert len(problems) == 1
+        field_name, value, expected, actual = problems[0]
+        assert field_name == "database"
+        assert value == "d"
+        assert expected is GenericDatabaseConfig
+        assert actual is CDMDatabaseConfig
 
 
 class TestStackConfig:
@@ -80,7 +162,7 @@ class TestStackConfig:
         """Raw, TOML-table-shaped dicts (not DatabaseConfig instances) still coerce at validation time."""
         cfg = StackConfig.for_session(
             connections={"c": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
-            databases={"r": {"connection": "c", "cdm_schema": "s"}},  # ty: ignore[invalid-argument-type]
+            databases={"r": {"connection": "c", "kind": "cdm", "schema_name": "s"}},  # ty: ignore[invalid-argument-type]
         )
         assert isinstance(cfg.connections["c"], ConnectionConfig)
         assert isinstance(cfg.databases["r"], DatabaseConfig)
@@ -89,14 +171,14 @@ class TestStackConfig:
         with pytest.raises(ValueError, match="unknown connection"):
             StackConfig.for_session(
                 connections={},
-                databases={"r": DatabaseConfig(connection="missing", cdm_schema="s")},
+                databases={"r": CDMDatabaseConfig(connection="missing", schema_name="s")},
             )
 
     def test_cross_ref_validation_vocab_connection(self):
         with pytest.raises(ValueError, match="unknown connection"):
             StackConfig.for_session(
                 connections={"c": ConnectionConfig(dialect="sqlite")},
-                databases={"r": DatabaseConfig(connection="c", vocab_connection="missing", cdm_schema="s")},
+                databases={"r": CDMDatabaseConfig(connection="c", vocab_connection="missing", schema_name="s")},
             )
 
     def test_bind_loaded_path(self, tmp_path):

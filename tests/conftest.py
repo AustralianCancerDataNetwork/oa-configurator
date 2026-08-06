@@ -11,7 +11,7 @@ import pytest
 from oa_configurator import (
     StackConfig,
     ConnectionConfig,
-    DatabaseConfig,
+    CDMDatabaseConfig,
 )
 
 
@@ -26,7 +26,7 @@ def minimal_stack() -> StackConfig:
             )
         },
         databases={
-            "default": DatabaseConfig(connection="db", cdm_schema="omop"),
+            "default": CDMDatabaseConfig(connection="db", schema_name="omop"),
         },
     )
 
@@ -46,9 +46,9 @@ def pg_stack() -> StackConfig:
             )
         },
         databases={
-            "default": DatabaseConfig(
+            "default": CDMDatabaseConfig(
                 connection="cdm",
-                cdm_schema="omop",
+                schema_name="omop",
                 vocab_schema="omop_vocab",
                 results_schema="results",
             ),

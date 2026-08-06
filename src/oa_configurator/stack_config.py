@@ -3,46 +3,58 @@
 The concrete per-domain schemas (ConnectionConfig/DatabaseConfig,
 ProviderConfig/ModelConfig) live under :mod:`oa_configurator.domains`.
 This module is the one place that needs to know about all of them at once,
-to build ``_REF_SECTIONS`` and the root :class:`StackConfig`.
+to build _REF_SECTIONS and the root :class:`StackConfig`.
+
+Only imports what it actually uses internally: domain schemas for field
+types and _REF_SECTIONS, plus _iter_refs for the ref-walking helpers
+below. Does not re-export them. :mod:`oa_configurator`, the top-level
+package, is the one place that re-exports every public type, each
+imported from the module that actually defines it.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from .domains.llm.schema import ModelConfig, ProviderConfig
-from .domains.resources.schema import ConnectionConfig, DatabaseConfig
+from .domains.resources.schema import CDMDatabaseConfig, ConnectionConfig, DatabaseConfig, DatabaseEntry, GenericDatabaseConfig
 from .domains.vector_stores.schema import VectorStoreConfig
 from .logging_config import LoggingConfig
-from .refs import RefTo, Sensitive, _iter_refs, is_sensitive
-
-__all__ = [
-    "ConnectionConfig",
-    "DatabaseConfig",
-    "ModelConfig",
-    "ProviderConfig",
-    "RefTo",
-    "Sensitive",
-    "StackConfig",
-    "VectorStoreConfig",
-    "is_sensitive",
-    "unresolved_refs",
-]
+from .refs import _iter_refs
 
 
 def unresolved_refs(instance: BaseModel, config: StackConfig) -> list[tuple[str, str, str]]:
-    """Return every RefTo-marked field on *instance* whose value doesn't
-    resolve against *config*, as ``(field_name, value, section)`` triples
-    (*section* is the StackConfig attribute the value should have been
-    found in, e.g. ``"connections"``).
+    """Find every RefTo-marked field on instance whose value doesn't resolve
+    against config.
 
-    One pure walk shared by every caller that needs to check this (a
+    One pure walk shared by every caller that needs to check this: a
     StackConfig-level validator, a resolved package config, a freshly-built
-    CLI entry before it's saved). Each wraps the same walk with its own
-    error type instead of re-implementing it.
+    CLI entry before it's saved. Each wraps the same walk with its own error
+    type instead of re-implementing it.
+
+    Checks existence only. A value that exists but is the wrong concrete
+    subtype, for example a RefTo(CDMDatabaseConfig) field pointing at a
+    GenericDatabaseConfig entry, is not unresolved. See
+    :func:`mismatched_kind_refs` for that, checked separately so the two
+    failure modes get distinct, correctly actionable wording.
+
+    Parameters
+    ----------
+    instance : BaseModel
+        The object whose RefTo-marked fields are being checked.
+    config : StackConfig
+        The stack config to resolve field values against.
+
+    Returns
+    -------
+    list[tuple[str, str, str]]
+        One (field_name, value, section) triple per unresolved field.
+        section is the StackConfig attribute the value should have been
+        found in, e.g. "connections".
     """
     problems: list[tuple[str, str, str]] = []
     for field_name, ref in _iter_refs(type(instance)):
@@ -55,24 +67,57 @@ def unresolved_refs(instance: BaseModel, config: StackConfig) -> list[tuple[str,
     return problems
 
 
+def mismatched_kind_refs(
+    instance: BaseModel, config: StackConfig
+) -> list[tuple[str, str, type[BaseModel], type[BaseModel]]]:
+    """Find every RefTo-marked field on instance whose value names an
+    existing entry of the wrong concrete subtype.
+
+    Parameters
+    ----------
+    instance : BaseModel
+        The object whose RefTo-marked fields are being checked.
+    config : StackConfig
+        The stack config to resolve field values against.
+
+    Returns
+    -------
+    list[tuple[str, str, type[BaseModel], type[BaseModel]]]
+        One (field_name, value, expected_type, actual_type) tuple per
+        mismatched field.
+    """
+    problems: list[tuple[str, str, type[BaseModel], type[BaseModel]]] = []
+    for field_name, ref in _iter_refs(type(instance)):
+        value = getattr(instance, field_name)
+        if value is None or not isinstance(ref.target, type):
+            continue
+        section = _REF_SECTIONS[ref.target]
+        entry = getattr(config, section).get(value)
+        if entry is not None and not isinstance(entry, ref.target):
+            problems.append((field_name, value, ref.target, type(entry)))
+    return problems
+
+
 _REF_SECTIONS: dict[type[BaseModel], str] = {
     ConnectionConfig: "connections",
     ProviderConfig: "providers",
     ModelConfig: "models",
     DatabaseConfig: "databases",
+    GenericDatabaseConfig: "databases",
+    CDMDatabaseConfig: "databases",
     VectorStoreConfig: "vector_stores",
 }
 """Which StackConfig dict a RefTo(target) marker resolves against."""
 
 
 class StackConfig(BaseModel):
-    """Root model for ``~/.config/omop/config.toml``.
+    """Root model for ~/.config/omop/config.toml.
 
     Holds the entire OMOP stack configuration in one object: named
     connections, logical databases, and per-package tool sections. Loaded
     from disk by :func:`~oa_configurator.loader.load_stack_config`;
-    constructed in memory via :meth:`for_session` for tests and scripts (no
-    file I/O).
+    constructed in memory via :meth:`for_session` for tests and scripts,
+    with no file I/O.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -81,9 +126,9 @@ class StackConfig(BaseModel):
         default_factory=dict,
         description="Named physical connections (server address, credentials, target database).",
     )
-    databases: dict[str, DatabaseConfig] = Field(
+    databases: dict[str, DatabaseEntry] = Field(
         default_factory=dict,
-        description="Named logical role bundles mapping CDM roles to connections and schemas.",
+        description="Named databases (generic or CDM/vocab/results bundles), keyed by kind.",
     )
     providers: dict[str, ProviderConfig] = Field(
         default_factory=dict,
@@ -123,13 +168,18 @@ class StackConfig(BaseModel):
             raise ValueError(
                 f"{location}.{field_name} references unknown {section[:-1]} {value!r}"
             )
+        for field_name, value, expected, actual in mismatched_kind_refs(instance, self):
+            raise ValueError(
+                f"{location}.{field_name} requires a {expected.__name__} entry, but "
+                f"{value!r} is a {actual.__name__}"
+            )
 
     @classmethod
     def for_session(
         cls,
         *,
         connections: dict[str, ConnectionConfig] | None = None,
-        databases: dict[str, DatabaseConfig] | None = None,
+        databases: Mapping[str, DatabaseEntry] | None = None,
         providers: dict[str, ProviderConfig] | None = None,
         models: dict[str, ModelConfig] | None = None,
         vector_stores: dict[str, VectorStoreConfig] | None = None,
@@ -140,17 +190,22 @@ class StackConfig(BaseModel):
         Intended for tests and scripts. Cross-references are validated at
         construction time, same as for file-loaded configs.
 
-        Notes
-        -----
-        Pydantic still coerces a raw dict (e.g. one shaped like a parsed TOML
-        table) into the corresponding model at validation time, so passing
-        plain dicts keeps working at runtime. The parameter types above are
-        the strict, intended shape; prefer constructing DatabaseConfig
-        instances directly so a renamed field is caught by the type checker
-        instead of only at validation time. ``tools`` stays a plain dict:
-        it's the one section oa-configurator never types itself, since each
-        package's own schema is only known lazily, via its
-        ``PackageConfigBase`` subclass.
+        Parameters
+        ----------
+        connections : dict[str, ConnectionConfig], optional
+            Connection entries, keyed by name.
+        databases : Mapping[str, DatabaseEntry], optional
+            Database entries, keyed by name. ``Mapping``, not ``dict``, so a
+            caller can pass just one concrete kind, for example
+            ``dict[str, GenericDatabaseConfig]``, without a dict-invariance error.
+        providers : dict[str, ProviderConfig], optional
+            Provider entries, keyed by name.
+        models : dict[str, ModelConfig], optional
+            Model entries, keyed by name.
+        vector_stores : dict[str, VectorStoreConfig], optional
+            Vector-store entries, keyed by name.
+        tools : dict[str, dict[str, Any]], optional
+            Per-package ``[tools.<name>]`` sections, keyed by tool name.
         """
         return cls(
             connections=connections or {},

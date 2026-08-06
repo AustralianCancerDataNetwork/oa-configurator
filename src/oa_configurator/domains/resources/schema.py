@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.engine import URL, Engine
@@ -133,41 +133,86 @@ class ConnectionConfig(BaseModel):
         return ResolvedConnection(name=name, url=self.build_url(), safe_url=self.safe_url())
 
 
-class DatabaseConfig(BaseModel):
-    """Maps the OMOP logical roles (CDM, vocab, results) to named connections and schema names.
+class DatabaseKind(str, Enum):
+    """Discriminator for :class:`DatabaseConfig` subclasses."""
 
-    This is what a consuming package actually treats as "its database":
-    the logical CDM/vocab/results bundle, as opposed to
-    :class:`ConnectionConfig` (the physical server address and credentials
-    underneath it). The unit that consuming packages configure once and
-    reference by name. Most packages only need a single ``cdm_db``
-    database. Each entry under ``[databases]`` in ``config.toml`` maps to
-    one instance of this model.
+    GENERIC = "generic"
+    CDM = "cdm"
+
+
+class DatabaseConfig(BaseModel):
+    """Shared interface for every named database: a connection plus a schema
+    to route into.
+
+    Abstract in practice: ``kind`` has no default, so every concrete entry
+    must declare it explicitly via one of the subclasses below. Use this
+    class (not a subclass) for ``isinstance`` checks and ``RefTo`` targets
+    that accept any kind; use :data:`DatabaseEntry` for parsing raw config
+    data, which dispatches to the correct subclass based on ``kind``.
     """
 
     model_config = ConfigDict(extra="forbid")
 
+    kind: DatabaseKind = Field(description="Which concrete database shape this entry is.")
     connection: Annotated[str, RefTo(ConnectionConfig)] = Field(
-        description="Name of the connection entry (from [connections]) used as the primary CDM server."
+        description="Name of the connection entry (from [connections]) used as the primary server."
+    )
+    schema_name: str | None = Field(
+        default=None,
+        description=(
+            "Schema this database's tables live in. None means no override, use the "
+            "connection's own default/search_path."
+        ),
+    )
+
+    def resolve(self, name: str, stack: StackConfig) -> ResolvedDatabase:
+        """Resolve this database to a concrete connection and effective schema.
+
+        *stack* must already have passed :meth:`StackConfig.validate_references`,
+        so ``self.connection`` is guaranteed to exist in ``stack.connections``.
+        """
+        primary = stack.connections[self.connection].resolve(self.connection)
+        return ResolvedDatabase(name=name, connection=primary, schema_name=self.schema_name)
+
+
+class GenericDatabaseConfig(DatabaseConfig):
+    """A connection plus one optional schema. No CDM role-splitting.
+
+    Used by consumers that need a single database with no vocab/results
+    distinction, e.g. an embedding store or a metadata database.
+    """
+
+    kind: Literal[DatabaseKind.GENERIC] = DatabaseKind.GENERIC  # type: ignore[assignment]
+
+
+class CDMDatabaseConfig(DatabaseConfig):
+    """Maps the OMOP logical roles (CDM, vocab, results) to named connections and schema names.
+
+    This is what a CDM-consuming package treats as "its database": the
+    logical CDM/vocab/results bundle, as opposed to :class:`ConnectionConfig`
+    (the physical server address and credentials underneath it). Most
+    packages only need a single ``cdm_db`` database.
+    """
+
+    kind: Literal[DatabaseKind.CDM] = DatabaseKind.CDM  # type: ignore[assignment]
+    schema_name: str = Field(
+        default="omop",
+        description="Schema where CDM clinical tables live.",
     )
     vocab_connection: Annotated[str | None, RefTo(ConnectionConfig)] = Field(
         default=None,
         description="Name of the connection entry for vocabulary tables. Falls back to connection when not set.",
     )
-    cdm_schema: str = Field(
-        default="omop",
-        description="Schema where CDM clinical tables live.",
-    )
     vocab_schema: str | None = Field(
         default=None,
-        description="Vocabulary schema. Falls back to cdm_schema when not set.",
+        description="Vocabulary schema. Falls back to schema_name when not set.",
     )
     results_schema: str | None = Field(
         default=None,
         description="Achilles / Atlas results schema.",
     )
 
-    def resolve(self, name: str, stack: StackConfig) -> ResolvedDatabase:
+    def resolve(self, name: str, stack: StackConfig) -> ResolvedCDMDatabase:
         """Resolve this database to concrete connections and effective schema names.
 
         The vocab connection falls back to the primary connection when not
@@ -180,14 +225,20 @@ class DatabaseConfig(BaseModel):
         primary = stack.connections[self.connection].resolve(self.connection)
         vocab_name = self.vocab_connection or self.connection
         vocab = stack.connections[vocab_name].resolve(vocab_name)
-        return ResolvedDatabase(
+        return ResolvedCDMDatabase(
             name=name,
             connection=primary,
+            schema_name=self.schema_name,
             vocab_connection=vocab,
-            cdm_schema=self.cdm_schema,
-            vocab_schema=self.vocab_schema or self.cdm_schema,
+            vocab_schema=self.vocab_schema or self.schema_name,
             results_schema=self.results_schema,
         )
+
+
+DatabaseEntry = Annotated[
+    GenericDatabaseConfig | CDMDatabaseConfig,
+    Field(discriminator="kind"),
+]
 
 
 @dataclass(frozen=True)
@@ -231,30 +282,78 @@ class ResolvedConnection:
 
 @dataclass(frozen=True)
 class ResolvedDatabase:
-    """Resolved logical database with concrete connections and effective schema names.
+    """Resolved generic database: one connection, one optional schema.
 
     Attributes
     ----------
     name : str
         Logical name of the database as declared in the config.
     connection : ResolvedConnection
-        Resolved primary connection for this database.
-    vocab_connection : ResolvedConnection
-        Resolved vocabulary connection for this database. May be the same as
-        *connection* if no separate vocab connection is configured.
-    cdm_schema : str
-        Effective CDM schema name for this database.
-    vocab_schema : str
-        Effective vocabulary schema name for this database. May be the same as
-        *cdm_schema* if no separate vocab schema is configured.
-    results_schema : str | None
-        Effective results schema name for this database, or None if not configured.
+        Resolved connection for this database.
+    schema_name : str | None
+        Effective schema name for this database, or None for no override
+        (use the connection's own default/search_path).
     """
 
     name: str
     connection: ResolvedConnection
+    schema_name: str | None
+
+    def create_engine(
+        self,
+        *,
+        execution_options: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> Engine:
+        """Create a SQLAlchemy engine with the schema translate map applied.
+
+        Parameters
+        ----------
+        execution_options : dict, optional
+            Additional execution options merged into the engine. The
+            ``schema_translate_map`` key is set automatically and must
+            not be supplied here.
+        **kwargs
+            Forwarded to ``sqlalchemy.create_engine``.
+
+        Returns
+        -------
+        sqlalchemy.engine.Engine
+            Engine configured with ``schema_translate_map`` set to
+            ``{None: schema_name}``, a genuine no-op when ``schema_name``
+            is None, deferring to the connection's own default/search_path.
+        """
+        engine = self.connection.create_engine(**kwargs)
+        merged_opts = dict(execution_options or {})
+        merged_opts.setdefault("schema_translate_map", {None: self.schema_name})
+        return engine.execution_options(**merged_opts)
+
+    def __repr__(self) -> str:
+        return (
+            f"ResolvedDatabase(name={self.name!r}, "
+            f"connection={self.connection.name!r}, "
+            f"schema_name={self.schema_name!r})"
+        )
+
+
+@dataclass(frozen=True)
+class ResolvedCDMDatabase(ResolvedDatabase):
+    """Resolved CDM database: adds vocab/results role-splitting on top of
+    :class:`ResolvedDatabase`.
+
+    Attributes
+    ----------
+    vocab_connection : ResolvedConnection
+        Resolved vocabulary connection for this database. May be the same as
+        *connection* if no separate vocab connection is configured.
+    vocab_schema : str
+        Effective vocabulary schema name for this database. May be the same as
+        schema_name if no separate vocab schema is configured.
+    results_schema : str | None
+        Effective results schema name for this database, or None if not configured.
+    """
+
     vocab_connection: ResolvedConnection
-    cdm_schema: str
     vocab_schema: str
     results_schema: str | None
 
@@ -288,12 +387,12 @@ class ResolvedDatabase:
         """SQLAlchemy schema translate map for OMOP ORM models.
 
         Maps:
-          None      → cdm_schema  (default / unqualified tables → CDM)
-          "vocab"   → vocab_schema (or cdm_schema as fallback)
+          None      → schema_name  (default / unqualified tables → CDM)
+          "vocab"   → vocab_schema (or schema_name as fallback)
           "results" → results_schema (omitted when not configured)
         """
         m: dict[str | None, str | None] = {
-            None: self.cdm_schema,
+            None: self.schema_name,
             Role.VOCAB.value: self.vocab_schema,
         }
         if self.results_schema is not None:
@@ -310,7 +409,7 @@ class ResolvedDatabase:
         """Create a SQLAlchemy engine with the schema translate map applied.
 
         The schema translate map routes OMOP ORM models to the correct schemas
-        automatically (``None`` -> cdm_schema, ``"vocab"`` -> vocab_schema,
+        automatically (``None`` -> schema_name, ``"vocab"`` -> vocab_schema,
         ``"results"`` -> results_schema when configured).
 
         Parameters
@@ -338,9 +437,9 @@ class ResolvedDatabase:
 
     def __repr__(self) -> str:
         return (
-            f"ResolvedDatabase(name={self.name!r}, "
+            f"ResolvedCDMDatabase(name={self.name!r}, "
             f"connection={self.connection.name!r}, "
-            f"cdm_schema={self.cdm_schema!r}, "
+            f"schema_name={self.schema_name!r}, "
             f"vocab_schema={self.vocab_schema!r}, "
             f"results_schema={self.results_schema!r})"
         )

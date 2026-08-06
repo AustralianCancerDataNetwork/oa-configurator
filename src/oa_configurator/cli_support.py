@@ -2,7 +2,7 @@
 domain's own CLI module (domains/*/cli.py).
 
 Lives outside cli.py itself: cli.py imports each domain's Typer sub-app to
-mount it (``app.add_typer(connections_app, ...)``), so if these helpers
+mount it (app.add_typer(connections_app, ...)), so if these helpers
 lived in cli.py, every domain module importing them back would be
 circular. typer/rich/click are already unconditional oa-configurator
 dependencies; imported lazily inside each function body regardless, so a
@@ -15,7 +15,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from .stack_config import StackConfig, unresolved_refs
+from .stack_config import StackConfig, mismatched_kind_refs, unresolved_refs
 from .resolver import _check_missing_required, _flag_name, _is_flag_settable, _resolve_named_entry
 
 
@@ -48,6 +48,12 @@ def _check_entry_refs(entry: BaseModel, config: StackConfig) -> None:
         err_console.print(
             f"[red bold]Unknown {section[:-1]} {value!r}.[/red bold] Configure it first: "
             f"omop-config {section} add {value}"
+        )
+        raise typer.Exit(1)
+    for _field_name, value, expected, actual in mismatched_kind_refs(entry, config):
+        err_console.print(
+            f"[red bold]{value!r} is a {actual.__name__}, not a {expected.__name__}.[/red bold] "
+            f"Point it at a matching entry instead."
         )
         raise typer.Exit(1)
 

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from oa_configurator import ConnectionConfig, StackConfig
 from oa_configurator.io import save_stack_config
 from oa_configurator.loader import (
     DEFAULT_CONFIG_PATH,
@@ -18,7 +19,6 @@ from oa_configurator.loader import (
     _resolve_config_path,
     invalidate_cache,
 )
-from oa_configurator.stack_config import ConnectionConfig, StackConfig
 
 
 @pytest.fixture(autouse=True)

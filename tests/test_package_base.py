@@ -7,6 +7,7 @@ from typing import Annotated, ClassVar
 import pytest
 
 from oa_configurator import (
+    CDMDatabaseConfig,
     ConfigurationError,
     ConnectionConfig,
     DatabaseConfig,
@@ -99,7 +100,7 @@ class TestRefToPackageField:
     def test_passes_when_referenced_database_exists(self):
         cfg = StackConfig.for_session(
             connections={"db": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
-            databases={"cdm_db": DatabaseConfig(connection="db")},
+            databases={"cdm_db": CDMDatabaseConfig(connection="db")},
         )
         result = Resolver(cfg).resolve_package_config(DatabaseUserConfig)
         assert result.cdm_db == "cdm_db"
@@ -144,7 +145,7 @@ class TestConventionBasedSharing:
     def test_two_packages_resolve_to_the_same_database(self):
         cfg = StackConfig.for_session(
             connections={"db": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
-            databases={"cdm_db": DatabaseConfig(connection="db")},
+            databases={"cdm_db": CDMDatabaseConfig(connection="db")},
         )
         a = Resolver(cfg).resolve_package_config(DatabaseUserConfig)
         b = Resolver(cfg).resolve_package_config(OtherDatabaseUserConfig)
@@ -152,7 +153,7 @@ class TestConventionBasedSharing:
 
 
 class TestRefToIsTest:
-    """is_test lives on RefTo itself now -- a field self-declares its
+    """is_test lives on RefTo itself now: a field self-declares its
     test-ness instead of the framework inferring it from whether the
     field's own Python name happens to start with "test_"."""
 
@@ -164,7 +165,7 @@ class TestRefToIsTest:
 
     def test_field_name_has_no_bearing_on_is_test(self):
         """A field named without any "test_" prefix can still be is_test,
-        and one named with the prefix can still default to False -- the
+        and one named with the prefix can still default to False. The
         Python attribute name carries no meaning anymore."""
 
         class OddlyNamedConfig(PackageConfigBase):
@@ -187,7 +188,7 @@ class TestIsTestOnlyMatchEnforcement:
     def test_test_field_pointed_at_real_connection_raises(self):
         cfg = StackConfig.for_session(
             connections={"prod": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=False)},
-            databases={"test_cdm_db": DatabaseConfig(connection="prod")},
+            databases={"test_cdm_db": CDMDatabaseConfig(connection="prod")},
         )
 
         class NeedsTestDb(PackageConfigBase):
@@ -200,7 +201,7 @@ class TestIsTestOnlyMatchEnforcement:
     def test_prod_field_pointed_at_test_only_connection_raises(self):
         cfg = StackConfig.for_session(
             connections={"test_conn": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=True)},
-            databases={"cdm_db": DatabaseConfig(connection="test_conn")},
+            databases={"cdm_db": CDMDatabaseConfig(connection="test_conn")},
         )
 
         class NeedsProdDb(PackageConfigBase):
@@ -213,7 +214,7 @@ class TestIsTestOnlyMatchEnforcement:
     def test_matching_is_test_and_test_only_passes(self):
         cfg = StackConfig.for_session(
             connections={"test_conn": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=True)},
-            databases={"test_cdm_db": DatabaseConfig(connection="test_conn")},
+            databases={"test_cdm_db": CDMDatabaseConfig(connection="test_conn")},
         )
 
         class NeedsTestDb(PackageConfigBase):
@@ -226,7 +227,7 @@ class TestIsTestOnlyMatchEnforcement:
     def test_matching_non_test_passes(self):
         cfg = StackConfig.for_session(
             connections={"prod": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=False)},
-            databases={"cdm_db": DatabaseConfig(connection="prod")},
+            databases={"cdm_db": CDMDatabaseConfig(connection="prod")},
         )
 
         class NeedsProdDb(PackageConfigBase):

@@ -3,20 +3,22 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
-from oa_configurator import Resolver, StackConfig
-from oa_configurator.resolver import (
+from oa_configurator import (
+    CDMDatabaseConfig,
+    ConnectionConfig,
+    GenericDatabaseConfig,
+    ModelConfig,
+    ProviderConfig,
+    Resolver,
+    ResolvedCDMDatabase,
     ResolvedConnection,
     ResolvedDatabase,
     ResolvedModel,
     ResolvedProvider,
     ResolvedVectorStore,
-)
-from oa_configurator.stack_config import (
-    ConnectionConfig,
-    DatabaseConfig,
-    ModelConfig,
-    ProviderConfig,
+    StackConfig,
     VectorStoreConfig,
 )
 
@@ -46,9 +48,21 @@ class TestResolveDatabase:
     def test_connection_resolved(self, minimal_stack):
         r = Resolver(minimal_stack)
         res = r.resolve_database("default")
+        assert isinstance(res, ResolvedCDMDatabase)
         assert isinstance(res, ResolvedDatabase)
         assert res.connection.name == "db"
-        assert res.cdm_schema == "omop"
+        assert res.schema_name == "omop"
+
+    def test_generic_database_has_no_vocab_role(self):
+        cfg = StackConfig.for_session(
+            connections={"c": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={"default": GenericDatabaseConfig(connection="c", schema_name="public")},
+        )
+        r = Resolver(cfg)
+        res = r.resolve_database("default")
+        assert isinstance(res, ResolvedDatabase)
+        assert not isinstance(res, ResolvedCDMDatabase)
+        assert res.schema_name == "public"
 
     def test_vocab_fallback_to_primary(self, minimal_stack):
         r = Resolver(minimal_stack)
@@ -62,7 +76,7 @@ class TestResolveDatabase:
                 "vocab": ConnectionConfig(dialect="sqlite", database_name=":memory:"),
             },
             databases={
-                "default": DatabaseConfig(connection="cdm", vocab_connection="vocab", cdm_schema="omop"),
+                "default": CDMDatabaseConfig(connection="cdm", vocab_connection="vocab", schema_name="omop"),
             },
         )
         r = Resolver(cfg)
@@ -175,32 +189,40 @@ class TestResolveVectorStore:
     def test_database_backed(self):
         cfg = StackConfig.for_session(
             connections={"db": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
-            databases={"default": DatabaseConfig(connection="db", cdm_schema="omop")},
+            databases={"default": GenericDatabaseConfig(connection="db", schema_name="public")},
             vector_stores={"vs": VectorStoreConfig(backend_type="pgvector", database="default")},
         )
         r = Resolver(cfg)
         vs = r.resolve_vector_store("vs")
         assert isinstance(vs, ResolvedVectorStore)
         assert vs.backend_type == "pgvector"
-        assert vs.database is not None
         assert vs.database.name == "default"
-        assert vs.sqlite_path is None
 
     def test_file_backed(self):
+        """A sqlite-backed store is a GenericDatabaseConfig whose connection has
+        dialect='sqlite'. No separate sqlite_path field, same shape as pgvector."""
         cfg = StackConfig.for_session(
-            vector_stores={"vs": VectorStoreConfig(backend_type="sqlitevec", sqlite_path="/data/emb.db")},
+            connections={"f": ConnectionConfig(dialect="sqlite", database_name="/data/emb.db")},
+            databases={"emb": GenericDatabaseConfig(connection="f")},
+            vector_stores={"vs": VectorStoreConfig(backend_type="sqlitevec", database="emb")},
         )
         r = Resolver(cfg)
         vs = r.resolve_vector_store("vs")
         assert vs.backend_type == "sqlitevec"
-        assert vs.database is None
-        assert vs.sqlite_path == "/data/emb.db"
+        assert vs.database.connection.url == "sqlite:////data/emb.db"
+
+    def test_database_required(self):
+        with pytest.raises(ValidationError, match="database"):
+            VectorStoreConfig(backend_type="sqlitevec")
 
     def test_configuration_passthrough(self):
         cfg = StackConfig.for_session(
+            connections={"f": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={"emb": GenericDatabaseConfig(connection="f")},
             vector_stores={
                 "vs": VectorStoreConfig(
-                    backend_type="sqlitevec", sqlite_path="/data/emb.db",
+                    backend_type="sqlitevec",
+                    database="emb",
                     configuration={"faiss_cache_dir": "/data/faiss"},
                 ),
             },
@@ -217,11 +239,22 @@ class TestResolveVectorStore:
 
     def test_dangling_database_reference_rejected_at_construction(self):
         """oa-configurator never imports the owning package's BackendType enum
-        (backend_type is a plain string), but a RefTo(DatabaseConfig) target
-        still has to actually exist, same as any other domain."""
+        (backend_type is a plain string), but a RefTo(GenericDatabaseConfig)
+        target still has to actually exist, same as any other domain."""
         with pytest.raises(ValueError, match="unknown database"):
             StackConfig.for_session(
                 vector_stores={"vs": VectorStoreConfig(backend_type="pgvector", database="does_not_exist")},
+            )
+
+    def test_cdm_database_reference_rejected(self):
+        """A vector store's database must be generic-kind. CDM-shaped
+        fields (vocab/results roles) mean nothing for an embedding store."""
+        cfg_databases = {"cdm_db": CDMDatabaseConfig(connection="c")}
+        with pytest.raises(ValueError, match="GenericDatabaseConfig"):
+            StackConfig.for_session(
+                connections={"c": ConnectionConfig(dialect="sqlite")},
+                databases=cfg_databases,
+                vector_stores={"vs": VectorStoreConfig(backend_type="pgvector", database="cdm_db")},
             )
 
 
@@ -252,7 +285,7 @@ class TestResolveTool:
     def test_tool_extra_dict(self):
         cfg = StackConfig.for_session(
             connections={"db": ConnectionConfig(dialect="sqlite")},
-            databases={"default": DatabaseConfig(connection="db", cdm_schema="omop")},
+            databases={"default": CDMDatabaseConfig(connection="db", schema_name="omop")},
             tools={"omop_emb": {"backend": "sqlitevec", "path": "/data"}},
         )
         r = Resolver(cfg)
@@ -314,7 +347,9 @@ class TestDiscovery:
 
     def test_vector_store_names(self):
         cfg = StackConfig.for_session(
-            vector_stores={"vs": VectorStoreConfig(backend_type="sqlitevec", sqlite_path="/data/emb.db")},
+            connections={"f": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={"emb": GenericDatabaseConfig(connection="f")},
+            vector_stores={"vs": VectorStoreConfig(backend_type="sqlitevec", database="emb")},
         )
         r = Resolver(cfg)
         assert r.vector_store_names() == ("vs",)

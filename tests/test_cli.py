@@ -9,9 +9,16 @@ from typer.testing import CliRunner
 from typing import Annotated, ClassVar
 
 import oa_configurator.cli as cli
+from oa_configurator import (
+    CDMDatabaseConfig, 
+    ConnectionConfig, 
+    ModelConfig, 
+    ProviderConfig, 
+    RefTo, 
+    StackConfig
+)
 from oa_configurator.io import save_stack_config as _real_save_stack_config
 from oa_configurator.loader import _load_from_path
-from oa_configurator.stack_config import ConnectionConfig, DatabaseConfig, ModelConfig, ProviderConfig, RefTo, StackConfig
 from oa_configurator.package_base import PackageConfigBase
 from oa_configurator.resolver import _resolve_ref
 
@@ -118,15 +125,37 @@ class TestConnectionsList:
 class TestDatabasesAdd:
     def test_non_interactive_creates_database(self, isolated_config):
         _seed(isolated_config, StackConfig.for_session(connections={"cdm": ConnectionConfig(dialect="sqlite")}))
-        result = runner.invoke(cli.app, ["databases", "add", "cdm_db", "--connection", "cdm", "--cdm-schema", "omop"])
+        result = runner.invoke(
+            cli.app,
+            ["databases", "add", "cdm_db", "--kind", "cdm", "--connection", "cdm", "--schema-name", "omop"],
+        )
         assert result.exit_code == 0, result.output
         config = _load_from_path(isolated_config)
         assert config.databases["cdm_db"].connection == "cdm"
-        assert config.databases["cdm_db"].cdm_schema == "omop"
+        assert config.databases["cdm_db"].schema_name == "omop"
+
+    def test_non_interactive_creates_generic_database(self, isolated_config):
+        _seed(isolated_config, StackConfig.for_session(connections={"emb": ConnectionConfig(dialect="sqlite")}))
+        result = runner.invoke(
+            cli.app,
+            ["databases", "add", "emb_db", "--kind", "generic", "--connection", "emb"],
+        )
+        assert result.exit_code == 0, result.output
+        config = _load_from_path(isolated_config)
+        assert config.databases["emb_db"].connection == "emb"
+        assert config.databases["emb_db"].schema_name is None
+
+    def test_missing_kind_with_other_flags_fails(self, isolated_config):
+        _seed(isolated_config, StackConfig.for_session(connections={"cdm": ConnectionConfig(dialect="sqlite")}))
+        result = runner.invoke(cli.app, ["databases", "add", "cdm_db", "--connection", "cdm"])
+        assert result.exit_code != 0
+        assert "--kind is required" in result.output
 
     def test_unknown_connection_reference_fails(self, isolated_config):
         _seed(isolated_config, StackConfig.for_session())
-        result = runner.invoke(cli.app, ["databases", "add", "cdm_db", "--connection", "does-not-exist"])
+        result = runner.invoke(
+            cli.app, ["databases", "add", "cdm_db", "--kind", "generic", "--connection", "does-not-exist"]
+        )
         assert result.exit_code != 0
         config = _load_from_path(isolated_config)
         assert "cdm_db" not in config.databases
@@ -144,7 +173,7 @@ class TestDatabasesList:
             isolated_config,
             StackConfig.for_session(
                 connections={"cdm": ConnectionConfig(dialect="sqlite")},
-                databases={"cdm_db": DatabaseConfig(connection="cdm", cdm_schema="omop")},
+                databases={"cdm_db": CDMDatabaseConfig(connection="cdm", schema_name="omop")},
             ),
         )
         result = runner.invoke(cli.app, ["databases", "list"])
@@ -298,8 +327,8 @@ class DemoConfig(PackageConfigBase):
     a plain extra field. Exercises PackageConfigBase.run_configure end to end."""
 
     tool_name: ClassVar[str] = "demo_tool"
-    cdm_db: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"
-    test_cdm_db: Annotated[str | None, RefTo(DatabaseConfig, is_test=True)] = None
+    cdm_db: Annotated[str, RefTo(CDMDatabaseConfig)] = "cdm_db"
+    test_cdm_db: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = None
     backend: str = "default_backend"
 
 
@@ -312,7 +341,7 @@ class TestRunConfigurePackage:
     def test_non_interactive_uses_given_names(self, isolated_config):
         _seed(isolated_config, StackConfig.for_session(
             connections={"db": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
-            databases={"cdm_db": DatabaseConfig(connection="db")},
+            databases={"cdm_db": CDMDatabaseConfig(connection="db")},
         ))
         DemoConfig.run_configure({"cdm_db": "cdm_db", "backend": "custom"}, interactive=False)
         config = _load_from_path(isolated_config)
@@ -330,7 +359,7 @@ class TestRunConfigurePackage:
         assert config.tools["demo_tool"]["cdm_db"] == "cdm_db"
         assert "cdm_db" in config.databases
         assert config.databases["cdm_db"].connection in config.connections
-        assert config.databases["cdm_db"].cdm_schema == "omop"
+        assert config.databases["cdm_db"].schema_name == "omop"
         # vocab_connection is optional, so it is never auto-created
         assert config.databases["cdm_db"].vocab_connection is None
         # test database was declined, so it was not written at all
@@ -367,7 +396,7 @@ class TestRunConfigurePackage:
         and a different answer should actually change it."""
         _seed(isolated_config, StackConfig.for_session(
             connections={"db": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
-            databases={"cdm_db": DatabaseConfig(connection="db")},
+            databases={"cdm_db": CDMDatabaseConfig(connection="db")},
         ))
         DemoConfig.run_configure({"cdm_db": "cdm_db", "backend": "first_value"}, interactive=False)
 
@@ -391,7 +420,7 @@ class TestRunConfigurePackage:
         the stored database name as its suggested default, not skipped."""
         _seed(isolated_config, StackConfig.for_session(
             connections={"db": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
-            databases={"cdm_db": DatabaseConfig(connection="db")},
+            databases={"cdm_db": CDMDatabaseConfig(connection="db")},
         ))
         DemoConfig.run_configure({"cdm_db": "cdm_db", "backend": "x"}, interactive=False)
 
@@ -424,7 +453,7 @@ class TestRunConfigurePackage:
                         "dialect": "sqlite",
                         "database_name": ":memory:",
                     },
-                    "cdm_schema": "omop",
+                    "schema_name": "omop",
                 },
             },
             interactive=False,
@@ -435,14 +464,14 @@ class TestRunConfigurePackage:
         assert cdm_db_name in config.databases
         conn_name = config.databases[cdm_db_name].connection
         assert config.connections[conn_name].dialect == "sqlite"
-        assert config.databases[cdm_db_name].cdm_schema == "omop"
+        assert config.databases[cdm_db_name].schema_name == "omop"
 
     def test_non_interactive_one_shot_missing_required_nested_field_fails(self, isolated_config):
         _seed(isolated_config, StackConfig.for_session())
 
         with pytest.raises(typer.Exit):
             DemoConfig.run_configure(
-                {"cdm_db": {"cdm_schema": "omop"}},  # missing connection.dialect etc.
+                {"cdm_db": {"schema_name": "omop"}},  # missing connection.dialect etc.
                 interactive=False,
             )
 
@@ -493,7 +522,7 @@ class TestConfigureSetFlag:
                 "--backend", "custom",
                 "--set", "cdm_db.connection.dialect=sqlite",
                 "--set", "cdm_db.connection.database_name=:memory:",
-                "--set", "cdm_db.cdm_schema=omop",
+                "--set", "cdm_db.schema_name=omop",
             ],
         )
         assert result.exit_code == 0, result.output

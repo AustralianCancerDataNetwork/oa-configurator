@@ -271,7 +271,6 @@ except ImportError:
     # stays importable regardless.
     pass
 else:
-    from .loader import load_stack_config
     from .package_base import PackageConfigBase
     from .resolver import Resolver
 
@@ -290,7 +289,7 @@ else:
         return (
             f"SAFETY ABORT: database {name!r} resolves to connection {connection_name!r}, "
             "which is not marked test_only=true.\n"
-            "  Refusing to use it as a test database -- this guards against tests running"
+            "  Refusing to use it as a test database, since this guards against tests running"
             " destructive operations (DROP SCHEMA, TRUNCATE, ...) against real data.\n"
             f"  Run: omop-config connections add {connection_name} ... --test-only true"
             " (or mark the existing connection test_only=true directly in config.toml)"
@@ -323,14 +322,14 @@ else:
         """Resolve a package's own test-database field to a URL, or skip/fail.
 
         *field_name* names the field directly, e.g. ``"test_cdm_db"`` leads to
-        no auto-discovery. Use-case: Multiple ``RefTo(DatabaseConfig, is_test=True)`` 
+        no auto-discovery. Use-case: Multiple ``RefTo(DatabaseConfig, is_test=True)``
         fields, that are otherwise not auto-discoverable.
 
         Deliberately does not go through ``cls.get_config()`` to avoid
-        validating every ``RefTo`` field on the class at once. A CI runner 
+        validating every ``RefTo`` field on the class at once. A CI runner
         usually does not have production resources configured, which would
         fail the test before it even reaches the test database field.
-        This resolves just the one named field directly off ``[tools.<name>]``, 
+        This resolves just the one named field directly off ``[tools.<name>]``,
         tolerating everything else on the class being unconfigured.
 
         Load-bearing safety check: the resolved database's underlying
@@ -342,7 +341,7 @@ else:
         cls : type[PackageConfigBase]
             The package's config class.
         field_name : str
-            Name of the ``is_test`` field/attribute to resolve from the respective `PackageConfigBase`, 
+            Name of the ``is_test`` field/attribute to resolve from the respective `PackageConfigBase`,
             e.g. ``"test_cdm_db"``.
 
         Returns
@@ -359,6 +358,9 @@ else:
                 yield engine
                 engine.dispose()
         """
+        # Local import required for tests with monkeypatch
+        from .loader import load_stack_config
+
         try:
             stored = load_stack_config().tools.get(cls.tool_name, {})
         except FileNotFoundError:

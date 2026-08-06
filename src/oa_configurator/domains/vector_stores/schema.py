@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from ...refs import RefTo
-from ..resources.schema import DatabaseConfig, ResolvedDatabase
+from ..resources.schema import GenericDatabaseConfig, ResolvedDatabase
 
 if TYPE_CHECKING:
     from ...stack_config import StackConfig
@@ -24,7 +24,7 @@ class VectorStoreConfig(BaseModel):
     ``[vector_stores]`` in ``config.toml`` maps to one instance of this model.
 
     ``backend_type`` is deliberately a plain string, not an enum imported
-    from the owning package (e.g. omop-emb's ``BackendType``) -- oa-configurator
+    from the owning package (e.g. omop-emb's ``BackendType``); oa-configurator
     never needs to know which backend keys are valid, the same way
     :attr:`~oa_configurator.domains.llm.schema.ProviderConfig.provider` never
     needs to know which LLM providers any-llm supports. Validation of the
@@ -34,15 +34,10 @@ class VectorStoreConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     backend_type: str = Field(
-        description="Storage backend key, e.g. 'sqlitevec', 'pgvector'. Validated by the owning package, not here."
+        description="Storage backend key provided by `omop-emb`. Validated by the owning package, not here."
     )
-    database: Annotated[str | None, RefTo(DatabaseConfig)] = Field(
-        default=None,
-        description="Name of the database entry (from [databases]) for a database-backed store, e.g. pgvector.",
-    )
-    sqlite_path: str | None = Field(
-        default=None,
-        description="Path to a local file-backed store, e.g. sqlite-vec.",
+    database: Annotated[str, RefTo(GenericDatabaseConfig)] = Field(
+        description="Name of the database entry this store's tables live in."
     )
     configuration: dict[str, Any] = Field(
         default_factory=dict,
@@ -53,16 +48,14 @@ class VectorStoreConfig(BaseModel):
         """Resolve this vector store to a concrete, backend-ready configuration.
 
         *stack* must already have passed :meth:`StackConfig.validate_references`,
-        so ``self.database`` is guaranteed to exist in ``stack.databases`` when set.
+        so ``self.database`` is guaranteed to exist in ``stack.databases`` (as a
+        ``GenericDatabaseConfig``).
         """
-        resolved_database = (
-            stack.databases[self.database].resolve(self.database, stack) if self.database else None
-        )
+        resolved_database = stack.databases[self.database].resolve(self.database, stack)
         return ResolvedVectorStore(
             name=name,
             backend_type=self.backend_type,
             database=resolved_database,
-            sqlite_path=self.sqlite_path,
             configuration=dict(self.configuration),
         )
 
@@ -80,18 +73,15 @@ class ResolvedVectorStore:
         Logical name of the vector store as declared in the config.
     backend_type : str
         Storage backend key, e.g. ``'sqlitevec'``, ``'pgvector'``.
-    database : ResolvedDatabase, optional
-        Resolved database for a database-backed store, or ``None``.
-    sqlite_path : str, optional
-        Path to a local file-backed store, or ``None``.
+    database : ResolvedDatabase
+        Resolved database backing this store.
     configuration : dict[str, Any]
         Free-form per-store knobs with no dedicated field.
     """
 
     name: str
     backend_type: str
-    database: ResolvedDatabase | None
-    sqlite_path: str | None
+    database: ResolvedDatabase
     configuration: dict[str, Any]
 
     def __repr__(self) -> str:

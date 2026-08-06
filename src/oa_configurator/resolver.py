@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, TypeVar, get_origin
+from typing import Any, Literal, TypeVar, get_args, get_origin
 
 from pydantic import BaseModel
 from pydantic_core import PydanticUndefined
@@ -14,31 +15,14 @@ from .domains.llm.schema import ModelConfig, ProviderConfig, ResolvedModel, Reso
 from .domains.resources.schema import (
     ConnectionConfig,
     DatabaseConfig,
+    DatabaseEntry,
     ResolvedConnection,
     ResolvedDatabase,
-    Role,
 )
 from .domains.vector_stores.schema import ResolvedVectorStore, VectorStoreConfig
-from .stack_config import _REF_SECTIONS, StackConfig, unresolved_refs
+from .stack_config import _REF_SECTIONS, StackConfig, mismatched_kind_refs, unresolved_refs
 from .package_base import ConfigurationError, PackageConfigBase
 from .refs import RefTo, _iter_refs, is_sensitive
-
-__all__ = [
-    "ConfigurationError",
-    "ConnectionConfig",
-    "DatabaseConfig",
-    "ModelConfig",
-    "ProviderConfig",
-    "Resolver",
-    "ResolvedConnection",
-    "ResolvedDatabase",
-    "ResolvedModel",
-    "ResolvedProvider",
-    "ResolvedToolConfig",
-    "ResolvedVectorStore",
-    "Role",
-    "VectorStoreConfig",
-]
 
 T = TypeVar("T")
 TConfig = TypeVar("TConfig", bound=PackageConfigBase)
@@ -87,8 +71,16 @@ def _is_flag_settable(info: Any) -> bool:
     true/false/yes/no flag value or through an interactive confirm. They
     never go through a free-text prompt, though (see the ``is_bool``
     branch in :func:`_resolve_named_entry`).
+
+    Also excludes a single-member ``Literal`` field, since its one
+    legal value is already fixed and can't be anything else.
     """
-    return get_origin(info.annotation) not in (dict, list) and info.annotation is not dict
+    origin = get_origin(info.annotation)
+    if origin in (dict, list) or info.annotation is dict:
+        return False
+    if origin is Literal and len(get_args(info.annotation)) == 1:
+        return False
+    return True
 
 
 def _flag_name(name: str) -> str:
@@ -460,11 +452,7 @@ class Resolver:
         return resolved
 
     def resolve_database(self, name: str) -> ResolvedDatabase:
-        """Resolve a database name to a concrete bundle of connections and schemas.
-
-        The vocab connection falls back to the primary connection when not
-        explicitly configured; the vocab schema falls back to the CDM
-        schema under the same condition.
+        """Resolve a database name to a concrete connection and effective schema.
 
         Parameters
         ----------
@@ -474,8 +462,8 @@ class Resolver:
         Returns
         -------
         ResolvedDatabase
-            Fully resolved database with concrete connection targets and
-            effective schema names.
+            Fully resolved database. Returns a :class:`ResolvedCDMDatabase` for a 
+            ``kind="cdm"`` entry, or a plain :class:`ResolvedDatabase` for ``kind="generic"``.
 
         Raises
         ------
@@ -484,10 +472,10 @@ class Resolver:
         """
         resolved = self.get_database(name).resolve(name, self.config)
         logger.debug(
-            "Resolved database %r → connection=%s cdm_schema=%r",
+            "Resolved database %r → connection=%s schema_name=%r",
             name,
             resolved.connection.safe_url,
-            resolved.cdm_schema,
+            resolved.schema_name,
         )
         return resolved
 
@@ -592,9 +580,12 @@ class Resolver:
         ------
         ConfigurationError
             If a ``RefTo``-marked field names an entry that doesn't exist,
-            or names a database whose connection's ``test_only`` flag
-            disagrees with the field's own ``is_test`` declaration (a
-            production field pointed at a test connection, or vice versa).
+            names an entry of the wrong concrete subtype (e.g. a
+            ``RefTo(CDMDatabaseConfig)`` field pointing at a
+            ``GenericDatabaseConfig`` entry), or names a database whose
+            connection's ``test_only`` flag disagrees with the field's own
+            ``is_test`` declaration (a production field pointed at a test
+            connection, or vice versa).
         """
         tool = self.config.tools.get(cls.tool_name)
         instance = cls.model_validate(tool if tool is not None else {})
@@ -605,8 +596,15 @@ class Resolver:
                 f"Run 'omop-config configure {cls.tool_name}' to set it up."
             )
 
+        for field_name, value, expected, actual in mismatched_kind_refs(instance, self.config):
+            raise ConfigurationError(
+                f"{cls.__name__}.{field_name} requires a {expected.__name__} entry, but "
+                f"{value!r} is a {actual.__name__}.\n"
+                f"Run 'omop-config configure {cls.tool_name}' to point it at a matching database."
+            )
+
         for field_name, ref in _iter_refs(cls):
-            if ref.target is not DatabaseConfig:
+            if not (isinstance(ref.target, type) and issubclass(ref.target, DatabaseConfig)):
                 continue
             value = getattr(instance, field_name)
             if value is None:
@@ -647,7 +645,7 @@ class Resolver:
         self,
         *,
         connections: dict[str, ConnectionConfig] | None = None,
-        databases: dict[str, DatabaseConfig] | None = None,
+        databases: Mapping[str, DatabaseEntry] | None = None,
         providers: dict[str, ProviderConfig] | None = None,
         models: dict[str, ModelConfig] | None = None,
         vector_stores: dict[str, VectorStoreConfig] | None = None,
@@ -656,6 +654,25 @@ class Resolver:
         """Return a new Resolver with entries merged over the current config.
 
         Useful for session-level overrides without touching the TOML file.
+
+        Parameters
+        ----------
+        connections : dict[str, ConnectionConfig], optional
+            Connection entries, keyed by name, merged over the current config.
+        databases : Mapping[str, DatabaseEntry], optional
+            Database entries, keyed by name, merged over the current config.
+            ``Mapping`` so a caller can pass just one concrete
+            kind (e.g. ``dict[str, GenericDatabaseConfig]``) without a
+            dict-invariance error.
+        providers : dict[str, ProviderConfig], optional
+            Provider entries, keyed by name, merged over the current config.
+        models : dict[str, ModelConfig], optional
+            Model entries, keyed by name, merged over the current config.
+        vector_stores : dict[str, VectorStoreConfig], optional
+            Vector-store entries, keyed by name, merged over the current config.
+        tools : dict[str, dict[str, Any]], optional
+            Per-package ``[tools.<name>]`` sections, keyed by tool name,
+            merged over the current config.
         """
         new_config = StackConfig(
             connections={**self.config.connections, **(connections or {})},

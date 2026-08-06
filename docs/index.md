@@ -8,9 +8,10 @@ A shared configuration layer for the OMOP-oriented Python stack.
 
 ## Key Concepts
 - **Connection**: A concrete database endpoint (host, dialect, credentials)
-- **Database**: A logical role bundle, e.g. primary OMOP CDM DB, embedding DB, artifact paths
+- **Database**: A named database built on a connection. Comes in two kinds (see [Architecture](architecture.md#database)): a plain generic database, or a CDM database with its vocab/results role bundle
 - **Provider** / **Model**: The same two-tier pattern as Connection/Database, for LLM and embedding backends
-- **Tool**: Per-tool settings, e.g. backend, storage roots
+- **Vector Store**: Which storage backend an embedding-capable package should use, pointing at a generic database
+- **Tool**: Per-tool settings, e.g. which database/model/vector store a package uses
 - **Logging**: One call configures consistent log output for the entire OMOP Python stack
 
 !!! info
@@ -33,12 +34,12 @@ A shared configuration layer for the OMOP-oriented Python stack.
 === "Inline (no file)"
 
     ```python
-    from oa_configurator import StackConfig, ConnectionConfig, DatabaseConfig, Resolver
+    from oa_configurator import StackConfig, ConnectionConfig, CDMDatabaseConfig, Resolver
 
     config = StackConfig.for_session(
         connections={"local": ConnectionConfig(dialect="postgresql+psycopg", host="localhost",
                                                 database_name="omop", password="omop")},
-        databases={"cdm": DatabaseConfig(connection="local", cdm_schema="omop")},
+        databases={"cdm": CDMDatabaseConfig(connection="local", schema_name="omop")},
     )
     engine = Resolver(config).resolve_database("cdm").create_engine()
     ```
@@ -46,14 +47,14 @@ A shared configuration layer for the OMOP-oriented Python stack.
 === "Session override"
 
     ```python
-    from oa_configurator import load_stack_config, ConnectionConfig, DatabaseConfig, Resolver
+    from oa_configurator import load_stack_config, ConnectionConfig, CDMDatabaseConfig, Resolver
 
     # Load shared team config, redirect one database to a local SQLite connection
     engine = (
         Resolver(load_stack_config())
         .with_overrides(
             connections={"local": ConnectionConfig(dialect="sqlite", database_name="/data/local.db")},
-            databases={"cdm": DatabaseConfig(connection="local", cdm_schema="omop")},
+            databases={"cdm": CDMDatabaseConfig(connection="local", schema_name="omop")},
         )
         .resolve_database("cdm")
         .create_engine()

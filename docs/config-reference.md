@@ -47,42 +47,77 @@ database_name = ":memory:"
 
 ## `[databases.<name>]`
 
-A database maps logical OMOP CDM roles to named connections and schema names.
+Every entry declares an explicit `kind`, discriminating which of the fields below apply. See [DatabaseKind](api/resources.md#databasekind) for the current members; there is no default and no inference from other fields.
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `connection` | string | **yes** | Connection name (from `[connections.*]`) used as the primary CDM server |
-| `vocab_connection` | string | no | Separate connection if vocabulary lives on a different server. Falls back to `connection`. |
-| `cdm_schema` | string | no | Schema where CDM clinical tables live. Defaults to `"omop"`. |
-| `vocab_schema` | string | no | Vocabulary schema. Falls back to `cdm_schema` when not set. |
-| `results_schema` | string | no | Achilles / Atlas results schema |
+| Field | Type | Required | Applies to | Description |
+|---|---|---|---|---|
+| `kind` | string | **yes** | both | Discriminator. See [DatabaseKind](api/resources.md#databasekind). |
+| `connection` | string | **yes** | both | Connection name (from `[connections.*]`) used as the primary server |
+| `schema_name` | string | no | both | Schema this database's tables live in. Defaults to `"omop"` for the CDM kind only; the generic kind has no default (unset means "use the connection's own default"). |
+| `vocab_connection` | string | no | CDM only | Separate connection if vocabulary lives on a different server. Falls back to `connection`. |
+| `vocab_schema` | string | no | CDM only | Vocabulary schema. Falls back to `schema_name` when not set. |
+| `results_schema` | string | no | CDM only | Achilles / Atlas results schema |
 
-### Example: all in one schema
+A `RefTo` naming one kind rejects an entry of the other, at construction time, with a "wrong kind" error distinct from "doesn't exist" (`mismatched_kind_refs`).
+
+### Example: a generic database (e.g. a vector store's own tables)
 
 ```toml
-[databases.cdm]
-connection = "cdm"
-cdm_schema = "omop"
+[databases.emb_db]
+kind       = "generic"
+connection = "emb"
 ```
 
-### Example: separate vocab and results schemas
+### Example: CDM, all in one schema
 
 ```toml
-[databases.cdm]
+[databases.cdm_db]
+kind        = "cdm"
+connection  = "cdm"
+schema_name = "omop"
+```
+
+### Example: CDM, separate vocab and results schemas
+
+```toml
+[databases.cdm_db]
+kind           = "cdm"
 connection     = "cdm"
-cdm_schema     = "omop"
+schema_name    = "omop"
 vocab_schema   = "omop_vocab"
 results_schema = "results"
 ```
 
-### Example: vocabulary on a separate server
+### Example: CDM, vocabulary on a separate server
 
 ```toml
-[databases.cdm]
-connection       = "cdm"
-vocab_connection = "central_vocab"
-cdm_schema       = "omop"
+[databases.cdm_db]
+kind              = "cdm"
+connection        = "cdm"
+vocab_connection  = "central_vocab"
+schema_name       = "omop"
 ```
+
+---
+
+## `[vector_stores.<name>]`
+
+Which storage backend an embedding-capable package should use. Referenced by a consuming package's own field (e.g. `vector_store_name`), the same way `[databases.*]`/`[models.*]` are.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `backend_type` | string | **yes** | Storage backend key, e.g. `sqlitevec`, `pgvector`. A plain string validated by the owning package (e.g. `omop-emb`), not by `oa-configurator` itself. |
+| `database` | string | **yes** | Name of a `[databases.*]` entry (from `[databases.*]`), which must have `kind = "generic"` |
+| `faiss_cache_dir` | string | no | Directory to cache FAISS index files, if the consuming package uses one |
+| `configuration` | table | `{}` | Free-form per-store knobs with no dedicated field, passed through verbatim |
+
+```toml
+[vector_stores.vector_store]
+backend_type = "pgvector"
+database     = "emb_db"
+```
+
+A sqlite-backed store is expressed the same way as pgvector: `database` points at a `[databases.*]` entry whose own `[connections.*]` entry has `dialect = "sqlite"`. There is no separate `sqlite_path` field.
 
 ---
 
@@ -139,8 +174,9 @@ Per-package configuration. The `name` must match the package's `tool_name` class
 
 ```toml
 [tools.omop_emb]
-backend             = "sqlitevec"
-embedding_file_root = "/data/embeddings"
+cdm_db               = "cdm_db"
+embedding_model_name = "embedding-model"
+vector_store_name    = "vector_store"
 ```
 
 ---

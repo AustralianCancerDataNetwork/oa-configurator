@@ -2,7 +2,7 @@
 
 The `Resolver` turns logical names in a `StackConfig` into concrete typed handles with secrets resolved and paths expanded.
 
-It is thin dispatch: each `resolve_*` method looks up the raw config entry and delegates to that entry's own `resolve()` method. The resolved types themselves (`ResolvedConnection`, `ResolvedDatabase`, `ResolvedProvider`, `ResolvedModel`) are documented next to their raw counterpart, under [Resources](resources.md) and [LLM](llm.md).
+It is thin dispatch: each `resolve_*` method looks up the raw config entry and delegates to that entry's own `resolve()` method. The resolved types themselves (`ResolvedConnection`, `ResolvedDatabase`/`ResolvedCDMDatabase`, `ResolvedProvider`, `ResolvedModel`, `ResolvedVectorStore`) are documented next to their raw counterpart, under [Resources](resources.md), [LLM](llm.md), and [Vector Stores](vector-stores.md).
 
 ## Resolver
 

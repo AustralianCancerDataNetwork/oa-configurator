@@ -13,7 +13,7 @@ Equivalent to loading a TOML file, but the config is built in code. Useful for:
 - Programmatic config generation (e.g. CI pipelines)
 
 ```python
-from oa_configurator import StackConfig, ConnectionConfig, DatabaseConfig, Resolver
+from oa_configurator import StackConfig, ConnectionConfig, CDMDatabaseConfig, Resolver
 
 config = StackConfig.for_session(
     connections={
@@ -26,9 +26,9 @@ config = StackConfig.for_session(
         )
     },
     databases={
-        "cdm": DatabaseConfig(
+        "cdm": CDMDatabaseConfig(
             connection="local",
-            cdm_schema="omop",
+            schema_name="omop",
             vocab_schema="vocab",
         )
     },
@@ -41,9 +41,10 @@ engine = Resolver(config).resolve_database("cdm").create_engine()
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `connections` | dict \| None | `{}` | Named `ConnectionConfig` objects or raw dicts |
-| `databases` | dict \| None | `{}` | Named `DatabaseConfig` objects or raw dicts |
+| `databases` | dict \| None | `{}` | Named `GenericDatabaseConfig`/`CDMDatabaseConfig` objects or raw dicts (each needs its own `kind`, see [Architecture](architecture.md#database)) |
 | `providers` | dict \| None | `{}` | Named `ProviderConfig` objects or raw dicts |
 | `models` | dict \| None | `{}` | Named `ModelConfig` objects or raw dicts |
+| `vector_stores` | dict \| None | `{}` | Named `VectorStoreConfig` objects or raw dicts |
 | `tools` | dict \| None | `{}` | Per-package `[tools.<name>]` sections, as plain dicts |
 
 ### Validation
@@ -53,7 +54,7 @@ Cross-references are validated at construction time, same as for file-loaded con
 ```python
 StackConfig.for_session(
     connections={"local": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
-    databases={"cdm": DatabaseConfig(connection="typo", cdm_schema="omop")},  # raises ValueError
+    databases={"cdm": CDMDatabaseConfig(connection="typo", schema_name="omop")},  # raises ValueError
 )
 ```
 
@@ -67,7 +68,7 @@ from oa_configurator import StackConfig, Resolver
 def test_something():
     cfg = StackConfig.for_session(
         connections={"db": {"dialect": "sqlite", "database_name": ":memory:"}},
-        databases={"cdm": {"connection": "db", "cdm_schema": "omop"}},
+        databases={"cdm": {"kind": "cdm", "connection": "db", "schema_name": "omop"}},
         tools={"my_package": {"backend": "test_backend"}},
     )
     resolver = Resolver(cfg)
@@ -86,7 +87,7 @@ Loads the shared config file, then replaces specific connections or databases fo
 - Sharing a team config but running with personal credentials locally
 
 ```python
-from oa_configurator import load_stack_config, ConnectionConfig, DatabaseConfig, Resolver
+from oa_configurator import load_stack_config, ConnectionConfig, CDMDatabaseConfig, Resolver
 
 engine = (
     Resolver(load_stack_config())
@@ -95,7 +96,7 @@ engine = (
             "local": ConnectionConfig(dialect="sqlite", database_name=":memory:")
         },
         databases={
-            "cdm": DatabaseConfig(connection="local", cdm_schema="omop")
+            "cdm": CDMDatabaseConfig(connection="local", schema_name="omop")
         },
     )
     .resolve_database("cdm")
@@ -111,11 +112,12 @@ engine = (
 | `databases` | dict \| None | Entries merged over the existing databases |
 | `providers` | dict \| None | Entries merged over the existing providers |
 | `models` | dict \| None | Entries merged over the existing models |
+| `vector_stores` | dict \| None | Entries merged over the existing vector stores |
 | `tools` | dict \| None | Entries merged over the existing tools |
 
 ### What is preserved
 
-All connections, databases, providers, models, and tools **not** mentioned in the overrides.
+All connections, databases, providers, models, vector stores, and tools **not** mentioned in the overrides.
 
 ### What is validated
 
@@ -123,7 +125,7 @@ Cross-references are checked against the **merged** result. A database override 
 
 ```python
 Resolver(load_stack_config()).with_overrides(
-    databases={"cdm": DatabaseConfig(connection="nonexistent", cdm_schema="omop")}  # raises
+    databases={"cdm": CDMDatabaseConfig(connection="nonexistent", schema_name="omop")}  # raises
 )
 ```
 

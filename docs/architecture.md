@@ -33,19 +33,34 @@ database_name = "omop_cdm"
 
 ### Database
 
-A logical role bundle that maps OMOP CDM roles to connections and schema names:
-
-- `connection`: the CDM server connection
-- `vocab_connection` (optional): separate connection for vocabulary (falls back to `connection`)
-- `cdm_schema`: schema where CDM clinical tables live (defaults to `"omop"`)
-- `vocab_schema` (optional): falls back to `cdm_schema`
-- `results_schema` (optional): Achilles/Atlas results
+Every `[databases.<name>]` entry declares an explicit `kind` (see [DatabaseKind](api/resources.md#databasekind) for the current members), no default, no inference. The kind decides which concrete fields exist on top of the shared `connection`/`schema_name` base; see [Resources](api/resources.md#genericdatabaseconfig) for the field list each kind adds (only the CDM kind carries the vocab/results role bundle, and only it defaults `schema_name` to `"omop"`).
 
 ```toml
+[databases.emb_db]
+kind       = "generic"
+connection = "emb"
+
 [databases.cdm_db]
-connection = "cdm"
-cdm_schema = "omop"
+kind        = "cdm"
+connection  = "cdm"
+schema_name = "omop"
 ```
+
+This isn't a duplication of `Role` below: `kind` decides which fields an entry has at config-authoring time, `Role` selects among a CDM entry's several connections at resolve time. A generic entry only ever has one connection, so there's nothing for `Role` to select there.
+
+A `RefTo` targeting one kind rejects an entry of the other at construction time (`mismatched_kind_refs`), the same way a `RefTo` targeting the wrong *section* already did.
+
+### Vector store
+
+Which storage backend an embedding-capable package should use: `backend_type` (a plain string like `"sqlitevec"`/`"pgvector"`, validated by the owning package, not here), a `database` naming a *generic* `[databases.*]` entry, an optional `faiss_cache_dir`, and a free-form `configuration` table for anything else with no dedicated field. Stored in `[vector_stores.<name>]`.
+
+```toml
+[vector_stores.vector_store]
+backend_type = "pgvector"
+database     = "emb_db"
+```
+
+A third instance of the connection/database, provider/model pattern, this time for "which storage backend does an embedding subsystem use." Unlike provider/model, there's only one tier here: a vector store points straight at a `[databases.*]` entry rather than introducing its own leaf-tier section.
 
 ### Provider
 
@@ -73,8 +88,9 @@ Per-package configuration in `[tools.<name>]`. The core model stores it as a pla
 
 ```toml
 [tools.omop_emb]
-backend             = "sqlitevec"
-embedding_file_root = "/data/embeddings"
+cdm_db                = "cdm_db"
+embedding_model_name  = "embedding-model"
+vector_store_name     = "vector_store"
 ```
 
 ### RefTo
@@ -151,13 +167,13 @@ my_package = "my_package.config:MyPackageConfig"
 
 ## Schema translate map
 
-`ResolvedDatabase.schema_translate_map()` returns the SQLAlchemy-compatible schema translate dict:
+CDM-specific: `ResolvedCDMDatabase.schema_translate_map()` returns the SQLAlchemy-compatible schema translate dict:
 
 ```python
 {None: "omop", "vocab": "omop_vocab", "results": "results"}
 ```
 
-OMOP ORM models (omop-alchemy) carry `schema=None` or `schema="vocab"` on their `__table_args__`. The translate map routes them to the correct schema at runtime without changing model definitions. The `None`/`"vocab"`/`"results"` keys correspond to `Role.PRIMARY`/`Role.VOCAB`/`Role.RESULTS`, the same enum `ResolvedDatabase.connection_target()`/`create_engine()` accept for their `role` parameter.
+OMOP ORM models (omop-alchemy) carry `schema=None` or `schema="vocab"` on their `__table_args__`. The translate map routes them to the correct schema at runtime without changing model definitions. Its keys correspond to the members of [`Role`](api/resources.md#role), the same enum `ResolvedCDMDatabase.connection_target()`/`create_engine()` accept for their `role` parameter. A generic `ResolvedDatabase` has its own, simpler `create_engine()` with no `role` parameter, since a generic entry only ever has one connection.
 
 ---
 

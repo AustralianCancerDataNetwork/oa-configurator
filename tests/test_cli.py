@@ -321,6 +321,42 @@ class TestResolveRef:
         assert config.models["new-model"].model == "local-chat"
         assert config.providers["new-provider"].provider == "ollama"
 
+    def test_danger_message_test_field_pointed_at_prod_entry(self, monkeypatch, capsys):
+        """is_test=True field named at an existing non-test entry: the
+        DANGER message must say the entry isn't test_only."""
+        monkeypatch.setattr(cli.typer, "prompt", lambda *a, **k: "prod_db")
+        config = StackConfig.for_session(
+            connections={"prod": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={"prod_db": CDMDatabaseConfig(connection="prod")},
+        )
+        with pytest.raises(typer.Exit):
+            _resolve_ref(
+                "test_cdm_db", "desc", CDMDatabaseConfig, config,
+                default_name="prod_db", is_test=True,
+            )
+        err = capsys.readouterr().err
+        assert "prod_db" in err
+        assert "is not marked test_only=true" in err
+
+    def test_danger_message_prod_field_pointed_at_test_entry(self, monkeypatch, capsys):
+        """is_test=False field named at an existing test-only entry: the
+        DANGER message must say the opposite of the test_field case, not
+        the same hardcoded text."""
+        monkeypatch.setattr(cli.typer, "prompt", lambda *a, **k: "test_db")
+        config = StackConfig.for_session(
+            connections={"test_conn": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=True)},
+            databases={"test_db": CDMDatabaseConfig(connection="test_conn")},
+        )
+        with pytest.raises(typer.Exit):
+            _resolve_ref(
+                "cdm_db", "desc", CDMDatabaseConfig, config,
+                default_name="test_db", is_test=False,
+            )
+        err = capsys.readouterr().err
+        assert "test_db" in err
+        assert "is marked test_only=true" in err
+        assert "is not marked test_only=true" not in err
+
 
 class DemoConfig(PackageConfigBase):
     """Stand-in package: a required database, an opt-in test database, an

@@ -132,17 +132,29 @@ def _check_missing_required(
 
 def _is_test_marked(name: str, target: type[BaseModel], config: StackConfig) -> bool:
     """Whether an existing entry is marked test-only, checked recursively
-    through any RefTo field it has (e.g. a database is test-only iff the
-    connection it points to is)."""
-    entry = getattr(config, _REF_SECTIONS[target]).get(name)
+    through its primary RefTo field. Walks the entry's own runtime type, 
+    not the caller-supplied target.
+
+    Notes
+    -----
+    Follows only the first-declared RefTo field (pydantic preserves
+    declaration order), not every RefTo field the type has: a
+    CDMDatabaseConfig's primary `connection` decides test-ness, matching
+    what Resolver.resolve_package_config enforces. A secondary reference
+    like `vocab_connection` is deliberately not consulted, so this has one
+    single, consistent definition of "is this test" rather than two.
+    """
+    entry = getattr(config, _ref_section(target)).get(name)
     if entry is None:
         return False
     if isinstance(entry, ConnectionConfig):
         return entry.test_only
-    return any(
-        (value := getattr(entry, field_name)) is not None and _is_test_marked(value, ref.target, config)
-        for field_name, ref in _iter_refs(target)
-    )
+    primary = next(iter(_iter_refs(type(entry))), None)
+    if primary is None:
+        return False
+    field_name, ref = primary
+    value = getattr(entry, field_name)
+    return value is not None and _is_test_marked(value, ref.target, config)
 
 
 def _resolve_ref(
@@ -190,10 +202,16 @@ def _resolve_ref(
             name_hint=name, is_test=is_test,
         )
     elif is_test != _is_test_marked(name, target, config):
-        err_console.print(
-            f"\n[red bold]DANGER[/red bold]: {name!r} is not marked test_only=true. "
-            f"Point test databases only to test_only connections.\n"
-        )
+        if is_test:
+            err_console.print(
+                f"\n[red bold]DANGER[/red bold]: {name!r} is not marked test_only=true. "
+                f"Point test databases only to test_only connections.\n"
+            )
+        else:
+            err_console.print(
+                f"\n[red bold]DANGER[/red bold]: {name!r} is marked test_only=true. "
+                f"Point production fields only at non-test_only connections.\n"
+            )
         raise typer.Exit(1)
     return name
 
@@ -604,21 +622,21 @@ class Resolver:
             )
 
         for field_name, ref in _iter_refs(cls):
-            if not (isinstance(ref.target, type) and issubclass(ref.target, DatabaseConfig)):
-                continue
             value = getattr(instance, field_name)
             if value is None:
                 continue
-            db = self.config.databases.get(value)
-            if db is None:
-                continue
-            connection = self.config.connections.get(db.connection)
-            if connection is not None and connection.test_only != ref.is_test:
+            # unresolved_refs/mismatched_kind_refs above already guarantee
+            # value exists and is the right concrete type, so the chain
+            # walk below always has something valid to recurse through --
+            # not just for DatabaseConfig fields, but any RefTo chain that
+            # eventually reaches one (e.g. RefTo(VectorStoreConfig) via
+            # VectorStoreConfig.database).
+            if _is_test_marked(value, ref.target, self.config) != ref.is_test:
                 raise ConfigurationError(
-                    f"{cls.__name__}.{field_name} is marked is_test={ref.is_test}, but resolves "
-                    f"to database {value!r} whose connection {db.connection!r} has "
-                    f"test_only={connection.test_only}.\n"
-                    "A test field must point at a test_only connection, and a non-test field "
+                    f"{cls.__name__}.{field_name} is marked is_test={ref.is_test}, but "
+                    f"{value!r} does not resolve to a test_only={ref.is_test} connection.\n"
+                    "A test field must point at a test_only connection (directly or via a "
+                    "nested reference, e.g. a vector store's database), and a non-test field "
                     "must not."
                 )
 

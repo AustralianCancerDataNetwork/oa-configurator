@@ -11,6 +11,7 @@ from oa_configurator import (
     ConfigurationError,
     ConnectionConfig,
     DatabaseConfig,
+    GenericDatabaseConfig,
     ModelConfig,
     PackageConfigBase,
     ProviderConfig,
@@ -18,6 +19,7 @@ from oa_configurator import (
     Resolver,
     StackConfig,
     UnknownRefTarget,
+    VectorStoreConfig,
 )
 
 
@@ -237,6 +239,65 @@ class TestIsTestOnlyMatchEnforcement:
 
         result = Resolver(cfg).resolve_package_config(NeedsProdDb)
         assert result.cdm_db == "cdm_db"
+
+    def test_vocab_only_test_connection_does_not_make_database_test(self):
+        """A CDMDatabaseConfig's test-ness is decided by its primary
+        connection alone, not vocab_connection: a prod-primary database
+        with a test-only vocab connection is NOT test, matching what the
+        CLI wizard's candidate filtering (_is_test_marked) and this
+        validator both now agree on."""
+        cfg = StackConfig.for_session(
+            connections={
+                "prod": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=False),
+                "test_vocab": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=True),
+            },
+            databases={"cdm_db": CDMDatabaseConfig(connection="prod", vocab_connection="test_vocab")},
+        )
+
+        class NeedsProdDb(PackageConfigBase):
+            tool_name: ClassVar[str] = "vocab_edge_case_prod_tool"
+            cdm_db: Annotated[str, RefTo(CDMDatabaseConfig)] = "cdm_db"
+
+        class NeedsTestDb(PackageConfigBase):
+            tool_name: ClassVar[str] = "vocab_edge_case_test_tool"
+            test_cdm_db: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = "cdm_db"
+
+        result = Resolver(cfg).resolve_package_config(NeedsProdDb)
+        assert result.cdm_db == "cdm_db"
+        with pytest.raises(ConfigurationError, match="is_test=True"):
+            Resolver(cfg).resolve_package_config(NeedsTestDb)
+
+    def test_vector_store_reaching_test_only_database_via_nested_ref(self):
+        """A RefTo(VectorStoreConfig, is_test=True) field is checked through
+        the VectorStoreConfig -> database -> connection chain, not skipped
+        the way a depth-1-only check would skip any non-DatabaseConfig
+        RefTo target."""
+        cfg = StackConfig.for_session(
+            connections={"test_conn": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=True)},
+            databases={"emb_db": GenericDatabaseConfig(connection="test_conn")},
+            vector_stores={"vs": VectorStoreConfig(backend_type="pgvector", database="emb_db")},
+        )
+
+        class NeedsTestVectorStore(PackageConfigBase):
+            tool_name: ClassVar[str] = "vector_store_test_tool"
+            vector_store_name: Annotated[str | None, RefTo(VectorStoreConfig, is_test=True)] = "vs"
+
+        result = Resolver(cfg).resolve_package_config(NeedsTestVectorStore)
+        assert result.vector_store_name == "vs"
+
+    def test_vector_store_reaching_prod_database_with_is_test_true_raises(self):
+        cfg = StackConfig.for_session(
+            connections={"prod_conn": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=False)},
+            databases={"emb_db": GenericDatabaseConfig(connection="prod_conn")},
+            vector_stores={"vs": VectorStoreConfig(backend_type="pgvector", database="emb_db")},
+        )
+
+        class NeedsTestVectorStore(PackageConfigBase):
+            tool_name: ClassVar[str] = "vector_store_test_tool_2"
+            vector_store_name: Annotated[str | None, RefTo(VectorStoreConfig, is_test=True)] = "vs"
+
+        with pytest.raises(ConfigurationError, match="is_test=True"):
+            Resolver(cfg).resolve_package_config(NeedsTestVectorStore)
 
 
 class TestRefToAbstractDatabaseConfigRejected:

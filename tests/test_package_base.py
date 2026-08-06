@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Annotated, ClassVar
+from typing import Annotated, Any, ClassVar
 
 import pytest
+import typer
 
 from oa_configurator import (
     CDMDatabaseConfig,
@@ -321,3 +322,32 @@ class TestRefToAbstractDatabaseConfigRejected:
         assert "cdm_db" in msg
         assert "CDMDatabaseConfig" in msg
         assert "GenericDatabaseConfig" in msg
+
+
+class BoolFieldConfig(PackageConfigBase):
+    tool_name: ClassVar[str] = "bool_field_tool"
+    dry_run: bool = False
+
+
+class DictFieldConfig(PackageConfigBase):
+    tool_name: ClassVar[str] = "dict_field_tool"
+    configuration: dict[str, Any] = {}
+
+
+class TestResolveFieldsPlainFieldHandling:
+    """Plain (non-RefTo) fields get type-aware handling, not a single
+    free-text prompt for everything: bool via confirm, dict/list carried
+    over or left to their own default -- matching what _resolve_named_entry
+    already does for RefTo-target schemas."""
+
+    def test_bool_field_uses_confirm_and_stores_a_real_bool(self, monkeypatch):
+        monkeypatch.setattr(typer, "confirm", lambda *a, **k: True)
+        extra = BoolFieldConfig.resolve_fields(StackConfig.for_session(), set_dict={}, interactive=True)
+        assert extra["dry_run"] is True
+
+    def test_dict_field_is_not_prompted_and_carries_over_stored_value(self, monkeypatch):
+        cfg = StackConfig.for_session(tools={"dict_field_tool": {"configuration": {"k": "v"}}})
+        # If this field were free-text prompted, this monkeypatch would be hit and fail the test.
+        monkeypatch.setattr(typer, "prompt", lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not prompt")))
+        extra = DictFieldConfig.resolve_fields(cfg, set_dict={}, interactive=True)
+        assert extra["configuration"] == {"k": "v"}

@@ -157,7 +157,14 @@ class PackageConfigBase(BaseModel):
         import typer
         from rich.console import Console
 
-        from .resolver import Resolver, _check_missing_required, _nested_ref, _resolve_nested_flag_value, _resolve_ref
+        from .resolver import (
+            Resolver,
+            _check_missing_required,
+            _is_flag_settable,
+            _nested_ref,
+            _resolve_nested_flag_value,
+            _resolve_ref,
+        )
 
         console = Console()
 
@@ -211,6 +218,17 @@ class PackageConfigBase(BaseModel):
                 )
                 if resolved:
                     extra[field_name] = resolved
+            elif not _is_flag_settable(info):
+                # dict/list fields have no sensible free-text prompt;
+                # carry over an existing value, else leave to pydantic's
+                # own default/default_factory.
+                if stored is not None:
+                    extra[field_name] = stored
+            elif info.annotation is bool:
+                default_bool = bool(stored) if stored is not None else (
+                    bool(info.default) if info.default not in (None, PydanticUndefined) else False
+                )
+                extra[field_name] = typer.confirm(info.description or field_name, default=default_bool)
             else:
                 desc = info.description or ""
                 label = f"{field_name}" + (f"  ({desc})" if desc else "")

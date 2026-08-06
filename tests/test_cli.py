@@ -323,12 +323,14 @@ class TestResolveRef:
 
 
 class DemoConfig(PackageConfigBase):
-    """Stand-in package: a required database, an opt-in test database, and
-    a plain extra field. Exercises PackageConfigBase.run_configure end to end."""
+    """Stand-in package: a required database, an opt-in test database, an
+    opt-in non-test database, and a plain extra field. Exercises
+    PackageConfigBase.run_configure end to end."""
 
     tool_name: ClassVar[str] = "demo_tool"
     cdm_db: Annotated[str, RefTo(CDMDatabaseConfig)] = "cdm_db"
     test_cdm_db: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = None
+    secondary_db: Annotated[str | None, RefTo(CDMDatabaseConfig)] = None
     backend: str = "default_backend"
 
 
@@ -350,7 +352,7 @@ class TestRunConfigurePackage:
 
     def test_interactive_creates_database_and_connection_recursively(self, isolated_config, monkeypatch):
         monkeypatch.setattr(cli.typer, "prompt", _echo_default)
-        monkeypatch.setattr(cli.typer, "confirm", lambda *a, **k: False)  # decline the test database
+        monkeypatch.setattr(cli.typer, "confirm", lambda *a, **k: False)  # decline both optional databases
         _seed(isolated_config, StackConfig.for_session())
 
         DemoConfig.run_configure({}, interactive=True)
@@ -362,8 +364,42 @@ class TestRunConfigurePackage:
         assert config.databases["cdm_db"].schema_name == "omop"
         # vocab_connection is optional, so it is never auto-created
         assert config.databases["cdm_db"].vocab_connection is None
-        # test database was declined, so it was not written at all
+        # both optional databases were declined, so neither was written
         assert "test_cdm_db" not in config.tools["demo_tool"]
+        assert "secondary_db" not in config.tools["demo_tool"]
+
+    def test_interactive_declines_optional_non_test_database(self, isolated_config, monkeypatch):
+        """A plain Optional RefTo field (is_test=False) gets the same
+        'Configure this?' skip prompt as a test field; declining leaves it
+        unset rather than resolving/creating an entry."""
+        monkeypatch.setattr(cli.typer, "prompt", _echo_default)
+        monkeypatch.setattr(cli.typer, "confirm", lambda *a, **k: False)
+        _seed(isolated_config, StackConfig.for_session())
+
+        DemoConfig.run_configure({}, interactive=True)
+
+        config = _load_from_path(isolated_config)
+        assert "secondary_db" not in config.tools["demo_tool"]
+
+    def test_interactive_opts_into_optional_non_test_database(self, isolated_config, monkeypatch):
+        """Accepting the skip prompt for a non-test Optional RefTo field
+        resolves it through the normal RefTo flow, with no test_only
+        requirement, unlike the test-database path: it happily reuses
+        cdm_db (created earlier in the same run) via the offered default."""
+        monkeypatch.setattr(cli.typer, "prompt", _echo_default)
+
+        def confirm(text, *a, **k):
+            return text == "Configure secondary_db?"
+
+        monkeypatch.setattr(cli.typer, "confirm", confirm)
+        _seed(isolated_config, StackConfig.for_session())
+
+        DemoConfig.run_configure({}, interactive=True)
+
+        config = _load_from_path(isolated_config)
+        assert config.tools["demo_tool"]["secondary_db"] == "cdm_db"
+        conn_name = config.databases["cdm_db"].connection
+        assert config.connections[conn_name].test_only is False
 
     def test_interactive_opts_into_test_database(self, isolated_config, monkeypatch):
         # Give the second-ever host prompt (the test database's) a distinct
@@ -379,7 +415,8 @@ class TestRunConfigurePackage:
             return default
 
         monkeypatch.setattr(cli.typer, "prompt", prompt)
-        monkeypatch.setattr(cli.typer, "confirm", lambda *a, **k: True)  # accept the test database
+        # accept the test database, decline the unrelated non-test optional one
+        monkeypatch.setattr(cli.typer, "confirm", lambda text, *a, **k: text == "Configure test_cdm_db?")
         _seed(isolated_config, StackConfig.for_session())
 
         DemoConfig.run_configure({}, interactive=True)

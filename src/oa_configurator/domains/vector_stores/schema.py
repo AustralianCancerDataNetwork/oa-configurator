@@ -39,9 +39,13 @@ class VectorStoreConfig(BaseModel):
     database: Annotated[str, RefTo(GenericDatabaseConfig)] = Field(
         description="Name of the database entry this store's tables live in."
     )
+    faiss_cache_dir: str | None = Field(
+        default=None,
+        description="Directory to cache FAISS index files. Orthogonal to backend_type: a local index cache, not a storage backend choice.",
+    )
     configuration: dict[str, Any] = Field(
         default_factory=dict,
-        description="Free-form per-store knobs (e.g. a FAISS cache directory) with no dedicated field, passed through verbatim.",
+        description="Free-form per-store knobs with no dedicated field, passed through verbatim.",
     )
 
     def resolve(self, name: str, stack: StackConfig) -> ResolvedVectorStore:
@@ -56,6 +60,7 @@ class VectorStoreConfig(BaseModel):
             name=name,
             backend_type=self.backend_type,
             database=resolved_database,
+            faiss_cache_dir=self.faiss_cache_dir,
             configuration=dict(self.configuration),
         )
 
@@ -75,6 +80,8 @@ class ResolvedVectorStore:
         Storage backend key, e.g. ``'sqlitevec'``, ``'pgvector'``.
     database : ResolvedDatabase
         Resolved database backing this store.
+    faiss_cache_dir : str, optional
+        Directory to cache FAISS index files, if configured.
     configuration : dict[str, Any]
         Free-form per-store knobs with no dedicated field.
     """
@@ -82,6 +89,7 @@ class ResolvedVectorStore:
     name: str
     backend_type: str
     database: ResolvedDatabase
+    faiss_cache_dir: str | None
     configuration: dict[str, Any]
 
     def __repr__(self) -> str:

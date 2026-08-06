@@ -223,13 +223,39 @@ class TestResolveVectorStore:
                 "vs": VectorStoreConfig(
                     backend_type="sqlitevec",
                     database="emb",
-                    configuration={"faiss_cache_dir": "/data/faiss"},
+                    configuration={"index_nlist": 128},
                 ),
             },
         )
         r = Resolver(cfg)
         vs = r.resolve_vector_store("vs")
-        assert vs.configuration == {"faiss_cache_dir": "/data/faiss"}
+        assert vs.configuration == {"index_nlist": 128}
+
+    def test_faiss_cache_dir_passthrough(self):
+        cfg = StackConfig.for_session(
+            connections={"f": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={"emb": GenericDatabaseConfig(connection="f")},
+            vector_stores={
+                "vs": VectorStoreConfig(
+                    backend_type="sqlitevec",
+                    database="emb",
+                    faiss_cache_dir="/data/faiss",
+                ),
+            },
+        )
+        r = Resolver(cfg)
+        vs = r.resolve_vector_store("vs")
+        assert vs.faiss_cache_dir == "/data/faiss"
+
+    def test_faiss_cache_dir_defaults_to_none(self):
+        cfg = StackConfig.for_session(
+            connections={"f": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={"emb": GenericDatabaseConfig(connection="f")},
+            vector_stores={"vs": VectorStoreConfig(backend_type="sqlitevec", database="emb")},
+        )
+        r = Resolver(cfg)
+        vs = r.resolve_vector_store("vs")
+        assert vs.faiss_cache_dir is None
 
     def test_unknown_vector_store_raises(self):
         cfg = StackConfig.for_session()

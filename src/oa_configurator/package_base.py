@@ -189,13 +189,17 @@ class PackageConfigBase(BaseModel):
                     extra[field_name] = stored
             elif nested is not None:
                 is_test = nested.is_test
-                if is_test and stored is None and info.default is None:
-                    console.print("\n[dim]─── Test database (optional) ───[/dim]")
-                    console.print(
-                        "[yellow]⚠[/yellow]  Test databases are used by the test suite, which runs"
-                        " DROP SCHEMA CASCADE on every run.\n"
-                        "   Point to a [bold]dedicated test_only connection[/bold], never to real data."
-                    )
+                if stored is None and info.default is None:
+                    if is_test:
+                        console.print("\n[dim]─── Test database (optional) ───[/dim]")
+                        console.print(
+                            "[yellow]⚠[/yellow]  Test databases are used by the test suite, which runs"
+                            " DROP SCHEMA CASCADE on every run.\n"
+                            "   Point to a [bold]dedicated test_only connection[/bold], never to real data."
+                        )
+                    else:
+                        desc = info.description or ""
+                        console.print(f"\n[dim]─── {field_name} (optional){f': {desc}' if desc else ''} ───[/dim]")
                     if not typer.confirm(f"Configure {field_name}?", default=False):
                         continue
                 default_name = stored if stored is not None else (

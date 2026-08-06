@@ -147,7 +147,7 @@ def pg_engine():
     from oa_configurator.pytest_plugin import resolve_test_database
     from my_package.config import MyPackageConfig
 
-    url = resolve_test_database(MyPackageConfig)
+    url = resolve_test_database(MyPackageConfig, "test_cdm_db")
     engine = sa.create_engine(url, future=True)
     yield engine
     engine.dispose()

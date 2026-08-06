@@ -729,3 +729,67 @@ class TestModelsList:
         assert result.exit_code == 0
         assert "nomic-embed" in result.output
         assert "768" in result.output
+
+
+class TestVectorStoresAdd:
+    def test_non_interactive_creates_vector_store(self, isolated_config):
+        _seed(isolated_config, StackConfig.for_session(
+            connections={"emb": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={"emb_db": GenericDatabaseConfig(connection="emb")},
+        ))
+        result = runner.invoke(
+            cli.app,
+            ["vector-stores", "add", "vs", "--backend-type", "pgvector", "--database", "emb_db"],
+        )
+        assert result.exit_code == 0, result.output
+        config = _load_from_path(isolated_config)
+        assert config.vector_stores["vs"].backend_type == "pgvector"
+        assert config.vector_stores["vs"].database == "emb_db"
+
+    def test_non_interactive_missing_required_field_fails(self, isolated_config):
+        result = runner.invoke(cli.app, ["vector-stores", "add", "vs", "--backend-type", "pgvector"])
+        assert result.exit_code != 0
+        assert not isolated_config.exists()
+
+    def test_unknown_database_reference_fails(self, isolated_config):
+        result = runner.invoke(
+            cli.app,
+            ["vector-stores", "add", "vs", "--backend-type", "pgvector", "--database", "does-not-exist"],
+        )
+        assert result.exit_code != 0
+        assert not isolated_config.exists()
+
+    def test_update_existing_vector_store(self, isolated_config):
+        _seed(isolated_config, StackConfig.for_session(
+            connections={"emb": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={"emb_db": GenericDatabaseConfig(connection="emb")},
+            vector_stores={"vs": VectorStoreConfig(backend_type="sqlitevec", database="emb_db")},
+        ))
+        result = runner.invoke(cli.app, ["vector-stores", "add", "vs", "--backend-type", "pgvector"])
+        assert result.exit_code == 0, result.output
+        config = _load_from_path(isolated_config)
+        assert config.vector_stores["vs"].backend_type == "pgvector"
+        assert config.vector_stores["vs"].database == "emb_db"
+
+
+class TestVectorStoresList:
+    def test_no_config_file(self, isolated_config):
+        result = runner.invoke(cli.app, ["vector-stores", "list"])
+        assert result.exit_code != 0
+
+    def test_empty(self, isolated_config):
+        _seed(isolated_config, StackConfig.for_session())
+        result = runner.invoke(cli.app, ["vector-stores", "list"])
+        assert result.exit_code == 0
+        assert "No vector_stores configured" in result.output
+
+    def test_lists_configured_vector_stores(self, isolated_config):
+        _seed(isolated_config, StackConfig.for_session(
+            connections={"emb": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={"emb_db": GenericDatabaseConfig(connection="emb")},
+            vector_stores={"vs": VectorStoreConfig(backend_type="pgvector", database="emb_db")},
+        ))
+        result = runner.invoke(cli.app, ["vector-stores", "list"])
+        assert result.exit_code == 0
+        assert "vs" in result.output
+        assert "pgvector" in result.output

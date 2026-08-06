@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+import typer
 from pydantic import ValidationError
 
 from oa_configurator import (
@@ -21,6 +22,7 @@ from oa_configurator import (
     StackConfig,
     VectorStoreConfig,
 )
+from oa_configurator.resolver import _check_test_collision
 
 
 class TestResolveConnection:
@@ -379,3 +381,53 @@ class TestDiscovery:
         )
         r = Resolver(cfg)
         assert r.vector_store_names() == ("vs",)
+
+
+class TestCheckTestCollision:
+    """_check_test_collision must catch a colliding production connection
+    regardless of how it's reachable in the config, since it derives its
+    checks from config.connections directly rather than from
+    config.databases's own `connection` field."""
+
+    def test_collision_via_primary_connection_raises(self):
+        cfg = StackConfig.for_session(
+            connections={"prod": ConnectionConfig(dialect="postgresql+psycopg", host="h", port=5432, database_name="d")},
+            databases={"cdm_db": CDMDatabaseConfig(connection="prod")},
+        )
+        new_conn = ConnectionConfig(dialect="postgresql+psycopg", host="h", port=5432, database_name="d", test_only=True)
+        with pytest.raises(typer.Exit):
+            _check_test_collision(new_conn, cfg)
+
+    def test_collision_via_vocab_connection_only_raises(self):
+        """The production connection is reachable only as a CDM database's
+        vocab_connection, never as its primary `connection` -- a check
+        derived from db.connection alone would miss this."""
+        cfg = StackConfig.for_session(
+            connections={
+                "primary": ConnectionConfig(dialect="postgresql+psycopg", host="h", port=5432, database_name="primary_db"),
+                "vocab_prod": ConnectionConfig(dialect="postgresql+psycopg", host="vocab-h", port=5432, database_name="vocab_db"),
+            },
+            databases={"cdm_db": CDMDatabaseConfig(connection="primary", vocab_connection="vocab_prod")},
+        )
+        new_conn = ConnectionConfig(dialect="postgresql+psycopg", host="vocab-h", port=5432, database_name="vocab_db", test_only=True)
+        with pytest.raises(typer.Exit):
+            _check_test_collision(new_conn, cfg)
+
+    def test_collision_via_connection_not_referenced_by_any_database_raises(self):
+        """The production connection isn't wired to any [databases.*] entry
+        at all -- deriving connections from config.databases would never
+        see it."""
+        cfg = StackConfig.for_session(
+            connections={"orphan_prod": ConnectionConfig(dialect="postgresql+psycopg", host="h", port=5432, database_name="d")},
+        )
+        new_conn = ConnectionConfig(dialect="postgresql+psycopg", host="h", port=5432, database_name="d", test_only=True)
+        with pytest.raises(typer.Exit):
+            _check_test_collision(new_conn, cfg)
+
+    def test_no_collision_passes(self):
+        cfg = StackConfig.for_session(
+            connections={"prod": ConnectionConfig(dialect="postgresql+psycopg", host="h", port=5432, database_name="d")},
+            databases={"cdm_db": CDMDatabaseConfig(connection="prod")},
+        )
+        new_conn = ConnectionConfig(dialect="postgresql+psycopg", host="other-h", port=5432, database_name="d", test_only=True)
+        _check_test_collision(new_conn, cfg)  # must not raise

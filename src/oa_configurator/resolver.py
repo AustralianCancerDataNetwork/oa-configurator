@@ -216,6 +216,20 @@ def _resolve_ref(
     return name
 
 
+def _find_production_collision(
+    host: str | None, database_name: str | None, port: int | None, config: StackConfig
+) -> str | None:
+    """Return the name of a non-test_only connection matching host/database
+    name/port, or None. Checks config.connections directly, independent of
+    whether/how a database entry references it."""
+    for conn_name, conn in config.connections.items():
+        if conn.test_only:
+            continue
+        if conn.host == host and conn.database_name == database_name and conn.port == port:
+            return conn_name
+    return None
+
+
 def _check_test_collision(new_conn: ConnectionConfig, config: StackConfig) -> None:
     """Abort if a new test-only connection's details match a real, non-test one.
 
@@ -226,18 +240,15 @@ def _check_test_collision(new_conn: ConnectionConfig, config: StackConfig) -> No
     from rich.console import Console
 
     err_console = Console(stderr=True)
-    for db_name, db in config.databases.items():
-        conn = config.connections.get(db.connection)
-        if conn is None or conn.test_only:
-            continue
-        if conn.host == new_conn.host and conn.database_name == new_conn.database_name and conn.port == new_conn.port:
-            err_console.print(
-                f"\n[red bold]DANGER[/red bold]: these connection details match the"
-                f" [bold]{db_name!r}[/bold] database (same host and database name).\n"
-                f"Tests run DROP SCHEMA CASCADE, which would destroy your data.\n"
-                f"Use a different [bold]host[/bold] or [bold]database name[/bold]."
-            )
-            raise typer.Exit(1)
+    match = _find_production_collision(new_conn.host, new_conn.database_name, new_conn.port, config)
+    if match is not None:
+        err_console.print(
+            f"\n[red bold]DANGER[/red bold]: these connection details match the"
+            f" non-test connection [bold]{match!r}[/bold] (same host, database name, and port).\n"
+            f"Tests run DROP SCHEMA CASCADE, which would destroy your data.\n"
+            f"Use a different [bold]host[/bold] or [bold]database name[/bold]."
+        )
+        raise typer.Exit(1)
 
 
 def _resolve_nested_flag_value(

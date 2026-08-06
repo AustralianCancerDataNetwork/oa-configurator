@@ -81,6 +81,28 @@ def _admin_engine(test_url: sa.URL) -> sa.Engine:
     return sa.create_engine(base.set(database="postgres"), isolation_level="AUTOCOMMIT")
 
 
+def _refuse_if_production(target: sa.URL) -> None:
+    """Abort if target's host/database name/port match a non-test_only
+    connection in the stack config, regardless of how that connection is
+    (or isn't) wired to a database entry."""
+    if target.database is None:
+        return
+    from .loader import load_stack_config
+    from .resolver import _find_production_collision
+
+    try:
+        config = load_stack_config()
+    except (FileNotFoundError, ValueError):
+        return
+    match = _find_production_collision(target.host, target.database, target.port, config)
+    if match is not None:
+        raise RuntimeError(
+            f"SAFETY ABORT: refusing to drop/recreate database {target.database!r} on "
+            f"{target.host!r}: it matches the non-test connection {match!r} in the stack "
+            f"config. This would destroy production data."
+        )
+
+
 # ---------------------------------------------------------------------------
 # Public lifecycle helpers
 # ---------------------------------------------------------------------------
@@ -133,6 +155,7 @@ def create_fresh_test_db(url: str | sa.URL, *, extensions: Sequence[str] = ()) -
     db_name = target.database
     if db_name is None:
         return target
+    _refuse_if_production(target)
     admin = _admin_engine(target)
     try:
         with admin.connect() as conn:
@@ -165,6 +188,7 @@ def drop_test_db(url: str | sa.URL) -> None:
     db_name = target.database
     if db_name is None:
         return
+    _refuse_if_production(target)
     admin = _admin_engine(target)
     try:
         with admin.connect() as conn:

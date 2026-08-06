@@ -28,7 +28,7 @@ from oa_configurator import (
     RefTo,
     StackConfig
 )
-from oa_configurator.pytest_plugin import resolve_test_database
+from oa_configurator.pytest_plugin import create_fresh_test_db, drop_test_db, resolve_test_database
 
 
 class DemoTestConfig(PackageConfigBase):
@@ -119,3 +119,56 @@ class TestResolveTestDatabase:
         url = resolve_test_database(DemoTestConfig, "test_cdm_db")
 
         assert url == "sqlite:///:memory:"
+
+
+class TestRefuseIfProduction:
+    """create_fresh_test_db/drop_test_db must refuse to touch a database
+    name that matches a non-test_only connection in the stack config, even
+    when that connection isn't the one being connected as, isn't wired to
+    any database entry, or is only reachable via a secondary field like
+    vocab_connection -- the guard checks config.connections directly."""
+
+    def test_create_fresh_test_db_refuses_matching_production_connection(self, monkeypatch):
+        cfg = StackConfig.for_session(
+            connections={
+                "prod": ConnectionConfig(
+                    dialect="postgresql+psycopg", host="dbhost", port=5432,
+                    database_name="shared_name", test_only=False,
+                ),
+            },
+        )
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        with pytest.raises(RuntimeError, match="prod"):
+            create_fresh_test_db("postgresql+psycopg://user:pw@dbhost:5432/shared_name")
+
+    def test_drop_test_db_refuses_matching_production_connection(self, monkeypatch):
+        cfg = StackConfig.for_session(
+            connections={
+                "prod": ConnectionConfig(
+                    dialect="postgresql+psycopg", host="dbhost", port=5432,
+                    database_name="shared_name", test_only=False,
+                ),
+            },
+        )
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        with pytest.raises(RuntimeError, match="prod"):
+            drop_test_db("postgresql+psycopg://user:pw@dbhost:5432/shared_name")
+
+    def test_refuses_a_production_connection_not_referenced_by_any_database(self, monkeypatch):
+        """The colliding connection isn't wired to a [databases.*] entry at
+        all -- deriving connections from config.databases (the old
+        behaviour) would have missed this entirely."""
+        cfg = StackConfig.for_session(
+            connections={
+                "orphan_prod": ConnectionConfig(
+                    dialect="postgresql+psycopg", host="dbhost", port=5432,
+                    database_name="vocab_name", test_only=False,
+                ),
+            },
+        )
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        with pytest.raises(RuntimeError, match="orphan_prod"):
+            create_fresh_test_db("postgresql+psycopg://user:pw@dbhost:5432/vocab_name")

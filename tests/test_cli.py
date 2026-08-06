@@ -10,12 +10,14 @@ from typing import Annotated, ClassVar
 
 import oa_configurator.cli as cli
 from oa_configurator import (
-    CDMDatabaseConfig, 
-    ConnectionConfig, 
-    ModelConfig, 
-    ProviderConfig, 
-    RefTo, 
-    StackConfig
+    CDMDatabaseConfig,
+    ConnectionConfig,
+    GenericDatabaseConfig,
+    ModelConfig,
+    ProviderConfig,
+    RefTo,
+    StackConfig,
+    VectorStoreConfig,
 )
 from oa_configurator.io import save_stack_config as _real_save_stack_config
 from oa_configurator.loader import _load_from_path
@@ -159,6 +161,36 @@ class TestDatabasesAdd:
         assert result.exit_code != 0
         config = _load_from_path(isolated_config)
         assert "cdm_db" not in config.databases
+
+    def test_kind_change_refused_when_a_vector_store_depends_on_it(self, isolated_config):
+        """emb_db is a GenericDatabaseConfig a vector store depends on
+        (RefTo(GenericDatabaseConfig)). Re-adding it as --kind cdm would
+        turn that reference into a mismatched-kind error every time the
+        config loads -- must be refused up front instead."""
+        _seed(isolated_config, StackConfig.for_session(
+            connections={"c": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={"emb_db": GenericDatabaseConfig(connection="c")},
+            vector_stores={"vs": VectorStoreConfig(backend_type="pgvector", database="emb_db")},
+        ))
+        result = runner.invoke(
+            cli.app, ["databases", "add", "emb_db", "--kind", "cdm", "--connection", "c"]
+        )
+        assert result.exit_code != 0
+        config = _load_from_path(isolated_config)
+        assert isinstance(config.databases["emb_db"], GenericDatabaseConfig)
+
+    def test_kind_change_warns_when_nothing_depends_on_it(self, isolated_config):
+        _seed(isolated_config, StackConfig.for_session(
+            connections={"c": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={"emb_db": GenericDatabaseConfig(connection="c")},
+        ))
+        result = runner.invoke(
+            cli.app, ["databases", "add", "emb_db", "--kind", "cdm", "--connection", "c"]
+        )
+        assert result.exit_code == 0, result.output
+        assert "was a GenericDatabaseConfig" in result.output
+        config = _load_from_path(isolated_config)
+        assert isinstance(config.databases["emb_db"], CDMDatabaseConfig)
 
     def test_cdm_only_flag_on_generic_kind_fails_instead_of_silently_dropping(self, isolated_config):
         """--vocab-connection has no meaning on a generic database. Must be

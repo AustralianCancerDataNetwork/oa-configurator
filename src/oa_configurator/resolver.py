@@ -332,11 +332,12 @@ def _resolve_named_entry(
     for field_name, info in target.model_fields.items():
         stored = getattr(existing, field_name, None) if existing is not None else None
         if not _is_flag_settable(info):
-            # dict/list/etc: no sensible single-flag/prompt representation --
-            # but an existing value (e.g. ModelConfig.configuration) is still
-            # carried over on update; otherwise leave unset for pydantic's
-            # own default/default_factory to apply.
-            if stored is not None:
+            # dict/list fields (e.g. ModelConfig.configuration) carry over
+            # an existing value on update. A single-member Literal (e.g.
+            # `kind`) never does, as it's a fixed per-class constant, and
+            # carrying it over could be invalid for a different target class.
+            is_fixed_literal = get_origin(info.annotation) is Literal and len(get_args(info.annotation)) == 1
+            if stored is not None and not is_fixed_literal:
                 values[field_name] = stored
             continue
 

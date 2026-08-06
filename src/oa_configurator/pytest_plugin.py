@@ -382,6 +382,9 @@ else:
                 yield engine
                 engine.dispose()
         """
+        if field_name not in cls.model_fields:
+            raise ValueError(f"{cls.__name__} has no field {field_name!r}.")
+
         # Local import required for tests with monkeypatch
         from .loader import load_stack_config
 
@@ -389,7 +392,8 @@ else:
             stored = load_stack_config().tools.get(cls.tool_name, {})
         except FileNotFoundError:
             stored = {}
-        name = stored.get(field_name, field_name)
+        default = cls.model_fields[field_name].default
+        name = stored.get(field_name) or (default if isinstance(default, str) else field_name)
 
         try:
             resolver = Resolver.from_active_config()

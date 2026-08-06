@@ -36,6 +36,15 @@ class DemoTestConfig(PackageConfigBase):
     test_cdm_db: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = None
 
 
+class DemoTestConfigWithDefault(PackageConfigBase):
+    """A test field with a real string default, distinct from its own
+    field name, to prove resolve_test_database uses the field's declared
+    default rather than falling back to the field name itself."""
+
+    tool_name: ClassVar[str] = "demo_test_default_tool"
+    test_field: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = "configured_default_db"
+
+
 def _stack_config(*, test_only: bool, tools: dict | None = None) -> StackConfig:
     return StackConfig.for_session(
         connections={
@@ -119,6 +128,26 @@ class TestResolveTestDatabase:
         url = resolve_test_database(DemoTestConfig, "test_cdm_db")
 
         assert url == "sqlite:///:memory:"
+
+    def test_falls_back_to_field_default_not_field_name(self, monkeypatch):
+        """Nothing stored for test_field: must resolve the field's own
+        declared default (configured_default_db), not the literal field
+        name "test_field"."""
+        cfg = StackConfig.for_session(
+            connections={
+                "test_conn": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=True)
+            },
+            databases={"configured_default_db": CDMDatabaseConfig(connection="test_conn")},
+        )
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        url = resolve_test_database(DemoTestConfigWithDefault, "test_field")
+
+        assert url == "sqlite:///:memory:"
+
+    def test_unknown_field_name_raises(self):
+        with pytest.raises(ValueError, match="test_typo"):
+            resolve_test_database(DemoTestConfig, "test_typo")
 
 
 class TestRefuseIfProduction:

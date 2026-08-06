@@ -160,6 +160,19 @@ class TestDatabasesAdd:
         config = _load_from_path(isolated_config)
         assert "cdm_db" not in config.databases
 
+    def test_cdm_only_flag_on_generic_kind_fails_instead_of_silently_dropping(self, isolated_config):
+        """--vocab-connection has no meaning on a generic database. Must be
+        rejected, not silently discarded."""
+        _seed(isolated_config, StackConfig.for_session(connections={"emb": ConnectionConfig(dialect="sqlite")}))
+        result = runner.invoke(
+            cli.app,
+            ["databases", "add", "emb_db", "--kind", "generic", "--connection", "emb", "--vocab-connection", "emb"],
+        )
+        assert result.exit_code != 0
+        assert "vocab_connection" in result.output
+        config = _load_from_path(isolated_config)
+        assert "emb_db" not in config.databases
+
 
 class TestDatabasesList:
     def test_empty(self, isolated_config):
@@ -605,6 +618,32 @@ class TestConfigureSetFlag:
         assert cdm_db_name in config.databases
         conn_name = config.databases[cdm_db_name].connection
         assert config.connections[conn_name].dialect == "sqlite"
+
+    def test_set_flag_typo_in_subfield_fails_instead_of_silent_no_op(self, isolated_config, monkeypatch):
+        """cdm_db.shema_name (typo for schema_name) must be rejected, not
+        silently dropped while the rest of the entry still saves."""
+        class FakeEP:
+            name = "demo_tool"
+
+            def load(self):
+                return DemoConfig
+
+        monkeypatch.setattr(
+            cli, "entry_points",
+            lambda group=None: [FakeEP()] if group == cli.ENTRY_POINT_GROUP else [],
+        )
+        result = runner.invoke(
+            cli.app,
+            [
+                "configure", "demo_tool",
+                "--backend", "custom",
+                "--set", "cdm_db.connection.dialect=sqlite",
+                "--set", "cdm_db.connection.database_name=:memory:",
+                "--set", "cdm_db.shema_name=omop",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "shema_name" in result.output
 
 
 class TestModelsList:

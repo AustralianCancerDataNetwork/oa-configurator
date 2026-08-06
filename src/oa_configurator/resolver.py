@@ -309,32 +309,19 @@ def _resolve_named_entry(
     name_hint: str | None = None,
     is_test: bool = False,
 ) -> BaseModel | None:
-    """Resolve one entry of *target*: flag, then stored value (from
-    *existing*), then an interactive prompt seeded with the stored value
-    as its default when one exists, recursing into any RefTo field via
-    :func:`_resolve_ref`. Non-interactively, an unresolved RefTo field just
-    uses its own default; existence is validated by ``StackConfig``'s
-    cross-reference check once the entry is saved.
+    """Resolve one entry of *target*: flag, then stored value, then an
+    interactive prompt, recursing into any RefTo field via
+    :func:`_resolve_ref` (or a nested ``--set field.subfield=value`` dict,
+    see :func:`_resolve_nested_flag_value`). Bool fields use a confirm
+    prompt, never free text.
 
-    A RefTo field's flag value may also be a nested ``dict`` instead of a
-    plain string, built from repeated ``--set field.subfield=value``
-    flags (see :func:`_resolve_nested_flag_value`). Bool fields (e.g.
-    ``ConnectionConfig.test_only``) are resolved via flag, an interactive
-    ``typer.confirm``, or their own default; they never go through a
-    free-text prompt.
+    *name_hint*/*is_test* only apply to the brand-new-entry path (no
+    *flags*, no *existing*): the nested-ref default name, and the
+    test-only wizard's recursion flag.
 
-    *name_hint* and *is_test* only matter for the brand-new-entry path (no
-    *flags*, no *existing*). *name_hint* is the fallback default offered
-    when recursing into a required nested ref with no default of its own
-    (e.g. a newly-named database recursing into naming its connection).
-    *is_test* propagates the test-only wizard's "keep this in the test-only
-    pool" choice into that same recursion, and marks a freshly-created
-    :class:`ConnectionConfig` as ``test_only``.
-
-    Returns None (instead of constructing *target*, which could raise) when
-    a required field is missing non-interactively. The caller is expected
-    to check *missing_required* (e.g. via :func:`_check_missing_required`)
-    before using the result.
+    Returns None if a required field is missing non-interactively (check
+    *missing_required*), and aborts with ``typer.Exit(1)`` if *flags*
+    names a field *target* doesn't have.
     """
     import typer
 
@@ -428,6 +415,16 @@ def _resolve_named_entry(
         default_value = str(stored) if stored is not None else (str(info.default) if has_default else "")
         raw_input = typer.prompt(info.description or field_name, default=default_value, hide_input=is_sensitive(info))
         values[field_name] = raw_input if info.is_required() else (raw_input or None)
+
+    if non_interactive:
+        unknown = set(flags) - set(target.model_fields)
+        if unknown:
+            from rich.console import Console
+            Console(stderr=True).print(
+                f"[red bold]{target.__name__} has no field(s):[/red bold] {', '.join(sorted(unknown))}\n"
+                f"Valid fields: {', '.join(target.model_fields)}"
+            )
+            raise typer.Exit(1)
 
     if non_interactive and missing_required:
         return None

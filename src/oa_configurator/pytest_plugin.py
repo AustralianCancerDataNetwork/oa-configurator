@@ -322,7 +322,7 @@ else:
         """Resolve a package's own test-database field to a URL, or skip/fail.
 
         *field_name* names the field directly, e.g. ``"test_cdm_db"`` leads to
-        no auto-discovery. Use-case: Multiple ``RefTo(DatabaseConfig, is_test=True)``
+        no auto-discovery. Use-case: Multiple ``RefTo(CDMDatabaseConfig, is_test=True)``
         fields, that are otherwise not auto-discoverable.
 
         Deliberately does not go through ``cls.get_config()`` to avoid

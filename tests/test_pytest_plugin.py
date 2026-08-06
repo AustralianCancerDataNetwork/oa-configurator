@@ -4,7 +4,7 @@ test_only enforcement.
 resolve_test_database(cls, field_name) is the one place every consumer
 routes through to get a test database's connection URL. field_name is
 always explicit: a class may eventually have more than one
-RefTo(DatabaseConfig, is_test=True) field (e.g. one per backend), and
+RefTo(CDMDatabaseConfig, is_test=True) field (e.g. one per backend), and
 there is no way to guess which one a caller wants, so the caller always
 names it. resolve_test_database does two things: resolves the named
 field's configured value (tolerating the rest of the class being
@@ -22,11 +22,10 @@ from typing import Annotated, ClassVar
 import pytest
 
 from oa_configurator import (
-    CDMDatabaseConfig, 
-    ConnectionConfig, 
-    DatabaseConfig, 
-    PackageConfigBase, 
-    RefTo, 
+    CDMDatabaseConfig,
+    ConnectionConfig,
+    PackageConfigBase,
+    RefTo,
     StackConfig
 )
 from oa_configurator.pytest_plugin import resolve_test_database
@@ -34,7 +33,7 @@ from oa_configurator.pytest_plugin import resolve_test_database
 
 class DemoTestConfig(PackageConfigBase):
     tool_name: ClassVar[str] = "demo_test_tool"
-    test_cdm_db: Annotated[str | None, RefTo(DatabaseConfig, is_test=True)] = None
+    test_cdm_db: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = None
 
 
 def _stack_config(*, test_only: bool, tools: dict | None = None) -> StackConfig:

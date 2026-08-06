@@ -17,6 +17,7 @@ from oa_configurator import (
     RefTo,
     Resolver,
     StackConfig,
+    UnknownRefTarget,
 )
 
 
@@ -82,7 +83,7 @@ class DatabaseUserConfig(PackageConfigBase):
     separate declaration list. The field itself is the requirement."""
 
     tool_name: ClassVar[str] = "database_user_tool"
-    cdm_db: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"
+    cdm_db: Annotated[str, RefTo(CDMDatabaseConfig)] = "cdm_db"
 
 
 class EmbeddingConfig(PackageConfigBase):
@@ -135,7 +136,7 @@ class OtherDatabaseUserConfig(PackageConfigBase):
     same database name as DatabaseUserConfig. No import of that class."""
 
     tool_name: ClassVar[str] = "other_database_user_tool"
-    cdm_database: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"
+    cdm_database: Annotated[str, RefTo(CDMDatabaseConfig)] = "cdm_db"
 
 
 class TestConventionBasedSharing:
@@ -158,10 +159,10 @@ class TestRefToIsTest:
     field's own Python name happens to start with "test_"."""
 
     def test_defaults_to_false(self):
-        assert RefTo(DatabaseConfig).is_test is False
+        assert RefTo(CDMDatabaseConfig).is_test is False
 
     def test_explicit_true(self):
-        assert RefTo(DatabaseConfig, is_test=True).is_test is True
+        assert RefTo(CDMDatabaseConfig, is_test=True).is_test is True
 
     def test_field_name_has_no_bearing_on_is_test(self):
         """A field named without any "test_" prefix can still be is_test,
@@ -170,8 +171,8 @@ class TestRefToIsTest:
 
         class OddlyNamedConfig(PackageConfigBase):
             tool_name: ClassVar[str] = "oddly_named_tool"
-            playground_db: Annotated[str | None, RefTo(DatabaseConfig, is_test=True)] = None
-            test_flavoured_prod_db: Annotated[str, RefTo(DatabaseConfig)] = "prod_db"
+            playground_db: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = None
+            test_flavoured_prod_db: Annotated[str, RefTo(CDMDatabaseConfig)] = "prod_db"
 
         fields = dict(OddlyNamedConfig.model_fields)
         playground_ref = next(m for m in fields["playground_db"].metadata if isinstance(m, RefTo))
@@ -193,7 +194,7 @@ class TestIsTestOnlyMatchEnforcement:
 
         class NeedsTestDb(PackageConfigBase):
             tool_name: ClassVar[str] = "needs_test_db_tool"
-            test_cdm_db: Annotated[str | None, RefTo(DatabaseConfig, is_test=True)] = "test_cdm_db"
+            test_cdm_db: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = "test_cdm_db"
 
         with pytest.raises(ConfigurationError, match="is_test=True"):
             Resolver(cfg).resolve_package_config(NeedsTestDb)
@@ -206,7 +207,7 @@ class TestIsTestOnlyMatchEnforcement:
 
         class NeedsProdDb(PackageConfigBase):
             tool_name: ClassVar[str] = "needs_prod_db_tool"
-            cdm_db: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"
+            cdm_db: Annotated[str, RefTo(CDMDatabaseConfig)] = "cdm_db"
 
         with pytest.raises(ConfigurationError, match="is_test=False"):
             Resolver(cfg).resolve_package_config(NeedsProdDb)
@@ -219,7 +220,7 @@ class TestIsTestOnlyMatchEnforcement:
 
         class NeedsTestDb(PackageConfigBase):
             tool_name: ClassVar[str] = "matching_test_db_tool"
-            test_cdm_db: Annotated[str | None, RefTo(DatabaseConfig, is_test=True)] = "test_cdm_db"
+            test_cdm_db: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = "test_cdm_db"
 
         result = Resolver(cfg).resolve_package_config(NeedsTestDb)
         assert result.test_cdm_db == "test_cdm_db"
@@ -232,7 +233,30 @@ class TestIsTestOnlyMatchEnforcement:
 
         class NeedsProdDb(PackageConfigBase):
             tool_name: ClassVar[str] = "matching_prod_db_tool"
-            cdm_db: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"
+            cdm_db: Annotated[str, RefTo(CDMDatabaseConfig)] = "cdm_db"
 
         result = Resolver(cfg).resolve_package_config(NeedsProdDb)
         assert result.cdm_db == "cdm_db"
+
+
+class TestRefToAbstractDatabaseConfigRejected:
+    """DatabaseConfig is abstract (kind has no default) and must not be a
+    constructible RefTo target: a field typed against it, not a concrete
+    subclass, would let the CLI wizard build a bare DatabaseConfig instead
+    of a CDMDatabaseConfig/GenericDatabaseConfig."""
+
+    def test_raises_unknown_ref_target(self):
+        class BadConfig(PackageConfigBase):
+            tool_name: ClassVar[str] = "bad_tool"
+            cdm_db: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"
+
+        cfg = StackConfig.for_session(
+            connections={"db": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={"cdm_db": CDMDatabaseConfig(connection="db")},
+        )
+        with pytest.raises(UnknownRefTarget) as exc_info:
+            Resolver(cfg).resolve_package_config(BadConfig)
+        msg = str(exc_info.value)
+        assert "cdm_db" in msg
+        assert "CDMDatabaseConfig" in msg
+        assert "GenericDatabaseConfig" in msg

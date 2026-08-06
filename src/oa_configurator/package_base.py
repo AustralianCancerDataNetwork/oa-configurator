@@ -10,7 +10,7 @@ In ``<my-package>/config.py``::
 
     from typing import Annotated, ClassVar
 
-    from oa_configurator import DatabaseConfig, ModelConfig, PackageConfigBase, RefTo
+    from oa_configurator import CDMDatabaseConfig, ModelConfig, PackageConfigBase, RefTo
 
     class MyPackageConfig(PackageConfigBase):
         tool_name: ClassVar[str] = "<my-package>"
@@ -21,7 +21,7 @@ In ``<my-package>/config.py``::
         # declaration. Whether the entry ends up shared with another package
         # is simply a matter of both packages' fields resolving to the same
         # name.
-        cdm_db: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"
+        cdm_db: Annotated[str, RefTo(CDMDatabaseConfig)] = "cdm_db"
         embedding_model_name: Annotated[str, RefTo(ModelConfig)] = "embed-default"
         <additional typed fields here>
 
@@ -52,8 +52,8 @@ class PackageConfigBase(BaseModel):
     """Typed view over a package's ``[tools.<tool_name>]`` TOML section.
 
     Subclass this and declare typed fields for whatever this package needs.
-    A field typed ``Annotated[str, RefTo(DatabaseConfig)]`` (or ``RefTo(ModelConfig)``/
-    ``RefTo(ProviderConfig)``/``RefTo(ConnectionConfig)``) names an entry in that
+    A field typed ``Annotated[str, RefTo(CDMDatabaseConfig)]`` (or ``RefTo(GenericDatabaseConfig)``/
+    ``RefTo(ModelConfig)``/``RefTo(ProviderConfig)``/``RefTo(ConnectionConfig)``) names an entry in that
     section. ``omop-config configure`` resolves it interactively: reuse an
     existing entry, or create one, recursing into any ``RefTo`` fields the
     target itself has (e.g. a database's own connection).

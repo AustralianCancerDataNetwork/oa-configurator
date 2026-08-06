@@ -21,7 +21,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from .domains.llm.schema import ModelConfig, ProviderConfig
-from .domains.resources.schema import CDMDatabaseConfig, ConnectionConfig, DatabaseConfig, DatabaseEntry, GenericDatabaseConfig
+from .domains.resources.schema import CDMDatabaseConfig, ConnectionConfig, DatabaseEntry, GenericDatabaseConfig
 from .domains.vector_stores.schema import VectorStoreConfig
 from .logging_config import LoggingConfig
 from .refs import _iter_refs
@@ -61,7 +61,7 @@ def unresolved_refs(instance: BaseModel, config: StackConfig) -> list[tuple[str,
         value = getattr(instance, field_name)
         if value is None:
             continue
-        section = _REF_SECTIONS[ref.target]
+        section = _ref_section(ref.target, field_name=field_name)
         if value not in getattr(config, section):
             problems.append((field_name, value, section))
     return problems
@@ -91,7 +91,7 @@ def mismatched_kind_refs(
         value = getattr(instance, field_name)
         if value is None or not isinstance(ref.target, type):
             continue
-        section = _REF_SECTIONS[ref.target]
+        section = _ref_section(ref.target, field_name=field_name)
         entry = getattr(config, section).get(value)
         if entry is not None and not isinstance(entry, ref.target):
             problems.append((field_name, value, ref.target, type(entry)))
@@ -102,12 +102,47 @@ _REF_SECTIONS: dict[type[BaseModel], str] = {
     ConnectionConfig: "connections",
     ProviderConfig: "providers",
     ModelConfig: "models",
-    DatabaseConfig: "databases",
     GenericDatabaseConfig: "databases",
     CDMDatabaseConfig: "databases",
     VectorStoreConfig: "vector_stores",
 }
-"""Which StackConfig dict a RefTo(target) marker resolves against."""
+"""Which StackConfig dict a RefTo(target) marker resolves against.
+
+Deliberately excludes the abstract `DatabaseConfig` base: `kind` has no
+default there, so a `RefTo(DatabaseConfig)`-typed field would let the CLI
+wizard construct a bare `DatabaseConfig` instance instead of one of its
+concrete subclasses. Use `RefTo(CDMDatabaseConfig)`/`RefTo(GenericDatabaseConfig)`
+instead; `DatabaseConfig` itself stays valid for `isinstance` checks and as
+`DatabaseEntry`'s discriminated-union base.
+"""
+
+
+class UnknownRefTarget(TypeError):
+    """A RefTo marker names a class that isn't registered in _REF_SECTIONS.
+
+    Indicates a bug in the declaring package's own schema (e.g. `RefTo`
+    against an abstract base like `DatabaseConfig`, or a class that was
+    never meant to be a RefTo target at all), not a user configuration
+    problem.
+    """
+
+
+def _ref_section(target: type[BaseModel], *, field_name: str | None = None) -> str:
+    """Look up which StackConfig section a RefTo(target) resolves against.
+
+    Raises :class:`UnknownRefTarget` with the field name (when known) and
+    the list of valid targets, instead of letting a bare ``KeyError``
+    surface a raw class repr.
+    """
+    try:
+        return _REF_SECTIONS[target]
+    except KeyError:
+        valid = ", ".join(sorted(t.__name__ for t in _REF_SECTIONS))
+        where = f"field {field_name!r} " if field_name else ""
+        raise UnknownRefTarget(
+            f"RefTo {where}targets {target.__name__!r}, which isn't a registered "
+            f"RefTo section. Valid targets: {valid}."
+        ) from None
 
 
 class StackConfig(BaseModel):

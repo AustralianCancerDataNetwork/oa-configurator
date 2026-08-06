@@ -17,7 +17,7 @@ from .logging_config import LoggingConfig, RedactingFormatter, configure_logging
 from .package_base import ConfigurationError, PackageConfigBase
 from .refs import RefTo, Sensitive
 from .resolver import Resolver, ResolvedToolConfig
-from .stack_config import StackConfig
+from .stack_config import StackConfig, UnknownRefTarget
 
 __all__ = [
     "CDMDatabaseConfig",
@@ -45,6 +45,7 @@ __all__ = [
     "Role",
     "Sensitive",
     "StackConfig",
+    "UnknownRefTarget",
     "VectorStoreConfig",
     "configure_logging",
     "get_logger",

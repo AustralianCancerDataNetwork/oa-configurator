@@ -20,7 +20,7 @@ from .domains.resources.schema import (
     ResolvedDatabase,
 )
 from .domains.vector_stores.schema import ResolvedVectorStore, VectorStoreConfig
-from .stack_config import _REF_SECTIONS, StackConfig, mismatched_kind_refs, unresolved_refs
+from .stack_config import StackConfig, _ref_section, mismatched_kind_refs, unresolved_refs
 from .package_base import ConfigurationError, PackageConfigBase
 from .refs import RefTo, _iter_refs, is_sensitive
 
@@ -165,7 +165,7 @@ def _resolve_ref(
     console = Console()
     err_console = Console(stderr=True)
 
-    section = _REF_SECTIONS[target]
+    section = _ref_section(target, field_name=field_name)
     section_dict: dict[str, Any] = getattr(config, section)
     candidates = sorted(n for n in section_dict if _is_test_marked(n, target, config) == is_test)
 
@@ -254,7 +254,7 @@ def _resolve_nested_flag_value(
     non-interactive call in a single error, at any nesting depth.
     """
     has_default = info.default not in (None, PydanticUndefined)
-    section_dict: dict[str, Any] = getattr(config, _REF_SECTIONS[nested.target])
+    section_dict: dict[str, Any] = getattr(config, _ref_section(nested.target, field_name=field_name))
     sub_flags = dict(raw)
     name = sub_flags.pop("name", None) or (str(info.default) if has_default else (name_hint or field_name))
 

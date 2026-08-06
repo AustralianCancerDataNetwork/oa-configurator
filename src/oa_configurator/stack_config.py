@@ -97,7 +97,10 @@ def mismatched_kind_refs(
             problems.append((field_name, value, ref.target, type(entry)))
     return problems
 
-
+"""Which StackConfig dict a RefTo(target) marker resolves against,
+and is allowed to reference. Deliberately exclude abstract base classes
+like DatabaseConfig, as they are not meant to be constructed directly.
+"""
 _REF_SECTIONS: dict[type[BaseModel], str] = {
     ConnectionConfig: "connections",
     ProviderConfig: "providers",
@@ -106,15 +109,6 @@ _REF_SECTIONS: dict[type[BaseModel], str] = {
     CDMDatabaseConfig: "databases",
     VectorStoreConfig: "vector_stores",
 }
-"""Which StackConfig dict a RefTo(target) marker resolves against.
-
-Deliberately excludes the abstract `DatabaseConfig` base: `kind` has no
-default there, so a `RefTo(DatabaseConfig)`-typed field would let the CLI
-wizard construct a bare `DatabaseConfig` instance instead of one of its
-concrete subclasses. Use `RefTo(CDMDatabaseConfig)`/`RefTo(GenericDatabaseConfig)`
-instead; `DatabaseConfig` itself stays valid for `isinstance` checks and as
-`DatabaseEntry`'s discriminated-union base.
-"""
 
 
 class UnknownRefTarget(TypeError):

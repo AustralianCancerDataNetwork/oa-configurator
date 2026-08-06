@@ -226,6 +226,31 @@ class TestDatabasesList:
         assert "cdm_db" in result.output
         assert "omop" in result.output
 
+    def test_shows_cdm_only_columns_in_a_mixed_section(self, isolated_config, monkeypatch):
+        """A GenericDatabaseConfig alongside a CDMDatabaseConfig must not
+        hide the CDM-only columns (vocab_connection etc.), which the base
+        DatabaseConfig type alone doesn't have."""
+        monkeypatch.setenv("COLUMNS", "300")  # avoid rich truncating columns under CliRunner's default width
+        _seed(
+            isolated_config,
+            StackConfig.for_session(
+                connections={
+                    "cdm": ConnectionConfig(dialect="sqlite"),
+                    "vocab": ConnectionConfig(dialect="sqlite"),
+                    "emb": ConnectionConfig(dialect="sqlite"),
+                },
+                databases={
+                    "cdm_db": CDMDatabaseConfig(connection="cdm", schema_name="omop", vocab_connection="vocab"),
+                    "emb_db": GenericDatabaseConfig(connection="emb"),
+                },
+            ),
+        )
+        result = runner.invoke(cli.app, ["databases", "list"])
+        assert result.exit_code == 0
+        assert "vocab_connection" in result.output
+        assert "vocab" in result.output
+        assert "emb_db" in result.output
+
 
 class TestProvidersAdd:
     def test_non_interactive_creates_provider(self, isolated_config):

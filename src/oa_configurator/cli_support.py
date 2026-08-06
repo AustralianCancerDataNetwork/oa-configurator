@@ -140,10 +140,17 @@ def _list_entries(target: type[BaseModel], section: str) -> None:
         console.print(f"[yellow]No {section} configured.[/yellow]")
         return
 
-    field_names = [n for n, info in target.model_fields.items() if _is_flag_settable(info)]
+    # Union of fields across every entry's own runtime type, not just
+    # *target*'s, so a subclass-only column (e.g. vocab_connection) isn't hidden.
+    field_infos: dict[str, Any] = dict(target.model_fields)
+    for entry in section_dict.values():
+        for n, info in type(entry).model_fields.items():
+            field_infos.setdefault(n, info)
+    field_names = [n for n, info in field_infos.items() if _is_flag_settable(info)]
+
     table = Table("Name", *field_names)
     for entry_name in sorted(section_dict):
         entry = section_dict[entry_name]
-        row = ["[dim]-[/dim]" if (v := getattr(entry, f)) in (None, "") else str(v) for f in field_names]
+        row = ["[dim]-[/dim]" if (v := getattr(entry, f, None)) in (None, "") else str(v) for f in field_names]
         table.add_row(entry_name, *row)
     console.print(table)

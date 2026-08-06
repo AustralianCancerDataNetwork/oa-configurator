@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,8 @@ def write_env_file(resolver: Resolver, path: Path = FLAT_ENV_PATH) -> Path:
     ``config.toml``); LLM providers have no such bootstrapping need, since
     only the Python app itself ever calls one, always by reading
     ``config.toml`` directly through :class:`~oa_configurator.Resolver`.
+
+    May contain plaintext passwords; written with ``0600`` permissions.
     """
     path = _normalize_path(path)
     lines: list[str] = [
@@ -75,6 +78,7 @@ def write_env_file(resolver: Resolver, path: Path = FLAT_ENV_PATH) -> Path:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines), encoding="utf-8")
+    os.chmod(path, 0o600)
     return path
 
 
@@ -83,6 +87,8 @@ def save_stack_config(config: StackConfig, path: Path = CONFIG_PATH) -> Path:
 
     Does NOT preserve comments or original formatting. The ``logging`` section
     is omitted when it equals the default (no custom logging configured).
+    Written with ``0600`` permissions, since it may contain plaintext
+    passwords.
 
     TODO: adopt ``tomlkit`` for round-trip serialisation that preserves comments
     and original ordering.
@@ -96,6 +102,7 @@ def save_stack_config(config: StackConfig, path: Path = CONFIG_PATH) -> Path:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(tomli_w.dumps(payload), encoding="utf-8")
+    os.chmod(path, 0o600)
     invalidate_cache()
     return path
 

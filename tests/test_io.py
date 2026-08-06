@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import stat
 import tomllib
 
 from oa_configurator import Resolver, StackConfig, ConnectionConfig, CDMDatabaseConfig
@@ -100,6 +101,11 @@ class TestWriteEnvFile:
         out = tmp_path / "config.env"
         assert write_env_file(Resolver(_make_cdm_stack()), path=out) == out
 
+    def test_written_with_owner_only_permissions(self, tmp_path):
+        out = tmp_path / "config.env"
+        write_env_file(Resolver(_make_cdm_stack()), path=out)
+        assert stat.S_IMODE(out.stat().st_mode) == 0o600
+
 
 class TestSaveStackConfig:
     def test_creates_file(self, tmp_path):
@@ -143,3 +149,8 @@ class TestSaveStackConfig:
         out = tmp_path / "nested" / "dirs" / "config.toml"
         save_stack_config(StackConfig.for_session(), out)
         assert out.exists()
+
+    def test_written_with_owner_only_permissions(self, tmp_path):
+        out = tmp_path / "config.toml"
+        save_stack_config(StackConfig.for_session(), out)
+        assert stat.S_IMODE(out.stat().st_mode) == 0o600

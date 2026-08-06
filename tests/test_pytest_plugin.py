@@ -28,7 +28,12 @@ from oa_configurator import (
     RefTo,
     StackConfig
 )
-from oa_configurator.pytest_plugin import create_fresh_test_db, drop_test_db, resolve_test_database
+from oa_configurator.pytest_plugin import (
+    create_fresh_test_db,
+    drop_test_db,
+    pytest_runtest_setup,
+    resolve_test_database,
+)
 
 
 class DemoTestConfig(PackageConfigBase):
@@ -201,3 +206,49 @@ class TestRefuseIfProduction:
 
         with pytest.raises(RuntimeError, match="orphan_prod"):
             create_fresh_test_db("postgresql+psycopg://user:pw@dbhost:5432/vocab_name")
+
+
+class _FakeMarker:
+    def __init__(self, *args):
+        self.args = args
+
+
+class _FakeItem:
+    """Minimal stand-in for pytest.Item: only iter_markers is used by
+    pytest_runtest_setup."""
+
+    def __init__(self, *database_names: str):
+        self._markers = [_FakeMarker(name) for name in database_names]
+
+    def iter_markers(self, name):
+        return iter(self._markers) if name == "requires_database" else iter([])
+
+
+class TestRequiresDatabaseMarker:
+    """The requires_database marker must apply the same test_only safety
+    check as resolve_test_database, not just check the database resolves."""
+
+    def test_fails_when_database_is_not_test_only(self, monkeypatch):
+        cfg = StackConfig.for_session(
+            connections={"prod": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=False)},
+            databases={"prod_db": CDMDatabaseConfig(connection="prod")},
+        )
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        with pytest.raises(pytest.fail.Exception, match="test_only"):
+            pytest_runtest_setup(_FakeItem("prod_db"))
+
+    def test_skips_when_database_not_configured(self, monkeypatch):
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: StackConfig.for_session())
+
+        with pytest.raises(pytest.skip.Exception):
+            pytest_runtest_setup(_FakeItem("missing_db"))
+
+    def test_passes_when_test_only(self, monkeypatch):
+        cfg = StackConfig.for_session(
+            connections={"test_conn": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=True)},
+            databases={"test_db": CDMDatabaseConfig(connection="test_conn")},
+        )
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        pytest_runtest_setup(_FakeItem("test_db"))  # must not raise

@@ -326,7 +326,8 @@ else:
     def pytest_configure(config: pytest.Config) -> None:
         config.addinivalue_line(
             "markers",
-            "requires_database(*args): skip when a named OA_Configurator database is absent. "
+            "requires_database(*args): skip when a named OA_Configurator database is absent, "
+            "fail if it resolves to a non-test_only connection. "
             "Accepts one or more database-name strings.",
         )
 
@@ -334,9 +335,13 @@ else:
         for marker in item.iter_markers("requires_database"):
             for name in marker.args:
                 try:
-                    Resolver.from_active_config().resolve_database(str(name))
+                    resolver = Resolver.from_active_config()
+                    resolved = resolver.resolve_database(str(name))
                 except Exception:
                     pytest.skip(_skip_message(str(name)))
+                connection_name = resolved.connection.name
+                if not resolver.config.connections[connection_name].test_only:
+                    pytest.fail(_not_test_only_message(str(name), connection_name))
 
     # ---------------------------------------------------------------------------
     # Fixture-level helper (used in conftest.py)

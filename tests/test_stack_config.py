@@ -22,9 +22,13 @@ class TestConnectionConfig:
         db = ConnectionConfig(dialect="sqlite", database_name=":memory:")
         assert db.build_url() == "sqlite:///:memory:"
 
-    def test_sqlite_default_database(self):
+    def test_sqlite_without_database_name_raises(self):
+        """No implicit ':memory:' fallback: an unset database_name for a
+        sqlite dialect would otherwise silently discard data on every
+        restart, with no indication anything was ever in-memory."""
         db = ConnectionConfig(dialect="sqlite")
-        assert db.build_url() == "sqlite:///:memory:"
+        with pytest.raises(ValueError, match="database_name"):
+            db.build_url()
 
     def test_pg_build_url_includes_password(self):
         db = ConnectionConfig(

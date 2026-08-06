@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
@@ -85,10 +85,15 @@ class ConnectionConfig(BaseModel):
             if v is not None and k != "test_only"
         ]
 
-    def _build_url(self, hide_password: bool) -> str:
+    def _build_url_obj(self) -> URL:
         if self.dialect.startswith("sqlite"):
-            db = self.database_name or ":memory:"
-            return f"sqlite:///{db}"
+            if not self.database_name:
+                raise ValueError(
+                    "ConnectionConfig has no `database_name` set for a sqlite dialect and no"
+                    " longer defaults to ':memory:'. Set `database_name` explicitly -- pass"
+                    " ':memory:' if that's actually what you want."
+                )
+            return URL.create(drivername=self.dialect, database=self.database_name)
         if not self.host:
             raise ValueError(
                 "ConnectionConfig has no `host` set and no longer defaults to 'localhost'."
@@ -101,7 +106,7 @@ class ConnectionConfig(BaseModel):
             host=self.host,
             port=self.port,
             database=self.database_name or "",
-        ).render_as_string(hide_password=hide_password)
+        )
 
     def build_url(self) -> str:
         """Build the full connection URL, including the plaintext password.
@@ -110,10 +115,10 @@ class ConnectionConfig(BaseModel):
         -------
         str
             SQLAlchemy-compatible connection URL. For SQLite, returns
-            ``sqlite:///<database>`` (or ``sqlite:///:memory:`` when
-            ``database`` is not set).
+            ``sqlite:///<database_name>``; ``database_name`` must be set
+            explicitly (e.g. to ``:memory:``), there is no implicit default.
         """
-        return self._build_url(hide_password=False)
+        return self._build_url_obj().render_as_string(hide_password=False)
 
     def safe_url(self) -> str:
         """Build the connection URL with the password redacted.
@@ -126,11 +131,17 @@ class ConnectionConfig(BaseModel):
         str
             Connection URL with ``***`` substituted for the password field.
         """
-        return self._build_url(hide_password=True)
+        return self._build_url_obj().render_as_string(hide_password=True)
 
     def resolve(self, name: str) -> ResolvedConnection:
         """Resolve this connection to a concrete, engine-ready target."""
-        return ResolvedConnection(name=name, url=self.build_url(), safe_url=self.safe_url())
+        url_obj = self._build_url_obj()
+        return ResolvedConnection(
+            name=name,
+            url=url_obj.render_as_string(hide_password=False),
+            safe_url=url_obj.render_as_string(hide_password=True),
+            _engine_url=url_obj,
+        )
 
 
 class DatabaseKind(str, Enum):
@@ -256,11 +267,15 @@ class ResolvedConnection:
         visibility can't be changed without breaking callers.
     safe_url : str
         Database URL with credentials redacted, safe for logging and display.
+    _engine_url : sqlalchemy.engine.URL
+        SQLAlchemy URL object used for engine creation. Avoids the lossy string
+        round-trip through ``url`` for SQLite paths containing ``?``/``#``.
     """
 
     name: str
     url: str
     safe_url: str
+    _engine_url: URL = field(repr=False, compare=False)
 
     def create_engine(self, **kwargs: Any) -> Engine:
         """Create a SQLAlchemy engine for this connection.
@@ -274,7 +289,7 @@ class ResolvedConnection:
         -------
         sqlalchemy.engine.Engine
         """
-        return sa.create_engine(self.url, **kwargs)
+        return sa.create_engine(self._engine_url, **kwargs)
 
     def __repr__(self) -> str:
         return f"ResolvedConnection(name={self.name!r}, safe_url={self.safe_url!r})"

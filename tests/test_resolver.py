@@ -45,6 +45,33 @@ class TestResolveConnection:
         with pytest.raises(KeyError, match="Unknown connection"):
             r.resolve_connection("does_not_exist")
 
+    def test_sqlite_path_with_reserved_characters_connects_to_the_right_file(self, tmp_path):
+        """`?`/`#` in a sqlite path are query/fragment syntax once rendered
+        to a URL string and re-parsed -- create_engine() must not round-trip
+        through the string form, or it silently connects to a truncated path."""
+        db_path = tmp_path / "emb?x=1#frag.db"
+        cfg = StackConfig.for_session(
+            connections={"db": ConnectionConfig(dialect="sqlite", database_name=str(db_path))}
+        )
+        target = Resolver(cfg).resolve_connection("db")
+        engine = target.create_engine()
+        try:
+            with engine.connect():
+                pass
+        finally:
+            engine.dispose()
+        assert db_path.exists()
+
+    def test_sqlite_url_string_still_reflects_reserved_characters(self, tmp_path):
+        """.url/.safe_url stay plain strings for logging/.env export."""
+        db_path = tmp_path / "emb?x=1#frag.db"
+        cfg = StackConfig.for_session(
+            connections={"db": ConnectionConfig(dialect="sqlite", database_name=str(db_path))}
+        )
+        target = Resolver(cfg).resolve_connection("db")
+        assert str(db_path) in target.url
+        assert str(db_path) in target.safe_url
+
 
 class TestResolveDatabase:
     def test_connection_resolved(self, minimal_stack):

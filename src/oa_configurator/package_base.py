@@ -172,7 +172,7 @@ class PackageConfigBase(BaseModel):
             current = Resolver(config).resolve_package_config(cls)
             current_dict = current.to_extra_dict()
         except (ConfigurationError, ValueError):
-            current_dict = {}
+            current_dict = dict(config.tools.get(cls.tool_name, {}))
 
         extra: dict[str, Any] = {}
         missing_required: list[str] = []

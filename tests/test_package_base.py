@@ -351,3 +351,23 @@ class TestResolveFieldsPlainFieldHandling:
         monkeypatch.setattr(typer, "prompt", lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not prompt")))
         extra = DictFieldConfig.resolve_fields(cfg, set_dict={}, interactive=True)
         assert extra["configuration"] == {"k": "v"}
+
+
+class MixedFieldConfig(PackageConfigBase):
+    tool_name: ClassVar[str] = "mixed_field_tool"
+    cdm_db: Annotated[str, RefTo(CDMDatabaseConfig)] = "cdm_db"
+    backend: str = "default_backend"
+
+
+class TestResolveFieldsStaleRefFallback:
+    def test_one_dangling_ref_does_not_wipe_other_stored_fields(self):
+        """resolve_package_config raises on the dangling cdm_db ref, so the
+        except branch's fallback is what resolve_fields actually sees --
+        it must preserve the raw stored section (backend included), not
+        reset to an empty dict and lose every other already-configured
+        field along with the one broken one."""
+        cfg = StackConfig.for_session(
+            tools={"mixed_field_tool": {"cdm_db": "does-not-exist", "backend": "custom_value"}},
+        )
+        extra = MixedFieldConfig.resolve_fields(cfg, set_dict={}, interactive=False)
+        assert extra["backend"] == "custom_value"

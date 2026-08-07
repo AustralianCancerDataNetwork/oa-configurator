@@ -362,7 +362,7 @@ class MixedFieldConfig(PackageConfigBase):
 class TestResolveFieldsStaleRefFallback:
     def test_one_dangling_ref_does_not_wipe_other_stored_fields(self):
         """resolve_package_config raises on the dangling cdm_db ref, so the
-        except branch's fallback is what resolve_fields actually sees --
+        except branch's fallback is what resolve_fields actually sees. In that case,
         it must preserve the raw stored section (backend included), not
         reset to an empty dict and lose every other already-configured
         field along with the one broken one."""

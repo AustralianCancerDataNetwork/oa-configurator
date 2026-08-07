@@ -48,7 +48,13 @@ class ConnectionConfig(BaseModel):
     dialect: str = Field(
         description="SQLAlchemy dialect string, e.g. 'postgresql+psycopg', 'mssql+pyodbc', 'sqlite'."
     )
-    host: str | None = Field(default=None, description="Hostname or IP address.")
+    host: str | None = Field(
+        default=None,
+        description=(
+            "Hostname or IP address. Required for every dialect except SQLite, which "
+            "connects to a local file and has no host to speak of."
+        ),
+    )
     port: int | None = Field(default=None, description="Port number.")
     user: str | None = Field(default=None, description="Database username.")
     password: Annotated[str | None, Sensitive()] = Field(
@@ -57,7 +63,10 @@ class ConnectionConfig(BaseModel):
     )
     database_name: str | None = Field(
         default=None,
-        description="Database name on the server. For SQLite use ':memory:' or an absolute path.",
+        description=(
+            "Database name on the server. Required for SQLite, which has no implicit "
+            "default: pass an absolute path, or ':memory:' for an in-memory database."
+        ),
     )
     test_only: bool = Field(
         default=False,

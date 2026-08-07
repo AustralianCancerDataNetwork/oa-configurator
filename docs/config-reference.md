@@ -13,11 +13,11 @@ One section per named physical connection: server address, credentials, target d
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `dialect` | string | **yes** | SQLAlchemy dialect string, e.g. `postgresql+psycopg`, `mssql+pyodbc`, `sqlite` |
-| `host` | string | no | Hostname or IP |
+| `host` | string | for non-SQLite | Hostname or IP. Required for every dialect except SQLite, which connects to a local file and has no host to speak of. |
 | `port` | int | no | Port number |
 | `user` | string | no | Database username |
 | `password` | string | no | Plaintext password *(see security note below)* |
-| `database_name` | string | no | Database name on the server. For SQLite, use `:memory:` or an absolute path. |
+| `database_name` | string | for SQLite | Database name on the server. Required for SQLite (no implicit default): an absolute path, or `:memory:` for an in-memory database. |
 | `test_only` | bool | `false` | Marks this connection as intended for testing only. Excluded from production database prompts; used as a safety check to prevent accidental test operations on production data. |
 
 !!! warning "Security note"

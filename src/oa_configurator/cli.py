@@ -111,7 +111,12 @@ def _build_package_command(ep_name: str, cls: type[PackageConfigBase]) -> click.
     def callback(**kwargs):
         set_values = kwargs.pop("set_values", ())
         set_dict: dict[str, Any] = {k: str(v) for k, v in kwargs.items() if k in extra_names and v is not None}
-        set_dict.update(_parse_set_flags(tuple(set_values)))
+        parsed = _parse_set_flags(tuple(set_values))
+        if clash := set(set_dict) & set(parsed):
+            raise typer.BadParameter(
+                f"--set targets {sorted(clash)}, also given as a flag. Use one or the other."
+            )
+        set_dict.update(parsed)
         cls.run_configure(set_dict, interactive=not set_dict)
 
     return click.Command(

@@ -676,6 +676,40 @@ class TestConfigureSetFlag:
         conn_name = config.databases[cdm_db_name].connection
         assert config.connections[conn_name].dialect == "sqlite"
 
+    def test_set_flag_clashing_with_same_field_flag_fails(self, isolated_config, monkeypatch):
+        """--cdm-db and --set cdm_db.* both target the cdm_db field: must be
+        rejected, not have --set silently win and edit/create the wrong
+        (default-named) entry while the flag's chosen entry is untouched."""
+        _seed(isolated_config, StackConfig.for_session(
+            connections={"prod": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={"cdm_db_prod": CDMDatabaseConfig(connection="prod", schema_name="prod_omop")},
+        ))
+
+        class FakeEP:
+            name = "demo_tool"
+
+            def load(self):
+                return DemoConfig
+
+        monkeypatch.setattr(
+            cli, "entry_points",
+            lambda group=None: [FakeEP()] if group == cli.ENTRY_POINT_GROUP else [],
+        )
+        result = runner.invoke(
+            cli.app,
+            [
+                "configure", "demo_tool",
+                "--cdm-db", "cdm_db_prod",
+                "--set", "cdm_db.schema_name=analytics",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "cdm_db" in result.output
+        config = _load_from_path(isolated_config)
+        assert config.databases["cdm_db_prod"].schema_name == "prod_omop"
+        assert "cdm_db" not in config.databases
+        assert "demo_tool" not in config.tools
+
     def test_set_flag_typo_in_subfield_fails_instead_of_silent_no_op(self, isolated_config, monkeypatch):
         """cdm_db.shema_name (typo for schema_name) must be rejected, not
         silently dropped while the rest of the entry still saves."""

@@ -190,6 +190,37 @@ class TestResolveModel:
         assert model.document_prefix is None
         assert model.query_prefix is None
 
+    def test_capability_fields_default_to_false(self):
+        """Opt-in, not opt-out: neither any-llm nor omop-llm can introspect
+        a model's real capabilities, so an unconfigured model is assumed
+        to support nothing rather than everything -- a wrong "no" fails
+        loudly at the call site, a wrong "yes" fails silently in production."""
+        cfg = StackConfig.for_session(
+            providers={"p": ProviderConfig(provider="p")},
+            models={"m": ModelConfig(provider="p", model="local-chat")},
+        )
+        r = Resolver(cfg)
+        model = r.resolve_model("m")
+        assert model.embeddings is False
+        assert model.tool_use is False
+        assert model.structured_output is False
+        assert model.extended_thinking is False
+
+    def test_capability_fields_can_be_declared(self):
+        cfg = StackConfig.for_session(
+            providers={"p": ProviderConfig(provider="anthropic")},
+            models={
+                "m": ModelConfig(
+                    provider="p", model="claude-test",
+                    embeddings=False, tool_use=True, structured_output=True, extended_thinking=True,
+                )
+            },
+        )
+        r = Resolver(cfg)
+        model = r.resolve_model("m")
+        assert model.tool_use is True
+        assert model.embeddings is False
+
     def test_unknown_model_raises(self):
         cfg = StackConfig.for_session()
         r = Resolver(cfg)

@@ -384,6 +384,7 @@ class TestResolveRef:
             "",              # model: query_prefix
         ])
         monkeypatch.setattr(cli.typer, "prompt", lambda *a, **k: next(answers))
+        monkeypatch.setattr(cli.typer, "confirm", lambda *a, **k: True)
         config = StackConfig.for_session()
         result = _resolve_ref("embedding_model_name", "desc", ModelConfig, config, default_name="new-model")
         assert result == "new-model"
@@ -744,7 +745,8 @@ class TestModelsList:
         assert result.exit_code == 0
         assert "No models configured" in result.output
 
-    def test_lists_configured_models(self, isolated_config):
+    def test_lists_configured_models(self, isolated_config, monkeypatch):
+        monkeypatch.setenv("COLUMNS", "300")  # avoid rich truncating columns under CliRunner's default width
         _seed(
             isolated_config,
             StackConfig.for_session(

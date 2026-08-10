@@ -75,6 +75,22 @@ class ModelConfig(BaseModel):
         default=None,
         description="Prefix prepended to query text before embedding, for asymmetric embedding models (e.g. nomic-embed-text, E5, BGE).",
     )
+    embeddings: bool = Field(
+        default=False,
+        description="Whether this specific model supports the embeddings endpoint. Opt-in: neither any-llm nor omop-llm can introspect this per model, so it isn't assumed.",
+    )
+    tool_use: bool = Field(
+        default=False,
+        description="Whether this specific model supports tool/function calling. Opt-in, see `embeddings`.",
+    )
+    structured_output: bool = Field(
+        default=False,
+        description="Whether this specific model supports structured (schema-constrained) output. Opt-in, see `embeddings`.",
+    )
+    extended_thinking: bool = Field(
+        default=False,
+        description="Whether this specific model supports reasoning/extended-thinking output. Opt-in, see `embeddings`.",
+    )
     configuration: dict[str, Any] = Field(
         default_factory=dict,
         description="Free-form per-model knobs (max_tokens, temperature, and so on) with no dedicated field, passed through verbatim to the underlying call.",
@@ -94,6 +110,10 @@ class ModelConfig(BaseModel):
             embedding_dim=self.embedding_dim,
             document_prefix=self.document_prefix,
             query_prefix=self.query_prefix,
+            embeddings=self.embeddings,
+            tool_use=self.tool_use,
+            structured_output=self.structured_output,
+            extended_thinking=self.extended_thinking,
             configuration=dict(self.configuration),
         )
 
@@ -146,6 +166,16 @@ class ResolvedModel:
     query_prefix : str, optional
         Prefix prepended to query text before embedding, for asymmetric
         embedding models.
+    embeddings : bool
+        Whether this specific model supports the embeddings endpoint.
+    tool_use : bool
+        Whether this specific model supports tool/function calling.
+    structured_output : bool
+        Whether this specific model supports structured (schema-constrained)
+        output.
+    extended_thinking : bool
+        Whether this specific model supports reasoning/extended-thinking
+        output.
     configuration : dict[str, Any]
         Free-form per-model knobs (max_tokens, temperature, and so on) with
         no dedicated field.
@@ -157,6 +187,10 @@ class ResolvedModel:
     embedding_dim: int | None
     document_prefix: str | None
     query_prefix: str | None
+    embeddings: bool
+    tool_use: bool
+    structured_output: bool
+    extended_thinking: bool
     configuration: dict[str, Any]
 
     def __repr__(self) -> str:

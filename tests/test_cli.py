@@ -313,6 +313,10 @@ class TestModelsAdd:
                 "p",
                 "--model",
                 "nomic-embed-text:v1.5",
+                "--embeddings",
+                "--tool-use",
+                "--structured-output",
+                "--extended-thinking",
                 "--embedding-dim",
                 "768",
                 "--document-prefix",
@@ -327,6 +331,10 @@ class TestModelsAdd:
         assert model.provider == "p"
         assert model.model == "nomic-embed-text:v1.5"
         assert model.embedding_dim == 768
+        assert model.embeddings is True
+        assert model.tool_use is True
+        assert model.structured_output is True
+        assert model.extended_thinking is True
         assert model.document_prefix == "search_document: "
         assert model.query_prefix == "search_query: "
 
@@ -345,7 +353,17 @@ class TestModelsAdd:
             isolated_config,
             StackConfig.for_session(
                 providers={"p": ProviderConfig(provider="ollama")},
-                models={"m": ModelConfig(provider="p", model="local-chat", configuration={"max_tokens": 8000})},
+                models={
+                    "m": ModelConfig(
+                        provider="p",
+                        model="nomic-embed-text",
+                        embeddings=True,
+                        tool_use=True,
+                        structured_output=True,
+                        extended_thinking=True,
+                        configuration={"max_tokens": 8000},
+                    )
+                },
             ),
         )
         result = runner.invoke(cli.app, ["models", "add", "m", "--embedding-dim", "768"])
@@ -353,6 +371,22 @@ class TestModelsAdd:
         config = _load_from_path(isolated_config)
         assert config.models["m"].configuration == {"max_tokens": 8000}
         assert config.models["m"].embedding_dim == 768
+        assert config.models["m"].embeddings is True
+        assert config.models["m"].tool_use is True
+        assert config.models["m"].structured_output is True
+        assert config.models["m"].extended_thinking is True
+
+    def test_non_embedding_model_rejects_embedding_dim(self, isolated_config):
+        _seed(isolated_config, StackConfig.for_session(providers={"p": ProviderConfig(provider="ollama")}))
+        result = runner.invoke(
+            cli.app,
+            ["models", "add", "chat", "--provider", "p", "--model", "local-chat", "--embedding-dim", "768"],
+        )
+        assert result.exit_code != 0
+        assert result.exception is not None
+        assert "embedding_dim requires embeddings=true" in str(result.exception)
+        config = _load_from_path(isolated_config)
+        assert "chat" not in config.models
 
 
 class TestResolveRef:
@@ -756,6 +790,7 @@ class TestModelsList:
                         provider="p",
                         model="nomic-embed-text",
                         embedding_dim=768,
+                        embeddings=True,
                         document_prefix="search_document: ",
                     )
                 },

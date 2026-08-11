@@ -168,6 +168,7 @@ class TestResolveModel:
                     provider="p",
                     model="nomic-embed-text",
                     embedding_dim=768,
+                    embeddings=True,
                     document_prefix="search_document: ",
                     query_prefix="search_query: ",
                 )

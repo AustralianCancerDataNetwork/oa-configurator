@@ -40,6 +40,10 @@ def models_add(
     provider: Annotated[str | None, typer.Option(help=ModelConfig.model_fields["provider"].description)] = None,
     model: Annotated[str | None, typer.Option(help=ModelConfig.model_fields["model"].description)] = None,
     embedding_dim: Annotated[str | None, typer.Option(help=ModelConfig.model_fields["embedding_dim"].description)] = None,
+    embeddings: Annotated[bool | None, typer.Option(help=ModelConfig.model_fields["embeddings"].description)] = None,
+    tool_use: Annotated[bool | None, typer.Option(help=ModelConfig.model_fields["tool_use"].description)] = None,
+    structured_output: Annotated[bool | None, typer.Option(help=ModelConfig.model_fields["structured_output"].description)] = None,
+    extended_thinking: Annotated[bool | None, typer.Option(help=ModelConfig.model_fields["extended_thinking"].description)] = None,
     document_prefix: Annotated[str | None, typer.Option(help=ModelConfig.model_fields["document_prefix"].description)] = None,
     query_prefix: Annotated[str | None, typer.Option(help=ModelConfig.model_fields["query_prefix"].description)] = None,
 ) -> None:
@@ -47,6 +51,8 @@ def models_add(
     flags = {
         k: v for k, v in {
             "provider": provider, "model": model, "embedding_dim": embedding_dim,
+            "embeddings": embeddings, "tool_use": tool_use,
+            "structured_output": structured_output, "extended_thinking": extended_thinking,
             "document_prefix": document_prefix, "query_prefix": query_prefix,
         }.items() if v is not None
     } or None

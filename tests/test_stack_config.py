@@ -233,12 +233,26 @@ class TestModelConfig:
             provider="p",
             model="nomic-embed-text",
             embedding_dim=768,
+            embeddings=True,
             document_prefix="search_document: ",
             query_prefix="search_query: ",
         )
         assert model.embedding_dim == 768
         assert model.document_prefix == "search_document: "
         assert model.query_prefix == "search_query: "
+
+    def test_embedding_dim_requires_embeddings(self):
+        with pytest.raises(ValueError, match="embedding_dim requires embeddings=true"):
+            ModelConfig(provider="p", model="nomic-embed-text", embedding_dim=768)
+
+    def test_embedding_dim_is_valid_when_embeddings_are_enabled(self):
+        model = ModelConfig(
+            provider="p",
+            model="nomic-embed-text",
+            embedding_dim=768,
+            embeddings=True,
+        )
+        assert model.embedding_dim == 768
 
     def test_configuration_defaults_independent_per_instance(self):
         a = ModelConfig(provider="p", model="m1")

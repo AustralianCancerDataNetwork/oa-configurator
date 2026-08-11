@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ...refs import RefTo, Sensitive
 
@@ -95,6 +95,13 @@ class ModelConfig(BaseModel):
         default_factory=dict,
         description="Free-form per-model knobs (max_tokens, temperature, and so on) with no dedicated field, passed through verbatim to the underlying call.",
     )
+
+    @model_validator(mode="after")
+    def validate_embedding_configuration(self) -> ModelConfig:
+        """Reject embedding dimensions on models without embedding support."""
+        if self.embedding_dim is not None and not self.embeddings:
+            raise ValueError("embedding_dim requires embeddings=true")
+        return self
 
     def resolve(self, name: str, stack: StackConfig) -> ResolvedModel:
         """Resolve this model to a concrete, backend-ready configuration.

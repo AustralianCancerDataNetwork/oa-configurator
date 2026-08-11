@@ -32,9 +32,10 @@ DEFAULT_CONFIG_PATH = _normalize_path("~/.config/omop/config.toml")
 class _ConfigCache:
     """Process-local cache for loaded StackConfig.
 
-    Invalidated automatically by file content changes (mtime + size) and by
-    the env var that affects parsing (OA_CONFIG_PATH), so callers never need
-    to invalidate it themselves for normal reads. Writers
+    Invalidated automatically by file content changes (mtime + size), so callers
+    never need to invalidate it themselves for normal reads. ``OA_CONFIG_PATH``
+    is resolved once at module import; changing it within a running process does
+    not retarget ``CONFIG_PATH``. Writers
     (:func:`~oa_configurator.io.save_stack_config`) call :meth:`clear`
     directly after writing, as a guard against filesystems with coarse mtime
     resolution.
@@ -99,6 +100,10 @@ def invalidate_cache() -> None:
 def load_stack_config() -> StackConfig:
     """Load a :class:`StackConfig` from ``CONFIG_PATH``
     (default ``~/.config/omop/config.toml``, overridable via ``OA_CONFIG_PATH``).
+
+    ``OA_CONFIG_PATH`` is resolved when this module is first imported. Set it
+    before starting the process; changing it at runtime does not change
+    ``CONFIG_PATH``.
 
     Raises
     ------

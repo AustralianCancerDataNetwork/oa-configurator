@@ -23,7 +23,7 @@ pip install oa-configurator
 ```python
 from oa_configurator import load_stack_config, Resolver
 
-config = load_stack_config()          # reads OA_CONFIG_PATH, default ~/.config/omop/config.toml
+config = load_stack_config()          # OA_CONFIG_PATH is read at import; set it before process startup
 resolver = Resolver(config)
 
 database = resolver.resolve_database("cdm_db")

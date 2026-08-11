@@ -97,10 +97,10 @@ def mismatched_kind_refs(
             problems.append((field_name, value, ref.target, type(entry)))
     return problems
 
-"""Which StackConfig dict a RefTo(target) marker resolves against,
-and is allowed to reference. Deliberately exclude abstract base classes
-like DatabaseConfig, as they are not meant to be constructed directly.
-"""
+# Which StackConfig dict a RefTo(target) marker resolves against,
+# and is allowed to reference. Deliberately exclude abstract base classes
+# like DatabaseConfig, as they are not meant to be constructed directly.
+
 _REF_SECTIONS: dict[type[BaseModel], str] = {
     ConnectionConfig: "connections",
     ProviderConfig: "providers",

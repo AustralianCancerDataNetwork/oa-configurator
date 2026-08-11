@@ -3,6 +3,8 @@
 !!! note
     Configuration lives at `~/.config/omop/config.toml` by default. Override the path by setting
     `OA_CONFIG_PATH` to any `.toml` file (e.g. `OA_CONFIG_PATH=~/projects/omop.toml`).
+    The path is resolved when `oa_configurator` is first imported, so set the variable before
+    starting the process. Changing it within a running process does not change `CONFIG_PATH`.
 
 ---
 

@@ -48,10 +48,14 @@
 
     <div class="card">
       <div class="card-head">
-        <div class="name py-name">DatabaseConfig</div>
+        <div class="name py-name">CDMDatabaseConfig</div>
         <div class="name toml-name">[databases.mydb]</div>
       </div>
       <div class="card-body">
+        <div class="field">
+          <div class="py-cell"><span class="attr">kind <span class="type">: Literal["cdm"]</span></span></div>
+          <div class="toml-cell"><span class="k">kind</span> = <span class="v">"cdm"</span></div>
+        </div>
         <div class="field">
           <div class="py-cell"><span class="attr linked">connection <span class="type">: str</span></span></div>
           <div class="toml-cell"><span class="k">connection</span> = <span class="v linked">"myconn"</span></div>
@@ -61,16 +65,16 @@
           <div class="toml-cell"><span class="placeholder">unset, falls back to connection</span></div>
         </div>
         <div class="field">
-          <div class="py-cell"><span class="attr">cdm_schema <span class="type">: str</span></span></div>
-          <div class="toml-cell"><span class="k">cdm_schema</span> = <span class="v">"public"</span></div>
+          <div class="py-cell"><span class="attr">schema_name <span class="type">: str</span></span></div>
+          <div class="toml-cell"><span class="k">schema_name</span> = <span class="v">"omop"</span></div>
         </div>
         <div class="field">
           <div class="py-cell"><span class="attr">vocab_schema <span class="type">: str | None</span></span></div>
-          <div class="toml-cell"><span class="placeholder">unset, falls back to cdm_schema</span></div>
+          <div class="toml-cell"><span class="placeholder">unset, falls back to schema_name</span></div>
         </div>
         <div class="field">
           <div class="py-cell"><span class="attr">results_schema <span class="type">: str | None</span></span></div>
-          <div class="toml-cell"><span class="placeholder">unset, falls back to cdm_schema</span></div>
+          <div class="toml-cell"><span class="placeholder">unset, optional results schema</span></div>
         </div>
       </div>
     </div>
@@ -113,10 +117,12 @@
     </div>
 
     <div class="resolved-card">
-      <div class="name">ResolvedDatabase</div>
+      <div class="name">ResolvedCDMDatabase</div>
       <div class="body">
         connection <span class="type">: ResolvedConnection</span><br>
-        cdm_schema <span class="type">: str</span><br>
+        schema_name <span class="type">: str</span><br>
+        vocab_schema <span class="type">: str</span><br>
+        results_schema <span class="type">: str | None</span><br>
         create_engine() <span class="type">-&gt; Engine</span>
       </div>
     </div>

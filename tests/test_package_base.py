@@ -329,6 +329,11 @@ class BoolFieldConfig(PackageConfigBase):
     dry_run: bool = False
 
 
+class RequiredFieldConfig(PackageConfigBase):
+    tool_name: ClassVar[str] = "required_field_tool"
+    required_value: str
+
+
 class DictFieldConfig(PackageConfigBase):
     tool_name: ClassVar[str] = "dict_field_tool"
     configuration: dict[str, Any] = {}
@@ -344,6 +349,19 @@ class TestResolveFieldsPlainFieldHandling:
         monkeypatch.setattr(typer, "confirm", lambda *a, **k: True)
         extra = BoolFieldConfig.resolve_fields(StackConfig.for_session(), set_dict={}, interactive=True)
         assert extra["dry_run"] is True
+
+    def test_required_plain_field_has_an_empty_prompt_default(self, monkeypatch):
+        seen_defaults: dict[str, str] = {}
+
+        def prompt(text, default="", **kwargs):
+            seen_defaults[text] = default
+            return "configured"
+
+        monkeypatch.setattr(typer, "prompt", prompt)
+        extra = RequiredFieldConfig.resolve_fields(StackConfig.for_session(), set_dict={}, interactive=True)
+
+        assert seen_defaults["required_value"] == ""
+        assert extra["required_value"] == "configured"
 
     def test_dict_field_is_not_prompted_and_carries_over_stored_value(self, monkeypatch):
         cfg = StackConfig.for_session(tools={"dict_field_tool": {"configuration": {"k": "v"}}})

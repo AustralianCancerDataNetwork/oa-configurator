@@ -232,7 +232,11 @@ class PackageConfigBase(BaseModel):
             else:
                 desc = info.description or ""
                 label = f"{field_name}" + (f"  ({desc})" if desc else "")
-                default_value = stored if stored is not None else (str(info.default) if info.default is not None else "")
+                default_value = stored if stored is not None else (
+                    str(info.default)
+                    if info.default not in (None, PydanticUndefined)
+                    else ""
+                )
                 raw = typer.prompt(label, default=default_value)
                 if raw and raw != "None":
                     extra[field_name] = raw

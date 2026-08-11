@@ -8,10 +8,10 @@ import typer
 
 from ...cli_support import _add_entry, _list_entries
 from .schema import (
-    CDMDatabaseConfig, 
-    ConnectionConfig, 
-    DatabaseConfig, 
-    DatabaseKind, 
+    CDMDatabaseConfig,
+    ConnectionConfig,
+    DatabaseConfig,
+    DatabaseKind,
     GenericDatabaseConfig
 )
 

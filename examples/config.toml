@@ -1,131 +1,126 @@
 # ~/.config/omop/config.toml
-# OMOP stack shared configuration
+# OMOP stack shared configuration, using the oa-configurator 1.0 schema.
 #
 # Manage with:   omop-config configure <package>
 # Verify:        omop-config verify
 # Export env:    omop-config export-env   (Docker Compose only)
 
-active_profile = "local"   # override at runtime: OA_ACTIVE_PROFILE=prod omop-config show
-
 # ---------------------------------------------------------------------------
-# Databases: one entry per physical database endpoint.
+# Connections: physical database endpoints.
 # Restrict file permissions: chmod 600 ~/.config/omop/config.toml
 # ---------------------------------------------------------------------------
 
-[databases.local_cdm]
+[connections.local_cdm]
 dialect       = "postgresql+psycopg"
 host          = "localhost"
 port          = 5432
 user          = "omop"
 password      = "omop"
 database_name = "omop_cdm"
-read_only     = false
-test_only     = false
 
-[databases.local_cdm_test]
+[connections.local_cdm_test]
 dialect       = "postgresql+psycopg"
 host          = "localhost"
 port          = 5432
 user          = "test"
 password      = "test"
 database_name = "test_db"
-read_only     = false
 test_only     = true
 
-[databases.prod_cdm]
+[connections.prod_cdm]
 dialect       = "postgresql+psycopg"
 host          = "prod.hospital.org"
 port          = 5432
 user          = "omop_prod"
 password      = "changeme"
 database_name = "omop_cdm"
-read_only     = false
-test_only     = false
 
-[databases.prod_emb]
+[connections.prod_emb]
 dialect       = "postgresql+psycopg"
 host          = "prod.hospital.org"
 port          = 5432
 user          = "omop_emb"
 password      = "changeme"
 database_name = "omop_emb"
-read_only     = false
-test_only     = false
 
 # ---------------------------------------------------------------------------
-# Resources: map logical OMOP roles to databases and schema names.
-# Referenced by name, either directly or via a typed ResourceRef declared on
-# a consuming package's PackageConfigBase subclass -- there is no renaming
-# mechanism, an owned resource must be configured under its own semantic name.
+# Databases: named logical targets built on connections.
+# Every entry requires kind = "generic" or kind = "cdm".
 # ---------------------------------------------------------------------------
 
-[resources.cdm_db]
-database   = "local_cdm"
-cdm_schema = "omop"
-# vocab_database  = "local_cdm"   # omit to fall back to database
-# vocab_schema    = "omop"        # omit to fall back to cdm_schema
-# results_schema  = "results"     # optional; used by Achilles / Atlas
+[databases.cdm_db]
+kind        = "cdm"
+connection  = "local_cdm"
+schema_name = "omop"
 
-[resources.test_cdm_db]
-database   = "local_cdm_test"
-cdm_schema = "public"
+[databases.test_cdm_db]
+kind        = "cdm"
+connection  = "local_cdm_test"
+schema_name = "public"
 
-[resources.emb_db]
-database   = "prod_emb"
-cdm_schema = "public"
+[databases.emb_db]
+kind        = "generic"
+connection  = "prod_emb"
+schema_name = "public"
+
+[databases.prod_cdm_db]
+kind           = "cdm"
+connection     = "prod_cdm"
+schema_name    = "omop"
+vocab_schema   = "vocab"
+results_schema = "results"
 
 # ---------------------------------------------------------------------------
-# Tools: per-package config, managed via `omop-config configure <package>`
-# Fields are package-specific -- each package defines its own typed schema.
+# Providers and models: reusable LLM/embedding backends.
+# ---------------------------------------------------------------------------
+
+[providers.local-ollama]
+provider = "ollama"
+base_url = "http://ollama:11434"
+
+[models.nomic-embed]
+provider        = "local-ollama"
+model           = "nomic-embed-text:v1.5"
+embedding_dim   = 768
+document_prefix = "search_document: "
+query_prefix    = "search_query: "
+embeddings      = true
+
+[models.chat]
+provider = "local-ollama"
+model    = "mistral-small3.2"
+tool_use = true
+
+# ---------------------------------------------------------------------------
+# Vector stores: embedding storage backed by a generic database.
+# ---------------------------------------------------------------------------
+
+[vector_stores.embedding_store]
+backend_type = "pgvector"
+database     = "emb_db"
+
+# ---------------------------------------------------------------------------
+# Tools: per-package config, managed via `omop-config configure <package>`.
+# Fields are package-specific; each package defines its own typed schema.
 # ---------------------------------------------------------------------------
 
 [tools.omop_alchemy]
 # athena_source_path = "/data/athena"   # path to Athena vocabulary CSVs
 
 [tools.omop_emb]
-backend                   = "pgvector"
-document_embedding_prefix = ""
-query_embedding_prefix    = ""
-ollama_api_base           = "http://ollama:11434/v1"
-api_key                   = "ollama"
-embedding_model           = "qwen3-embedding:0.6b"
+cdm_db               = "cdm_db"
+embedding_model_name = "nomic-embed"
+vector_store_name    = "embedding_store"
 
 [tools.omop_graph]
 max_depth = 6
 max_paths = 20
 
 [tools.omop_spires]
-ollama_api_base  = "http://ollama:11434/v1"
-instructor_model = "mistral-small3.2"
-api_key          = "ollama"
+model = "chat"
 
 # ---------------------------------------------------------------------------
-# Profiles: named overlays; activate with `omop-config use <profile>`
-# Each entry fully replaces the base entry with the same name.
-# Entries not listed here are inherited from the base config unchanged.
-# ---------------------------------------------------------------------------
-
-[profiles.local]
-# empty: no overrides → base databases/resources are used as-is
-
-[profiles.prod.databases.local_cdm]
-dialect       = "postgresql+psycopg"
-host          = "prod.hospital.org"
-port          = 5432
-user          = "omop_prod"
-password      = "changeme"
-database_name = "omop_cdm"
-read_only     = false
-test_only     = false
-
-[profiles.prod.resources.cdm_db]
-database       = "prod_cdm"
-cdm_schema     = "omop"
-vocab_schema   = "vocab"
-results_schema = "results"
-
-# ---------------------------------------------------------------------------
-# Logging (optional): omit for WARNING-level defaults
+# Logging (optional): omit for WARNING-level defaults.
 # ---------------------------------------------------------------------------
 
 [logging]

@@ -8,12 +8,21 @@ Example
 -------
 In ``<my-package>/config.py``::
 
-    from oa_configurator import PackageConfigBase
-    from typing import ClassVar
+    from typing import Annotated, ClassVar
+
+    from oa_configurator import CDMDatabaseConfig, ModelConfig, PackageConfigBase, RefTo
 
     class MyPackageConfig(PackageConfigBase):
         tool_name: ClassVar[str] = "<my-package>"
-        required_resources: ClassVar[tuple[str, ...]] = ("cdm_db",)
+        # A field naming an entry in another section. `omop-config configure`
+        # offers to reuse an existing one or create it on the spot, recursing
+        # into any RefTo fields the target itself has (e.g. a database's own
+        # connection). No separate declaration list: the field IS the
+        # declaration. Whether the entry ends up shared with another package
+        # is simply a matter of both packages' fields resolving to the same
+        # name.
+        cdm_db: Annotated[str, RefTo(CDMDatabaseConfig)] = "cdm_db"
+        embedding_model_name: Annotated[str, RefTo(ModelConfig)] = "embed-default"
         <additional typed fields here>
 
     config = MyPackageConfig.get_config()
@@ -26,137 +35,53 @@ In ``pyproject.toml``::
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, ClassVar, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 from pydantic import BaseModel
+from pydantic_core import PydanticUndefined
 
-from .models import DatabaseConfig, StackConfig
-
-
-@dataclass(frozen=True)
-class ResourceSpec:
-    """Declares a resource that a package owns and can configure interactively.
-
-    Packages that own a resource (i.e. they are responsible for prompting the
-    user to set it up) add instances to ``owned_resources`` on their
-    ``PackageConfigBase`` subclass.  The ``omop-config configure`` command
-    reads this tuple and invokes the connection + schema prompts for each
-    spec before asking for package-specific extras.
-
-    ``owned_resources`` is a CLI-only concern; it has no effect at runtime.
-
-    Attributes
-    ----------
-    cdm_schema_default
-        Default value for the schema prompt. Defaults to ``"omop"`` for OMOP
-        CDM databases. Set to ``"public"`` for non-CDM databases (e.g. the
-        pgvector embedding database).
-    is_cdm_database
-        When ``False``, the configure prompt skips the vocab schema and
-        results schema questions — those are OMOP CDM-specific concepts that
-        do not apply to other databases such as the pgvector embedding store.
-    connection_defaults
-        Optional pre-fill values for the connection prompts (dialect, host, port,
-        user, password, database_name), as a ``DatabaseConfig`` instance. Only the
-        fields actually set are used; the rest fall through to each field's own
-        default. Applied when there is no stored config for a field.
-    """
-
-    semantic_name: str
-    display_name: str
-    description: str
-    connection_name_hint: str = ""
-    cdm_schema_default: str = "omop"
-    is_cdm_database: bool = True
-    connection_defaults: DatabaseConfig | None = field(default=None, compare=False)
+if TYPE_CHECKING:
+    from .stack_config import StackConfig
 
 
 class ConfigurationError(ValueError):
-    """Raised when a required resource or connection is missing from the stack config."""
+    """Raised when a required database or connection is missing from the stack config."""
 
 
 class PackageConfigBase(BaseModel):
     """Typed view over a package's ``[tools.<tool_name>]`` TOML section.
 
-    Subclass this and declare the class variables below. Users who name their
-    resource differently can add a ``[resource_aliases]`` section to
-    config.toml (e.g. ``cdm_db = "my_prod"``) so all packages resolve
-    correctly without per-package ``default_resource`` overrides.
+    Subclass this and declare typed fields for whatever this package needs.
+    A field typed ``Annotated[str, RefTo(CDMDatabaseConfig)]`` (or ``RefTo(GenericDatabaseConfig)``/
+    ``RefTo(ModelConfig)``/``RefTo(ProviderConfig)``/``RefTo(ConnectionConfig)``) names an entry in that
+    section. ``omop-config configure`` resolves it interactively: reuse an
+    existing entry, or create one, recursing into any ``RefTo`` fields the
+    target itself has (e.g. a database's own connection).
+    :meth:`~oa_configurator.Resolver.resolve_package_config` validates that it
+    resolves, raising :exc:`ConfigurationError` if not. There is no separate
+    "required"/"owned" declaration. The field itself is the declaration,
+    and two packages share an entry simply by their fields resolving to the
+    same name.
 
     Attributes
     ----------
     tool_name : str
         Key used in ``[tools.<name>]``. Must be set on every subclass.
-    required_resources : tuple[str, ...]
-        Canonical resource names this package depends on. A missing resource
-        at :meth:`from_stack` time raises :exc:`ConfigurationError`.
-    owned_resources : tuple[ResourceSpec, ...]
-        Resources this package is responsible for configuring interactively.
-        ``omop-config configure`` prompts for these before package extras.
-    test_resources : tuple[ResourceSpec, ...]
-        Optional test-only resources. ``omop-config configure`` presents a
-        Y/N prompt for these after the main resource flow. Marked with a
-        DROP SCHEMA warning; a collision check prevents pointing at any
-        already-configured non-test resource.
     extra_logging_namespaces : tuple[str, ...]
         Logger namespaces of transitive dependencies to configure alongside
         this package. The package's own ``tool_name``
-        are always included -> only list additional roots here, e.g.
-        ``("<my_extra_package_to_log",)``. Missing namespaces are harmless.
+        is always included; only list additional roots here, e.g.
+        ``("my_extra_package_to_log",)``. Missing namespaces are harmless.
     """
 
     tool_name: ClassVar[str]
-    required_resources: ClassVar[tuple[str, ...]] = ()
-    owned_resources: ClassVar[tuple[ResourceSpec, ...]] = ()
-    test_resources: ClassVar[tuple[ResourceSpec, ...]] = ()
     extra_logging_namespaces: ClassVar[tuple[str, ...]] = ()
-
-    @classmethod
-    def from_stack(cls, config: StackConfig) -> Self:
-        """Load this package's section from a :class:`StackConfig`.
-
-        Validates that all :attr:`required_resources` (or the
-        ``default_resource`` override) are present in the config before
-        instantiating. Alias resolution via ``config.resource_aliases`` is
-        applied before the existence check. Raises :exc:`ConfigurationError`
-        with an actionable message if any are missing.
-        """
-        tool = config.tools.get(cls.tool_name)
-        override = tool.default_resource if tool else None
-
-        available: set[str] = set(config.resource_names())
-        if config.active_profile and config.active_profile in config.profiles:
-            available |= set(config.profiles[config.active_profile].resources)
-
-        # default_resource is a user-level alias for required_resources[0]. Treat it as a
-        # substitute for the first entry but still validate the rest of required_resources.
-        if override and cls.required_resources:
-            names_to_check: list[str] = [override] + list(cls.required_resources[1:])
-        else:
-            names_to_check = list(cls.required_resources)
-        for check_name in names_to_check:
-            resolved_check = config.resource_aliases.get(check_name, check_name)
-            if resolved_check not in available:
-                alias_hint = (
-                    f"\nTip: if you named your resource differently, add:\n"
-                    f"  [resource_aliases]\n  {check_name} = \"your-resource-name\""
-                )
-                raise ConfigurationError(
-                    f"{cls.__name__} requires resource {check_name!r} "
-                    f"but it is not configured.\n"
-                    f"Available: {sorted(available) or '(none)'}\n"
-                    f"Run 'omop-config configure {cls.tool_name}' to set up your configuration."
-                    + alias_hint
-                )
-
-        return cls.model_validate(tool.extra if tool else {})
 
     @classmethod
     def get_config(cls) -> Self:
         """Load this package's config from the active stack config file."""
-        from .loader import load_stack_config
-        return cls.from_stack(load_stack_config())
+        from .resolver import Resolver
+        return Resolver.from_active_config().resolve_package_config(cls)
 
     @classmethod
     def configure_logging(cls, config=None, *, verbosity: int = 0, console=None) -> None:
@@ -170,33 +95,181 @@ class PackageConfigBase(BaseModel):
         )
 
     @classmethod
-    def get_engine(cls, resource_name: str | None = None, **engine_kwargs: Any) -> Any:
-        """Create a SQLAlchemy engine for a resource.
+    def get_engine(cls, database: str, **engine_kwargs: Any) -> Any:
+        """Create a SQLAlchemy engine for a database.
 
         Parameters
         ----------
-        resource_name:
-            Resource to resolve. If ``None``, uses ``tool.default_resource``
-            from the config file, or falls back to ``required_resources[0]``.
+        database : str
+            The database name to resolve, typically read off your own
+            resolved config (e.g. ``MyPackageConfig.get_config().cdm_db``).
         **engine_kwargs:
-            Forwarded to :meth:`~oa_configurator.resolver.ResolvedResource.create_engine`.
+            Forwarded to :meth:`~oa_configurator.resolver.ResolvedDatabase.create_engine`.
+        """
+        from .resolver import Resolver
+        return Resolver.from_active_config().resolve_engine(database, **engine_kwargs)
+
+    def to_extra_dict(self) -> dict[str, Any]:
+        """Serialize back to the dict stored under ``[tools.<tool_name>]``."""
+        return self.model_dump(exclude_none=True)
+
+    @classmethod
+    def resolve_fields(cls, config: StackConfig, *, set_dict: dict[str, Any], interactive: bool) -> dict[str, Any]:
+        """Resolve this package's own fields: flag (``--set`` or the field's
+        own auto-generated flag), then stored, then an interactive prompt
+        (seeded with the stored value as its default when one exists),
+        recursing into any ``RefTo``-marked field via the generic resolver
+        machinery in :mod:`~oa_configurator.resolver`.
+
+        A ``RefTo``-marked field's ``set_dict`` value may also be a nested
+        ``dict`` instead of a plain string, built from repeated
+        ``--set field.subfield=value`` CLI flags. Using a nested dict
+        creates the target entry from those flags in the same call,
+        instead of requiring it to already exist.
+
+        Parameters
+        ----------
+        config : StackConfig
+            The current StackConfig, used to read any already-stored extras.
+        set_dict : dict[str, Any]
+            Flag values, keyed by field name. Checked first. A value is
+            either the field's plain string value, or (for a ``RefTo``
+            field only) a nested ``dict`` of the target's own field values.
+        interactive : bool
+            Whether to prompt for fields not covered by set_dict or stored
+            config, and whether an already-stored value is offered as a
+            re-promptable default rather than reused silently.
+            Non-interactively, fields covered by neither are simply omitted
+            (they fall back to the field's own pydantic default when the
+            config class is loaded).
+
+        Returns
+        -------
+        dict[str, Any]
+            Resolved extra field values, keyed by field name.
 
         Raises
         ------
-        ConfigurationError
-            If no resource name can be determined.
+        typer.Exit
+            If a nested ``--set`` creation (see above) is missing a
+            required field of the target it's creating, non-interactively.
         """
-        from .loader import load_stack_config
-        from .resolver import Resolver
-        stack = load_stack_config()
-        tool = stack.tools.get(cls.tool_name)
-        name = resource_name or (tool.default_resource if tool else None) or (
-            cls.required_resources[0] if cls.required_resources else None
-        )
-        if name is None:
-            raise ConfigurationError(f"{cls.__name__} has no resources to resolve.")
-        return Resolver(stack).resolve_resource(name).create_engine(**engine_kwargs)
+        import typer
+        from rich.console import Console
 
-    def to_extra_dict(self) -> dict[str, Any]:
-        """Serialize back to the dict stored in ``ToolConfig.extra``."""
-        return self.model_dump(exclude_none=True)
+        from .resolver import (
+            Resolver,
+            _check_missing_required,
+            _is_flag_settable,
+            _nested_ref,
+            _resolve_nested_flag_value,
+            _resolve_ref,
+        )
+
+        console = Console()
+
+        try:
+            current = Resolver(config).resolve_package_config(cls)
+            current_dict = current.to_extra_dict()
+        except (ConfigurationError, ValueError):
+            current_dict = dict(config.tools.get(cls.tool_name, {}))
+
+        extra: dict[str, Any] = {}
+        missing_required: list[str] = []
+        for field_name, info in cls.model_fields.items():
+            nested = _nested_ref(info)
+            stored = current_dict.get(field_name)
+            raw_set = set_dict.get(field_name)
+
+            if isinstance(raw_set, dict) and nested is not None:
+                is_test = nested.is_test
+                resolved_name = _resolve_nested_flag_value(
+                    field_name, info, nested, raw_set, config,
+                    name_hint=field_name, is_test=is_test, missing_required=missing_required,
+                )
+                if resolved_name is not None:
+                    extra[field_name] = resolved_name
+            elif field_name in set_dict:
+                extra[field_name] = set_dict[field_name]
+            elif not interactive:
+                if stored is not None:
+                    extra[field_name] = stored
+            elif nested is not None:
+                is_test = nested.is_test
+                if stored is None and info.default is None:
+                    if is_test:
+                        console.print("\n[dim]─── Test database (optional) ───[/dim]")
+                        console.print(
+                            "[yellow]⚠[/yellow]  Test databases are used by the test suite, which runs"
+                            " DROP SCHEMA CASCADE on every run.\n"
+                            "   Point to a [bold]dedicated test_only connection[/bold], never to real data."
+                        )
+                    else:
+                        desc = info.description or ""
+                        console.print(f"\n[dim]─── {field_name} (optional){f': {desc}' if desc else ''} ───[/dim]")
+                    if not typer.confirm(f"Configure {field_name}?", default=False):
+                        continue
+                default_name = stored if stored is not None else (
+                    str(info.default) if info.default not in (None, PydanticUndefined) else field_name
+                )
+                resolved = _resolve_ref(
+                    field_name, info.description or "", nested.target, config,
+                    default_name=default_name, is_test=is_test,
+                )
+                if resolved:
+                    extra[field_name] = resolved
+            elif not _is_flag_settable(info):
+                # dict/list fields have no sensible free-text prompt;
+                # carry over an existing value, else leave to pydantic's
+                # own default/default_factory.
+                if stored is not None:
+                    extra[field_name] = stored
+            elif info.annotation is bool:
+                default_bool = bool(stored) if stored is not None else (
+                    bool(info.default) if info.default not in (None, PydanticUndefined) else False
+                )
+                extra[field_name] = typer.confirm(info.description or field_name, default=default_bool)
+            else:
+                desc = info.description or ""
+                label = f"{field_name}" + (f"  ({desc})" if desc else "")
+                default_value = stored if stored is not None else (
+                    str(info.default)
+                    if info.default not in (None, PydanticUndefined)
+                    else ""
+                )
+                raw = typer.prompt(label, default=default_value)
+                if raw and raw != "None":
+                    extra[field_name] = raw
+
+        _check_missing_required(f"tool {cls.tool_name!r}", missing_required, non_interactive=not interactive)
+        return extra
+
+    @classmethod
+    def run_configure(cls, set_dict: dict[str, Any], *, interactive: bool) -> None:
+        """Run the configure flow for this package: resolve every one of its
+        own fields (see :meth:`resolve_fields`) and save to the active
+        stack config file.
+        """
+        from rich.console import Console
+
+        from .io import save_stack_config
+        from .loader import CONFIG_PATH, load_stack_config
+        from .stack_config import StackConfig
+
+        console = Console()
+
+        try:
+            config = load_stack_config()
+        except FileNotFoundError:
+            CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            config = StackConfig()
+
+        tool_name = cls.tool_name
+        console.print(f"\n[bold]Configuring [cyan]{tool_name}[/cyan][/bold]")
+        console.print(f"[dim]TOML section: \\[tools.{tool_name}][/dim]")
+
+        extra = cls.resolve_fields(config, set_dict=set_dict, interactive=interactive)
+
+        config.tools[tool_name] = extra
+        save_stack_config(config)
+        console.print(f"\n[green]✓[/green] Saved \\[tools.{tool_name}] to [dim]{CONFIG_PATH}[/dim]")

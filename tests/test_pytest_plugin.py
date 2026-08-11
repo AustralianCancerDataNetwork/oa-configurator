@@ -1,0 +1,254 @@
+"""Tests for pytest_plugin.py: resolve_test_database's field resolution and
+test_only enforcement.
+
+resolve_test_database(cls, field_name) is the one place every consumer
+routes through to get a test database's connection URL. field_name is
+always explicit: a class may eventually have more than one
+RefTo(CDMDatabaseConfig, is_test=True) field (e.g. one per backend), and
+there is no way to guess which one a caller wants, so the caller always
+names it. resolve_test_database does two things: resolves the named
+field's configured value (tolerating the rest of the class being
+unconfigured, see its own docstring for why), and enforces that the
+resolved connection is actually marked test_only=true, refusing to resolve
+otherwise. That second part is load-bearing: it's the only thing stopping a
+misconfigured test field from silently pointing a destructive test suite at
+real data.
+"""
+
+from __future__ import annotations
+
+from typing import Annotated, ClassVar
+
+import pytest
+
+from oa_configurator import (
+    CDMDatabaseConfig,
+    ConnectionConfig,
+    PackageConfigBase,
+    RefTo,
+    StackConfig
+)
+from oa_configurator.pytest_plugin import (
+    create_fresh_test_db,
+    drop_test_db,
+    pytest_runtest_setup,
+    resolve_test_database,
+)
+
+
+class DemoTestConfig(PackageConfigBase):
+    tool_name: ClassVar[str] = "demo_test_tool"
+    test_cdm_db: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = None
+
+
+class DemoTestConfigWithDefault(PackageConfigBase):
+    """A test field with a real string default, distinct from its own
+    field name, to prove resolve_test_database uses the field's declared
+    default rather than falling back to the field name itself."""
+
+    tool_name: ClassVar[str] = "demo_test_default_tool"
+    test_field: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = "configured_default_db"
+
+
+def _stack_config(*, test_only: bool, tools: dict | None = None) -> StackConfig:
+    return StackConfig.for_session(
+        connections={
+            "test_cdm": ConnectionConfig(
+                dialect="sqlite", database_name=":memory:", test_only=test_only
+            )
+        },
+        databases={"test_cdm_db": CDMDatabaseConfig(connection="test_cdm")},
+        tools=tools or {},
+    )
+
+
+class TestResolveTestDatabase:
+    def test_returns_url_when_connection_is_test_only(self, monkeypatch):
+        """Field unconfigured, falls back to the field's own name,
+        'test_cdm_db', which is what's set up here."""
+        cfg = _stack_config(test_only=True)
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        url = resolve_test_database(DemoTestConfig, "test_cdm_db")
+
+        assert url == "sqlite:///:memory:"
+
+    def test_fails_loudly_when_connection_is_not_test_only(self, monkeypatch):
+        """A misconfigured test database (pointing at a non-test connection)
+        must abort the test run with a clear message, not silently skip,
+        since skipping would hide the misconfiguration instead of surfacing it."""
+        cfg = _stack_config(test_only=False)
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        with pytest.raises(pytest.fail.Exception, match="SAFETY ABORT"):
+            resolve_test_database(DemoTestConfig, "test_cdm_db")
+
+    def test_fail_message_names_the_database_and_connection(self, monkeypatch):
+        cfg = _stack_config(test_only=False)
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        with pytest.raises(pytest.fail.Exception) as exc_info:
+            resolve_test_database(DemoTestConfig, "test_cdm_db")
+
+        assert "test_cdm_db" in str(exc_info.value)
+        assert "test_cdm" in str(exc_info.value)
+
+    def test_skips_when_database_is_not_configured(self, monkeypatch):
+        cfg = StackConfig.for_session()
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        with pytest.raises(pytest.skip.Exception):
+            resolve_test_database(DemoTestConfig, "test_cdm_db")
+
+    def test_skips_when_no_config_file_exists(self, monkeypatch):
+        """Regression check: a missing config file must skip, not crash.
+        load_stack_config() is called twice on this path (once to look up
+        the field, once inside Resolver.from_active_config()); both must
+        be guarded against FileNotFoundError."""
+
+        def _raise_not_found():
+            raise FileNotFoundError("no config file")
+
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", _raise_not_found)
+
+        with pytest.raises(pytest.skip.Exception):
+            resolve_test_database(DemoTestConfig, "test_cdm_db")
+
+    def test_honors_a_configured_override(self, monkeypatch):
+        """The whole point of this redesign: if a user configures
+        test_cdm_db under a name other than the field's own default, that
+        configured name must be what actually gets resolved, not silently
+        ignored in favour of the default."""
+        cfg = StackConfig.for_session(
+            connections={
+                "custom_test_conn": ConnectionConfig(
+                    dialect="sqlite", database_name=":memory:", test_only=True
+                )
+            },
+            databases={"my_custom_test_db": CDMDatabaseConfig(connection="custom_test_conn")},
+            tools={"demo_test_tool": {"test_cdm_db": "my_custom_test_db"}},
+        )
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        url = resolve_test_database(DemoTestConfig, "test_cdm_db")
+
+        assert url == "sqlite:///:memory:"
+
+    def test_falls_back_to_field_default_not_field_name(self, monkeypatch):
+        """Nothing stored for test_field: must resolve the field's own
+        declared default (configured_default_db), not the literal field
+        name "test_field"."""
+        cfg = StackConfig.for_session(
+            connections={
+                "test_conn": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=True)
+            },
+            databases={"configured_default_db": CDMDatabaseConfig(connection="test_conn")},
+        )
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        url = resolve_test_database(DemoTestConfigWithDefault, "test_field")
+
+        assert url == "sqlite:///:memory:"
+
+    def test_unknown_field_name_raises(self):
+        with pytest.raises(ValueError, match="test_typo"):
+            resolve_test_database(DemoTestConfig, "test_typo")
+
+
+class TestRefuseIfProduction:
+    """create_fresh_test_db/drop_test_db must refuse to touch a database
+    name that matches a non-test_only connection in the stack config, even
+    when that connection isn't the one being connected as, isn't wired to
+    any database entry, or is only reachable via a secondary field like
+    vocab_connection -- the guard checks config.connections directly."""
+
+    def test_create_fresh_test_db_refuses_matching_production_connection(self, monkeypatch):
+        cfg = StackConfig.for_session(
+            connections={
+                "prod": ConnectionConfig(
+                    dialect="postgresql+psycopg", host="dbhost", port=5432,
+                    database_name="shared_name", test_only=False,
+                ),
+            },
+        )
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        with pytest.raises(RuntimeError, match="prod"):
+            create_fresh_test_db("postgresql+psycopg://user:pw@dbhost:5432/shared_name")
+
+    def test_drop_test_db_refuses_matching_production_connection(self, monkeypatch):
+        cfg = StackConfig.for_session(
+            connections={
+                "prod": ConnectionConfig(
+                    dialect="postgresql+psycopg", host="dbhost", port=5432,
+                    database_name="shared_name", test_only=False,
+                ),
+            },
+        )
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        with pytest.raises(RuntimeError, match="prod"):
+            drop_test_db("postgresql+psycopg://user:pw@dbhost:5432/shared_name")
+
+    def test_refuses_a_production_connection_not_referenced_by_any_database(self, monkeypatch):
+        """The colliding connection isn't wired to a [databases.*] entry at
+        all -- deriving connections from config.databases (the old
+        behaviour) would have missed this entirely."""
+        cfg = StackConfig.for_session(
+            connections={
+                "orphan_prod": ConnectionConfig(
+                    dialect="postgresql+psycopg", host="dbhost", port=5432,
+                    database_name="vocab_name", test_only=False,
+                ),
+            },
+        )
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        with pytest.raises(RuntimeError, match="orphan_prod"):
+            create_fresh_test_db("postgresql+psycopg://user:pw@dbhost:5432/vocab_name")
+
+
+class _FakeMarker:
+    def __init__(self, *args):
+        self.args = args
+
+
+class _FakeItem:
+    """Minimal stand-in for pytest.Item: only iter_markers is used by
+    pytest_runtest_setup."""
+
+    def __init__(self, *database_names: str):
+        self._markers = [_FakeMarker(name) for name in database_names]
+
+    def iter_markers(self, name):
+        return iter(self._markers) if name == "requires_database" else iter([])
+
+
+class TestRequiresDatabaseMarker:
+    """The requires_database marker must apply the same test_only safety
+    check as resolve_test_database, not just check the database resolves."""
+
+    def test_fails_when_database_is_not_test_only(self, monkeypatch):
+        cfg = StackConfig.for_session(
+            connections={"prod": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=False)},
+            databases={"prod_db": CDMDatabaseConfig(connection="prod")},
+        )
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        with pytest.raises(pytest.fail.Exception, match="test_only"):
+            pytest_runtest_setup(_FakeItem("prod_db"))
+
+    def test_skips_when_database_not_configured(self, monkeypatch):
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: StackConfig.for_session())
+
+        with pytest.raises(pytest.skip.Exception):
+            pytest_runtest_setup(_FakeItem("missing_db"))
+
+    def test_passes_when_test_only(self, monkeypatch):
+        cfg = StackConfig.for_session(
+            connections={"test_conn": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=True)},
+            databases={"test_db": CDMDatabaseConfig(connection="test_conn")},
+        )
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        pytest_runtest_setup(_FakeItem("test_db"))  # must not raise

@@ -13,11 +13,11 @@ Equivalent to loading a TOML file, but the config is built in code. Useful for:
 - Programmatic config generation (e.g. CI pipelines)
 
 ```python
-from oa_configurator import StackConfig, DatabaseConfig, ResourceConfig, Resolver
+from oa_configurator import StackConfig, ConnectionConfig, CDMDatabaseConfig, Resolver
 
 config = StackConfig.for_session(
-    databases={
-        "local": DatabaseConfig(
+    connections={
+        "local": ConnectionConfig(
             dialect="postgresql+psycopg",
             host="localhost",
             database_name="omop",
@@ -25,35 +25,36 @@ config = StackConfig.for_session(
             password="omop",
         )
     },
-    resources={
-        "default": ResourceConfig(
-            database="local",
-            cdm_schema="cdm",
+    databases={
+        "cdm": CDMDatabaseConfig(
+            connection="local",
+            schema_name="omop",
             vocab_schema="vocab",
         )
     },
 )
-engine = Resolver(config).resolve_resource("default").create_engine()
+engine = Resolver(config).resolve_database("cdm").create_engine()
 ```
 
 ### Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `databases` | dict \| None | `{}` | Named `DatabaseConfig` objects or raw dicts |
-| `resources` | dict \| None | `{}` | Named `ResourceConfig` objects or raw dicts |
-| `tools` | dict \| None | `{}` | Named `ToolConfig` objects or raw dicts |
-| `profiles` | dict \| None | `{}` | Named `ProfileOverrideConfig` objects or raw dicts |
-| `active_profile` | str \| None | `None` | Profile to activate |
+| `connections` | dict \| None | `{}` | Named `ConnectionConfig` objects or raw dicts |
+| `databases` | dict \| None | `{}` | Named `GenericDatabaseConfig`/`CDMDatabaseConfig` objects or raw dicts (each needs its own `kind`, see [Architecture](architecture.md#database)) |
+| `providers` | dict \| None | `{}` | Named `ProviderConfig` objects or raw dicts |
+| `models` | dict \| None | `{}` | Named `ModelConfig` objects or raw dicts |
+| `vector_stores` | dict \| None | `{}` | Named `VectorStoreConfig` objects or raw dicts |
+| `tools` | dict \| None | `{}` | Per-package `[tools.<name>]` sections, as plain dicts |
 
 ### Validation
 
-Cross-references are validated at construction time, same as for file-loaded configs. A resource referencing an unknown connection raises immediately:
+Cross-references are validated at construction time, same as for file-loaded configs. A database referencing an unknown connection raises immediately:
 
 ```python
 StackConfig.for_session(
-    databases={"local": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-    resources={"default": ResourceConfig(database="typo", cdm_schema="omop")},  # raises ValueError
+    connections={"local": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+    databases={"cdm": CDMDatabaseConfig(connection="typo", schema_name="omop")},  # raises ValueError
 )
 ```
 
@@ -66,12 +67,12 @@ from oa_configurator import StackConfig, Resolver
 
 def test_something():
     cfg = StackConfig.for_session(
-        databases={"db": {"dialect": "sqlite", "database_name": ":memory:"}},
-        resources={"default": {"database": "db", "cdm_schema": "omop"}},
-        tools={"my_package": {"extra": {"backend": "test_backend"}}},
+        connections={"db": {"dialect": "sqlite", "database_name": ":memory:"}},
+        databases={"cdm": {"kind": "cdm", "connection": "db", "schema_name": "omop"}},
+        tools={"my_package": {"backend": "test_backend"}},
     )
     resolver = Resolver(cfg)
-    engine = resolver.resolve_resource("default").create_engine()
+    engine = resolver.resolve_database("cdm").create_engine()
     # ...
 ```
 
@@ -79,26 +80,26 @@ def test_something():
 
 ## `Resolver.with_overrides()`: session-level override
 
-Loads the shared config file, then replaces specific connections or resources for this session without touching the file. Useful for:
+Loads the shared config file, then replaces specific connections or databases for this session without touching the file. Useful for:
 
 - Tests that swap prod connections for in-memory equivalents
-- Notebook sessions that redirect one resource to a local database
+- Notebook sessions that redirect one database to a local connection
 - Sharing a team config but running with personal credentials locally
 
 ```python
-from oa_configurator import load_stack_config, DatabaseConfig, ResourceConfig, Resolver
+from oa_configurator import load_stack_config, ConnectionConfig, CDMDatabaseConfig, Resolver
 
 engine = (
     Resolver(load_stack_config())
     .with_overrides(
-        databases={
-            "local": DatabaseConfig(dialect="sqlite", database_name=":memory:")
+        connections={
+            "local": ConnectionConfig(dialect="sqlite", database_name=":memory:")
         },
-        resources={
-            "default": ResourceConfig(database="local", cdm_schema="omop")
+        databases={
+            "cdm": CDMDatabaseConfig(connection="local", schema_name="omop")
         },
     )
-    .resolve_resource("default")
+    .resolve_database("cdm")
     .create_engine()
 )
 ```
@@ -108,22 +109,23 @@ engine = (
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `connections` | dict \| None | Entries merged over the existing connections (new keys added; existing keys replaced) |
-| `resources` | dict \| None | Entries merged over the existing resources |
+| `databases` | dict \| None | Entries merged over the existing databases |
+| `providers` | dict \| None | Entries merged over the existing providers |
+| `models` | dict \| None | Entries merged over the existing models |
+| `vector_stores` | dict \| None | Entries merged over the existing vector stores |
 | `tools` | dict \| None | Entries merged over the existing tools |
 
 ### What is preserved
 
-- The original active profile
-- All profiles and their overlays
-- All connections, resources, and tools **not** mentioned in the overrides
+All connections, databases, providers, models, vector stores, and tools **not** mentioned in the overrides.
 
 ### What is validated
 
-Cross-references are checked against the **merged** result. A resource override that references a connection that exists in neither the original config nor the override dict raises `ValueError` at call time.
+Cross-references are checked against the **merged** result. A database override that references a connection that exists in neither the original config nor the override dict raises `ValueError` at call time.
 
 ```python
 Resolver(load_stack_config()).with_overrides(
-    resources={"default": ResourceConfig(database="nonexistent", cdm_schema="omop")}  # raises
+    databases={"cdm": CDMDatabaseConfig(connection="nonexistent", schema_name="omop")}  # raises
 )
 ```
 
@@ -135,5 +137,4 @@ Resolver(load_stack_config()).with_overrides(
 |--|---|---|
 | Needs a config file | No | Yes |
 | Inherits shared team config | No | Yes |
-| Profile overlays preserved | Only if explicitly passed | Yes |
 | Primary use case | Tests, scripts, CI | Notebooks, per-user local redirects |

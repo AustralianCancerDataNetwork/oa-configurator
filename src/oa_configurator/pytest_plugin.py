@@ -1,14 +1,16 @@
-"""OA_Configurator pytest plugin — auto-loaded via the ``pytest11`` entry point.
+"""OA_Configurator pytest plugin, auto-loaded via the ``pytest11`` entry point.
 
 # NOTE: This is currently pgvector heavy. A future feature request will support other backends.
 
-Provides the ``requires_resource`` marker, the ``resolve_test_resource`` fixture
-helper, and standalone PostgreSQL database lifecycle utilities:
+Provides the ``requires_database`` marker, the ``resolve_test_database(cls,
+field_name)`` fixture helper (resolves a package's own named test-database
+field, see its docstring for why it doesn't just go through
+``cls.get_config()``), and standalone PostgreSQL database lifecycle utilities:
 
-- ``ensure_test_db_exists(url)`` — create the target database if absent
-- ``create_fresh_test_db(url)`` — drop and recreate (used by omop-emb)
-- ``drop_test_db(url)`` — terminate connections and drop the database
-- ``require_pg_extension(url, ext)`` — skip if a required extension is absent
+- ``ensure_test_db_exists(url)``: creates the target database if absent
+- ``create_fresh_test_db(url)``: drops and recreates (used by omop-emb)
+- ``drop_test_db(url)``: terminates connections and drops the database
+- ``require_pg_extension(url, ext)``: skips if a required extension is absent
 
 All DDL-construction uses ``psycopg.sql.Identifier`` / ``Literal`` for safe
 quoting. Admin credentials are sourced from the stack config (non-test-only DB
@@ -18,16 +20,8 @@ bypass via ``session_replication_role``; CREATEDB and REPLICATION are not
 granted). A fallback to the test user's own credentials is used when no admin
 DB is found (standalone containers where the test user is the superuser).
 
-Accepts two forms for the resource argument to ``requires_resource``:
-
-- A ``ResourceSpec`` instance — checks ``spec.semantic_name`` (preferred, e.g.
-  ``@pytest.mark.requires_resource(OrmLoaderConfig.TEST_DB)``).
-- A plain ``str`` — used as the resource name directly (last-resort fallback).
-
-Note: passing a ``PackageConfigBase`` subclass directly as a marker argument does
-NOT work in pytest ≥ 9 — pytest treats any class argument as a test class and
-applies the mark to it rather than forwarding it as a marker arg.  Use the named
-``ClassVar[ResourceSpec]`` attribute instead.
+The database argument to ``requires_database`` is a plain database-name
+string, e.g. ``@pytest.mark.requires_database("test_cdm_db")``.
 """
 
 from __future__ import annotations
@@ -66,14 +60,14 @@ def _find_admin_url(host: str | None) -> sa.URL | None:
         config = load_stack_config()
     except (FileNotFoundError, ValueError):
         return None
-    admin_db = next(
-        (db for db in config.databases.values()
-         if not db.test_only and db.host == host),
+    admin_conn = next(
+        (conn for conn in config.connections.values()
+         if not conn.test_only and conn.host == host),
         None,
     )
-    if admin_db is None:
+    if admin_conn is None:
         return None
-    return sa.engine.make_url(admin_db.build_url())
+    return sa.engine.make_url(admin_conn.build_url())
 
 
 def _admin_engine(test_url: sa.URL) -> sa.Engine:
@@ -85,6 +79,28 @@ def _admin_engine(test_url: sa.URL) -> sa.Engine:
     """
     base = _find_admin_url(test_url.host) or test_url
     return sa.create_engine(base.set(database="postgres"), isolation_level="AUTOCOMMIT")
+
+
+def _refuse_if_production(target: sa.URL) -> None:
+    """Abort if target's host/database name/port match a non-test_only
+    connection in the stack config, regardless of how that connection is
+    (or isn't) wired to a database entry."""
+    if target.database is None:
+        return
+    from .loader import load_stack_config
+    from .resolver import _find_production_collision
+
+    try:
+        config = load_stack_config()
+    except (FileNotFoundError, ValueError):
+        return
+    match = _find_production_collision(target.host, target.database, target.port, config)
+    if match is not None:
+        raise RuntimeError(
+            f"SAFETY ABORT: refusing to drop/recreate database {target.database!r} on "
+            f"{target.host!r}: it matches the non-test connection {match!r} in the stack "
+            f"config. This would destroy production data."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -99,7 +115,7 @@ def ensure_test_db_exists(url: str | sa.URL) -> None:
     within the database without needing CREATEDB or SUPERUSER.
 
     Falls back to the test user's own credentials when no admin DB is found.
-    Safe to call repeatedly — idempotent.
+    Safe to call repeatedly, since it is idempotent.
     """
     target = sa.engine.make_url(url)
     db_name = target.database
@@ -139,6 +155,7 @@ def create_fresh_test_db(url: str | sa.URL, *, extensions: Sequence[str] = ()) -
     db_name = target.database
     if db_name is None:
         return target
+    _refuse_if_production(target)
     admin = _admin_engine(target)
     try:
         with admin.connect() as conn:
@@ -171,6 +188,7 @@ def drop_test_db(url: str | sa.URL) -> None:
     db_name = target.database
     if db_name is None:
         return
+    _refuse_if_production(target)
     admin = _admin_engine(target)
     try:
         with admin.connect() as conn:
@@ -196,11 +214,12 @@ def ensure_test_user_exists(test_url: str | sa.URL) -> None:
     ``SET session_replication_role = 'replica'``, which requires SUPERUSER in
     PostgreSQL (no narrower privilege exists; ``ALTER TABLE ... DISABLE TRIGGER
     ALL`` has the same requirement for FK constraint triggers). CREATEDB and
-    REPLICATION are not granted — the admin creates databases.
+    REPLICATION are not granted, since the admin account is the one that
+    creates databases.
 
-    This is PostgreSQL-specific — see feature request for dialect-agnostic
-    user provisioning and the FK-bypass-without-SUPERUSER feature request for
-    the long-term fix.
+    This is PostgreSQL-specific. See the feature request for dialect-agnostic
+    user provisioning, and the FK-bypass-without-SUPERUSER feature request,
+    for the long-term fix.
     """
     target = sa.engine.make_url(test_url)
     username = target.username
@@ -245,7 +264,8 @@ def require_pg_extension(db_url: str | sa.URL, extension: str) -> None:
 
     Extensions must be pre-installed by a DBA or container init script
     (e.g. an entrypoint that runs ``CREATE EXTENSION`` as the postgres
-    superuser). This function only checks — it never creates.
+    superuser). This function only checks whether the extension is present.
+    It never creates one itself.
 
     Must be called from pytest fixture or conftest code (uses ``pytest.skip``).
     """
@@ -271,26 +291,32 @@ def require_pg_extension(db_url: str | sa.URL, extension: str) -> None:
 try:
     import pytest
 except ImportError:
-    # Not running under pytest — nothing to register, module stays importable.
+    # Not running under pytest, so there is nothing to register. The module
+    # stays importable regardless.
     pass
 else:
-    from .package_base import ResourceSpec
+    from .package_base import PackageConfigBase
     from .resolver import Resolver
 
     # ---------------------------------------------------------------------------
     # Internal helpers
     # ---------------------------------------------------------------------------
 
-    def _resource_names(arg: object) -> list[str]:
-        if isinstance(arg, ResourceSpec):
-            return [arg.semantic_name]
-        return [str(arg)]
-
     def _skip_message(name: str) -> str:
         return (
-            f"Resource {name!r} not configured.\n"
-            f"  Run: omop-config configure <package>\n"
-            f"  (answer Y when asked to configure a test database resource)"
+            f"Database {name!r} not configured.\n"
+            f"  Run: omop-config databases add {name} ...\n"
+            f"  (or configure it interactively via omop-config configure <package>)"
+        )
+
+    def _not_test_only_message(name: str, connection_name: str) -> str:
+        return (
+            f"SAFETY ABORT: database {name!r} resolves to connection {connection_name!r}, "
+            "which is not marked test_only=true.\n"
+            "  Refusing to use it as a test database, since this guards against tests running"
+            " destructive operations (DROP SCHEMA, TRUNCATE, ...) against real data.\n"
+            f"  Run: omop-config connections add {connection_name} ... --test-only true"
+            " (or mark the existing connection test_only=true directly in config.toml)"
         )
 
     # ---------------------------------------------------------------------------
@@ -300,47 +326,86 @@ else:
     def pytest_configure(config: pytest.Config) -> None:
         config.addinivalue_line(
             "markers",
-            "requires_resource(*args): skip when a named OA_Configurator resource is absent. "
-            "Accepts a ResourceSpec (e.g. OrmLoaderConfig.TEST_DB) or a resource-name string.",
+            "requires_database(*args): skip when a named OA_Configurator database is absent, "
+            "fail if it resolves to a non-test_only connection. "
+            "Accepts one or more database-name strings.",
         )
 
     def pytest_runtest_setup(item: pytest.Item) -> None:
-        for marker in item.iter_markers("requires_resource"):
-            for arg in marker.args:
-                for name in _resource_names(arg):
-                    try:
-                        Resolver.from_active_config().resolve_resource(name)
-                    except Exception:
-                        pytest.skip(_skip_message(name))
+        for marker in item.iter_markers("requires_database"):
+            for name in marker.args:
+                try:
+                    resolver = Resolver.from_active_config()
+                    resolved = resolver.resolve_database(str(name))
+                except Exception:
+                    pytest.skip(_skip_message(str(name)))
+                connection_name = resolved.connection.name
+                if not resolver.config.connections[connection_name].test_only:
+                    pytest.fail(_not_test_only_message(str(name), connection_name))
 
     # ---------------------------------------------------------------------------
     # Fixture-level helper (used in conftest.py)
     # ---------------------------------------------------------------------------
 
-    def resolve_test_resource(spec_or_name: ResourceSpec | str) -> str:
-        """Return the database URL for a test resource, or ``pytest.skip()`` the test.
+    def resolve_test_database(cls: type[PackageConfigBase], field_name: str) -> str:
+        """Resolve a package's own test-database field to a URL, or skip/fail.
+
+        *field_name* names the field directly, e.g. ``"test_cdm_db"`` leads to
+        no auto-discovery. Use-case: Multiple ``RefTo(CDMDatabaseConfig, is_test=True)``
+        fields, that are otherwise not auto-discoverable.
+
+        Deliberately does not go through ``cls.get_config()`` to avoid
+        validating every ``RefTo`` field on the class at once. A CI runner
+        usually does not have production resources configured, which would
+        fail the test before it even reaches the test database field.
+        This resolves just the one named field directly off ``[tools.<name>]``,
+        tolerating everything else on the class being unconfigured.
+
+        Load-bearing safety check: the resolved database's underlying
+        connection must be marked ``test_only=true`` in the stack config, or
+        this fails loudly (``pytest.fail``).
+
+        Parameters
+        ----------
+        cls : type[PackageConfigBase]
+            The package's config class.
+        field_name : str
+            Name of the ``is_test`` field/attribute to resolve from the respective `PackageConfigBase`,
+            e.g. ``"test_cdm_db"``.
+
+        Returns
+        -------
+        str
+            Connection URL, or the test is skipped/failed (see above).
 
         Designed for use inside session-scoped fixtures in conftest.py::
 
             @pytest.fixture(scope="session")
             def pg_engine():
-                url = resolve_test_resource(OmopAlchemyConfig.TEST_DB)
+                url = resolve_test_database(OmopAlchemyConfig, "test_cdm_db")
                 engine = sa.create_engine(url)
                 yield engine
                 engine.dispose()
-
-        Parameters
-        ----------
-        spec_or_name:
-            A ``ResourceSpec`` (preferred — no string duplication) or a bare resource
-            name string.
         """
-        name = (
-            spec_or_name.semantic_name
-            if isinstance(spec_or_name, ResourceSpec)
-            else str(spec_or_name)
-        )
+        if field_name not in cls.model_fields:
+            raise ValueError(f"{cls.__name__} has no field {field_name!r}.")
+
+        # Local import required for tests with monkeypatch
+        from .loader import load_stack_config
+
         try:
-            return Resolver.from_active_config().resolve_resource(name).database.url
+            stored = load_stack_config().tools.get(cls.tool_name, {})
+        except FileNotFoundError:
+            stored = {}
+        default = cls.model_fields[field_name].default
+        name = stored.get(field_name) or (default if isinstance(default, str) else field_name)
+
+        try:
+            resolver = Resolver.from_active_config()
+            resolved = resolver.resolve_database(name)
         except Exception:
             pytest.skip(_skip_message(name))
+        connection_name = resolved.connection.name
+        if not resolver.config.connections[connection_name].test_only:
+            pytest.fail(_not_test_only_message(name, connection_name))
+        return resolved.connection.url

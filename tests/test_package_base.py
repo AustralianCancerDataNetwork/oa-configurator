@@ -2,19 +2,26 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import Annotated, Any, ClassVar
 
 import pytest
+import typer
 
 from oa_configurator import (
+    CDMDatabaseConfig,
     ConfigurationError,
-    PackageConfigBase,
-    StackConfig,
+    ConnectionConfig,
     DatabaseConfig,
-    ResourceConfig,
-    ToolConfig,
+    GenericDatabaseConfig,
+    ModelConfig,
+    PackageConfigBase,
+    ProviderConfig,
+    RefTo,
+    Resolver,
+    StackConfig,
+    UnknownRefTarget,
+    VectorStoreConfig,
 )
-from oa_configurator.models import ProfileOverrideConfig
 
 
 class SampleConfig(PackageConfigBase):
@@ -24,25 +31,25 @@ class SampleConfig(PackageConfigBase):
 
 
 class TestPackageConfigBase:
-    def test_from_stack_reads_extra(self):
+    def test_resolve_package_config_reads_extra(self):
         cfg = StackConfig.for_session(
-            tools={"sample_tool": ToolConfig(extra={"backend": "custom", "file_path": "/data"})}
+            tools={"sample_tool": {"backend": "custom", "file_path": "/data"}}
         )
-        sample = SampleConfig.from_stack(cfg)
+        sample = Resolver(cfg).resolve_package_config(SampleConfig)
         assert sample.backend == "custom"
         assert sample.file_path == "/data"
 
-    def test_from_stack_uses_defaults_when_tool_missing(self):
+    def test_resolve_package_config_uses_defaults_when_tool_missing(self):
         cfg = StackConfig.for_session()
-        sample = SampleConfig.from_stack(cfg)
+        sample = Resolver(cfg).resolve_package_config(SampleConfig)
         assert sample.backend == "default_backend"
         assert sample.file_path is None
 
-    def test_from_stack_uses_defaults_when_extra_empty(self):
+    def test_resolve_package_config_uses_defaults_when_extra_empty(self):
         cfg = StackConfig.for_session(
-            tools={"sample_tool": ToolConfig(extra={})}
+            tools={"sample_tool": {}}
         )
-        sample = SampleConfig.from_stack(cfg)
+        sample = Resolver(cfg).resolve_package_config(SampleConfig)
         assert sample.backend == "default_backend"
 
     def test_to_extra_dict_excludes_none(self):
@@ -60,9 +67,9 @@ class TestPackageConfigBase:
         original = SampleConfig(backend="sqlitevec", file_path="/embeddings")
         extra = original.to_extra_dict()
         cfg = StackConfig.for_session(
-            tools={"sample_tool": ToolConfig(extra=extra)}
+            tools={"sample_tool": extra}
         )
-        restored = SampleConfig.from_stack(cfg)
+        restored = Resolver(cfg).resolve_package_config(SampleConfig)
         assert restored.backend == "sqlitevec"
         assert restored.file_path == "/embeddings"
 
@@ -74,69 +81,311 @@ class TestPackageConfigBase:
             BadConfig().tool_name  # type: ignore[attr-defined]
 
 
-class RequiredConfig(PackageConfigBase):
-    tool_name: ClassVar[str] = "required_tool"
-    required_resources: ClassVar[tuple[str, ...]] = ("cdm_db",)
-    value: str = "default_value"
+class DatabaseUserConfig(PackageConfigBase):
+    """Stand-in for a package that needs a CDM database: a plain field, no
+    separate declaration list. The field itself is the requirement."""
+
+    tool_name: ClassVar[str] = "database_user_tool"
+    cdm_db: Annotated[str, RefTo(CDMDatabaseConfig)] = "cdm_db"
 
 
-class TestRequiredResources:
-    def test_passes_when_resource_present(self):
+class EmbeddingConfig(PackageConfigBase):
+    """Stand-in for a package with its own field naming a [models.*] entry."""
+
+    tool_name: ClassVar[str] = "embedding_tool"
+    embedding_model_name: Annotated[str, RefTo(ModelConfig)] = "embed-default"
+
+
+class TestRefToPackageField:
+    """resolve_package_config validates a package's own RefTo-marked fields --
+    the same mechanism for databases and models, no ResourceSpec/required_resources
+    needed."""
+
+    def test_passes_when_referenced_database_exists(self):
         cfg = StackConfig.for_session(
-            databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"cdm_db": ResourceConfig(database="db", cdm_schema="main")},
+            connections={"db": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={"cdm_db": CDMDatabaseConfig(connection="db")},
         )
-        result = RequiredConfig.from_stack(cfg)
-        assert result.value == "default_value"
+        result = Resolver(cfg).resolve_package_config(DatabaseUserConfig)
+        assert result.cdm_db == "cdm_db"
 
-    def test_raises_when_resource_missing(self):
+    def test_raises_when_referenced_database_missing(self):
         cfg = StackConfig.for_session()
         with pytest.raises(ConfigurationError) as exc_info:
-            RequiredConfig.from_stack(cfg)
+            Resolver(cfg).resolve_package_config(DatabaseUserConfig)
         msg = str(exc_info.value)
         assert "cdm_db" in msg
-        assert "omop-config configure required_tool" in msg
+        assert "omop-config configure database_user_tool" in msg
 
-    def test_raises_includes_alias_hint(self):
+    def test_passes_when_referenced_model_exists(self):
+        cfg = StackConfig.for_session(
+            providers={"p": ProviderConfig(provider="ollama")},
+            models={"embed-default": ModelConfig(provider="p", model="nomic-embed-text")},
+        )
+        result = Resolver(cfg).resolve_package_config(EmbeddingConfig)
+        assert result.embedding_model_name == "embed-default"
+
+    def test_raises_when_referenced_model_missing(self):
         cfg = StackConfig.for_session()
         with pytest.raises(ConfigurationError) as exc_info:
-            RequiredConfig.from_stack(cfg)
+            Resolver(cfg).resolve_package_config(EmbeddingConfig)
         msg = str(exc_info.value)
-        assert "[resource_aliases]" in msg
-        assert 'cdm_db = "your-resource-name"' in msg
+        assert "embed-default" in msg
+        assert "omop-config configure embedding_tool" in msg
 
-    def test_passes_when_resource_aliased(self):
+
+class OtherDatabaseUserConfig(PackageConfigBase):
+    """A second, unrelated package whose field happens to default to the
+    same database name as DatabaseUserConfig. No import of that class."""
+
+    tool_name: ClassVar[str] = "other_database_user_tool"
+    cdm_database: Annotated[str, RefTo(CDMDatabaseConfig)] = "cdm_db"
+
+
+class TestConventionBasedSharing:
+    """Two packages share a database purely by their fields' default values
+    matching. No cross-package reference object of any kind is involved."""
+
+    def test_two_packages_resolve_to_the_same_database(self):
         cfg = StackConfig.for_session(
-            databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"my_prod": ResourceConfig(database="db", cdm_schema="main")},
-            resource_aliases={"cdm_db": "my_prod"},
+            connections={"db": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={"cdm_db": CDMDatabaseConfig(connection="db")},
         )
-        result = RequiredConfig.from_stack(cfg)
-        assert result.value == "default_value"
+        a = Resolver(cfg).resolve_package_config(DatabaseUserConfig)
+        b = Resolver(cfg).resolve_package_config(OtherDatabaseUserConfig)
+        assert a.cdm_db == b.cdm_database == "cdm_db"
 
-    def test_respects_default_resource_override(self):
+
+class TestRefToIsTest:
+    """is_test lives on RefTo itself now: a field self-declares its
+    test-ness instead of the framework inferring it from whether the
+    field's own Python name happens to start with "test_"."""
+
+    def test_defaults_to_false(self):
+        assert RefTo(CDMDatabaseConfig).is_test is False
+
+    def test_explicit_true(self):
+        assert RefTo(CDMDatabaseConfig, is_test=True).is_test is True
+
+    def test_field_name_has_no_bearing_on_is_test(self):
+        """A field named without any "test_" prefix can still be is_test,
+        and one named with the prefix can still default to False. The
+        Python attribute name carries no meaning anymore."""
+
+        class OddlyNamedConfig(PackageConfigBase):
+            tool_name: ClassVar[str] = "oddly_named_tool"
+            playground_db: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = None
+            test_flavoured_prod_db: Annotated[str, RefTo(CDMDatabaseConfig)] = "prod_db"
+
+        fields = dict(OddlyNamedConfig.model_fields)
+        playground_ref = next(m for m in fields["playground_db"].metadata if isinstance(m, RefTo))
+        prod_ref = next(m for m in fields["test_flavoured_prod_db"].metadata if isinstance(m, RefTo))
+        assert playground_ref.is_test is True
+        assert prod_ref.is_test is False
+
+
+class TestIsTestOnlyMatchEnforcement:
+    """resolve_package_config checks that a field's is_test declaration
+    agrees with the test_only flag on whatever connection it resolves to,
+    in both directions."""
+
+    def test_test_field_pointed_at_real_connection_raises(self):
         cfg = StackConfig.for_session(
-            databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            resources={"my_custom": ResourceConfig(database="db", cdm_schema="main")},
-            tools={"required_tool": ToolConfig(default_resource="my_custom")},
+            connections={"prod": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=False)},
+            databases={"test_cdm_db": CDMDatabaseConfig(connection="prod")},
         )
-        result = RequiredConfig.from_stack(cfg)
-        assert result.value == "default_value"
 
-    def test_recognises_profile_resources(self):
+        class NeedsTestDb(PackageConfigBase):
+            tool_name: ClassVar[str] = "needs_test_db_tool"
+            test_cdm_db: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = "test_cdm_db"
+
+        with pytest.raises(ConfigurationError, match="is_test=True"):
+            Resolver(cfg).resolve_package_config(NeedsTestDb)
+
+    def test_prod_field_pointed_at_test_only_connection_raises(self):
         cfg = StackConfig.for_session(
-            databases={"db": DatabaseConfig(dialect="sqlite", database_name=":memory:")},
-            profiles={
-                "test": ProfileOverrideConfig(
-                    resources={"cdm_db": ResourceConfig(database="db", cdm_schema="test_schema")},
-                ),
+            connections={"test_conn": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=True)},
+            databases={"cdm_db": CDMDatabaseConfig(connection="test_conn")},
+        )
+
+        class NeedsProdDb(PackageConfigBase):
+            tool_name: ClassVar[str] = "needs_prod_db_tool"
+            cdm_db: Annotated[str, RefTo(CDMDatabaseConfig)] = "cdm_db"
+
+        with pytest.raises(ConfigurationError, match="is_test=False"):
+            Resolver(cfg).resolve_package_config(NeedsProdDb)
+
+    def test_matching_is_test_and_test_only_passes(self):
+        cfg = StackConfig.for_session(
+            connections={"test_conn": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=True)},
+            databases={"test_cdm_db": CDMDatabaseConfig(connection="test_conn")},
+        )
+
+        class NeedsTestDb(PackageConfigBase):
+            tool_name: ClassVar[str] = "matching_test_db_tool"
+            test_cdm_db: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = "test_cdm_db"
+
+        result = Resolver(cfg).resolve_package_config(NeedsTestDb)
+        assert result.test_cdm_db == "test_cdm_db"
+
+    def test_matching_non_test_passes(self):
+        cfg = StackConfig.for_session(
+            connections={"prod": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=False)},
+            databases={"cdm_db": CDMDatabaseConfig(connection="prod")},
+        )
+
+        class NeedsProdDb(PackageConfigBase):
+            tool_name: ClassVar[str] = "matching_prod_db_tool"
+            cdm_db: Annotated[str, RefTo(CDMDatabaseConfig)] = "cdm_db"
+
+        result = Resolver(cfg).resolve_package_config(NeedsProdDb)
+        assert result.cdm_db == "cdm_db"
+
+    def test_vocab_only_test_connection_does_not_make_database_test(self):
+        """A CDMDatabaseConfig's test-ness is decided by its primary
+        connection alone, not vocab_connection: a prod-primary database
+        with a test-only vocab connection is NOT test, matching what the
+        CLI wizard's candidate filtering (_is_test_marked) and this
+        validator both now agree on."""
+        cfg = StackConfig.for_session(
+            connections={
+                "prod": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=False),
+                "test_vocab": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=True),
             },
-            active_profile="test",
+            databases={"cdm_db": CDMDatabaseConfig(connection="prod", vocab_connection="test_vocab")},
         )
-        result = RequiredConfig.from_stack(cfg)
-        assert result.value == "default_value"
 
-    def test_empty_required_resources_always_passes(self):
-        cfg = StackConfig.for_session()
-        result = SampleConfig.from_stack(cfg)
-        assert result.backend == "default_backend"
+        class NeedsProdDb(PackageConfigBase):
+            tool_name: ClassVar[str] = "vocab_edge_case_prod_tool"
+            cdm_db: Annotated[str, RefTo(CDMDatabaseConfig)] = "cdm_db"
+
+        class NeedsTestDb(PackageConfigBase):
+            tool_name: ClassVar[str] = "vocab_edge_case_test_tool"
+            test_cdm_db: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = "cdm_db"
+
+        result = Resolver(cfg).resolve_package_config(NeedsProdDb)
+        assert result.cdm_db == "cdm_db"
+        with pytest.raises(ConfigurationError, match="is_test=True"):
+            Resolver(cfg).resolve_package_config(NeedsTestDb)
+
+    def test_vector_store_reaching_test_only_database_via_nested_ref(self):
+        """A RefTo(VectorStoreConfig, is_test=True) field is checked through
+        the VectorStoreConfig -> database -> connection chain, not skipped
+        the way a depth-1-only check would skip any non-DatabaseConfig
+        RefTo target."""
+        cfg = StackConfig.for_session(
+            connections={"test_conn": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=True)},
+            databases={"emb_db": GenericDatabaseConfig(connection="test_conn")},
+            vector_stores={"vs": VectorStoreConfig(backend_type="pgvector", database="emb_db")},
+        )
+
+        class NeedsTestVectorStore(PackageConfigBase):
+            tool_name: ClassVar[str] = "vector_store_test_tool"
+            vector_store_name: Annotated[str | None, RefTo(VectorStoreConfig, is_test=True)] = "vs"
+
+        result = Resolver(cfg).resolve_package_config(NeedsTestVectorStore)
+        assert result.vector_store_name == "vs"
+
+    def test_vector_store_reaching_prod_database_with_is_test_true_raises(self):
+        cfg = StackConfig.for_session(
+            connections={"prod_conn": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=False)},
+            databases={"emb_db": GenericDatabaseConfig(connection="prod_conn")},
+            vector_stores={"vs": VectorStoreConfig(backend_type="pgvector", database="emb_db")},
+        )
+
+        class NeedsTestVectorStore(PackageConfigBase):
+            tool_name: ClassVar[str] = "vector_store_test_tool_2"
+            vector_store_name: Annotated[str | None, RefTo(VectorStoreConfig, is_test=True)] = "vs"
+
+        with pytest.raises(ConfigurationError, match="is_test=True"):
+            Resolver(cfg).resolve_package_config(NeedsTestVectorStore)
+
+
+class TestRefToAbstractDatabaseConfigRejected:
+    """DatabaseConfig is abstract (kind has no default) and must not be a
+    constructible RefTo target: a field typed against it, not a concrete
+    subclass, would let the CLI wizard build a bare DatabaseConfig instead
+    of a CDMDatabaseConfig/GenericDatabaseConfig."""
+
+    def test_raises_unknown_ref_target(self):
+        class BadConfig(PackageConfigBase):
+            tool_name: ClassVar[str] = "bad_tool"
+            cdm_db: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"
+
+        cfg = StackConfig.for_session(
+            connections={"db": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={"cdm_db": CDMDatabaseConfig(connection="db")},
+        )
+        with pytest.raises(UnknownRefTarget) as exc_info:
+            Resolver(cfg).resolve_package_config(BadConfig)
+        msg = str(exc_info.value)
+        assert "cdm_db" in msg
+        assert "CDMDatabaseConfig" in msg
+        assert "GenericDatabaseConfig" in msg
+
+
+class BoolFieldConfig(PackageConfigBase):
+    tool_name: ClassVar[str] = "bool_field_tool"
+    dry_run: bool = False
+
+
+class RequiredFieldConfig(PackageConfigBase):
+    tool_name: ClassVar[str] = "required_field_tool"
+    required_value: str
+
+
+class DictFieldConfig(PackageConfigBase):
+    tool_name: ClassVar[str] = "dict_field_tool"
+    configuration: dict[str, Any] = {}
+
+
+class TestResolveFieldsPlainFieldHandling:
+    """Plain (non-RefTo) fields get type-aware handling, not a single
+    free-text prompt for everything: bool via confirm, dict/list carried
+    over or left to their own default -- matching what _resolve_named_entry
+    already does for RefTo-target schemas."""
+
+    def test_bool_field_uses_confirm_and_stores_a_real_bool(self, monkeypatch):
+        monkeypatch.setattr(typer, "confirm", lambda *a, **k: True)
+        extra = BoolFieldConfig.resolve_fields(StackConfig.for_session(), set_dict={}, interactive=True)
+        assert extra["dry_run"] is True
+
+    def test_required_plain_field_has_an_empty_prompt_default(self, monkeypatch):
+        seen_defaults: dict[str, str] = {}
+
+        def prompt(text, default="", **kwargs):
+            seen_defaults[text] = default
+            return "configured"
+
+        monkeypatch.setattr(typer, "prompt", prompt)
+        extra = RequiredFieldConfig.resolve_fields(StackConfig.for_session(), set_dict={}, interactive=True)
+
+        assert seen_defaults["required_value"] == ""
+        assert extra["required_value"] == "configured"
+
+    def test_dict_field_is_not_prompted_and_carries_over_stored_value(self, monkeypatch):
+        cfg = StackConfig.for_session(tools={"dict_field_tool": {"configuration": {"k": "v"}}})
+        # If this field were free-text prompted, this monkeypatch would be hit and fail the test.
+        monkeypatch.setattr(typer, "prompt", lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not prompt")))
+        extra = DictFieldConfig.resolve_fields(cfg, set_dict={}, interactive=True)
+        assert extra["configuration"] == {"k": "v"}
+
+
+class MixedFieldConfig(PackageConfigBase):
+    tool_name: ClassVar[str] = "mixed_field_tool"
+    cdm_db: Annotated[str, RefTo(CDMDatabaseConfig)] = "cdm_db"
+    backend: str = "default_backend"
+
+
+class TestResolveFieldsStaleRefFallback:
+    def test_one_dangling_ref_does_not_wipe_other_stored_fields(self):
+        """resolve_package_config raises on the dangling cdm_db ref, so the
+        except branch's fallback is what resolve_fields actually sees. In that case,
+        it must preserve the raw stored section (backend included), not
+        reset to an empty dict and lose every other already-configured
+        field along with the one broken one."""
+        cfg = StackConfig.for_session(
+            tools={"mixed_field_tool": {"cdm_db": "does-not-exist", "backend": "custom_value"}},
+        )
+        extra = MixedFieldConfig.resolve_fields(cfg, set_dict={}, interactive=False)
+        assert extra["backend"] == "custom_value"

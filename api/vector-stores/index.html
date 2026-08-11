@@ -10,31 +10,31 @@
       
       
       
-        <link rel="canonical" href="https://AustralianCancerDataNetwork.github.io/oa-configurator/profiles/">
+        <link rel="canonical" href="https://AustralianCancerDataNetwork.github.io/oa-configurator/api/vector-stores/">
       
       
-        <link rel="prev" href="../secrets/">
+        <link rel="prev" href="../llm/">
       
       
-        <link rel="next" href="../inline-usage/">
+        <link rel="next" href="../resolver/">
       
       
         
       
       
-      <link rel="icon" href="../assets/images/favicon.png">
+      <link rel="icon" href="../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
-        <title>Profiles & Overlays - oa-configurator</title>
+        <title>Vector Stores - oa-configurator</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -53,9 +53,9 @@
       
     
     
-      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#profiles" class="md-skip">
+        <a href="#vector-stores" class="md-skip">
           Skip to content
         </a>
       
@@ -96,7 +96,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="oa-configurator" class="md-header__button md-logo" aria-label="oa-configurator" data-md-component="logo">
+    <a href="../.." title="oa-configurator" class="md-header__button md-logo" aria-label="oa-configurator" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -116,7 +116,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Profiles & Overlays
+              Vector Stores
             
           </span>
         </div>
@@ -232,7 +232,7 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="oa-configurator" class="md-nav__button md-logo" aria-label="oa-configurator" data-md-component="logo">
+    <a href="../.." title="oa-configurator" class="md-nav__button md-logo" aria-label="oa-configurator" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -262,7 +262,7 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -289,7 +289,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../quickstart/" class="md-nav__link">
+      <a href="../../quickstart/" class="md-nav__link">
         
   
   
@@ -316,7 +316,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/" class="md-nav__link">
+      <a href="../../architecture/" class="md-nav__link">
         
   
   
@@ -340,71 +340,17 @@
       
   
   
-    
-  
-  
-  
-    
-    
-    
-    
-      
-        
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
-        
-          
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    User Guide
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_4">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    User Guide
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
   
   
     <li class="md-nav__item">
-      <a href="../config-reference/" class="md-nav__link">
+      <a href="../../migration-1.0/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Config File Reference
+    Migrating from 0.x to 1.0
   
 
     
@@ -413,245 +359,6 @@
   
 
       </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../secrets/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Secrets
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-    
-  
-  
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Profiles & Overlays
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Profiles & Overlays
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#how-profiles-work" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How profiles work
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#switching-profiles" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Switching profiles
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#profiles-in-tests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Profiles in tests
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#profile-with-additional-connections" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Profile with additional connections
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../inline-usage/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Inline & Session Usage
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../logging/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Logging
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../integration/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Integration
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
     </li>
   
 
@@ -688,7 +395,7 @@
   <span class="md-ellipsis">
     
   
-    API Reference
+    User Guide
   
 
     
@@ -701,6 +408,207 @@
         
         <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config File Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../secrets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Secrets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../inline-usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inline & Session Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -717,7 +625,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/loader/" class="md-nav__link">
+      <a href="../loader/" class="md-nav__link">
         
   
   
@@ -745,14 +653,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/models/" class="md-nav__link">
+      <a href="../stack-config/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Models
+    Stack Config
   
 
     
@@ -773,7 +681,193 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/resolver/" class="md-nav__link">
+      <a href="../resources/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resources
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../llm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LLM
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vector Stores
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vector Stores
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#vectorstoreconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VectorStoreConfig
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.domains.vector_stores.schema.VectorStoreConfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VectorStoreConfig
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.domains.vector_stores.schema.VectorStoreConfig.resolve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        resolve
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resolved-type" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resolved type
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.domains.vector_stores.schema.ResolvedVectorStore" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ResolvedVectorStore
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../resolver/" class="md-nav__link">
         
   
   
@@ -801,7 +895,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/package-base/" class="md-nav__link">
+      <a href="../package-base/" class="md-nav__link">
         
   
   
@@ -829,7 +923,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/logging/" class="md-nav__link">
+      <a href="../logging/" class="md-nav__link">
         
   
   
@@ -884,10 +978,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#how-profiles-work" class="md-nav__link">
+  <a href="#vectorstoreconfig" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How profiles work
+        VectorStoreConfig
       
     </span>
   </a>
@@ -895,10 +989,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#switching-profiles" class="md-nav__link">
+  <a href="#oa_configurator.domains.vector_stores.schema.VectorStoreConfig" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Switching profiles
+        VectorStoreConfig
       
     </span>
   </a>
@@ -906,10 +1000,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#profiles-in-tests" class="md-nav__link">
+  <a href="#oa_configurator.domains.vector_stores.schema.VectorStoreConfig.resolve" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Profiles in tests
+        resolve
       
     </span>
   </a>
@@ -917,10 +1011,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#profile-with-additional-connections" class="md-nav__link">
+  <a href="#resolved-type" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Profile with additional connections
+        Resolved type
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.domains.vector_stores.schema.ResolvedVectorStore" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ResolvedVectorStore
       
     </span>
   </a>
@@ -952,7 +1057,7 @@
   
   
     <li class="md-path__item">
-      <a href=".." class="md-path__link">
+      <a href="../.." class="md-path__link">
         
   <span class="md-ellipsis">
     Home
@@ -970,10 +1075,10 @@
     
     
       <li class="md-path__item">
-        <a href="../config-reference/" class="md-path__link">
+        <a href="../loader/" class="md-path__link">
           
   <span class="md-ellipsis">
-    User Guide
+    API Reference
   </span>
 
         </a>
@@ -995,75 +1100,202 @@
   
 
 
-<h1 id="profiles">Profiles<a class="headerlink" href="#profiles" title="Permanent link">&para;</a></h1>
-<p>Profiles let you maintain one config file for multiple environments (local dev, staging, prod, test) without duplicating connection blocks.</p>
-<hr />
-<h2 id="how-profiles-work">How profiles work<a class="headerlink" href="#how-profiles-work" title="Permanent link">&para;</a></h2>
-<p>A profile defines connections, resources, and/or tools that <strong>replace</strong> the base entries with the same name when that profile is active. Base entries not mentioned in the profile are used unchanged.</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># Base config</span>
-<span class="k">[databases.cdm]</span>
-<span class="n">dialect</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;postgresql+psycopg&quot;</span>
-<span class="n">host</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod.example.com&quot;</span>
-<span class="n">port</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="mi">5432</span>
-<span class="n">user</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
-<span class="n">password</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod_secret&quot;</span>
-<span class="n">database_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_cdm&quot;</span>
+<h1 id="vector-stores">Vector Stores<a class="headerlink" href="#vector-stores" title="Permanent link">&para;</a></h1>
+<p>Which storage backend an embedding-capable package should use. A third instance of the same two-tier pattern as <a href="../resources/">Resources</a> (connection/database) and <a href="../llm/">LLM</a> (provider/model): here there is only one tier, since a vector store just names the <code>GenericDatabaseConfig</code> its tables live in plus a backend key, rather than introducing its own leaf-tier section.</p>
+<h2 id="vectorstoreconfig">VectorStoreConfig<a class="headerlink" href="#vectorstoreconfig" title="Permanent link">&para;</a></h2>
+<p>Stored in <code>[vector_stores.&lt;name&gt;]</code>. <code>backend_type</code> is a plain string (e.g. <code>"sqlitevec"</code>, <code>"pgvector"</code>) validated by the owning package, not by <code>oa-configurator</code> — the same discipline <code>ProviderConfig.provider</code> uses. <code>database</code> must reference a <code>GenericDatabaseConfig</code> entry, never a <code>CDMDatabaseConfig</code> one: a vector store's tables have no CDM vocab/results roles, so a <code>[databases.*]</code> entry with <code>kind = "generic"</code> is required.</p>
 
-<span class="k">[resources.default]</span>
-<span class="n">database</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
-<span class="n">cdm_schema</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
 
-<span class="c1"># Test profile (only what changes)</span>
-<span class="k">[profiles.test.databases.cdm]</span>
-<span class="n">dialect</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;postgresql+psycopg&quot;</span>
-<span class="n">host</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;localhost&quot;</span>
-<span class="n">port</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="mi">5433</span>
-<span class="n">user</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;test_user&quot;</span>
-<span class="n">password</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;test_pass&quot;</span>
-<span class="n">database_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_test&quot;</span>
+<div class="doc doc-object doc-class">
 
-<span class="k">[profiles.test.resources.default]</span>
-<span class="n">database</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
-<span class="n">cdm_schema</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;test_omop&quot;</span>
-</code></pre></div>
-<p>When the <code>test</code> profile is active, <code>resolver.resolve_database("cdm")</code> returns the test host/database.</p>
-<hr />
-<h2 id="switching-profiles">Switching profiles<a class="headerlink" href="#switching-profiles" title="Permanent link">&para;</a></h2>
-<p><strong>Persistent</strong>: writes <code>active_profile</code> to the TOML file and re-exports <code>config.env</code>:</p>
-<div class="highlight"><pre><span></span><code>omop-config<span class="w"> </span>use<span class="w"> </span><span class="nb">test</span>
-omop-config<span class="w"> </span>use<span class="w"> </span><span class="nb">local</span>
-</code></pre></div>
-<p><strong>Per-session</strong>: env var override, does not modify the file:</p>
-<div class="highlight"><pre><span></span><code><span class="nv">OA_ACTIVE_PROFILE</span><span class="o">=</span><span class="nb">test</span><span class="w"> </span>omop-config<span class="w"> </span>doctor
-<span class="nv">OA_ACTIVE_PROFILE</span><span class="o">=</span>prod<span class="w"> </span>python<span class="w"> </span>my_script.py
-</code></pre></div>
-<hr />
-<h2 id="profiles-in-tests">Profiles in tests<a class="headerlink" href="#profiles-in-tests" title="Permanent link">&para;</a></h2>
-<p>Package tests should use <code>StackConfig.for_session()</code> (no file I/O). For integration tests that need a real database:</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># conftest.py</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">pytest</span>
 
-<span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span><span class="p">(</span><span class="n">autouse</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">scope</span><span class="o">=</span><span class="s2">&quot;session&quot;</span><span class="p">)</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">use_test_profile</span><span class="p">():</span>
-    <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;OA_ACTIVE_PROFILE&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;test&quot;</span>
-    <span class="k">yield</span>
-    <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;OA_ACTIVE_PROFILE&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
-</code></pre></div>
-<p>This requires a <code>[profiles.test]</code> section in <code>~/.config/omop/config.toml</code> pointing at the test database. Document this in your package's README.</p>
-<hr />
-<h2 id="profile-with-additional-connections">Profile with additional connections<a class="headerlink" href="#profile-with-additional-connections" title="Permanent link">&para;</a></h2>
-<p>Profiles can introduce new connections not present in the base config:</p>
-<div class="highlight"><pre><span></span><code><span class="k">[profiles.local_only.databases.local_vocab]</span>
-<span class="n">dialect</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;sqlite&quot;</span>
-<span class="n">database_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;/data/vocab.db&quot;</span>
 
-<span class="k">[profiles.local_only.resources.default]</span>
-<span class="n">database</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span><span class="w">         </span><span class="c1"># uses base cdm database</span>
-<span class="n">vocab_database</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local_vocab&quot;</span><span class="w">  </span><span class="c1"># new database defined in this profile</span>
-<span class="n">cdm_schema</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
+<a id="oa_configurator.domains.vector_stores.schema.VectorStoreConfig"></a>
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="pydantic.BaseModel">BaseModel</span></code></p>
+
+
+
+        <p>Which storage backend an embedding-capable package should use.</p>
+<p>Peer of :class:<code>~oa_configurator.domains.resources.schema.DatabaseConfig</code>
+and :class:<code>~oa_configurator.domains.llm.schema.ModelConfig</code>: the unit
+that consuming packages reference by name (e.g. a package's
+<code>vector_store_name</code> field just names an entry here). Each entry under
+<code>[vector_stores]</code> in <code>config.toml</code> maps to one instance of this model.</p>
+<p><code>backend_type</code> is deliberately a plain string, not an enum imported
+from the owning package (e.g. omop-emb's <code>BackendType</code>); oa-configurator
+never needs to know which backend keys are valid, the same way
+:attr:<code>~oa_configurator.domains.llm.schema.ProviderConfig.provider</code> never
+needs to know which LLM providers any-llm supports. Validation of the
+value happens in the owning package's own resolution code.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="oa_configurator.domains.vector_stores.schema.VectorStoreConfig.resolve" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">resolve</span>
+
+
+<a href="#oa_configurator.domains.vector_stores.schema.VectorStoreConfig.resolve" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">resolve</span><span class="p">(</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">stack</span><span class="p">:</span> <span class="n">StackConfig</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ResolvedVectorStore</span>
 </code></pre></div>
-<p>Cross-references in profile resources are validated against both base and profile databases at load time.</p>
+
+    <div class="doc doc-contents ">
+
+        <p>Resolve this vector store to a concrete, backend-ready configuration.</p>
+<p><em>stack</em> must already have passed :meth:<code>StackConfig.validate_references</code>,
+so <code>self.database</code> is guaranteed to exist in <code>stack.databases</code> (as a
+<code>GenericDatabaseConfig</code>).</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="resolved-type">Resolved type<a class="headerlink" href="#resolved-type" title="Permanent link">&para;</a></h2>
+<p><code>VectorStoreConfig.resolve()</code> produces this. <code>Resolver.resolve_vector_store()</code> is a thin wrapper around the same method.</p>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<a id="oa_configurator.domains.vector_stores.schema.ResolvedVectorStore"></a>
+    <div class="doc doc-contents first">
+
+
+
+        <p>Concrete, backend-agnostic vector-store configuration.</p>
+<p>No explicit methods; a plain data struct the consuming package uses to
+construct its own backend-specific handle.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="oa_configurator.domains.vector_stores.schema.ResolvedVectorStore.name">name</span></code></td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Logical name of the vector store as declared in the config.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="oa_configurator.domains.vector_stores.schema.ResolvedVectorStore.backend_type">backend_type</span></code></td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Storage backend key, e.g. <code>'sqlitevec'</code>, <code>'pgvector'</code>.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="oa_configurator.domains.vector_stores.schema.ResolvedVectorStore.database">database</span></code></td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="oa_configurator.domains.resources.schema.ResolvedDatabase" href="../resources/#oa_configurator.domains.resources.schema.ResolvedDatabase">ResolvedDatabase</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Resolved database backing this store.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="oa_configurator.domains.vector_stores.schema.ResolvedVectorStore.faiss_cache_dir">faiss_cache_dir</span></code></td>
+            <td>
+                  <code>(<span title="str">str</span>, <span title="optional">optional</span>)</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Directory to cache FAISS index files, if configured.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="oa_configurator.domains.vector_stores.schema.ResolvedVectorStore.configuration">configuration</span></code></td>
+            <td>
+                  <code><span title="dict">dict</span>[<span title="str">str</span>, <span title="typing.Any">Any</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Free-form per-store knobs with no dedicated field.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
 
 
 
@@ -1121,14 +1353,14 @@ omop-config<span class="w"> </span>use<span class="w"> </span><span class="nb">l
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.path", "navigation.top", "content.code.copy", "content.code.annotate", "content.tabs.link"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.path", "navigation.top", "content.code.copy", "content.code.annotate", "content.tabs.link"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
         <script src="https://unpkg.com/mermaid@10/dist/mermaid.min.js"></script>
       
-        <script src="../js/mermaid-init.js"></script>
+        <script src="../../js/mermaid-init.js"></script>
       
     
   </body>

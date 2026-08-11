@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://AustralianCancerDataNetwork.github.io/oa-configurator/inline-usage/">
       
       
-        <link rel="prev" href="../profiles/">
+        <link rel="prev" href="../secrets/">
       
       
         <link rel="next" href="../logging/">
@@ -340,6 +340,33 @@
       
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../migration-1.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migrating from 0.x to 1.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
     
   
   
@@ -358,10 +385,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
             
   
   
@@ -379,8 +406,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_4">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -433,34 +460,6 @@
     
   
     Secrets
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../profiles/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Profiles & Overlays
   
 
     
@@ -745,10 +744,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
             
   
   
@@ -766,8 +765,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_5">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -812,14 +811,98 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/models/" class="md-nav__link">
+      <a href="../api/stack-config/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Models
+    Stack Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/resources/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resources
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/llm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LLM
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/vector-stores/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vector Stores
   
 
     
@@ -1139,11 +1222,11 @@
 <li>Tests that need an isolated, reproducible config</li>
 <li>Programmatic config generation (e.g. CI pipelines)</li>
 </ul>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">StackConfig</span><span class="p">,</span> <span class="n">DatabaseConfig</span><span class="p">,</span> <span class="n">ResourceConfig</span><span class="p">,</span> <span class="n">Resolver</span>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">StackConfig</span><span class="p">,</span> <span class="n">ConnectionConfig</span><span class="p">,</span> <span class="n">CDMDatabaseConfig</span><span class="p">,</span> <span class="n">Resolver</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="n">StackConfig</span><span class="o">.</span><span class="n">for_session</span><span class="p">(</span>
-    <span class="n">databases</span><span class="o">=</span><span class="p">{</span>
-        <span class="s2">&quot;local&quot;</span><span class="p">:</span> <span class="n">DatabaseConfig</span><span class="p">(</span>
+    <span class="n">connections</span><span class="o">=</span><span class="p">{</span>
+        <span class="s2">&quot;local&quot;</span><span class="p">:</span> <span class="n">ConnectionConfig</span><span class="p">(</span>
             <span class="n">dialect</span><span class="o">=</span><span class="s2">&quot;postgresql+psycopg&quot;</span><span class="p">,</span>
             <span class="n">host</span><span class="o">=</span><span class="s2">&quot;localhost&quot;</span><span class="p">,</span>
             <span class="n">database_name</span><span class="o">=</span><span class="s2">&quot;omop&quot;</span><span class="p">,</span>
@@ -1151,15 +1234,15 @@
             <span class="n">password</span><span class="o">=</span><span class="s2">&quot;omop&quot;</span><span class="p">,</span>
         <span class="p">)</span>
     <span class="p">},</span>
-    <span class="n">resources</span><span class="o">=</span><span class="p">{</span>
-        <span class="s2">&quot;default&quot;</span><span class="p">:</span> <span class="n">ResourceConfig</span><span class="p">(</span>
-            <span class="n">database</span><span class="o">=</span><span class="s2">&quot;local&quot;</span><span class="p">,</span>
-            <span class="n">cdm_schema</span><span class="o">=</span><span class="s2">&quot;cdm&quot;</span><span class="p">,</span>
+    <span class="n">databases</span><span class="o">=</span><span class="p">{</span>
+        <span class="s2">&quot;cdm&quot;</span><span class="p">:</span> <span class="n">CDMDatabaseConfig</span><span class="p">(</span>
+            <span class="n">connection</span><span class="o">=</span><span class="s2">&quot;local&quot;</span><span class="p">,</span>
+            <span class="n">schema_name</span><span class="o">=</span><span class="s2">&quot;omop&quot;</span><span class="p">,</span>
             <span class="n">vocab_schema</span><span class="o">=</span><span class="s2">&quot;vocab&quot;</span><span class="p">,</span>
         <span class="p">)</span>
     <span class="p">},</span>
 <span class="p">)</span>
-<span class="n">engine</span> <span class="o">=</span> <span class="n">Resolver</span><span class="p">(</span><span class="n">config</span><span class="p">)</span><span class="o">.</span><span class="n">resolve_resource</span><span class="p">(</span><span class="s2">&quot;default&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">create_engine</span><span class="p">()</span>
+<span class="n">engine</span> <span class="o">=</span> <span class="n">Resolver</span><span class="p">(</span><span class="n">config</span><span class="p">)</span><span class="o">.</span><span class="n">resolve_database</span><span class="p">(</span><span class="s2">&quot;cdm&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">create_engine</span><span class="p">()</span>
 </code></pre></div>
 <h3 id="parameters">Parameters<a class="headerlink" href="#parameters" title="Permanent link">&para;</a></h3>
 <table>
@@ -1173,42 +1256,48 @@
 </thead>
 <tbody>
 <tr>
+<td><code>connections</code></td>
+<td>dict | None</td>
+<td><code>{}</code></td>
+<td>Named <code>ConnectionConfig</code> objects or raw dicts</td>
+</tr>
+<tr>
 <td><code>databases</code></td>
 <td>dict | None</td>
 <td><code>{}</code></td>
-<td>Named <code>DatabaseConfig</code> objects or raw dicts</td>
+<td>Named <code>GenericDatabaseConfig</code>/<code>CDMDatabaseConfig</code> objects or raw dicts (each needs its own <code>kind</code>, see <a href="../architecture/#database">Architecture</a>)</td>
 </tr>
 <tr>
-<td><code>resources</code></td>
+<td><code>providers</code></td>
 <td>dict | None</td>
 <td><code>{}</code></td>
-<td>Named <code>ResourceConfig</code> objects or raw dicts</td>
+<td>Named <code>ProviderConfig</code> objects or raw dicts</td>
+</tr>
+<tr>
+<td><code>models</code></td>
+<td>dict | None</td>
+<td><code>{}</code></td>
+<td>Named <code>ModelConfig</code> objects or raw dicts</td>
+</tr>
+<tr>
+<td><code>vector_stores</code></td>
+<td>dict | None</td>
+<td><code>{}</code></td>
+<td>Named <code>VectorStoreConfig</code> objects or raw dicts</td>
 </tr>
 <tr>
 <td><code>tools</code></td>
 <td>dict | None</td>
 <td><code>{}</code></td>
-<td>Named <code>ToolConfig</code> objects or raw dicts</td>
-</tr>
-<tr>
-<td><code>profiles</code></td>
-<td>dict | None</td>
-<td><code>{}</code></td>
-<td>Named <code>ProfileOverrideConfig</code> objects or raw dicts</td>
-</tr>
-<tr>
-<td><code>active_profile</code></td>
-<td>str | None</td>
-<td><code>None</code></td>
-<td>Profile to activate</td>
+<td>Per-package <code>[tools.&lt;name&gt;]</code> sections, as plain dicts</td>
 </tr>
 </tbody>
 </table>
 <h3 id="validation">Validation<a class="headerlink" href="#validation" title="Permanent link">&para;</a></h3>
-<p>Cross-references are validated at construction time, same as for file-loaded configs. A resource referencing an unknown connection raises immediately:</p>
+<p>Cross-references are validated at construction time, same as for file-loaded configs. A database referencing an unknown connection raises immediately:</p>
 <div class="highlight"><pre><span></span><code><span class="n">StackConfig</span><span class="o">.</span><span class="n">for_session</span><span class="p">(</span>
-    <span class="n">databases</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;local&quot;</span><span class="p">:</span> <span class="n">DatabaseConfig</span><span class="p">(</span><span class="n">dialect</span><span class="o">=</span><span class="s2">&quot;sqlite&quot;</span><span class="p">,</span> <span class="n">database_name</span><span class="o">=</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)},</span>
-    <span class="n">resources</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;default&quot;</span><span class="p">:</span> <span class="n">ResourceConfig</span><span class="p">(</span><span class="n">database</span><span class="o">=</span><span class="s2">&quot;typo&quot;</span><span class="p">,</span> <span class="n">cdm_schema</span><span class="o">=</span><span class="s2">&quot;omop&quot;</span><span class="p">)},</span>  <span class="c1"># raises ValueError</span>
+    <span class="n">connections</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;local&quot;</span><span class="p">:</span> <span class="n">ConnectionConfig</span><span class="p">(</span><span class="n">dialect</span><span class="o">=</span><span class="s2">&quot;sqlite&quot;</span><span class="p">,</span> <span class="n">database_name</span><span class="o">=</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)},</span>
+    <span class="n">databases</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;cdm&quot;</span><span class="p">:</span> <span class="n">CDMDatabaseConfig</span><span class="p">(</span><span class="n">connection</span><span class="o">=</span><span class="s2">&quot;typo&quot;</span><span class="p">,</span> <span class="n">schema_name</span><span class="o">=</span><span class="s2">&quot;omop&quot;</span><span class="p">)},</span>  <span class="c1"># raises ValueError</span>
 <span class="p">)</span>
 </code></pre></div>
 <h3 id="in-tests">In tests<a class="headerlink" href="#in-tests" title="Permanent link">&para;</a></h3>
@@ -1217,35 +1306,35 @@
 
 <span class="k">def</span><span class="w"> </span><span class="nf">test_something</span><span class="p">():</span>
     <span class="n">cfg</span> <span class="o">=</span> <span class="n">StackConfig</span><span class="o">.</span><span class="n">for_session</span><span class="p">(</span>
-        <span class="n">databases</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;db&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;dialect&quot;</span><span class="p">:</span> <span class="s2">&quot;sqlite&quot;</span><span class="p">,</span> <span class="s2">&quot;database_name&quot;</span><span class="p">:</span> <span class="s2">&quot;:memory:&quot;</span><span class="p">}},</span>
-        <span class="n">resources</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;default&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;database&quot;</span><span class="p">:</span> <span class="s2">&quot;db&quot;</span><span class="p">,</span> <span class="s2">&quot;cdm_schema&quot;</span><span class="p">:</span> <span class="s2">&quot;omop&quot;</span><span class="p">}},</span>
-        <span class="n">tools</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;my_package&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;extra&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;backend&quot;</span><span class="p">:</span> <span class="s2">&quot;test_backend&quot;</span><span class="p">}}},</span>
+        <span class="n">connections</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;db&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;dialect&quot;</span><span class="p">:</span> <span class="s2">&quot;sqlite&quot;</span><span class="p">,</span> <span class="s2">&quot;database_name&quot;</span><span class="p">:</span> <span class="s2">&quot;:memory:&quot;</span><span class="p">}},</span>
+        <span class="n">databases</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;cdm&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;kind&quot;</span><span class="p">:</span> <span class="s2">&quot;cdm&quot;</span><span class="p">,</span> <span class="s2">&quot;connection&quot;</span><span class="p">:</span> <span class="s2">&quot;db&quot;</span><span class="p">,</span> <span class="s2">&quot;schema_name&quot;</span><span class="p">:</span> <span class="s2">&quot;omop&quot;</span><span class="p">}},</span>
+        <span class="n">tools</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;my_package&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;backend&quot;</span><span class="p">:</span> <span class="s2">&quot;test_backend&quot;</span><span class="p">}},</span>
     <span class="p">)</span>
     <span class="n">resolver</span> <span class="o">=</span> <span class="n">Resolver</span><span class="p">(</span><span class="n">cfg</span><span class="p">)</span>
-    <span class="n">engine</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">resolve_resource</span><span class="p">(</span><span class="s2">&quot;default&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">create_engine</span><span class="p">()</span>
+    <span class="n">engine</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">resolve_database</span><span class="p">(</span><span class="s2">&quot;cdm&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">create_engine</span><span class="p">()</span>
     <span class="c1"># ...</span>
 </code></pre></div>
 <hr />
 <h2 id="resolverwith_overrides-session-level-override"><code>Resolver.with_overrides()</code>: session-level override<a class="headerlink" href="#resolverwith_overrides-session-level-override" title="Permanent link">&para;</a></h2>
-<p>Loads the shared config file, then replaces specific connections or resources for this session without touching the file. Useful for:</p>
+<p>Loads the shared config file, then replaces specific connections or databases for this session without touching the file. Useful for:</p>
 <ul>
 <li>Tests that swap prod connections for in-memory equivalents</li>
-<li>Notebook sessions that redirect one resource to a local database</li>
+<li>Notebook sessions that redirect one database to a local connection</li>
 <li>Sharing a team config but running with personal credentials locally</li>
 </ul>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_stack_config</span><span class="p">,</span> <span class="n">DatabaseConfig</span><span class="p">,</span> <span class="n">ResourceConfig</span><span class="p">,</span> <span class="n">Resolver</span>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_stack_config</span><span class="p">,</span> <span class="n">ConnectionConfig</span><span class="p">,</span> <span class="n">CDMDatabaseConfig</span><span class="p">,</span> <span class="n">Resolver</span>
 
 <span class="n">engine</span> <span class="o">=</span> <span class="p">(</span>
     <span class="n">Resolver</span><span class="p">(</span><span class="n">load_stack_config</span><span class="p">())</span>
     <span class="o">.</span><span class="n">with_overrides</span><span class="p">(</span>
-        <span class="n">databases</span><span class="o">=</span><span class="p">{</span>
-            <span class="s2">&quot;local&quot;</span><span class="p">:</span> <span class="n">DatabaseConfig</span><span class="p">(</span><span class="n">dialect</span><span class="o">=</span><span class="s2">&quot;sqlite&quot;</span><span class="p">,</span> <span class="n">database_name</span><span class="o">=</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
+        <span class="n">connections</span><span class="o">=</span><span class="p">{</span>
+            <span class="s2">&quot;local&quot;</span><span class="p">:</span> <span class="n">ConnectionConfig</span><span class="p">(</span><span class="n">dialect</span><span class="o">=</span><span class="s2">&quot;sqlite&quot;</span><span class="p">,</span> <span class="n">database_name</span><span class="o">=</span><span class="s2">&quot;:memory:&quot;</span><span class="p">)</span>
         <span class="p">},</span>
-        <span class="n">resources</span><span class="o">=</span><span class="p">{</span>
-            <span class="s2">&quot;default&quot;</span><span class="p">:</span> <span class="n">ResourceConfig</span><span class="p">(</span><span class="n">database</span><span class="o">=</span><span class="s2">&quot;local&quot;</span><span class="p">,</span> <span class="n">cdm_schema</span><span class="o">=</span><span class="s2">&quot;omop&quot;</span><span class="p">)</span>
+        <span class="n">databases</span><span class="o">=</span><span class="p">{</span>
+            <span class="s2">&quot;cdm&quot;</span><span class="p">:</span> <span class="n">CDMDatabaseConfig</span><span class="p">(</span><span class="n">connection</span><span class="o">=</span><span class="s2">&quot;local&quot;</span><span class="p">,</span> <span class="n">schema_name</span><span class="o">=</span><span class="s2">&quot;omop&quot;</span><span class="p">)</span>
         <span class="p">},</span>
     <span class="p">)</span>
-    <span class="o">.</span><span class="n">resolve_resource</span><span class="p">(</span><span class="s2">&quot;default&quot;</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">resolve_database</span><span class="p">(</span><span class="s2">&quot;cdm&quot;</span><span class="p">)</span>
     <span class="o">.</span><span class="n">create_engine</span><span class="p">()</span>
 <span class="p">)</span>
 </code></pre></div>
@@ -1265,9 +1354,24 @@
 <td>Entries merged over the existing connections (new keys added; existing keys replaced)</td>
 </tr>
 <tr>
-<td><code>resources</code></td>
+<td><code>databases</code></td>
 <td>dict | None</td>
-<td>Entries merged over the existing resources</td>
+<td>Entries merged over the existing databases</td>
+</tr>
+<tr>
+<td><code>providers</code></td>
+<td>dict | None</td>
+<td>Entries merged over the existing providers</td>
+</tr>
+<tr>
+<td><code>models</code></td>
+<td>dict | None</td>
+<td>Entries merged over the existing models</td>
+</tr>
+<tr>
+<td><code>vector_stores</code></td>
+<td>dict | None</td>
+<td>Entries merged over the existing vector stores</td>
 </tr>
 <tr>
 <td><code>tools</code></td>
@@ -1277,15 +1381,11 @@
 </tbody>
 </table>
 <h3 id="what-is-preserved">What is preserved<a class="headerlink" href="#what-is-preserved" title="Permanent link">&para;</a></h3>
-<ul>
-<li>The original active profile</li>
-<li>All profiles and their overlays</li>
-<li>All connections, resources, and tools <strong>not</strong> mentioned in the overrides</li>
-</ul>
+<p>All connections, databases, providers, models, vector stores, and tools <strong>not</strong> mentioned in the overrides.</p>
 <h3 id="what-is-validated">What is validated<a class="headerlink" href="#what-is-validated" title="Permanent link">&para;</a></h3>
-<p>Cross-references are checked against the <strong>merged</strong> result. A resource override that references a connection that exists in neither the original config nor the override dict raises <code>ValueError</code> at call time.</p>
+<p>Cross-references are checked against the <strong>merged</strong> result. A database override that references a connection that exists in neither the original config nor the override dict raises <code>ValueError</code> at call time.</p>
 <div class="highlight"><pre><span></span><code><span class="n">Resolver</span><span class="p">(</span><span class="n">load_stack_config</span><span class="p">())</span><span class="o">.</span><span class="n">with_overrides</span><span class="p">(</span>
-    <span class="n">resources</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;default&quot;</span><span class="p">:</span> <span class="n">ResourceConfig</span><span class="p">(</span><span class="n">database</span><span class="o">=</span><span class="s2">&quot;nonexistent&quot;</span><span class="p">,</span> <span class="n">cdm_schema</span><span class="o">=</span><span class="s2">&quot;omop&quot;</span><span class="p">)}</span>  <span class="c1"># raises</span>
+    <span class="n">databases</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;cdm&quot;</span><span class="p">:</span> <span class="n">CDMDatabaseConfig</span><span class="p">(</span><span class="n">connection</span><span class="o">=</span><span class="s2">&quot;nonexistent&quot;</span><span class="p">,</span> <span class="n">schema_name</span><span class="o">=</span><span class="s2">&quot;omop&quot;</span><span class="p">)}</span>  <span class="c1"># raises</span>
 <span class="p">)</span>
 </code></pre></div>
 <hr />
@@ -1307,11 +1407,6 @@
 <tr>
 <td>Inherits shared team config</td>
 <td>No</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>Profile overlays preserved</td>
-<td>Only if explicitly passed</td>
 <td>Yes</td>
 </tr>
 <tr>

@@ -420,6 +420,33 @@
   
   
   
+    <li class="md-nav__item">
+      <a href="migration-1.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migrating from 0.x to 1.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
     
     
     
@@ -436,10 +463,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
         
           
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
             
   
   
@@ -457,8 +484,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -511,34 +538,6 @@
     
   
     Secrets
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="profiles/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Profiles & Overlays
   
 
     
@@ -665,10 +664,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
             
   
   
@@ -686,8 +685,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_5">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -732,14 +731,98 @@
   
   
     <li class="md-nav__item">
-      <a href="api/models/" class="md-nav__link">
+      <a href="api/stack-config/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Models
+    Stack Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="api/resources/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resources
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="api/llm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LLM
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="api/vector-stores/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vector Stores
   
 
     
@@ -938,9 +1021,10 @@
 <h2 id="key-concepts">Key Concepts<a class="headerlink" href="#key-concepts" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Connection</strong>: A concrete database endpoint (host, dialect, credentials)</li>
-<li><strong>Resource</strong>:  A logical role bundle, e.g. primary OMOP CDM DB, embedding DB, artficat paths</li>
-<li><strong>Profile</strong>: A named environment (e.g. <code>local</code>, <code>prod</code>) that patches resources and tools</li>
-<li><strong>Tool</strong>:  Per-tool defaults, e.g. backend, default resource, storage roots</li>
+<li><strong>Database</strong>: A named database built on a connection. Comes in two kinds (see <a href="architecture/#database">Architecture</a>): a plain generic database, or a CDM database with its vocab/results role bundle</li>
+<li><strong>Provider</strong> / <strong>Model</strong>: The same two-tier pattern as Connection/Database, for LLM and embedding backends</li>
+<li><strong>Vector Store</strong>: Which storage backend an embedding-capable package should use, pointing at a generic database</li>
+<li><strong>Tool</strong>: Per-tool settings, e.g. which database/model/vector store a package uses</li>
 <li><strong>Logging</strong>: One call configures consistent log output for the entire OMOP Python stack</li>
 </ul>
 <div class="admonition info">
@@ -956,32 +1040,32 @@
 <span class="n">config</span> <span class="o">=</span> <span class="n">load_stack_config</span><span class="p">()</span>                        <span class="c1"># reads CONFIG_PATH (default ~/.config/omop/config.toml)</span>
 <span class="n">resolver</span> <span class="o">=</span> <span class="n">Resolver</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
 
-<span class="n">resource</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">resolve_resource</span><span class="p">(</span><span class="s2">&quot;default&quot;</span><span class="p">)</span>
-<span class="n">engine</span>   <span class="o">=</span> <span class="n">resource</span><span class="o">.</span><span class="n">create_engine</span><span class="p">()</span>                <span class="c1"># SQLAlchemy Engine, schema_translate_map applied</span>
+<span class="n">database</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">resolve_database</span><span class="p">(</span><span class="s2">&quot;cdm&quot;</span><span class="p">)</span>
+<span class="n">engine</span>   <span class="o">=</span> <span class="n">database</span><span class="o">.</span><span class="n">create_engine</span><span class="p">()</span>                 <span class="c1"># SQLAlchemy Engine, schema_translate_map applied</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">StackConfig</span><span class="p">,</span> <span class="n">DatabaseConfig</span><span class="p">,</span> <span class="n">ResourceConfig</span><span class="p">,</span> <span class="n">Resolver</span>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">StackConfig</span><span class="p">,</span> <span class="n">ConnectionConfig</span><span class="p">,</span> <span class="n">CDMDatabaseConfig</span><span class="p">,</span> <span class="n">Resolver</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="n">StackConfig</span><span class="o">.</span><span class="n">for_session</span><span class="p">(</span>
-    <span class="n">databases</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;local&quot;</span><span class="p">:</span> <span class="n">DatabaseConfig</span><span class="p">(</span><span class="n">dialect</span><span class="o">=</span><span class="s2">&quot;postgresql&quot;</span><span class="p">,</span> <span class="n">host</span><span class="o">=</span><span class="s2">&quot;localhost&quot;</span><span class="p">,</span>
-                                       <span class="n">database_name</span><span class="o">=</span><span class="s2">&quot;omop&quot;</span><span class="p">,</span> <span class="n">password</span><span class="o">=</span><span class="s2">&quot;omop&quot;</span><span class="p">)},</span>
-    <span class="n">resources</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;default&quot;</span><span class="p">:</span> <span class="n">ResourceConfig</span><span class="p">(</span><span class="n">database</span><span class="o">=</span><span class="s2">&quot;local&quot;</span><span class="p">,</span> <span class="n">cdm_schema</span><span class="o">=</span><span class="s2">&quot;cdm&quot;</span><span class="p">)},</span>
+    <span class="n">connections</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;local&quot;</span><span class="p">:</span> <span class="n">ConnectionConfig</span><span class="p">(</span><span class="n">dialect</span><span class="o">=</span><span class="s2">&quot;postgresql+psycopg&quot;</span><span class="p">,</span> <span class="n">host</span><span class="o">=</span><span class="s2">&quot;localhost&quot;</span><span class="p">,</span>
+                                            <span class="n">database_name</span><span class="o">=</span><span class="s2">&quot;omop&quot;</span><span class="p">,</span> <span class="n">password</span><span class="o">=</span><span class="s2">&quot;omop&quot;</span><span class="p">)},</span>
+    <span class="n">databases</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;cdm&quot;</span><span class="p">:</span> <span class="n">CDMDatabaseConfig</span><span class="p">(</span><span class="n">connection</span><span class="o">=</span><span class="s2">&quot;local&quot;</span><span class="p">,</span> <span class="n">schema_name</span><span class="o">=</span><span class="s2">&quot;omop&quot;</span><span class="p">)},</span>
 <span class="p">)</span>
-<span class="n">engine</span> <span class="o">=</span> <span class="n">Resolver</span><span class="p">(</span><span class="n">config</span><span class="p">)</span><span class="o">.</span><span class="n">resolve_resource</span><span class="p">(</span><span class="s2">&quot;default&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">create_engine</span><span class="p">()</span>
+<span class="n">engine</span> <span class="o">=</span> <span class="n">Resolver</span><span class="p">(</span><span class="n">config</span><span class="p">)</span><span class="o">.</span><span class="n">resolve_database</span><span class="p">(</span><span class="s2">&quot;cdm&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">create_engine</span><span class="p">()</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_stack_config</span><span class="p">,</span> <span class="n">DatabaseConfig</span><span class="p">,</span> <span class="n">ResourceConfig</span><span class="p">,</span> <span class="n">Resolver</span>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_stack_config</span><span class="p">,</span> <span class="n">ConnectionConfig</span><span class="p">,</span> <span class="n">CDMDatabaseConfig</span><span class="p">,</span> <span class="n">Resolver</span>
 
-<span class="c1"># Load shared team config, redirect one resource to a local SQLite database</span>
+<span class="c1"># Load shared team config, redirect one database to a local SQLite connection</span>
 <span class="n">engine</span> <span class="o">=</span> <span class="p">(</span>
     <span class="n">Resolver</span><span class="p">(</span><span class="n">load_stack_config</span><span class="p">())</span>
     <span class="o">.</span><span class="n">with_overrides</span><span class="p">(</span>
-        <span class="n">databases</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;local&quot;</span><span class="p">:</span> <span class="n">DatabaseConfig</span><span class="p">(</span><span class="n">dialect</span><span class="o">=</span><span class="s2">&quot;sqlite&quot;</span><span class="p">,</span> <span class="n">database_name</span><span class="o">=</span><span class="s2">&quot;/data/local.db&quot;</span><span class="p">)},</span>
-        <span class="n">resources</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;default&quot;</span><span class="p">:</span> <span class="n">ResourceConfig</span><span class="p">(</span><span class="n">database</span><span class="o">=</span><span class="s2">&quot;local&quot;</span><span class="p">,</span> <span class="n">cdm_schema</span><span class="o">=</span><span class="s2">&quot;omop&quot;</span><span class="p">)},</span>
+        <span class="n">connections</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;local&quot;</span><span class="p">:</span> <span class="n">ConnectionConfig</span><span class="p">(</span><span class="n">dialect</span><span class="o">=</span><span class="s2">&quot;sqlite&quot;</span><span class="p">,</span> <span class="n">database_name</span><span class="o">=</span><span class="s2">&quot;/data/local.db&quot;</span><span class="p">)},</span>
+        <span class="n">databases</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;cdm&quot;</span><span class="p">:</span> <span class="n">CDMDatabaseConfig</span><span class="p">(</span><span class="n">connection</span><span class="o">=</span><span class="s2">&quot;local&quot;</span><span class="p">,</span> <span class="n">schema_name</span><span class="o">=</span><span class="s2">&quot;omop&quot;</span><span class="p">)},</span>
     <span class="p">)</span>
-    <span class="o">.</span><span class="n">resolve_resource</span><span class="p">(</span><span class="s2">&quot;default&quot;</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">resolve_database</span><span class="p">(</span><span class="s2">&quot;cdm&quot;</span><span class="p">)</span>
     <span class="o">.</span><span class="n">create_engine</span><span class="p">()</span>
 <span class="p">)</span>
 </code></pre></div>
@@ -990,11 +1074,11 @@
 </div>
 <h2 id="next-steps">Next Steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
 <ul>
+<li><a href="migration-1.0/">Migrating from 0.x to 1.0</a>: upgrading an existing config? Start here.</li>
 <li><a href="quickstart/">Quick Start</a>: install and get a working engine in minutes</li>
 <li><a href="config-reference/">Config File Reference</a>: every TOML field documented</li>
 <li><a href="logging/">Logging</a>: consistent log output across the entire OMOP stack</li>
 <li><a href="inline-usage/">Inline &amp; Session Usage</a>: construct config in code without a file</li>
-<li><a href="profiles/">Profiles &amp; Overlays</a>: switch between environments cleanly</li>
 <li><a href="integration/">Integration</a>: add <code>omop-config configure</code> support to your package</li>
 </ul>
 

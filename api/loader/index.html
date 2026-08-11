@@ -16,7 +16,7 @@
         <link rel="prev" href="../../integration/">
       
       
-        <link rel="next" href="../models/">
+        <link rel="next" href="../stack-config/">
       
       
         
@@ -342,6 +342,33 @@
   
   
   
+    <li class="md-nav__item">
+      <a href="../../migration-1.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migrating from 0.x to 1.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
     
     
     
@@ -358,10 +385,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
         
           
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
             
   
   
@@ -379,8 +406,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -433,34 +460,6 @@
     
   
     Secrets
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../profiles/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Profiles & Overlays
   
 
     
@@ -587,10 +586,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
             
   
   
@@ -608,8 +607,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_5">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -705,23 +704,6 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="load_stack_config">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#oa_configurator.loader.load_stack_config--raises" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Raises
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
       
     </ul>
@@ -740,14 +722,98 @@
   
   
     <li class="md-nav__item">
-      <a href="../models/" class="md-nav__link">
+      <a href="../stack-config/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Models
+    Stack Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../resources/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resources
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../llm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LLM
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vector-stores/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vector Stores
   
 
     
@@ -898,23 +964,6 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="load_stack_config">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#oa_configurator.loader.load_stack_config--raises" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Raises
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
       
     </ul>
@@ -1033,11 +1082,32 @@
 
         <p>Load a :class:<code>StackConfig</code> from <code>CONFIG_PATH</code>
 (default <code>~/.config/omop/config.toml</code>, overridable via <code>OA_CONFIG_PATH</code>).</p>
-<p>The active profile can be overridden via the <code>OA_ACTIVE_PROFILE</code>
-environment variable without modifying the file.</p>
-<h4 id="oa_configurator.loader.load_stack_config--raises">Raises<a class="headerlink" href="#oa_configurator.loader.load_stack_config--raises" title="Permanent link">&para;</a></h4>
-<p>FileNotFoundError
-    If <code>CONFIG_PATH</code> does not exist.</p>
+<p><code>OA_CONFIG_PATH</code> is resolved when this module is first imported. Set it
+before starting the process; changing it at runtime does not change
+<code>CONFIG_PATH</code>.</p>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="FileNotFoundError">FileNotFoundError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If <code>CONFIG_PATH</code> does not exist.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
 
 
     </div>

@@ -10,11 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://AustralianCancerDataNetwork.github.io/oa-configurator/api/logging/">
+        <link rel="canonical" href="https://AustralianCancerDataNetwork.github.io/oa-configurator/api/llm/">
       
       
-        <link rel="prev" href="../package-base/">
+        <link rel="prev" href="../resources/">
       
+      
+        <link rel="next" href="../vector-stores/">
       
       
         
@@ -25,7 +27,7 @@
     
     
       
-        <title>Logging - oa-configurator</title>
+        <title>LLM - oa-configurator</title>
       
     
     
@@ -78,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#logging-api" class="md-skip">
+        <a href="#llm" class="md-skip">
           Skip to content
         </a>
       
@@ -114,7 +116,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Logging
+              LLM
             
           </span>
         </div>
@@ -704,10 +706,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../llm/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LLM
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -723,6 +752,136 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#providerconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ProviderConfig
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.domains.llm.schema.ProviderConfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ProviderConfig
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.domains.llm.schema.ProviderConfig.resolve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        resolve
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modelconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ModelConfig
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.domains.llm.schema.ModelConfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ModelConfig
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.domains.llm.schema.ModelConfig.resolve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        resolve
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.domains.llm.schema.ModelConfig.validate_embedding_configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        validate_embedding_configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resolved-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resolved types
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.domains.llm.schema.ResolvedProvider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ResolvedProvider
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.domains.llm.schema.ResolvedModel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ResolvedModel
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -816,37 +975,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Logging
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../logging/" class="md-nav__link">
         
   
   
@@ -862,81 +994,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.logging_config" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        logging_config
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.logging_config.LoggingConfig" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        LoggingConfig
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.logging_config.RedactingFormatter" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        RedactingFormatter
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.logging_config.configure_logging" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        configure_logging
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.logging_config.get_logger" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        get_logger
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -976,10 +1033,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.logging_config" class="md-nav__link">
+  <a href="#providerconfig" class="md-nav__link">
     <span class="md-ellipsis">
       
-        logging_config
+        ProviderConfig
       
     </span>
   </a>
@@ -987,10 +1044,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.logging_config.LoggingConfig" class="md-nav__link">
+  <a href="#oa_configurator.domains.llm.schema.ProviderConfig" class="md-nav__link">
     <span class="md-ellipsis">
       
-        LoggingConfig
+        ProviderConfig
       
     </span>
   </a>
@@ -998,10 +1055,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.logging_config.RedactingFormatter" class="md-nav__link">
+  <a href="#oa_configurator.domains.llm.schema.ProviderConfig.resolve" class="md-nav__link">
     <span class="md-ellipsis">
       
-        RedactingFormatter
+        resolve
       
     </span>
   </a>
@@ -1009,10 +1066,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.logging_config.configure_logging" class="md-nav__link">
+  <a href="#modelconfig" class="md-nav__link">
     <span class="md-ellipsis">
       
-        configure_logging
+        ModelConfig
       
     </span>
   </a>
@@ -1020,10 +1077,65 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.logging_config.get_logger" class="md-nav__link">
+  <a href="#oa_configurator.domains.llm.schema.ModelConfig" class="md-nav__link">
     <span class="md-ellipsis">
       
-        get_logger
+        ModelConfig
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.domains.llm.schema.ModelConfig.resolve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        resolve
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.domains.llm.schema.ModelConfig.validate_embedding_configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        validate_embedding_configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resolved-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resolved types
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.domains.llm.schema.ResolvedProvider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ResolvedProvider
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.domains.llm.schema.ResolvedModel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ResolvedModel
       
     </span>
   </a>
@@ -1098,58 +1210,31 @@
   
 
 
-<h1 id="logging-api">Logging API<a class="headerlink" href="#logging-api" title="Permanent link">&para;</a></h1>
-
-
-<div class="doc doc-object doc-module">
-
-
-
-<a id="oa_configurator.logging_config"></a>
-    <div class="doc doc-contents first">
-
-        <p>Logging configuration for the OMOP stack.</p>
-
-
-
-
-
-
-
-
-
-
-<div class="doc doc-children">
-
-
-
-
-
-
-
+<h1 id="llm">LLM<a class="headerlink" href="#llm" title="Permanent link">&para;</a></h1>
+<p>Provider connections and named, concretely-configured models for LLM/embedding backends. Peer of the <a href="../resources/">Resources</a> domain: <code>ProviderConfig</code> plays the same role as <code>ConnectionConfig</code>, and <code>ModelConfig</code> plays the same role as <code>DatabaseConfig</code>.</p>
+<h2 id="providerconfig">ProviderConfig<a class="headerlink" href="#providerconfig" title="Permanent link">&para;</a></h2>
+<p>A concrete LLM/embedding provider connection: provider key, base URL, API key. Stored in <code>[providers.&lt;name&gt;]</code>.</p>
 
 
 <div class="doc doc-object doc-class">
 
 
 
-<h2 id="oa_configurator.logging_config.LoggingConfig" class="doc doc-heading">
-            <span class="doc doc-object-name doc-class-name">LoggingConfig</span>
-
-
-<a href="#oa_configurator.logging_config.LoggingConfig" class="headerlink" title="Permanent link">&para;</a></h2>
-
-
-    <div class="doc doc-contents ">
+<a id="oa_configurator.domains.llm.schema.ProviderConfig"></a>
+    <div class="doc doc-contents first">
             <p class="doc doc-class-bases">
               Bases: <code><span title="pydantic.BaseModel">BaseModel</span></code></p>
 
 
 
-        <p>Logging overrides from the <code>[logging]</code> section of config.toml.</p>
-<p><code>level</code> overrides the verbosity-derived level for all OMOP loggers.
-<code>loggers</code> applies fine-grained level overrides to specific named loggers
-(e.g. <code>{"sqlalchemy.engine": "INFO"}</code>).</p>
+        <p>Concrete connection to one LLM provider: which one, and how to reach it.</p>
+<p>Peer of :class:<code>~oa_configurator.domains.resources.schema.ConnectionConfig</code>
+for LLM/embedding backends instead of databases. Referenced by
+:attr:<code>ModelConfig.provider</code>. Each entry under <code>[providers]</code> in
+<code>config.toml</code> maps to one instance of this model.</p>
+<p>API keys are stored in plaintext for now, the same documented
+limitation <code>ConnectionConfig.password</code> already carries; secret
+management support is planned for a future release for both.</p>
 
 
 
@@ -1170,178 +1255,401 @@
 
 
 
-
-
-
-
-  </div>
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-class">
-
-
-
-<h2 id="oa_configurator.logging_config.RedactingFormatter" class="doc doc-heading">
-            <span class="doc doc-object-name doc-class-name">RedactingFormatter</span>
-
-
-<a href="#oa_configurator.logging_config.RedactingFormatter" class="headerlink" title="Permanent link">&para;</a></h2>
-
-
-    <div class="doc doc-contents ">
-            <p class="doc doc-class-bases">
-              Bases: <code><span title="logging.Formatter">Formatter</span></code></p>
-
-
-
-        <p>Logging formatter that redacts sensitive key=value pairs from log messages.</p>
-
-
-
-
-
-
-
-
-
-
-
-<div class="doc doc-children">
-
-
-
-
-
-
-
-
-
-
-
-
-  </div>
-
-    </div>
-
-</div>
 
 
 <div class="doc doc-object doc-function">
 
 
-<h2 id="oa_configurator.logging_config.configure_logging" class="doc doc-heading">
-            <span class="doc doc-object-name doc-function-name">configure_logging</span>
+<h2 id="oa_configurator.domains.llm.schema.ProviderConfig.resolve" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">resolve</span>
 
 
-<a href="#oa_configurator.logging_config.configure_logging" class="headerlink" title="Permanent link">&para;</a></h2>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">configure_logging</span><span class="p">(</span>
-    <span class="n">config</span><span class="p">:</span> <span class="n">LoggingConfig</span> <span class="o">|</span> <span class="n">_HasLoggingConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="o">*</span><span class="p">,</span>
-    <span class="n">verbosity</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-    <span class="n">extra_namespaces</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">console</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+<a href="#oa_configurator.domains.llm.schema.ProviderConfig.resolve" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">resolve</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ResolvedProvider</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Configure Python logging for the OMOP stack.</p>
-<p>Safe to call multiple times; re-applying the same arguments is idempotent.</p>
+        <p>Resolve this provider to a concrete, backend-ready connection.</p>
 
 
-<p><span class="doc-section-title">Parameters:</span></p>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="modelconfig">ModelConfig<a class="headerlink" href="#modelconfig" title="Permanent link">&para;</a></h2>
+<p>A named, reusable, concretely-configured model, served through a provider. Stored in <code>[models.&lt;name&gt;]</code>.</p>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<a id="oa_configurator.domains.llm.schema.ModelConfig"></a>
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="pydantic.BaseModel">BaseModel</span></code></p>
+
+
+
+        <p>A named, reusable, concretely-configured model.</p>
+<p>Peer of :class:<code>~oa_configurator.domains.resources.schema.DatabaseConfig</code>
+for LLM/embedding backends instead of databases. The unit that consuming
+packages reference by name (e.g. a package's <code>embedding_model_name</code>
+field just names an entry here). Each entry under <code>[models]</code> in
+<code>config.toml</code> maps to one instance of this model.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="oa_configurator.domains.llm.schema.ModelConfig.resolve" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">resolve</span>
+
+
+<a href="#oa_configurator.domains.llm.schema.ModelConfig.resolve" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">resolve</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">stack</span><span class="p">:</span> <span class="n">StackConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ResolvedModel</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Resolve this model to a concrete, backend-ready configuration.</p>
+<p><em>stack</em> must already have passed :meth:<code>StackConfig.validate_references</code>,
+so <code>self.provider</code> is guaranteed to exist in <code>stack.providers</code>.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="oa_configurator.domains.llm.schema.ModelConfig.validate_embedding_configuration" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">validate_embedding_configuration</span>
+
+
+<a href="#oa_configurator.domains.llm.schema.ModelConfig.validate_embedding_configuration" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">validate_embedding_configuration</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">ModelConfig</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Reject embedding dimensions on models without embedding support.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="resolved-types">Resolved types<a class="headerlink" href="#resolved-types" title="Permanent link">&para;</a></h2>
+<p><code>ProviderConfig.resolve()</code> and <code>ModelConfig.resolve()</code> produce these. <code>Resolver.resolve_provider()</code>/<code>resolve_model()</code> are thin wrappers around the same two methods.</p>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<a id="oa_configurator.domains.llm.schema.ResolvedProvider"></a>
+    <div class="doc doc-contents first">
+
+
+
+        <p>Concrete LLM provider connection, ready to be served through.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
     <table>
       <thead>
         <tr>
           <th>Name</th>
           <th>Type</th>
           <th>Description</th>
-          <th>Default</th>
         </tr>
       </thead>
       <tbody>
           <tr class="doc-section-item">
+            <td><code><span title="oa_configurator.domains.llm.schema.ResolvedProvider.name">name</span></code></td>
             <td>
-                <code>config</code>
-            </td>
-            <td>
-                  <code><a class="autorefs autorefs-internal" title="LoggingConfig (oa_configurator.logging_config.LoggingConfig)" href="#oa_configurator.logging_config.LoggingConfig">LoggingConfig</a> | <span title="oa_configurator.logging_config._HasLoggingConfig">_HasLoggingConfig</span> | None</code>
+                  <code><span title="str">str</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>A <code>LoggingConfig</code> or a <code>StackConfig</code> (<code>logging</code> block extracted
-automatically). When <code>config.level</code> is set it takes precedence over
-<code>verbosity</code>.</p>
+                <p>Logical name of the provider as declared in the config.</p>
               </div>
-            </td>
-            <td>
-                  <code>None</code>
             </td>
           </tr>
           <tr class="doc-section-item">
+            <td><code><span title="oa_configurator.domains.llm.schema.ResolvedProvider.provider">provider</span></code></td>
             <td>
-                <code>verbosity</code>
-            </td>
-            <td>
-                  <code><span title="int">int</span></code>
+                  <code><span title="str">str</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Number of <code>-v</code> flags passed by the user. <code>0</code> → WARNING,
-<code>1</code> → INFO, <code>2+</code> → DEBUG.</p>
+                <p>Provider key, e.g. <code>'ollama'</code>, <code>'llamacpp'</code>, <code>'openai'</code>.</p>
               </div>
-            </td>
-            <td>
-                  <code>0</code>
             </td>
           </tr>
           <tr class="doc-section-item">
+            <td><code><span title="oa_configurator.domains.llm.schema.ResolvedProvider.base_url">base_url</span></code></td>
             <td>
-                <code>extra_namespaces</code>
-            </td>
-            <td>
-                  <code><span title="list">list</span>[<span title="str">str</span>] | None</code>
+                  <code>(<span title="str">str</span>, <span title="optional">optional</span>)</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Additional logger namespaces to configure alongside <code>oa_configurator</code>.
-Pass your package name here, e.g. <code>extra_namespaces=["omop_graph"]</code>.</p>
+                <p>Resolved base URL for this deployment.</p>
               </div>
             </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="oa_configurator.domains.llm.schema.ResolvedProvider.api_key">api_key</span></code></td>
             <td>
-                  <code>None</code>
+                  <code>(<span title="str">str</span>, <span title="optional">optional</span>)</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Resolved API key for this deployment.</p>
+              </div>
             </td>
           </tr>
       </tbody>
     </table>
 
 
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
     </div>
 
 </div>
 
-<div class="doc doc-object doc-function">
+<div class="doc doc-object doc-class">
 
 
-<h2 id="oa_configurator.logging_config.get_logger" class="doc doc-heading">
-            <span class="doc doc-object-name doc-function-name">get_logger</span>
+
+<a id="oa_configurator.domains.llm.schema.ResolvedModel"></a>
+    <div class="doc doc-contents first">
 
 
-<a href="#oa_configurator.logging_config.get_logger" class="headerlink" title="Permanent link">&para;</a></h2>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_logger</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">logging</span><span class="o">.</span><span class="n">Logger</span>
-</code></pre></div>
 
-    <div class="doc doc-contents ">
-
-        <p>Return a named logger; single import point for consuming packages.</p>
+        <p>Concrete, backend-agnostic model configuration.
+No explicit methods as it is just a data struct that can be used
+by the consuming package to construct a backend-specific model handle.</p>
 
 
-    </div>
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="oa_configurator.domains.llm.schema.ResolvedModel.name">name</span></code></td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Logical name of the model as declared in the config.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="oa_configurator.domains.llm.schema.ResolvedModel.provider">provider</span></code></td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="oa_configurator.domains.llm.schema.ResolvedProvider" href="#oa_configurator.domains.llm.schema.ResolvedProvider">ResolvedProvider</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Resolved provider this model is served through.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="oa_configurator.domains.llm.schema.ResolvedModel.model">model</span></code></td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Model name or identifier passed to the provider.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="oa_configurator.domains.llm.schema.ResolvedModel.embedding_dim">embedding_dim</span></code></td>
+            <td>
+                  <code>(<span title="int">int</span>, <span title="optional">optional</span>)</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Embedding dimension override, or None to let the provider's own
+discovery determine it.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="oa_configurator.domains.llm.schema.ResolvedModel.document_prefix">document_prefix</span></code></td>
+            <td>
+                  <code>(<span title="str">str</span>, <span title="optional">optional</span>)</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Prefix prepended to document/passage text before embedding, for
+asymmetric embedding models.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="oa_configurator.domains.llm.schema.ResolvedModel.query_prefix">query_prefix</span></code></td>
+            <td>
+                  <code>(<span title="str">str</span>, <span title="optional">optional</span>)</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Prefix prepended to query text before embedding, for asymmetric
+embedding models.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="oa_configurator.domains.llm.schema.ResolvedModel.embeddings">embeddings</span></code></td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether this specific model supports the embeddings endpoint.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="oa_configurator.domains.llm.schema.ResolvedModel.tool_use">tool_use</span></code></td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether this specific model supports tool/function calling.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="oa_configurator.domains.llm.schema.ResolvedModel.structured_output">structured_output</span></code></td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether this specific model supports structured (schema-constrained)
+output.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="oa_configurator.domains.llm.schema.ResolvedModel.extended_thinking">extended_thinking</span></code></td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether this specific model supports reasoning/extended-thinking
+output.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="oa_configurator.domains.llm.schema.ResolvedModel.configuration">configuration</span></code></td>
+            <td>
+                  <code><span title="dict">dict</span>[<span title="str">str</span>, <span title="typing.Any">Any</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Free-form per-model knobs (max_tokens, temperature, and so on) with
+no dedicated field.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
 
-</div>
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
 
 
 

@@ -1,0 +1,201 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Database/Model resolution</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .pairs {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    max-width: 560px;
+    margin: 0 auto;
+  }
+
+  .group {
+    border: 1.5px solid var(--grp-color);
+    background: var(--grp-tint);
+    border-radius: 16px;
+    padding: 1rem;
+  }
+  .group.resource { --grp-color: var(--grp-resource); --grp-tint: var(--grp-resource-tint); }
+  .group.model { --grp-color: var(--grp-model); --grp-tint: var(--grp-model-tint); }
+
+  .group-label {
+    font: 700 0.75rem/1 inherit;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--grp-color);
+    margin: 0 0 0.8rem;
+  }
+</style>
+</head>
+<body>
+
+<div class="legend">
+  <span><i class="swatch" style="background:var(--py)"></i>Python attribute</span>
+  <span><i class="swatch" style="background:var(--toml)"></i>config.toml value</span>
+  <span><i class="swatch" style="background:var(--resolved)"></i>Resolver output</span>
+  <span><i class="swatch" style="background:var(--grp-resource)"></i>Database pair</span>
+  <span><i class="swatch" style="background:var(--grp-model)"></i>Model pair</span>
+</div>
+
+<div class="pairs">
+
+  <div class="group resource">
+    <p class="group-label">Database pair</p>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="name py-name">CDMDatabaseConfig</div>
+        <div class="name toml-name">[databases.mydb]</div>
+      </div>
+      <div class="card-body">
+        <div class="field">
+          <div class="py-cell"><span class="attr">kind <span class="type">: Literal["cdm"]</span></span></div>
+          <div class="toml-cell"><span class="k">kind</span> = <span class="v">"cdm"</span></div>
+        </div>
+        <div class="field">
+          <div class="py-cell"><span class="attr linked">connection <span class="type">: str</span></span></div>
+          <div class="toml-cell"><span class="k">connection</span> = <span class="v linked">"myconn"</span></div>
+        </div>
+        <div class="field">
+          <div class="py-cell"><span class="attr">vocab_connection <span class="type">: str | None</span></span></div>
+          <div class="toml-cell"><span class="placeholder">unset, falls back to connection</span></div>
+        </div>
+        <div class="field">
+          <div class="py-cell"><span class="attr">schema_name <span class="type">: str</span></span></div>
+          <div class="toml-cell"><span class="k">schema_name</span> = <span class="v">"omop"</span></div>
+        </div>
+        <div class="field">
+          <div class="py-cell"><span class="attr">vocab_schema <span class="type">: str | None</span></span></div>
+          <div class="toml-cell"><span class="placeholder">unset, falls back to schema_name</span></div>
+        </div>
+        <div class="field">
+          <div class="py-cell"><span class="attr">results_schema <span class="type">: str | None</span></span></div>
+          <div class="toml-cell"><span class="placeholder">unset, optional results schema</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="connector">
+      <div class="stem"></div>
+      <div class="label">connection</div>
+      <div class="arrowhead"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="name py-name">ConnectionConfig</div>
+        <div class="name toml-name">[connections.myconn]</div>
+      </div>
+      <div class="card-body">
+        <div class="field">
+          <div class="py-cell"><span class="attr">dialect <span class="type">: str</span></span></div>
+          <div class="toml-cell"><span class="k">dialect</span> = <span class="v">"postgresql+psycopg"</span></div>
+        </div>
+        <div class="field">
+          <div class="py-cell"><span class="attr">host <span class="type">: str</span></span></div>
+          <div class="toml-cell"><span class="k">host</span> = <span class="v">"db.example.com"</span></div>
+        </div>
+        <div class="field">
+          <div class="py-cell"><span class="attr">user<span class="type">: str</span></span></div>
+          <div class="toml-cell"><span class="k">user</span> = <span class="v">"myuser"</span></div>
+        </div>
+        <div class="field">
+          <div class="py-cell"><span class="attr">password <span class="type">: str</span></span></div>
+          <div class="toml-cell"><span class="k">password</span> = <span class="v">"mypassword"</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="connector resolve">
+      <div class="stem"></div>
+      <div class="label">resolve_database()</div>
+      <div class="arrowhead"></div>
+    </div>
+
+    <div class="resolved-card">
+      <div class="name">ResolvedCDMDatabase</div>
+      <div class="body">
+        connection <span class="type">: ResolvedConnection</span><br>
+        schema_name <span class="type">: str</span><br>
+        vocab_schema <span class="type">: str</span><br>
+        results_schema <span class="type">: str | None</span><br>
+        create_engine() <span class="type">-&gt; Engine</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="group model">
+    <p class="group-label">Model pair</p>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="name py-name">ModelConfig</div>
+        <div class="name toml-name">[models.mymodel]</div>
+      </div>
+      <div class="card-body">
+        <div class="field">
+          <div class="py-cell"><span class="attr linked">provider <span class="type">: str</span></span></div>
+          <div class="toml-cell"><span class="k">provider</span> = <span class="v linked">"myprovider"</span></div>
+        </div>
+        <div class="field">
+          <div class="py-cell"><span class="attr">model <span class="type">: str</span></span></div>
+          <div class="toml-cell"><span class="k">model</span> = <span class="v">"llama3:8b"</span></div>
+        </div>
+        <div class="field">
+          <div class="py-cell"><span class="attr">embedding_dim <span class="type">: int | None</span></span></div>
+          <div class="toml-cell"><span class="placeholder">unset, auto-discovered</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="connector">
+      <div class="stem"></div>
+      <div class="label">provider</div>
+      <div class="arrowhead"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="name py-name">ProviderConfig</div>
+        <div class="name toml-name">[providers.myprovider]</div>
+      </div>
+      <div class="card-body">
+        <div class="field">
+          <div class="py-cell"><span class="attr">provider <span class="type">: str</span></span></div>
+          <div class="toml-cell"><span class="k">provider</span> = <span class="v">"ollama"</span></div>
+        </div>
+        <div class="field">
+          <div class="py-cell"><span class="attr">base_url <span class="type">: str | None</span></span></div>
+          <div class="toml-cell"><span class="k">base_url</span> = <span class="v">"http://localhost:11434"</span></div>
+        </div>
+        <div class="field">
+          <div class="py-cell"><span class="attr">api_key <span class="type">: str | None</span></span></div>
+          <div class="toml-cell"><span class="placeholder">unset, not required</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="connector resolve">
+      <div class="stem"></div>
+      <div class="label">resolve_model()</div>
+      <div class="arrowhead"></div>
+    </div>
+
+    <div class="resolved-card">
+      <div class="name">ResolvedModel</div>
+      <div class="body">
+        provider <span class="type">: ResolvedProvider</span><br>
+        model <span class="type">: str</span><br>
+        configuration <span class="type">: dict</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

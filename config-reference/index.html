@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://AustralianCancerDataNetwork.github.io/oa-configurator/config-reference/">
       
       
-        <link rel="prev" href="../architecture/">
+        <link rel="prev" href="../migration-1.0/">
       
       
         <link rel="next" href="../secrets/">
@@ -340,6 +340,33 @@
       
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../migration-1.0/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migrating from 0.x to 1.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
     
   
   
@@ -358,10 +385,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
             
   
   
@@ -379,8 +406,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_4">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -457,26 +484,15 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#top-level-fields" class="md-nav__link">
+  <a href="#connectionsname" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Top-level fields
+        [connections.&lt;name&gt;]
       
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#databasesname" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        [databases.&lt;name&gt;]
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="[databases.&lt;name&gt;]">
+    <nav class="md-nav" aria-label="[connections.&lt;name&gt;]">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -507,22 +523,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#resourcesname" class="md-nav__link">
+  <a href="#databasesname" class="md-nav__link">
     <span class="md-ellipsis">
       
-        [resources.&lt;name&gt;]
+        [databases.&lt;name&gt;]
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="[resources.&lt;name&gt;]">
+    <nav class="md-nav" aria-label="[databases.&lt;name&gt;]">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#example-all-in-one-schema" class="md-nav__link">
+  <a href="#example-a-generic-database-eg-a-vector-stores-own-tables" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Example: all in one schema
+        Example: a generic database (e.g. a vector store's own tables)
       
     </span>
   </a>
@@ -530,10 +546,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#example-separate-vocab-and-results-schemas" class="md-nav__link">
+  <a href="#example-cdm-all-in-one-schema" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Example: separate vocab and results schemas
+        Example: CDM, all in one schema
       
     </span>
   </a>
@@ -541,10 +557,21 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#example-vocabulary-on-a-separate-server" class="md-nav__link">
+  <a href="#example-cdm-separate-vocab-and-results-schemas" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Example vocabulary on a separate server
+        Example: CDM, separate vocab and results schemas
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-cdm-vocabulary-on-a-separate-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: CDM, vocabulary on a separate server
       
     </span>
   </a>
@@ -553,6 +580,39 @@
         
       </ul>
     </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#vector_storesname" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [vector_stores.&lt;name&gt;]
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#providersname" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [providers.&lt;name&gt;]
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modelsname" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [models.&lt;name&gt;]
+      
+    </span>
+  </a>
   
 </li>
       
@@ -581,17 +641,6 @@
         
       </ul>
     </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#profilesname" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        [profiles.&lt;name&gt;]
-      
-    </span>
-  </a>
   
 </li>
       
@@ -630,34 +679,6 @@
     
   
     Secrets
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../profiles/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Profiles & Overlays
   
 
     
@@ -784,10 +805,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
             
   
   
@@ -805,8 +826,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_5">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -851,14 +872,98 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/models/" class="md-nav__link">
+      <a href="../api/stack-config/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Models
+    Stack Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/resources/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resources
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/llm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LLM
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/vector-stores/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vector Stores
   
 
     
@@ -990,26 +1095,15 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#top-level-fields" class="md-nav__link">
+  <a href="#connectionsname" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Top-level fields
+        [connections.&lt;name&gt;]
       
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#databasesname" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        [databases.&lt;name&gt;]
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="[databases.&lt;name&gt;]">
+    <nav class="md-nav" aria-label="[connections.&lt;name&gt;]">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -1040,22 +1134,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#resourcesname" class="md-nav__link">
+  <a href="#databasesname" class="md-nav__link">
     <span class="md-ellipsis">
       
-        [resources.&lt;name&gt;]
+        [databases.&lt;name&gt;]
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="[resources.&lt;name&gt;]">
+    <nav class="md-nav" aria-label="[databases.&lt;name&gt;]">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#example-all-in-one-schema" class="md-nav__link">
+  <a href="#example-a-generic-database-eg-a-vector-stores-own-tables" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Example: all in one schema
+        Example: a generic database (e.g. a vector store's own tables)
       
     </span>
   </a>
@@ -1063,10 +1157,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#example-separate-vocab-and-results-schemas" class="md-nav__link">
+  <a href="#example-cdm-all-in-one-schema" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Example: separate vocab and results schemas
+        Example: CDM, all in one schema
       
     </span>
   </a>
@@ -1074,10 +1168,21 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#example-vocabulary-on-a-separate-server" class="md-nav__link">
+  <a href="#example-cdm-separate-vocab-and-results-schemas" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Example vocabulary on a separate server
+        Example: CDM, separate vocab and results schemas
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-cdm-vocabulary-on-a-separate-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: CDM, vocabulary on a separate server
       
     </span>
   </a>
@@ -1086,6 +1191,39 @@
         
       </ul>
     </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#vector_storesname" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [vector_stores.&lt;name&gt;]
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#providersname" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [providers.&lt;name&gt;]
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modelsname" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [models.&lt;name&gt;]
+      
+    </span>
+  </a>
   
 </li>
       
@@ -1114,17 +1252,6 @@
         
       </ul>
     </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#profilesname" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        [profiles.&lt;name&gt;]
-      
-    </span>
-  </a>
   
 </li>
       
@@ -1212,31 +1339,12 @@
 <p class="admonition-title">Note</p>
 <p>Configuration lives at <code>~/.config/omop/config.toml</code> by default. Override the path by setting
 <code>OA_CONFIG_PATH</code> to any <code>.toml</code> file (e.g. <code>OA_CONFIG_PATH=~/projects/omop.toml</code>).
-Use <code>OA_ACTIVE_PROFILE</code> to switch profiles within a file at runtime.</p>
+The path is resolved when <code>oa_configurator</code> is first imported, so set the variable before
+starting the process. Changing it within a running process does not change <code>CONFIG_PATH</code>.</p>
 </div>
 <hr />
-<h2 id="top-level-fields">Top-level fields<a class="headerlink" href="#top-level-fields" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>active_profile</code></td>
-<td>string</td>
-<td><code>null</code></td>
-<td>Name of the profile to activate. Can be overridden by the <code>OA_ACTIVE_PROFILE</code> env var.</td>
-</tr>
-</tbody>
-</table>
-<hr />
-<h2 id="databasesname"><code>[databases.&lt;name&gt;]</code><a class="headerlink" href="#databasesname" title="Permanent link">&para;</a></h2>
-<p>One section per named database endpoint. The name is referenced by resources and profiles.</p>
+<h2 id="connectionsname"><code>[connections.&lt;name&gt;]</code><a class="headerlink" href="#connectionsname" title="Permanent link">&para;</a></h2>
+<p>One section per named physical connection: server address, credentials, target database. The name is referenced by databases (<code>[databases.*].connection</code>/<code>vocab_connection</code>).</p>
 <table>
 <thead>
 <tr>
@@ -1256,8 +1364,8 @@ Use <code>OA_ACTIVE_PROFILE</code> to switch profiles within a file at runtime.<
 <tr>
 <td><code>host</code></td>
 <td>string</td>
-<td>no</td>
-<td>Hostname or IP</td>
+<td>for non-SQLite</td>
+<td>Hostname or IP. Required for every dialect except SQLite, which connects to a local file and has no host to speak of.</td>
 </tr>
 <tr>
 <td><code>port</code></td>
@@ -1280,14 +1388,14 @@ Use <code>OA_ACTIVE_PROFILE</code> to switch profiles within a file at runtime.<
 <tr>
 <td><code>database_name</code></td>
 <td>string</td>
-<td>no</td>
-<td>Database name on the server. For SQLite, use <code>:memory:</code> or an absolute path.</td>
+<td>for SQLite</td>
+<td>Database name on the server. Required for SQLite (no implicit default): an absolute path, or <code>:memory:</code> for an in-memory database.</td>
 </tr>
 <tr>
-<td><code>read_only</code></td>
+<td><code>test_only</code></td>
 <td>bool</td>
 <td><code>false</code></td>
-<td>Hint only; enforcement depends on the dialect</td>
+<td>Marks this connection as intended for testing only. Excluded from production database prompts; used as a safety check to prevent accidental test operations on production data.</td>
 </tr>
 </tbody>
 </table>
@@ -1296,7 +1404,7 @@ Use <code>OA_ACTIVE_PROFILE</code> to switch profiles within a file at runtime.<
 <p>Passwords are stored in plaintext in this file. Restrict permissions with <code>chmod 600 ~/.config/omop/config.toml</code>. Secret-management support (env-backed passwords, Vault, etc.) is planned for a future release.</p>
 </div>
 <h3 id="example-postgresql">Example: PostgreSQL<a class="headerlink" href="#example-postgresql" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><span class="k">[databases.cdm]</span>
+<div class="highlight"><pre><span></span><code><span class="k">[connections.cdm]</span>
 <span class="n">dialect</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;postgresql+psycopg&quot;</span>
 <span class="n">host</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;localhost&quot;</span>
 <span class="n">port</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="mi">5432</span>
@@ -1305,13 +1413,98 @@ Use <code>OA_ACTIVE_PROFILE</code> to switch profiles within a file at runtime.<
 <span class="n">database_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_cdm&quot;</span>
 </code></pre></div>
 <h3 id="example-sqlite-in-memory-for-tests">Example: SQLite in-memory (for tests)<a class="headerlink" href="#example-sqlite-in-memory-for-tests" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><span class="k">[databases.test_db]</span>
+<div class="highlight"><pre><span></span><code><span class="k">[connections.test_db]</span>
 <span class="n">dialect</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;sqlite&quot;</span>
 <span class="n">database_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;:memory:&quot;</span>
 </code></pre></div>
 <hr />
-<h2 id="resourcesname"><code>[resources.&lt;name&gt;]</code><a class="headerlink" href="#resourcesname" title="Permanent link">&para;</a></h2>
-<p>A resource maps logical OMOP CDM roles to named connections and schema names.</p>
+<h2 id="databasesname"><code>[databases.&lt;name&gt;]</code><a class="headerlink" href="#databasesname" title="Permanent link">&para;</a></h2>
+<p>Every entry declares an explicit <code>kind</code>, discriminating which of the fields below apply. See <a href="../api/resources/#databasekind">DatabaseKind</a> for the current members; there is no default and no inference from other fields.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Applies to</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>kind</code></td>
+<td>string</td>
+<td><strong>yes</strong></td>
+<td>both</td>
+<td>Discriminator. See <a href="../api/resources/#databasekind">DatabaseKind</a>.</td>
+</tr>
+<tr>
+<td><code>connection</code></td>
+<td>string</td>
+<td><strong>yes</strong></td>
+<td>both</td>
+<td>Connection name (from <code>[connections.*]</code>) used as the primary server</td>
+</tr>
+<tr>
+<td><code>schema_name</code></td>
+<td>string</td>
+<td>no</td>
+<td>both</td>
+<td>Schema this database's tables live in. Defaults to <code>"omop"</code> for the CDM kind only; the generic kind has no default (unset means "use the connection's own default").</td>
+</tr>
+<tr>
+<td><code>vocab_connection</code></td>
+<td>string</td>
+<td>no</td>
+<td>CDM only</td>
+<td>Separate connection if vocabulary lives on a different server. Falls back to <code>connection</code>.</td>
+</tr>
+<tr>
+<td><code>vocab_schema</code></td>
+<td>string</td>
+<td>no</td>
+<td>CDM only</td>
+<td>Vocabulary schema. Falls back to <code>schema_name</code> when not set.</td>
+</tr>
+<tr>
+<td><code>results_schema</code></td>
+<td>string</td>
+<td>no</td>
+<td>CDM only</td>
+<td>Achilles / Atlas results schema</td>
+</tr>
+</tbody>
+</table>
+<p>A <code>RefTo</code> naming one kind rejects an entry of the other, at construction time, with a "wrong kind" error distinct from "doesn't exist" (<code>mismatched_kind_refs</code>).</p>
+<h3 id="example-a-generic-database-eg-a-vector-stores-own-tables">Example: a generic database (e.g. a vector store's own tables)<a class="headerlink" href="#example-a-generic-database-eg-a-vector-stores-own-tables" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">[databases.emb_db]</span>
+<span class="n">kind</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;generic&quot;</span>
+<span class="n">connection</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;emb&quot;</span>
+</code></pre></div>
+<h3 id="example-cdm-all-in-one-schema">Example: CDM, all in one schema<a class="headerlink" href="#example-cdm-all-in-one-schema" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">[databases.cdm_db]</span>
+<span class="n">kind</span><span class="w">        </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
+<span class="n">connection</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
+<span class="n">schema_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
+</code></pre></div>
+<h3 id="example-cdm-separate-vocab-and-results-schemas">Example: CDM, separate vocab and results schemas<a class="headerlink" href="#example-cdm-separate-vocab-and-results-schemas" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">[databases.cdm_db]</span>
+<span class="n">kind</span><span class="w">           </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
+<span class="n">connection</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
+<span class="n">schema_name</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
+<span class="n">vocab_schema</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_vocab&quot;</span>
+<span class="n">results_schema</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;results&quot;</span>
+</code></pre></div>
+<h3 id="example-cdm-vocabulary-on-a-separate-server">Example: CDM, vocabulary on a separate server<a class="headerlink" href="#example-cdm-vocabulary-on-a-separate-server" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="k">[databases.cdm_db]</span>
+<span class="n">kind</span><span class="w">              </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
+<span class="n">connection</span><span class="w">        </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
+<span class="n">vocab_connection</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;central_vocab&quot;</span>
+<span class="n">schema_name</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
+</code></pre></div>
+<hr />
+<h2 id="vector_storesname"><code>[vector_stores.&lt;name&gt;]</code><a class="headerlink" href="#vector_storesname" title="Permanent link">&para;</a></h2>
+<p>Which storage backend an embedding-capable package should use. Referenced by a consuming package's own field (e.g. <code>vector_store_name</code>), the same way <code>[databases.*]</code>/<code>[models.*]</code> are.</p>
 <table>
 <thead>
 <tr>
@@ -1323,137 +1516,171 @@ Use <code>OA_ACTIVE_PROFILE</code> to switch profiles within a file at runtime.<
 </thead>
 <tbody>
 <tr>
+<td><code>backend_type</code></td>
+<td>string</td>
+<td><strong>yes</strong></td>
+<td>Storage backend key, e.g. <code>sqlitevec</code>, <code>pgvector</code>. A plain string validated by the owning package (e.g. <code>omop-emb</code>), not by <code>oa-configurator</code> itself.</td>
+</tr>
+<tr>
 <td><code>database</code></td>
 <td>string</td>
 <td><strong>yes</strong></td>
-<td>Database name (from <code>[databases.*]</code>) for the CDM server</td>
+<td>Name of a <code>[databases.*]</code> entry (from <code>[databases.*]</code>), which must have <code>kind = "generic"</code></td>
 </tr>
 <tr>
-<td><code>vocab_database</code></td>
+<td><code>faiss_cache_dir</code></td>
 <td>string</td>
 <td>no</td>
-<td>Separate database if vocabulary lives on a different server. Falls back to <code>database</code>.</td>
+<td>Directory to cache FAISS index files, if the consuming package uses one</td>
 </tr>
 <tr>
-<td><code>cdm_schema</code></td>
-<td>string</td>
-<td><strong>yes</strong></td>
-<td>Schema where CDM clinical tables live</td>
-</tr>
-<tr>
-<td><code>vocab_schema</code></td>
-<td>string</td>
-<td>no</td>
-<td>Vocabulary schema. Falls back to <code>cdm_schema</code> when not set.</td>
-</tr>
-<tr>
-<td><code>results_schema</code></td>
-<td>string</td>
-<td>no</td>
-<td>Achilles / Atlas results schema</td>
+<td><code>configuration</code></td>
+<td>table</td>
+<td><code>{}</code></td>
+<td>Free-form per-store knobs with no dedicated field, passed through verbatim</td>
 </tr>
 </tbody>
 </table>
-<h3 id="example-all-in-one-schema">Example: all in one schema<a class="headerlink" href="#example-all-in-one-schema" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><span class="k">[resources.default]</span>
-<span class="n">database</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
-<span class="n">cdm_schema</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
+<div class="highlight"><pre><span></span><code><span class="k">[vector_stores.vector_store]</span>
+<span class="n">backend_type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;pgvector&quot;</span>
+<span class="n">database</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;emb_db&quot;</span>
 </code></pre></div>
-<h3 id="example-separate-vocab-and-results-schemas">Example: separate vocab and results schemas<a class="headerlink" href="#example-separate-vocab-and-results-schemas" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><span class="k">[resources.default]</span>
-<span class="n">database</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
-<span class="n">cdm_schema</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
-<span class="n">vocab_schema</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_vocab&quot;</span>
-<span class="n">results_schema</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;results&quot;</span>
+<p>A sqlite-backed store is expressed the same way as pgvector: <code>database</code> points at a <code>[databases.*]</code> entry whose own <code>[connections.*]</code> entry has <code>dialect = "sqlite"</code>. There is no separate <code>sqlite_path</code> field.</p>
+<hr />
+<h2 id="providersname"><code>[providers.&lt;name&gt;]</code><a class="headerlink" href="#providersname" title="Permanent link">&para;</a></h2>
+<p>A concrete LLM/embedding provider connection. Referenced by <code>[models.*].provider</code>. Managed via <code>omop-config providers add &lt;name&gt;</code> / <code>omop-config providers list</code>, or hand-edited.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>provider</code></td>
+<td>string</td>
+<td><strong>yes</strong></td>
+<td>Provider key, e.g. <code>ollama</code>, <code>llamacpp</code>, <code>vllm</code>, <code>openai</code>, <code>anthropic</code>, <code>gemini</code></td>
+</tr>
+<tr>
+<td><code>base_url</code></td>
+<td>string</td>
+<td>no</td>
+<td>Base URL for this deployment (a local server, a cloud vendor endpoint, and so on)</td>
+</tr>
+<tr>
+<td><code>api_key</code></td>
+<td>string</td>
+<td>no</td>
+<td>Plaintext API key <em>(see security note above)</em></td>
+</tr>
+</tbody>
+</table>
+<div class="highlight"><pre><span></span><code><span class="k">[providers.local-ollama]</span>
+<span class="n">provider</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;ollama&quot;</span>
+<span class="n">base_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://localhost:11434&quot;</span>
 </code></pre></div>
-<h3 id="example-vocabulary-on-a-separate-server">Example vocabulary on a separate server<a class="headerlink" href="#example-vocabulary-on-a-separate-server" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><span class="k">[resources.default]</span>
-<span class="n">database</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
-<span class="n">vocab_database</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;central_vocab&quot;</span>
-<span class="n">cdm_schema</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
+<hr />
+<h2 id="modelsname"><code>[models.&lt;name&gt;]</code><a class="headerlink" href="#modelsname" title="Permanent link">&para;</a></h2>
+<p>A named, reusable, concretely-configured model, served through a <code>[providers.*]</code> entry. Consuming packages reference it by name (e.g. an <code>embedding_model_name</code> field on their own <code>[tools.*]</code> extra just names an entry here). Managed via <code>omop-config models add &lt;name&gt;</code> / <code>omop-config models list</code>, or hand-edited.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>provider</code></td>
+<td>string</td>
+<td><strong>yes</strong></td>
+<td>Name of the provider entry (from <code>[providers.*]</code>) this model is served through</td>
+</tr>
+<tr>
+<td><code>model</code></td>
+<td>string</td>
+<td><strong>yes</strong></td>
+<td>Model name or identifier passed to the provider</td>
+</tr>
+<tr>
+<td><code>embedding_dim</code></td>
+<td>int</td>
+<td>no</td>
+<td>Embedding dimension override. Unset lets the provider's own discovery determine it.</td>
+</tr>
+<tr>
+<td><code>document_prefix</code></td>
+<td>string</td>
+<td>no</td>
+<td>Prefix prepended to document/passage text before embedding, for asymmetric embedding models (e.g. nomic-embed-text, E5, BGE)</td>
+</tr>
+<tr>
+<td><code>query_prefix</code></td>
+<td>string</td>
+<td>no</td>
+<td>Prefix prepended to query text before embedding, for asymmetric embedding models</td>
+</tr>
+<tr>
+<td><code>configuration</code></td>
+<td>table</td>
+<td><code>{}</code></td>
+<td>Free-form per-model knobs (<code>max_tokens</code>, <code>temperature</code>, and so on) with no dedicated field, passed through verbatim</td>
+</tr>
+<tr>
+<td><code>embeddings</code></td>
+<td>bool</td>
+<td>false</td>
+<td>Whether this specific model supports the embeddings endpoint. Required for any model used for embedding.</td>
+</tr>
+<tr>
+<td><code>tool_use</code></td>
+<td>bool</td>
+<td>false</td>
+<td>Whether this specific model supports tool/function calling</td>
+</tr>
+<tr>
+<td><code>structured_output</code></td>
+<td>bool</td>
+<td>false</td>
+<td>Whether this specific model supports structured (schema-constrained) output</td>
+</tr>
+<tr>
+<td><code>extended_thinking</code></td>
+<td>bool</td>
+<td>false</td>
+<td>Whether this specific model supports reasoning/extended-thinking output</td>
+</tr>
+</tbody>
+</table>
+<div class="highlight"><pre><span></span><code><span class="k">[models.nomic-embed]</span>
+<span class="n">provider</span><span class="w">        </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;local-ollama&quot;</span>
+<span class="n">model</span><span class="w">           </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;nomic-embed-text:v1.5&quot;</span>
+<span class="n">embedding_dim</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="mi">768</span>
+<span class="n">document_prefix</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;search_document: &quot;</span>
+<span class="n">query_prefix</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;search_query: &quot;</span>
+<span class="n">embeddings</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+
+<span class="k">[models.nomic-embed.configuration]</span>
+<span class="n">temperature</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0.0</span>
 </code></pre></div>
 <hr />
 <h2 id="toolsname"><code>[tools.&lt;name&gt;]</code><a class="headerlink" href="#toolsname" title="Permanent link">&para;</a></h2>
-<p>Per-package configuration. The <code>name</code> must match the package's <code>tool_name</code> class variable on its <code>PackageConfigBase</code> subclass.</p>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>default_resource</code></td>
-<td>string</td>
-<td><code>null</code></td>
-<td>Resource name this tool uses when none is specified</td>
-</tr>
-<tr>
-<td><code>extra</code></td>
-<td>table</td>
-<td><code>{}</code></td>
-<td>Package-specific key/value pairs. Each package defines its own typed fields that map here.</td>
-</tr>
-</tbody>
-</table>
+<p>Per-package configuration. The <code>name</code> must match the package's <code>tool_name</code> class variable on its <code>PackageConfigBase</code> subclass. Fields are package-specific; each package defines its own typed schema, validated lazily against its <code>PackageConfigBase</code> subclass, not against a fixed set of fields oa-configurator itself knows about.</p>
 <h3 id="example-omop_emb">Example: omop_emb<a class="headerlink" href="#example-omop_emb" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="k">[tools.omop_emb]</span>
-<span class="n">default_resource</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;default&quot;</span>
-
-<span class="k">[tools.omop_emb.extra]</span>
-<span class="n">backend</span><span class="w">             </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;sqlitevec&quot;</span>
-<span class="n">embedding_file_root</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;/data/embeddings&quot;</span>
+<span class="n">cdm_db</span><span class="w">               </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm_db&quot;</span>
+<span class="n">embedding_model_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;embedding-model&quot;</span>
+<span class="n">vector_store_name</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;vector_store&quot;</span>
 </code></pre></div>
-<hr />
-<h2 id="profilesname"><code>[profiles.&lt;name&gt;]</code><a class="headerlink" href="#profilesname" title="Permanent link">&para;</a></h2>
-<p>A profile overlays connections, resources, and tools over the base config when active.</p>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Type</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>databases</code></td>
-<td>table</td>
-<td>Database configs that replace base databases with the same name, or add new ones</td>
-</tr>
-<tr>
-<td><code>resources</code></td>
-<td>table</td>
-<td>Resource configs that replace base resources with the same name, or add new ones</td>
-</tr>
-<tr>
-<td><code>tools</code></td>
-<td>table</td>
-<td>Tool configs that replace base tools with the same name, or add new ones</td>
-</tr>
-</tbody>
-</table>
-<p>Profile entries use the same field definitions as the base sections above.</p>
-<p><strong>Example test profile pointing to a local test database</strong>:</p>
-<div class="highlight"><pre><span></span><code><span class="k">[profiles.test.databases.cdm]</span>
-<span class="n">dialect</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;postgresql+psycopg&quot;</span>
-<span class="n">host</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;localhost&quot;</span>
-<span class="n">port</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="mi">5433</span>
-<span class="n">user</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;test_user&quot;</span>
-<span class="n">password</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;test_pass&quot;</span>
-<span class="n">database_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_test&quot;</span>
-
-<span class="k">[profiles.test.resources.default]</span>
-<span class="n">database</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
-<span class="n">cdm_schema</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;test_omop&quot;</span>
-</code></pre></div>
-<p>Activate it: <code>omop-config use test</code> or <code>OA_ACTIVE_PROFILE=test</code>.</p>
 <hr />
 <h2 id="logging"><code>[logging]</code><a class="headerlink" href="#logging" title="Permanent link">&para;</a></h2>
-<p>Controls log output for <code>oa_configurator</code> and any consuming packages. Defaults to library preset (WARNING, no handler).</p>
+<p>Controls log output for <code>oa_configurator</code> and any consuming packages. Defaults to WARNING with no handler until <code>configure_logging()</code> is called.</p>
 <table>
 <thead>
 <tr>
@@ -1464,17 +1691,11 @@ Use <code>OA_ACTIVE_PROFILE</code> to switch profiles within a file at runtime.<
 </tr>
 </thead>
 <tbody>
-<tr>
-<td><code>preset</code></td>
-<td>string</td>
-<td><code>"library"</code></td>
-<td>One of <code>library</code>, <code>notebook</code>, <code>application</code>, <code>production</code></td>
-</tr>
 <tr>
 <td><code>level</code></td>
 <td>string</td>
 <td><code>null</code></td>
-<td>Override the preset's level: <code>DEBUG</code>, <code>INFO</code>, <code>WARNING</code>, <code>ERROR</code>, <code>CRITICAL</code></td>
+<td>Override the verbosity-derived level for all OMOP loggers: <code>DEBUG</code>, <code>INFO</code>, <code>WARNING</code>, <code>ERROR</code>, <code>CRITICAL</code></td>
 </tr>
 <tr>
 <td><code>loggers</code></td>

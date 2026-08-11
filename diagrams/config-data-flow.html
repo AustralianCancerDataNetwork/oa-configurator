@@ -1,0 +1,174 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Config data flow</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .flow {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-width: 620px;
+    margin: 0 auto;
+  }
+
+  .plain-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.6rem 1rem;
+    text-align: center;
+    box-shadow: 0 1px 2px rgba(20, 20, 40, 0.04);
+  }
+  .plain-card .name {
+    font: 700 0.85rem/1.3 ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  .plain-card .note {
+    font: 0.72rem/1.4 ui-sans-serif, sans-serif;
+    color: var(--ink-muted);
+    margin-top: 0.15rem;
+  }
+  .plain-card.hub {
+    border: 1.5px solid var(--ink);
+    border-radius: 999px;
+    padding: 0.55rem 1.6rem;
+  }
+
+  .fanout {
+    width: 100%;
+    margin-top: 1.4rem;
+    padding-top: 1rem;
+    border-top: 1px dashed var(--border);
+  }
+  .fanout-label {
+    text-align: center;
+    font: 600 0.7rem/1 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: 0.03em;
+    color: var(--ink-muted);
+    margin: -1.55rem 0 1.2rem;
+  }
+  .fanout-label span {
+    background: var(--bg);
+    padding: 0 0.6rem;
+  }
+  .branches {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.25rem 1.5rem;
+  }
+  @media (max-width: 560px) {
+    .branches { grid-template-columns: 1fr; }
+  }
+  .branch { display: flex; flex-direction: column; align-items: center; }
+  .branch .connector { padding-top: 0; }
+  .branch .resolved-card { width: 100%; }
+</style>
+</head>
+<body>
+
+<div class="legend">
+  <span><i class="swatch" style="background:var(--ink-muted)"></i>config source / parsed config</span>
+  <span><i class="swatch" style="background:var(--resolved)"></i>Resolver output</span>
+</div>
+
+<div class="flow">
+
+  <div class="plain-card">
+    <div class="name">~/.config/omop/config.toml</div>
+  </div>
+
+  <div class="connector">
+    <div class="stem"></div>
+    <div class="label">load_stack_config()</div>
+    <div class="arrowhead"></div>
+  </div>
+
+  <div class="plain-card">
+    <div class="name">StackConfig</div>
+    <div class="note">cross-references validated</div>
+  </div>
+
+  <div class="connector">
+    <div class="stem"></div>
+    <div class="label">Resolver(config)</div>
+    <div class="arrowhead"></div>
+  </div>
+
+  <div class="plain-card hub">
+    <div class="name">Resolver</div>
+  </div>
+
+  <div class="fanout">
+    <p class="fanout-label"><span>four independent lookups</span></p>
+    <div class="branches">
+
+      <div class="branch">
+        <div class="connector resolve">
+          <div class="stem"></div>
+          <div class="label">resolve_connection(name)</div>
+          <div class="arrowhead"></div>
+        </div>
+        <div class="resolved-card">
+          <div class="name">ResolvedConnection</div>
+          <div class="body">
+            url <span class="type">: str (plaintext)</span><br>
+            safe_url <span class="type">: str (redacted)</span><br>
+            create_engine()
+          </div>
+        </div>
+      </div>
+
+      <div class="branch">
+        <div class="connector resolve">
+          <div class="stem"></div>
+          <div class="label">resolve_database(name)</div>
+          <div class="arrowhead"></div>
+        </div>
+        <div class="resolved-card">
+          <div class="name">ResolvedDatabase</div>
+          <div class="body">
+            connection <span class="type">: ResolvedConnection</span><br>
+            cdm_schema, vocab_schema, results_schema<br>
+            schema_translate_map(), create_engine(role=...)
+          </div>
+        </div>
+      </div>
+
+      <div class="branch">
+        <div class="connector resolve">
+          <div class="stem"></div>
+          <div class="label">resolve_tool(name)</div>
+          <div class="arrowhead"></div>
+        </div>
+        <div class="resolved-card">
+          <div class="name">ResolvedToolConfig</div>
+          <div class="body">
+            extra <span class="type">: dict (raw, untyped)</span><br>
+            <span class="type">no validation against a package's own fields</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="branch">
+        <div class="connector resolve">
+          <div class="stem"></div>
+          <div class="label">resolve_package_config(cls)</div>
+          <div class="arrowhead"></div>
+        </div>
+        <div class="resolved-card">
+          <div class="name">cls instance</div>
+          <div class="body">
+            typed &amp; validated against cls<br>
+            <span class="type">PackageConfigBase.get_config() delegates here</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

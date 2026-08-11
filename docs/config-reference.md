@@ -151,6 +151,10 @@ A named, reusable, concretely-configured model, served through a `[providers.*]`
 | `document_prefix` | string | no | Prefix prepended to document/passage text before embedding, for asymmetric embedding models (e.g. nomic-embed-text, E5, BGE) |
 | `query_prefix` | string | no | Prefix prepended to query text before embedding, for asymmetric embedding models |
 | `configuration` | table | `{}` | Free-form per-model knobs (`max_tokens`, `temperature`, and so on) with no dedicated field, passed through verbatim |
+| `embeddings` | bool | false | Whether this specific model supports the embeddings endpoint. Required for any model used for embedding. |
+| `tool_use` | bool | false | Whether this specific model supports tool/function calling |
+| `structured_output` | bool | false | Whether this specific model supports structured (schema-constrained) output |
+| `extended_thinking` | bool | false | Whether this specific model supports reasoning/extended-thinking output |
 
 ```toml
 [models.nomic-embed]
@@ -159,6 +163,7 @@ model           = "nomic-embed-text:v1.5"
 embedding_dim   = 768
 document_prefix = "search_document: "
 query_prefix    = "search_query: "
+embeddings      = true
 
 [models.nomic-embed.configuration]
 temperature = 0.0

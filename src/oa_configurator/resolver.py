@@ -5,9 +5,9 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Literal, TypeVar, get_args, get_origin
+from typing import Any, Literal, NoReturn, TypeVar, get_args, get_origin
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from pydantic_core import PydanticUndefined
 from sqlalchemy.engine import Engine
 
@@ -230,6 +230,35 @@ def _find_production_collision(
     return None
 
 
+def _abort_on_invalid_entry(target: type[BaseModel], exc: ValidationError) -> NoReturn:
+    """Abort with a clear error when a schema rejects the assembled entry.
+
+    Constructing the entry is the last thing :func:`_resolve_named_entry`
+    does, and a schema can still refuse it there: a field-level constraint,
+    or a cross-field ``model_validator`` (e.g. ``ModelConfig`` rejecting
+    ``embedding_dim`` on a model that doesn't declare ``embeddings``).
+    Pydantic's own ``str(exc)`` reports the whole input dict, the error
+    type, and a docs URL, which is a traceback aimed at a Python caller,
+    not at someone fixing a config entry. Each error becomes one line
+    naming the flag to change instead.
+    """
+    import typer
+    from rich.console import Console
+
+    problems = []
+    for error in exc.errors():
+        # A model_validator(mode="after") has no loc: the complaint is about
+        # the combination of fields, so there's no single flag to point at.
+        location = ".".join(str(part) for part in error["loc"])
+        message = error["msg"].removeprefix("Value error, ")
+        problems.append(f"  {_flag_name(location)}: {message}" if location else f"  {message}")
+
+    Console(stderr=True).print(
+        f"[red bold]Invalid {target.__name__}:[/red bold]\n" + "\n".join(problems)
+    )
+    raise typer.Exit(1)
+
+
 def _check_test_collision(new_conn: ConnectionConfig, config: StackConfig) -> None:
     """Abort if a new test-only connection's details match a real, non-test one.
 
@@ -429,7 +458,10 @@ def _resolve_named_entry(
 
     if non_interactive and missing_required:
         return None
-    entry = target(**values)
+    try:
+        entry = target(**values)
+    except ValidationError as exc:
+        _abort_on_invalid_entry(target, exc)
     if is_test and isinstance(entry, ConnectionConfig):
         entry.test_only = True
     if isinstance(entry, ConnectionConfig) and entry.test_only:

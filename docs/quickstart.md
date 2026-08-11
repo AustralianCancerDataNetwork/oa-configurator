@@ -37,7 +37,18 @@ omop-config providers add <provider-name>   # e.g. local-ollama
 omop-config models add <model-name>         # e.g. nomic-embed
 ```
 
-`providers add` prompts for the `omop-llm` provider key (`ollama`, `llamacpp`, `vllm`, `openai`, `anthropic`, `gemini`), base URL, and API key. `models add` prompts for which provider it's served through, the model name, and (for embedding models) `embedding_dim`/`document_prefix`/`query_prefix`. Both accept flags for non-interactive use (`--provider`, `--base-url`, ...); run with `--help` for the full list.
+`providers add` prompts for the `omop-llm` provider key (`ollama`, `llamacpp`, `vllm`, `openai`, `anthropic`, `gemini`), base URL, and API key. `models add` prompts for which provider it's served through, the model name, `embedding_dim`/`document_prefix`/`query_prefix`, and then for each of the four capability fields — `embeddings`, `tool_use`, `structured_output`, `extended_thinking` — as a yes/no confirm. Capabilities are opt-in and default to `false`: neither any-llm nor `omop-llm` can introspect them per model, so anything you don't declare is treated as unsupported. An embedding model therefore needs `embeddings = true`, and setting `embedding_dim` without it is rejected outright.
+
+Both commands accept flags for non-interactive use, with the capability fields as paired boolean flags:
+
+```bash
+omop-config models add nomic-embed \
+    --provider local-ollama --model nomic-embed-text:v1.5 \
+    --embeddings --embedding-dim 768 \
+    --document-prefix "search_document: " --query-prefix "search_query: "
+```
+
+Passing *any* flag switches the command out of interactive mode: unflagged fields then fall back to their stored value (when updating an existing entry) or their default (when creating a new one) instead of prompting, and a required field with neither is an error. Run with `--help` for the full list.
 
 List what's configured:
 

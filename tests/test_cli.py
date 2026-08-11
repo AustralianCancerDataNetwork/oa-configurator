@@ -377,16 +377,45 @@ class TestModelsAdd:
         assert config.models["m"].extended_thinking is True
 
     def test_non_embedding_model_rejects_embedding_dim(self, isolated_config):
+        """A schema rejection must read as a config error, not a Python one:
+        exit 1 and a named complaint, never a pydantic traceback carrying the
+        whole input dict and a docs URL."""
         _seed(isolated_config, StackConfig.for_session(providers={"p": ProviderConfig(provider="ollama")}))
         result = runner.invoke(
             cli.app,
             ["models", "add", "chat", "--provider", "p", "--model", "local-chat", "--embedding-dim", "768"],
         )
-        assert result.exit_code != 0
-        assert result.exception is not None
-        assert "embedding_dim requires embeddings=true" in str(result.exception)
+        assert result.exit_code == 1
+        assert "Invalid ModelConfig" in result.stderr
+        assert "embedding_dim requires embeddings=true" in result.stderr
+        assert "pydantic.dev" not in result.stderr  # no raw ValidationError rendering
         config = _load_from_path(isolated_config)
         assert "chat" not in config.models
+
+    def test_field_level_validation_error_names_the_flag(self, isolated_config):
+        """A field-level failure has a `loc`, so the message can point at the
+        exact flag to change rather than the Python field name."""
+        _seed(isolated_config, StackConfig.for_session(providers={"p": ProviderConfig(provider="ollama")}))
+        result = runner.invoke(
+            cli.app,
+            ["models", "add", "m", "--provider", "p", "--model", "local-chat",
+             "--embeddings", "--embedding-dim", "not-an-int"],
+        )
+        assert result.exit_code == 1
+        assert "--embedding-dim:" in result.stderr
+        config = _load_from_path(isolated_config)
+        assert "m" not in config.models
+
+    def test_validation_error_is_reported_interactively_too(self, isolated_config, monkeypatch):
+        """The same guard covers the prompt path -- answering the confirms in a
+        way that contradicts an earlier answer must not raise through the CLI."""
+        _seed(isolated_config, StackConfig.for_session(providers={"p": ProviderConfig(provider="ollama")}))
+        answers = iter(["p", "local-chat", "768", "", ""])
+        monkeypatch.setattr(cli.typer, "prompt", lambda *a, **k: next(answers))
+        monkeypatch.setattr(cli.typer, "confirm", lambda *a, **k: False)  # declines embeddings
+        result = runner.invoke(cli.app, ["models", "add", "m"])
+        assert result.exit_code == 1
+        assert "embedding_dim requires embeddings=true" in result.stderr
 
 
 class TestResolveRef:

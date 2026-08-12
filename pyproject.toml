@@ -12,6 +12,12 @@ dependencies = [
   "typer>=0.12,<1",
   "click>=8.0"
 ]
+license = { text = "Apache-2.0" }
+authors = [
+  { name = "Nico Loesch", email = "n.loesch@unsw.edu.au" },
+  { name = "Georgie Kennedy", email = "georgie.kennedy@unsw.edu.au" }
+]
+
 
 [project.optional-dependencies]
 dev = [
@@ -21,7 +27,7 @@ dev = [
   "pytest-cov>=4.0",
   "ty>=0.0.59",
   "ruff>=0.4",
-  "mkdocs-material>=9.7.1",
+  "mkdocs-material>=9.7.7",
   "mkdocstrings-python>=2.0.1",
   "mkdocs>=1.6.1",
   "mkdocs-mermaid2-plugin"

@@ -45,13 +45,17 @@ class TestResolveConnection:
         with pytest.raises(KeyError, match="Unknown connection"):
             r.resolve_connection("does_not_exist")
 
-    def test_sqlite_path_with_reserved_characters_connects_to_the_right_file(self, tmp_path):
+    def test_sqlite_path_with_reserved_characters_connects_to_the_right_file(
+        self, tmp_path
+    ):
         """`?`/`#` in a sqlite path are query/fragment syntax once rendered
         to a URL string and re-parsed -- create_engine() must not round-trip
         through the string form, or it silently connects to a truncated path."""
         db_path = tmp_path / "emb?x=1#frag.db"
         cfg = StackConfig.for_session(
-            connections={"db": ConnectionConfig(dialect="sqlite", database_name=str(db_path))}
+            connections={
+                "db": ConnectionConfig(dialect="sqlite", database_name=str(db_path))
+            }
         )
         target = Resolver(cfg).resolve_connection("db")
         engine = target.create_engine()
@@ -66,7 +70,9 @@ class TestResolveConnection:
         """.url/.safe_url stay plain strings for logging/.env export."""
         db_path = tmp_path / "emb?x=1#frag.db"
         cfg = StackConfig.for_session(
-            connections={"db": ConnectionConfig(dialect="sqlite", database_name=str(db_path))}
+            connections={
+                "db": ConnectionConfig(dialect="sqlite", database_name=str(db_path))
+            }
         )
         target = Resolver(cfg).resolve_connection("db")
         assert str(db_path) in target.url
@@ -84,8 +90,12 @@ class TestResolveDatabase:
 
     def test_generic_database_has_no_vocab_role(self):
         cfg = StackConfig.for_session(
-            connections={"c": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
-            databases={"default": GenericDatabaseConfig(connection="c", schema_name="public")},
+            connections={
+                "c": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+            },
+            databases={
+                "default": GenericDatabaseConfig(connection="c", schema_name="public")
+            },
         )
         r = Resolver(cfg)
         res = r.resolve_database("default")
@@ -96,6 +106,7 @@ class TestResolveDatabase:
     def test_vocab_fallback_to_primary(self, minimal_stack):
         r = Resolver(minimal_stack)
         res = r.resolve_database("default")
+        assert isinstance(res, ResolvedCDMDatabase)
         assert res.vocab_connection.name == res.connection.name
 
     def test_vocab_connection_separate(self):
@@ -105,21 +116,26 @@ class TestResolveDatabase:
                 "vocab": ConnectionConfig(dialect="sqlite", database_name=":memory:"),
             },
             databases={
-                "default": CDMDatabaseConfig(connection="cdm", vocab_connection="vocab", schema_name="omop"),
+                "default": CDMDatabaseConfig(
+                    connection="cdm", vocab_connection="vocab", schema_name="omop"
+                ),
             },
         )
         r = Resolver(cfg)
         res = r.resolve_database("default")
+        assert isinstance(res, ResolvedCDMDatabase)
         assert res.vocab_connection.name == "vocab"
 
     def test_vocab_schema_falls_back_to_cdm_schema(self, minimal_stack):
         r = Resolver(minimal_stack)
         res = r.resolve_database("default")
+        assert isinstance(res, ResolvedCDMDatabase)
         assert res.vocab_schema == "omop"
 
     def test_explicit_vocab_schema(self, pg_stack):
         r = Resolver(pg_stack)
         res = r.resolve_database("default")
+        assert isinstance(res, ResolvedCDMDatabase)
         assert res.vocab_schema == "omop_vocab"
         assert res.results_schema == "results"
 
@@ -132,7 +148,11 @@ class TestResolveDatabase:
 class TestResolveProvider:
     def test_resolved(self):
         cfg = StackConfig.for_session(
-            providers={"p": ProviderConfig(provider="llamacpp", base_url="http://localhost:8080/v1")},
+            providers={
+                "p": ProviderConfig(
+                    provider="llamacpp", base_url="http://localhost:8080/v1"
+                )
+            },
         )
         r = Resolver(cfg)
         provider = r.resolve_provider("p")
@@ -150,8 +170,16 @@ class TestResolveProvider:
 class TestResolveModel:
     def test_resolved(self):
         cfg = StackConfig.for_session(
-            providers={"p": ProviderConfig(provider="llamacpp", base_url="http://localhost:8080/v1")},
-            models={"m": ModelConfig(provider="p", model="local-chat", configuration={"max_tokens": 8000})},
+            providers={
+                "p": ProviderConfig(
+                    provider="llamacpp", base_url="http://localhost:8080/v1"
+                )
+            },
+            models={
+                "m": ModelConfig(
+                    provider="p", model="local-chat", configuration={"max_tokens": 8000}
+                )
+            },
         )
         r = Resolver(cfg)
         model = r.resolve_model("m")
@@ -212,8 +240,12 @@ class TestResolveModel:
             providers={"p": ProviderConfig(provider="anthropic")},
             models={
                 "m": ModelConfig(
-                    provider="p", model="claude-test",
-                    embeddings=False, tool_use=True, structured_output=True, extended_thinking=True,
+                    provider="p",
+                    model="claude-test",
+                    embeddings=False,
+                    tool_use=True,
+                    structured_output=True,
+                    extended_thinking=True,
                 )
             },
         )
@@ -236,7 +268,11 @@ class TestResolveModel:
         takes a plain ResolvedDatabase and does the omop-alchemy-specific part itself.
         """
         cfg = StackConfig.for_session(
-            providers={"p": ProviderConfig(provider="llamacpp", base_url="http://localhost:8080/v1")},
+            providers={
+                "p": ProviderConfig(
+                    provider="llamacpp", base_url="http://localhost:8080/v1"
+                )
+            },
             models={"m": ModelConfig(provider="p", model="local-chat")},
         )
         r = Resolver(cfg)
@@ -249,9 +285,15 @@ class TestResolveModel:
 class TestResolveVectorStore:
     def test_database_backed(self):
         cfg = StackConfig.for_session(
-            connections={"db": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
-            databases={"default": GenericDatabaseConfig(connection="db", schema_name="public")},
-            vector_stores={"vs": VectorStoreConfig(backend_type="pgvector", database="default")},
+            connections={
+                "db": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+            },
+            databases={
+                "default": GenericDatabaseConfig(connection="db", schema_name="public")
+            },
+            vector_stores={
+                "vs": VectorStoreConfig(backend_type="pgvector", database="default")
+            },
         )
         r = Resolver(cfg)
         vs = r.resolve_vector_store("vs")
@@ -263,9 +305,13 @@ class TestResolveVectorStore:
         """A sqlite-backed store is a GenericDatabaseConfig whose connection has
         dialect='sqlite'. No separate sqlite_path field, same shape as pgvector."""
         cfg = StackConfig.for_session(
-            connections={"f": ConnectionConfig(dialect="sqlite", database_name="/data/emb.db")},
+            connections={
+                "f": ConnectionConfig(dialect="sqlite", database_name="/data/emb.db")
+            },
             databases={"emb": GenericDatabaseConfig(connection="f")},
-            vector_stores={"vs": VectorStoreConfig(backend_type="sqlitevec", database="emb")},
+            vector_stores={
+                "vs": VectorStoreConfig(backend_type="sqlitevec", database="emb")
+            },
         )
         r = Resolver(cfg)
         vs = r.resolve_vector_store("vs")
@@ -274,11 +320,13 @@ class TestResolveVectorStore:
 
     def test_database_required(self):
         with pytest.raises(ValidationError, match="database"):
-            VectorStoreConfig(backend_type="sqlitevec")
+            VectorStoreConfig(backend_type="sqlitevec")  # ty: ignore[missing-argument]
 
     def test_configuration_passthrough(self):
         cfg = StackConfig.for_session(
-            connections={"f": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            connections={
+                "f": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+            },
             databases={"emb": GenericDatabaseConfig(connection="f")},
             vector_stores={
                 "vs": VectorStoreConfig(
@@ -294,7 +342,9 @@ class TestResolveVectorStore:
 
     def test_faiss_cache_dir_passthrough(self):
         cfg = StackConfig.for_session(
-            connections={"f": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            connections={
+                "f": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+            },
             databases={"emb": GenericDatabaseConfig(connection="f")},
             vector_stores={
                 "vs": VectorStoreConfig(
@@ -310,9 +360,13 @@ class TestResolveVectorStore:
 
     def test_faiss_cache_dir_defaults_to_none(self):
         cfg = StackConfig.for_session(
-            connections={"f": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            connections={
+                "f": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+            },
             databases={"emb": GenericDatabaseConfig(connection="f")},
-            vector_stores={"vs": VectorStoreConfig(backend_type="sqlitevec", database="emb")},
+            vector_stores={
+                "vs": VectorStoreConfig(backend_type="sqlitevec", database="emb")
+            },
         )
         r = Resolver(cfg)
         vs = r.resolve_vector_store("vs")
@@ -330,7 +384,11 @@ class TestResolveVectorStore:
         target still has to actually exist, same as any other domain."""
         with pytest.raises(ValueError, match="unknown database"):
             StackConfig.for_session(
-                vector_stores={"vs": VectorStoreConfig(backend_type="pgvector", database="does_not_exist")},
+                vector_stores={
+                    "vs": VectorStoreConfig(
+                        backend_type="pgvector", database="does_not_exist"
+                    )
+                },
             )
 
     def test_cdm_database_reference_rejected(self):
@@ -341,7 +399,9 @@ class TestResolveVectorStore:
             StackConfig.for_session(
                 connections={"c": ConnectionConfig(dialect="sqlite")},
                 databases=cfg_databases,
-                vector_stores={"vs": VectorStoreConfig(backend_type="pgvector", database="cdm_db")},
+                vector_stores={
+                    "vs": VectorStoreConfig(backend_type="pgvector", database="cdm_db")
+                },
             )
 
 
@@ -349,6 +409,7 @@ class TestSchemaTranslateMap:
     def test_no_results_schema(self, minimal_stack):
         r = Resolver(minimal_stack)
         res = r.resolve_database("default")
+        assert isinstance(res, ResolvedCDMDatabase)
         stm = res.schema_translate_map()
         assert stm[None] == "omop"
         assert "results" not in stm
@@ -356,6 +417,7 @@ class TestSchemaTranslateMap:
     def test_with_all_schemas(self, pg_stack):
         r = Resolver(pg_stack)
         res = r.resolve_database("default")
+        assert isinstance(res, ResolvedCDMDatabase)
         stm = res.schema_translate_map()
         assert stm[None] == "omop"
         assert stm["vocab"] == "omop_vocab"
@@ -364,6 +426,7 @@ class TestSchemaTranslateMap:
     def test_vocab_schema_defaults_to_cdm(self, minimal_stack):
         r = Resolver(minimal_stack)
         res = r.resolve_database("default")
+        assert isinstance(res, ResolvedCDMDatabase)
         stm = res.schema_translate_map()
         assert stm["vocab"] == "omop"
 
@@ -372,7 +435,9 @@ class TestResolveTool:
     def test_tool_extra_dict(self):
         cfg = StackConfig.for_session(
             connections={"db": ConnectionConfig(dialect="sqlite")},
-            databases={"default": CDMDatabaseConfig(connection="db", schema_name="omop")},
+            databases={
+                "default": CDMDatabaseConfig(connection="db", schema_name="omop")
+            },
             tools={"omop_emb": {"backend": "sqlitevec", "path": "/data"}},
         )
         r = Resolver(cfg)
@@ -404,13 +469,19 @@ class TestWithOverrides:
     def test_override_connection(self, minimal_stack):
         r = Resolver(minimal_stack)
         r2 = r.with_overrides(
-            connections={"db": ConnectionConfig(dialect="sqlite", database_name="/other.db")}
+            connections={
+                "db": ConnectionConfig(dialect="sqlite", database_name="/other.db")
+            }
         )
         assert r2.resolve_connection("db").url == "sqlite:////other.db"
 
     def test_original_unchanged(self, minimal_stack):
         r = Resolver(minimal_stack)
-        r.with_overrides(connections={"db": ConnectionConfig(dialect="sqlite", database_name="/other.db")})
+        r.with_overrides(
+            connections={
+                "db": ConnectionConfig(dialect="sqlite", database_name="/other.db")
+            }
+        )
         assert r.resolve_connection("db").url == "sqlite:///:memory:"
 
 
@@ -434,9 +505,13 @@ class TestDiscovery:
 
     def test_vector_store_names(self):
         cfg = StackConfig.for_session(
-            connections={"f": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            connections={
+                "f": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+            },
             databases={"emb": GenericDatabaseConfig(connection="f")},
-            vector_stores={"vs": VectorStoreConfig(backend_type="sqlitevec", database="emb")},
+            vector_stores={
+                "vs": VectorStoreConfig(backend_type="sqlitevec", database="emb")
+            },
         )
         r = Resolver(cfg)
         assert r.vector_store_names() == ("vs",)
@@ -450,10 +525,20 @@ class TestCheckTestCollision:
 
     def test_collision_via_primary_connection_raises(self):
         cfg = StackConfig.for_session(
-            connections={"prod": ConnectionConfig(dialect="postgresql+psycopg", host="h", port=5432, database_name="d")},
+            connections={
+                "prod": ConnectionConfig(
+                    dialect="postgresql+psycopg", host="h", port=5432, database_name="d"
+                )
+            },
             databases={"cdm_db": CDMDatabaseConfig(connection="prod")},
         )
-        new_conn = ConnectionConfig(dialect="postgresql+psycopg", host="h", port=5432, database_name="d", test_only=True)
+        new_conn = ConnectionConfig(
+            dialect="postgresql+psycopg",
+            host="h",
+            port=5432,
+            database_name="d",
+            test_only=True,
+        )
         with pytest.raises(typer.Exit):
             _check_test_collision(new_conn, cfg)
 
@@ -463,12 +548,32 @@ class TestCheckTestCollision:
         derived from db.connection alone would miss this."""
         cfg = StackConfig.for_session(
             connections={
-                "primary": ConnectionConfig(dialect="postgresql+psycopg", host="h", port=5432, database_name="primary_db"),
-                "vocab_prod": ConnectionConfig(dialect="postgresql+psycopg", host="vocab-h", port=5432, database_name="vocab_db"),
+                "primary": ConnectionConfig(
+                    dialect="postgresql+psycopg",
+                    host="h",
+                    port=5432,
+                    database_name="primary_db",
+                ),
+                "vocab_prod": ConnectionConfig(
+                    dialect="postgresql+psycopg",
+                    host="vocab-h",
+                    port=5432,
+                    database_name="vocab_db",
+                ),
             },
-            databases={"cdm_db": CDMDatabaseConfig(connection="primary", vocab_connection="vocab_prod")},
+            databases={
+                "cdm_db": CDMDatabaseConfig(
+                    connection="primary", vocab_connection="vocab_prod"
+                )
+            },
         )
-        new_conn = ConnectionConfig(dialect="postgresql+psycopg", host="vocab-h", port=5432, database_name="vocab_db", test_only=True)
+        new_conn = ConnectionConfig(
+            dialect="postgresql+psycopg",
+            host="vocab-h",
+            port=5432,
+            database_name="vocab_db",
+            test_only=True,
+        )
         with pytest.raises(typer.Exit):
             _check_test_collision(new_conn, cfg)
 
@@ -477,16 +582,36 @@ class TestCheckTestCollision:
         at all -- deriving connections from config.databases would never
         see it."""
         cfg = StackConfig.for_session(
-            connections={"orphan_prod": ConnectionConfig(dialect="postgresql+psycopg", host="h", port=5432, database_name="d")},
+            connections={
+                "orphan_prod": ConnectionConfig(
+                    dialect="postgresql+psycopg", host="h", port=5432, database_name="d"
+                )
+            },
         )
-        new_conn = ConnectionConfig(dialect="postgresql+psycopg", host="h", port=5432, database_name="d", test_only=True)
+        new_conn = ConnectionConfig(
+            dialect="postgresql+psycopg",
+            host="h",
+            port=5432,
+            database_name="d",
+            test_only=True,
+        )
         with pytest.raises(typer.Exit):
             _check_test_collision(new_conn, cfg)
 
     def test_no_collision_passes(self):
         cfg = StackConfig.for_session(
-            connections={"prod": ConnectionConfig(dialect="postgresql+psycopg", host="h", port=5432, database_name="d")},
+            connections={
+                "prod": ConnectionConfig(
+                    dialect="postgresql+psycopg", host="h", port=5432, database_name="d"
+                )
+            },
             databases={"cdm_db": CDMDatabaseConfig(connection="prod")},
         )
-        new_conn = ConnectionConfig(dialect="postgresql+psycopg", host="other-h", port=5432, database_name="d", test_only=True)
+        new_conn = ConnectionConfig(
+            dialect="postgresql+psycopg",
+            host="other-h",
+            port=5432,
+            database_name="d",
+            test_only=True,
+        )
         _check_test_collision(new_conn, cfg)  # must not raise

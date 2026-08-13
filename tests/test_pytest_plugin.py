@@ -17,7 +17,7 @@ real data.
 
 from __future__ import annotations
 
-from typing import Annotated, ClassVar
+from typing import Annotated, ClassVar, cast
 
 import pytest
 
@@ -26,7 +26,7 @@ from oa_configurator import (
     ConnectionConfig,
     PackageConfigBase,
     RefTo,
-    StackConfig
+    StackConfig,
 )
 from oa_configurator.pytest_plugin import (
     create_fresh_test_db,
@@ -47,7 +47,9 @@ class DemoTestConfigWithDefault(PackageConfigBase):
     default rather than falling back to the field name itself."""
 
     tool_name: ClassVar[str] = "demo_test_default_tool"
-    test_field: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = "configured_default_db"
+    test_field: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = (
+        "configured_default_db"
+    )
 
 
 def _stack_config(*, test_only: bool, tools: dict | None = None) -> StackConfig:
@@ -109,7 +111,9 @@ class TestResolveTestDatabase:
         def _raise_not_found():
             raise FileNotFoundError("no config file")
 
-        monkeypatch.setattr("oa_configurator.loader.load_stack_config", _raise_not_found)
+        monkeypatch.setattr(
+            "oa_configurator.loader.load_stack_config", _raise_not_found
+        )
 
         with pytest.raises(pytest.skip.Exception):
             resolve_test_database(DemoTestConfig, "test_cdm_db")
@@ -125,7 +129,9 @@ class TestResolveTestDatabase:
                     dialect="sqlite", database_name=":memory:", test_only=True
                 )
             },
-            databases={"my_custom_test_db": CDMDatabaseConfig(connection="custom_test_conn")},
+            databases={
+                "my_custom_test_db": CDMDatabaseConfig(connection="custom_test_conn")
+            },
             tools={"demo_test_tool": {"test_cdm_db": "my_custom_test_db"}},
         )
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
@@ -140,9 +146,13 @@ class TestResolveTestDatabase:
         name "test_field"."""
         cfg = StackConfig.for_session(
             connections={
-                "test_conn": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=True)
+                "test_conn": ConnectionConfig(
+                    dialect="sqlite", database_name=":memory:", test_only=True
+                )
             },
-            databases={"configured_default_db": CDMDatabaseConfig(connection="test_conn")},
+            databases={
+                "configured_default_db": CDMDatabaseConfig(connection="test_conn")
+            },
         )
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
 
@@ -162,12 +172,17 @@ class TestRefuseIfProduction:
     any database entry, or is only reachable via a secondary field like
     vocab_connection -- the guard checks config.connections directly."""
 
-    def test_create_fresh_test_db_refuses_matching_production_connection(self, monkeypatch):
+    def test_create_fresh_test_db_refuses_matching_production_connection(
+        self, monkeypatch
+    ):
         cfg = StackConfig.for_session(
             connections={
                 "prod": ConnectionConfig(
-                    dialect="postgresql+psycopg", host="dbhost", port=5432,
-                    database_name="shared_name", test_only=False,
+                    dialect="postgresql+psycopg",
+                    host="dbhost",
+                    port=5432,
+                    database_name="shared_name",
+                    test_only=False,
                 ),
             },
         )
@@ -180,8 +195,11 @@ class TestRefuseIfProduction:
         cfg = StackConfig.for_session(
             connections={
                 "prod": ConnectionConfig(
-                    dialect="postgresql+psycopg", host="dbhost", port=5432,
-                    database_name="shared_name", test_only=False,
+                    dialect="postgresql+psycopg",
+                    host="dbhost",
+                    port=5432,
+                    database_name="shared_name",
+                    test_only=False,
                 ),
             },
         )
@@ -190,15 +208,20 @@ class TestRefuseIfProduction:
         with pytest.raises(RuntimeError, match="prod"):
             drop_test_db("postgresql+psycopg://user:pw@dbhost:5432/shared_name")
 
-    def test_refuses_a_production_connection_not_referenced_by_any_database(self, monkeypatch):
+    def test_refuses_a_production_connection_not_referenced_by_any_database(
+        self, monkeypatch
+    ):
         """The colliding connection isn't wired to a [databases.*] entry at
         all -- deriving connections from config.databases (the old
         behaviour) would have missed this entirely."""
         cfg = StackConfig.for_session(
             connections={
                 "orphan_prod": ConnectionConfig(
-                    dialect="postgresql+psycopg", host="dbhost", port=5432,
-                    database_name="vocab_name", test_only=False,
+                    dialect="postgresql+psycopg",
+                    host="dbhost",
+                    port=5432,
+                    database_name="vocab_name",
+                    test_only=False,
                 ),
             },
         )
@@ -230,25 +253,36 @@ class TestRequiresDatabaseMarker:
 
     def test_fails_when_database_is_not_test_only(self, monkeypatch):
         cfg = StackConfig.for_session(
-            connections={"prod": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=False)},
+            connections={
+                "prod": ConnectionConfig(
+                    dialect="sqlite", database_name=":memory:", test_only=False
+                )
+            },
             databases={"prod_db": CDMDatabaseConfig(connection="prod")},
         )
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
 
         with pytest.raises(pytest.fail.Exception, match="test_only"):
-            pytest_runtest_setup(_FakeItem("prod_db"))
+            pytest_runtest_setup(cast(pytest.Item, _FakeItem("prod_db")))
 
     def test_skips_when_database_not_configured(self, monkeypatch):
-        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: StackConfig.for_session())
+        monkeypatch.setattr(
+            "oa_configurator.loader.load_stack_config",
+            lambda: StackConfig.for_session(),
+        )
 
         with pytest.raises(pytest.skip.Exception):
-            pytest_runtest_setup(_FakeItem("missing_db"))
+            pytest_runtest_setup(cast(pytest.Item, _FakeItem("missing_db")))
 
     def test_passes_when_test_only(self, monkeypatch):
         cfg = StackConfig.for_session(
-            connections={"test_conn": ConnectionConfig(dialect="sqlite", database_name=":memory:", test_only=True)},
+            connections={
+                "test_conn": ConnectionConfig(
+                    dialect="sqlite", database_name=":memory:", test_only=True
+                )
+            },
             databases={"test_db": CDMDatabaseConfig(connection="test_conn")},
         )
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
 
-        pytest_runtest_setup(_FakeItem("test_db"))  # must not raise
+        pytest_runtest_setup(cast(pytest.Item, _FakeItem("test_db")))  # must not raise

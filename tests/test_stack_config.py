@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 
 from oa_configurator import (
@@ -108,10 +110,13 @@ class TestDatabaseKindDiscrimination:
     def test_raw_dict_dispatches_by_kind(self):
         cfg = StackConfig.for_session(
             connections={"c": ConnectionConfig(dialect="sqlite")},
-            databases={
-                "g": {"kind": "generic", "connection": "c"},  # ty: ignore[invalid-argument-type]
-                "d": {"kind": "cdm", "connection": "c"},  # ty: ignore[invalid-argument-type]
-            },
+            databases=cast(
+                Any,
+                {
+                    "g": {"kind": "generic", "connection": "c"},
+                    "d": {"kind": "cdm", "connection": "c"},
+                },
+            ),
         )
         assert isinstance(cfg.databases["g"], GenericDatabaseConfig)
         assert isinstance(cfg.databases["d"], CDMDatabaseConfig)
@@ -159,13 +164,17 @@ class TestStackConfig:
         assert "default" in minimal_stack.databases
 
     def test_tools_accepts_plain_dicts(self):
-        cfg = StackConfig.for_session(tools={"my_pkg": {"backend": "sqlitevec", "path": "/data"}})
+        cfg = StackConfig.for_session(
+            tools={"my_pkg": {"backend": "sqlitevec", "path": "/data"}}
+        )
         assert cfg.tools["my_pkg"]["backend"] == "sqlitevec"
 
     def test_for_session_accepts_raw_dicts(self):
         """Raw, TOML-table-shaped dicts (not DatabaseConfig instances) still coerce at validation time."""
         cfg = StackConfig.for_session(
-            connections={"c": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            connections={
+                "c": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+            },
             databases={"r": {"connection": "c", "kind": "cdm", "schema_name": "s"}},  # ty: ignore[invalid-argument-type]
         )
         assert isinstance(cfg.connections["c"], ConnectionConfig)
@@ -175,14 +184,20 @@ class TestStackConfig:
         with pytest.raises(ValueError, match="unknown connection"):
             StackConfig.for_session(
                 connections={},
-                databases={"r": CDMDatabaseConfig(connection="missing", schema_name="s")},
+                databases={
+                    "r": CDMDatabaseConfig(connection="missing", schema_name="s")
+                },
             )
 
     def test_cross_ref_validation_vocab_connection(self):
         with pytest.raises(ValueError, match="unknown connection"):
             StackConfig.for_session(
                 connections={"c": ConnectionConfig(dialect="sqlite")},
-                databases={"r": CDMDatabaseConfig(connection="c", vocab_connection="missing", schema_name="s")},
+                databases={
+                    "r": CDMDatabaseConfig(
+                        connection="c", vocab_connection="missing", schema_name="s"
+                    )
+                },
             )
 
     def test_bind_loaded_path(self, tmp_path):

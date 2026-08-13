@@ -780,10 +780,12 @@ class TestRunConfigurePackage:
         config = _load_from_path(isolated_config)
         assert config.tools["demo_tool"]["cdm_db"] == "cdm_db"
         assert "cdm_db" in config.databases
-        assert config.databases["cdm_db"].connection in config.connections
-        assert config.databases["cdm_db"].schema_name == "omop"
+        database = config.databases["cdm_db"]
+        assert isinstance(database, CDMDatabaseConfig)
+        assert database.connection in config.connections
+        assert database.schema_name == "omop"
         # vocab_connection is optional, so it is never auto-created
-        assert config.databases["cdm_db"].vocab_connection is None
+        assert database.vocab_connection is None
         # both optional databases were declined, so neither was written
         assert "test_cdm_db" not in config.tools["demo_tool"]
         assert "secondary_db" not in config.tools["demo_tool"]

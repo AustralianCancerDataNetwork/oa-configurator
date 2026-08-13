@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -638,6 +638,34 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="2. Define your config class">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-package-users-get-from-the-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What package users get from the CLI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#add-configuration-to-your-own-application" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Add configuration to your own application
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
           <li class="md-nav__item">
@@ -961,6 +989,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../api/persistence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Persistence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../api/stack-config/" class="md-nav__link">
         
   
@@ -1225,6 +1281,34 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="2. Define your config class">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-package-users-get-from-the-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What package users get from the CLI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#add-configuration-to-your-own-application" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Add configuration to your own application
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
         
@@ -1554,6 +1638,16 @@
     <span class="n">data_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Path to local data files.&quot;</span><span class="p">)</span>
 </code></pre></div>
 <p><code>get_config()</code> is inherited from <code>PackageConfigBase</code>: call <code>MyPackageConfig.get_config()</code> to load from the active stack config. It delegates to <code>Resolver.resolve_package_config()</code>, which reads the <code>[tools.my_package]</code> section and validates every <code>RefTo</code>-marked field against it. If the section is missing, fields fall back to their defaults.</p>
+<h4 id="what-package-users-get-from-the-cli">What package users get from the CLI<a class="headerlink" href="#what-package-users-get-from-the-cli" title="Permanent link">&para;</a></h4>
+<p><code>omop-config configure my_package</code> checks the complete proposed section with <code>MyPackageConfig</code> before it saves anything. This includes ordinary field constraints, cross-field validators, and missing or wrong-kind <code>RefTo</code> targets. CLI strings are converted to the model's real Python types before being written to TOML, and an invalid proposal leaves the existing file unchanged.</p>
+<p>A default <code>RefTo</code> value is still a real reference. For example, if <code>cdm_db</code> defaults to the name <code>"cdm_db"</code>, that database must exist before a non-interactive configure command can succeed. In scripted setup, create the target first or pass nested <code>--set</code> values that create the target chain in the same command. In the interactive flow, the user can create or select the missing target when prompted.</p>
+<h4 id="add-configuration-to-your-own-application">Add configuration to your own application<a class="headerlink" href="#add-configuration-to-your-own-application" title="Permanent link">&para;</a></h4>
+<p>If your package has its own web form, desktop screen, or API, use <code>plan_configure()</code> rather than duplicating the CLI's field and <code>RefTo</code> logic:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">plan_configure</span>
+
+<span class="n">candidate</span> <span class="o">=</span> <span class="n">plan_configure</span><span class="p">(</span><span class="n">MyPackageConfig</span><span class="p">,</span> <span class="n">current_config</span><span class="p">,</span> <span class="n">proposed_values</span><span class="p">)</span>
+</code></pre></div>
+<p>The result is a new complete stack; <code>current_config</code> is unchanged. Submitted nested dictionaries can create or update the entries behind <code>RefTo</code> fields, while omitted fields continue to use their stored values. Use <code>PackageConfigValidationError.errors()</code> to place schema messages beside the relevant inputs, and present <code>ConfigurationError</code> as a reference problem. Once the user has reviewed the result, persist it with a separate <code>save_stack_config(candidate)</code> call. The library functions raise exceptions without printing CLI text or raising <code>typer.Exit</code>.</p>
 <hr />
 <h3 id="3-register-the-entry-point">3. Register the entry point<a class="headerlink" href="#3-register-the-entry-point" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="k">[project.entry-points.</span><span class="s2">&quot;omop.config&quot;</span><span class="k">]</span>
@@ -1843,7 +1937,7 @@ omop-config configure my_package
       <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.path", "navigation.top", "content.code.copy", "content.code.annotate", "content.tabs.link"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
       
         <script src="https://unpkg.com/mermaid@10/dist/mermaid.min.js"></script>
       

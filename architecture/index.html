@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -882,6 +882,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../api/persistence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Persistence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../api/stack-config/" class="md-nav__link">
         
   
@@ -1371,7 +1399,7 @@
 <span class="n">model</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;nomic-embed-text:v1.5&quot;</span>
 </code></pre></div>
 <h3 id="tool">Tool<a class="headerlink" href="#tool" title="Permanent link">&para;</a></h3>
-<p>Per-package configuration in <code>[tools.&lt;name&gt;]</code>. The core model stores it as a plain, untyped dict; each consuming package defines a typed <code>PackageConfigBase</code> subclass that provides a validated view over it, resolved lazily since packages register via entry points and aren't known to <code>oa-configurator</code> itself at parse time.</p>
+<p>Per-package configuration lives in <code>[tools.&lt;name&gt;]</code>. <code>StackConfig</code> keeps these sections as plain dictionaries because oa-configurator discovers package schemas at runtime, but that does not make them unchecked: before an official configure flow saves a change, it loads the package's <code>PackageConfigBase</code> subclass and validates both the section and its <code>RefTo</code> fields against the proposed stack.</p>
 <div class="highlight"><pre><span></span><code><span class="k">[tools.omop_emb]</span>
 <span class="n">cdm_db</span><span class="w">                </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm_db&quot;</span>
 <span class="n">embedding_model_name</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;embedding-model&quot;</span>
@@ -1429,7 +1457,8 @@
 <div class="highlight"><pre><span></span><code><span class="k">[project.entry-points.</span><span class="s2">&quot;omop.config&quot;</span><span class="k">]</span>
 <span class="n">my_package</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my_package.config:MyPackageConfig&quot;</span>
 </code></pre></div>
-<p><code>omop-config configure my_package</code> discovers the class at runtime via <code>importlib.metadata.entry_points(group="omop.config")</code>, presents the typed fields for interactive configuration, and writes the result to <code>[tools.my_package]</code>. <code>oa-configurator</code> itself has no knowledge of any consuming package.</p>
+<p><code>omop-config configure my_package</code> discovers the class at runtime via <code>importlib.metadata.entry_points(group="omop.config")</code>, uses its typed fields to guide the user, and saves the validated result to <code>[tools.my_package]</code>. This lets oa-configurator support package-specific configuration without building knowledge of each consuming package into the core library.</p>
+<p>An application with its own configuration UI uses <code>plan_configure()</code> to get the same package-aware behaviour without file I/O. It receives a new complete <code>StackConfig</code>, can present that proposal for review, and decides whether to pass it to <code>save_stack_config()</code>. Frontends therefore do not need to reproduce package schemas or <code>RefTo</code> traversal.</p>
 <hr />
 <h2 id="schema-translate-map">Schema translate map<a class="headerlink" href="#schema-translate-map" title="Permanent link">&para;</a></h2>
 <p>CDM-specific: <code>ResolvedCDMDatabase.schema_translate_map()</code> returns the SQLAlchemy-compatible schema translate dict:</p>
@@ -1443,6 +1472,7 @@
 </code></pre></div>
 <p><code>ResolvedConnection.safe_url</code> and <code>ResolvedConnection.url</code> are distinct: <code>safe_url</code> has the password replaced with <code>***</code> and is used for all logging and display. The <code>.url</code> value (with plaintext password) is used only for engine creation and never logged by the library.</p>
 <p><code>RedactingFormatter</code> (applied by all non-library log presets) scrubs both <code>key=value</code> patterns and <code>://user:password@host</code> URL patterns from log output.</p>
+<p><code>save_stack_config()</code> validates and serializes before changing the destination, protects candidate and backup files before writing credentials, and verifies the result after an atomic replacement. See <a href="../api/persistence/">Saving configuration safely</a> for recovery behaviour. Atomic replacement protects file integrity but does not coordinate concurrent writers, which remain last-writer-wins in this release.</p>
 <p><strong>Future work</strong>: <code>secret_source</code> support (<code>env:VAR</code>, <code>file:path</code>, Vault, cloud secret managers) is planned but not implemented in this version.</p>
 <hr />
 <h2 id="config-path">Config path<a class="headerlink" href="#config-path" title="Permanent link">&para;</a></h2>
@@ -1514,7 +1544,7 @@
       <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.path", "navigation.top", "content.code.copy", "content.code.annotate", "content.tabs.link"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
       
         <script src="https://unpkg.com/mermaid@10/dist/mermaid.min.js"></script>
       

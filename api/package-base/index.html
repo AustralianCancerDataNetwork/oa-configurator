@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -653,6 +653,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../persistence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Persistence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../stack-config/" class="md-nav__link">
         
   
@@ -853,6 +881,28 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#validate-a-complete-candidate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validate a complete candidate
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plan-a-change-for-review" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plan a change for review
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#oa_configurator.package_base.PackageConfigBase" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -923,6 +973,50 @@
     <span class="md-ellipsis">
       
         to_extra_dict
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.PackageConfigBase.validate_candidate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        validate_candidate
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.PackageConfigValidationError" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PackageConfigValidationError
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.PackageConfigValidationError.errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        errors
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.plan_configure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        plan_configure
       
     </span>
   </a>
@@ -1000,6 +1094,28 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#validate-a-complete-candidate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validate a complete candidate
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plan-a-change-for-review" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plan a change for review
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#oa_configurator.package_base.PackageConfigBase" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1076,6 +1192,50 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.PackageConfigBase.validate_candidate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        validate_candidate
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.PackageConfigValidationError" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PackageConfigValidationError
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.PackageConfigValidationError.errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        errors
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.plan_configure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        plan_configure
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1145,6 +1305,13 @@
 
 
 <h1 id="packageconfigbase-api">PackageConfigBase API<a class="headerlink" href="#packageconfigbase-api" title="Permanent link">&para;</a></h1>
+<p>Use these APIs when your application collects package settings itself instead of sending the user through <code>omop-config configure</code>.</p>
+<h2 id="validate-a-complete-candidate">Validate a complete candidate<a class="headerlink" href="#validate-a-complete-candidate" title="Permanent link">&para;</a></h2>
+<p><code>StackConfig.tools</code> holds plain dictionaries because oa-configurator cannot know the schemas of packages that are discovered later at runtime. Before accepting a proposed stack, call <code>PackageConfigBase.validate_candidate()</code> on the package class. It applies that package's field and model validators and checks every <code>RefTo</code> against the same proposed stack, without loading or saving a file.</p>
+<p>A schema problem raises <code>PackageConfigValidationError</code>. Use <code>tool_name</code> to identify the affected <code>[tools.&lt;name&gt;]</code> section and <code>errors()</code> to attach messages to form fields, including nested fields and model-level errors. These details deliberately omit rejected values and validator context, and the exception does not retain the original pydantic error, so displaying or logging the exception cannot echo a submitted secret. A missing or wrong-kind reference raises <code>ConfigurationError</code> with the package field path.</p>
+<h2 id="plan-a-change-for-review">Plan a change for review<a class="headerlink" href="#plan-a-change-for-review" title="Permanent link">&para;</a></h2>
+<p>Use <code>plan_configure()</code> when your application needs to preview a change before the user approves it. Pass the current stack and the proposed package values; the function returns a new, fully validated <code>StackConfig</code> and leaves the current object unchanged, even when planning fails. Nested dictionaries can create or update entries reached through <code>RefTo</code> fields, which lets a UI submit one complete proposal instead of reproducing oa-configurator's schema traversal.</p>
+<p>Planning never reads or writes the active configuration file. The returned candidate keeps <code>loaded_path</code> as provenance, but your application still decides whether and when to call <code>save_stack_config()</code>. Failures are ordinary <code>ConfigurationError</code> or <code>PackageConfigValidationError</code> exceptions: this API does not print CLI guidance or raise <code>typer.Exit</code>.</p>
 
 
 <div class="doc doc-object doc-class">
@@ -1370,6 +1537,7 @@ resolved config (e.g. <code>MyPackageConfig.get_config().cdm_db</code>).</p>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">set_dict</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
     <span class="n">interactive</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+    <span class="n">headless</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
 </code></pre></div>
 
@@ -1453,6 +1621,23 @@ config class is loaded).</p>
                 <em>required</em>
             </td>
           </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>headless</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Raise library exceptions without printing CLI-oriented errors.
+Intended for :func:<code>plan_configure</code>; ignored by interactive paths.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
       </tbody>
     </table>
 
@@ -1491,12 +1676,21 @@ config class is loaded).</p>
       <tbody>
           <tr class="doc-section-item">
             <td>
+                  <code><span title="oa_configurator.package_base.ConfigurationError">ConfigurationError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If headless non-interactive resolution fails.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
                   <code><span title="typer.Exit">Exit</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If a nested <code>--set</code> creation (see above) is missing a
-required field of the target it's creating, non-interactively.</p>
+                <p>If CLI-oriented non-interactive resolution fails.</p>
               </div>
             </td>
           </tr>
@@ -1556,9 +1750,120 @@ stack config file.</p>
 
 </div>
 
+<div class="doc doc-object doc-function">
+
+
+<h2 id="oa_configurator.package_base.PackageConfigBase.validate_candidate" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">validate_candidate</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+<a href="#oa_configurator.package_base.PackageConfigBase.validate_candidate" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">validate_candidate</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">StackConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Self</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Validate this package's section and references in <em>config</em>.</p>
+<p>This is the package-aware apply boundary for the otherwise untyped
+<code>StackConfig.tools</code> mapping. Field and model-validator failures raise
+:class:<code>PackageConfigValidationError</code>; reference failures raise
+:class:<code>ConfigurationError</code>. Neither path performs file I/O.</p>
+
+
+    </div>
+
+</div>
+
 
 
   </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<a id="oa_configurator.package_base.PackageConfigValidationError"></a>
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="oa_configurator.package_base.ConfigurationError">ConfigurationError</span></code></p>
+
+
+
+        <p>A package section failed its concrete pydantic schema.</p>
+<p>:meth:<code>errors</code> exposes sanitized pydantic details so field locations,
+including the empty location used by model-level validators, are preserved
+without retaining rejected input or validator context.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="oa_configurator.package_base.PackageConfigValidationError.errors" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">errors</span>
+
+
+<a href="#oa_configurator.package_base.PackageConfigValidationError.errors" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">errors</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">ErrorDetails</span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return locations and messages without rejected input or context.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+<a id="oa_configurator.package_base.plan_configure"></a>
+    <div class="doc doc-contents first">
+
+        <p>Return a complete validated package candidate without file I/O.</p>
+<p>The input stack is deep-copied before field resolution, including nested
+<code>RefTo</code> creation or updates. The returned stack contains pydantic-
+normalized package values and preserves the input's <code>loaded_path</code> as
+provenance. The caller's stack remains unchanged on success and failure.</p>
+
 
     </div>
 
@@ -1623,7 +1928,7 @@ stack config file.</p>
       <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.path", "navigation.top", "content.code.copy", "content.code.annotate", "content.tabs.link"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
         <script src="https://unpkg.com/mermaid@10/dist/mermaid.min.js"></script>
       

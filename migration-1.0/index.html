@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -816,6 +816,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../api/persistence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Persistence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../api/stack-config/" class="md-nav__link">
         
   
@@ -1194,6 +1222,7 @@
 <li><strong>CLI commands renamed to match the section swap</strong>: <code>omop-config databases add/list</code> (old, connections) → <code>omop-config connections add/list</code>; <code>omop-config resources add/list</code> (old) → <code>omop-config databases add/list</code>.</li>
 <li><strong><code>--resource-name</code> flag removed.</strong> To point a package at a non-default database, pass the package's own field flag directly (e.g. <code>--cdm-db cdm_db_prod</code>), not a generic <code>--resource-name</code>.</li>
 <li><strong>Non-interactive one-shot creation works differently.</strong> <code>omop-config configure my_pkg --host ... --dialect ...</code> (flat flags matching the target schema) no longer works.  A package's own <code>configure</code> flags now come from the package's own fields, not the target's. Two replacements: create the connection and database first with <code>connections add</code>/<code>databases add</code>, then point <code>configure</code> at them by name; or do it in one call with <code>--set field.subfield=value</code> (repeatable, arbitrarily nested), e.g. <code>configure my_pkg --set cdm_db.connection.dialect=... --set cdm_db.connection.host=...</code>. See <a href="../integration/#docker-compose">Integration</a> for both forms.</li>
+<li><strong><code>configure</code> now refuses missing default references.</strong> A default such as <code>cdm_db = "cdm_db"</code> is still the name of a real database and must resolve even when you did not pass that field explicitly. The interactive command can help you create or select the missing item. In a script, create referenced connections, databases, providers, models, and vector stores first, or use nested <code>--set</code> values to create them in the same command. If validation fails, your existing configuration is unchanged.</li>
 <li><strong><code>test_only</code> is now an ordinary flag</strong> on <code>connections add</code> (<code>--test-only true</code>, accepts true/false/yes/no/1/0), and via <code>--set ....test_only=true</code> when created inline through <code>configure</code>.</li>
 <li><strong><code>read_only</code> removed.</strong> It was never wired to anything (stored, but never read by <code>oa-configurator</code> or any consumer) and its description ("hint only") was misleading about that. If you were setting it, it's simply gone. Dropping it from <code>[connections.*]</code> is enough.</li>
 <li><strong>SQLite connections now require an explicit <code>database_name</code>.</strong> No more implicit <code>:memory:</code> fallback when unset — it now raises at resolve time. See <a href="#toml-migration">TOML migration</a> step 6.</li>
@@ -1435,7 +1464,7 @@
       <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.path", "navigation.top", "content.code.copy", "content.code.annotate", "content.tabs.link"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
       
         <script src="https://unpkg.com/mermaid@10/dist/mermaid.min.js"></script>
       

@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -788,6 +788,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../api/persistence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Persistence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../api/stack-config/" class="md-nav__link">
         
   
@@ -1134,8 +1162,9 @@
 <p>After installing a package that supports oa_configurator, run its configure command:</p>
 <div class="highlight"><pre><span></span><code>omop-config<span class="w"> </span>configure<span class="w"> </span>&lt;package&gt;<span class="w">   </span><span class="c1"># e.g. omop_alchemy, omop_emb</span>
 </code></pre></div>
-<p>This prompts for any database connections and package-specific settings that package declares, then writes <code>~/.config/omop/config.toml</code>. Each package that depends on <code>oa-configurator</code> for functionality defines its own configuration, which is then interactively generated using the above command.
-To create an empty config file without prompts (useful for scripted setups), use:</p>
+<p>The command asks for the settings that this package needs, helps you create or reuse related items such as databases and models, and then writes <code>~/.config/omop/config.toml</code>. Run it again whenever you need to change that package's settings.</p>
+<p>Before saving, <code>configure</code> checks the complete setup, including items named by package defaults. An interactive run offers to create or select missing connections, databases, providers, models, and vector stores. In a script, create the named item first or use the package's nested <code>--set</code> options to create it as part of the same command. A failed check leaves your existing configuration unchanged.</p>
+<p>To create an empty config file without prompts (useful for scripted setups), use:</p>
 <div class="highlight"><pre><span></span><code>omop-config<span class="w"> </span>init
 </code></pre></div>
 <div class="admonition warning">
@@ -1247,7 +1276,7 @@ omop-config<span class="w"> </span>-vv<span class="w"> </span>show<span class="w
       <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.path", "navigation.top", "content.code.copy", "content.code.annotate", "content.tabs.link"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
       
         <script src="https://unpkg.com/mermaid@10/dist/mermaid.min.js"></script>
       

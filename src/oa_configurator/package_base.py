@@ -35,6 +35,7 @@ In ``pyproject.toml``::
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 from pydantic import BaseModel, ValidationError
@@ -362,3 +363,35 @@ class PackageConfigBase(BaseModel):
         console.print(
             f"\n[green]✓[/green] Saved \\[tools.{tool_name}] to [dim]{CONFIG_PATH}[/dim]"
         )
+
+
+def plan_configure(
+    package_config: type[PackageConfigBase],
+    config: StackConfig,
+    set_dict: Mapping[str, object],
+) -> StackConfig:
+    """Return a complete validated package candidate without file I/O.
+
+    The input stack is deep-copied before field resolution, including nested
+    ``RefTo`` creation or updates. The returned stack contains pydantic-
+    normalized package values and preserves the input's ``loaded_path`` as
+    provenance. The caller's stack remains unchanged on success and failure.
+    """
+    from .stack_config import StackConfig
+
+    candidate = config.model_copy(deep=True)
+    values = package_config.resolve_fields(
+        candidate,
+        set_dict=dict(set_dict),
+        interactive=False,
+    )
+    candidate.tools[package_config.tool_name] = values
+    validated = package_config.validate_candidate(candidate)
+    candidate.tools[package_config.tool_name] = validated.to_extra_dict()
+
+    # Reconstruct the full root after nested resolution so all core section
+    # references are checked too, without carrying any accidental shared state.
+    planned = StackConfig.model_validate(candidate.model_dump(mode="python"))
+    if config.loaded_path is not None:
+        planned.bind_loaded_path(config.loaded_path)
+    return planned

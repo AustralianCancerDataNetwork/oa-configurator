@@ -11,6 +11,15 @@ the `[tools.<name>]` section, while `errors()` preserves pydantic locations,
 including nested paths and the empty location used by cross-field validators.
 Reference failures raise `ConfigurationError` with the package field path.
 
+`plan_configure()` is the headless write-planning boundary. It deep-copies a
+stack, resolves non-interactive values—including nested `RefTo` creation or
+updates—validates the concrete package section and complete stack, and returns
+the new candidate. It performs no loader or persistence calls and leaves the
+input unchanged on both success and failure. A bound `loaded_path` is preserved
+on the returned candidate as source provenance.
+
 ::: oa_configurator.package_base.PackageConfigBase
 
 ::: oa_configurator.package_base.PackageConfigValidationError
+
+::: oa_configurator.package_base.plan_configure

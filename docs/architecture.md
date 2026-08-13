@@ -161,7 +161,13 @@ Consuming packages subclass `PackageConfigBase` and register via a `pyproject.to
 my_package = "my_package.config:MyPackageConfig"
 ```
 
-`omop-config configure my_package` discovers the class at runtime via `importlib.metadata.entry_points(group="omop.config")`, presents the typed fields for interactive configuration, and writes the result to `[tools.my_package]`. `oa-configurator` itself has no knowledge of any consuming package.
+`omop-config configure my_package` discovers the class at runtime via `importlib.metadata.entry_points(group="omop.config")`, presents the typed fields for interactive configuration, validates the package section and its references, and writes the result to `[tools.my_package]`. `oa-configurator` itself has no knowledge of any consuming package.
+
+Non-CLI frontends use `plan_configure()` for the same package-aware planning
+boundary without file I/O. Planning returns a new complete `StackConfig`; the
+caller chooses whether and when to pass it to `save_stack_config()`. This keeps
+preview, review, and apply separate without making frontends reproduce schema or
+`RefTo` logic.
 
 ---
 

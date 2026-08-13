@@ -23,6 +23,9 @@ from oa_configurator import (
     StackConfig,
     UnknownRefTarget,
     VectorStoreConfig,
+    mismatched_kind_refs,
+    plan_configure,
+    unresolved_refs,
 )
 
 
@@ -165,6 +168,97 @@ class TestPackageCandidateValidation:
 
         assert result.port == 9000
         assert isinstance(result.port, int)
+
+
+class TestPlanConfigure:
+    def test_returns_new_validated_candidate_without_file_io(
+        self, tmp_path, monkeypatch
+    ):
+        cfg = _validated_stack({"cdm_db": "cdm_db", "port": 8000})
+        cfg.bind_loaded_path(tmp_path / "config.toml")
+        before = cfg.model_dump(mode="python")
+
+        def unexpected_io(*args, **kwargs):
+            raise AssertionError("planner performed file I/O")
+
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", unexpected_io)
+        monkeypatch.setattr("oa_configurator.io.save_stack_config", unexpected_io)
+
+        planned = plan_configure(ValidatedPackageConfig, cfg, {"port": 9000})
+
+        assert planned is not cfg
+        assert planned.tools["validated_tool"]["port"] == 9000
+        assert cfg.model_dump(mode="python") == before
+        assert cfg.tools["validated_tool"]["port"] == 8000
+        assert planned.loaded_path == cfg.loaded_path
+
+    def test_nested_refto_creation_is_confined_to_returned_candidate(self):
+        cfg = StackConfig.for_session()
+
+        planned = plan_configure(
+            ValidatedPackageConfig,
+            cfg,
+            {
+                "cdm_db": {
+                    "connection": {
+                        "dialect": "sqlite",
+                        "database_name": ":memory:",
+                    },
+                    "schema_name": "planned_omop",
+                }
+            },
+        )
+
+        database_name = planned.tools["validated_tool"]["cdm_db"]
+        database = planned.databases[database_name]
+        assert database.schema_name == "planned_omop"
+        assert database.connection in planned.connections
+        assert cfg.connections == {}
+        assert cfg.databases == {}
+        assert cfg.tools == {}
+
+    def test_nested_refto_update_carries_over_unmentioned_target_fields(self):
+        cfg = _validated_stack({"cdm_db": "cdm_db"})
+        cfg.databases["cdm_db"].schema_name = "original_schema"
+
+        planned = plan_configure(
+            ValidatedPackageConfig,
+            cfg,
+            {"cdm_db": {"name": "cdm_db", "schema_name": "planned_schema"}},
+        )
+
+        assert planned.databases["cdm_db"].schema_name == "planned_schema"
+        assert planned.databases["cdm_db"].connection == "db"
+        assert cfg.databases["cdm_db"].schema_name == "original_schema"
+
+    def test_stored_package_values_carry_over(self):
+        cfg = _validated_stack(
+            {
+                "cdm_db": "cdm_db",
+                "port": 9000,
+                "workers": 1,
+                "max_workers": 4,
+            }
+        )
+
+        planned = plan_configure(ValidatedPackageConfig, cfg, {"workers": 2})
+
+        assert planned.tools["validated_tool"]["port"] == 9000
+        assert planned.tools["validated_tool"]["workers"] == 2
+        assert planned.tools["validated_tool"]["max_workers"] == 4
+
+    def test_validation_failure_leaves_input_unchanged(self):
+        cfg = _validated_stack({"cdm_db": "cdm_db", "port": 8000})
+        before = cfg.model_dump(mode="python")
+
+        with pytest.raises(PackageConfigValidationError):
+            plan_configure(ValidatedPackageConfig, cfg, {"port": 999999})
+
+        assert cfg.model_dump(mode="python") == before
+
+    def test_public_reference_helpers_are_importable(self):
+        assert callable(unresolved_refs)
+        assert callable(mismatched_kind_refs)
 
 
 class DatabaseUserConfig(PackageConfigBase):

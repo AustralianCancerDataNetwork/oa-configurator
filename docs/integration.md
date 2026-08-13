@@ -60,16 +60,20 @@ Invalid candidates leave the existing file unchanged. Values accepted from CLI
 strings are saved from the validated model, so their normalized Python types are
 retained in TOML.
 
-For a candidate assembled by another frontend, validate without file I/O:
+For a candidate assembled by another frontend, plan without file I/O:
 
 ```python
-candidate.tools[MyPackageConfig.tool_name] = proposed_values
-validated = MyPackageConfig.validate_candidate(candidate)
-candidate.tools[MyPackageConfig.tool_name] = validated.to_extra_dict()
+from oa_configurator import plan_configure
+
+candidate = plan_configure(MyPackageConfig, current_config, proposed_values)
 ```
 
-`PackageConfigValidationError.errors()` retains the original pydantic field
-locations for structured presentation.
+The function returns a new complete stack and never mutates `current_config`.
+It can create or update nested `RefTo` targets from nested dictionaries, uses
+stored values for omitted fields, and preserves `current_config.loaded_path` as
+provenance. `PackageConfigValidationError.errors()` retains the original
+pydantic field locations for structured presentation. Persistence is always a
+separate, explicit `save_stack_config(candidate)` operation.
 
 ---
 

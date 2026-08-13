@@ -28,10 +28,16 @@ from .package_base import (
     ConfigurationError,
     PackageConfigBase,
     PackageConfigValidationError,
+    plan_configure,
 )
 from .refs import RefTo, Sensitive
 from .resolver import Resolver, ResolvedToolConfig
-from .stack_config import StackConfig, UnknownRefTarget
+from .stack_config import (
+    StackConfig,
+    UnknownRefTarget,
+    mismatched_kind_refs,
+    unresolved_refs,
+)
 
 __all__ = [
     "CDMDatabaseConfig",
@@ -66,6 +72,9 @@ __all__ = [
     "configure_logging",
     "get_logger",
     "load_stack_config",
+    "mismatched_kind_refs",
+    "plan_configure",
     "save_stack_config",
+    "unresolved_refs",
     "write_env_file",
 ]

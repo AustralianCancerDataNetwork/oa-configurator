@@ -2,6 +2,22 @@
 
 `oa-configurator` works without a TOML file. Two patterns cover the main use cases.
 
+Package configuration can also be planned as a pure in-memory operation:
+
+```python
+from oa_configurator import plan_configure
+
+candidate = plan_configure(
+    MyPackageConfig,
+    current_config,
+    {"cdm_db": "cdm", "backend": "sqlite"},
+)
+```
+
+`plan_configure()` does not load or save a file and does not mutate
+`current_config`. It returns a complete validated `StackConfig`; saving that
+candidate is a separate explicit action.
+
 ---
 
 ## `StackConfig.for_session()`: pure inline construction

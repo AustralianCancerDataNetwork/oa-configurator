@@ -84,7 +84,7 @@ model    = "nomic-embed-text:v1.5"
 
 ### Tool
 
-Per-package configuration in `[tools.<name>]`. The core model stores it as a plain, untyped dict; each consuming package defines a typed `PackageConfigBase` subclass that provides a validated view over it, resolved lazily since packages register via entry points and aren't known to `oa-configurator` itself at parse time.
+Per-package configuration in `[tools.<name>]`. The core model stores it as a plain, untyped dict; each consuming package defines a typed `PackageConfigBase` subclass that provides a validated view over it, resolved lazily since packages register via entry points and aren't known to `oa-configurator` itself at parse time. Every official package configure path constructs that concrete model and validates its `RefTo` fields against the complete candidate before persistence; the untyped root mapping is not treated as sufficient apply-time validation.
 
 ```toml
 [tools.omop_emb]

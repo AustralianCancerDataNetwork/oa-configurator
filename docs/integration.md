@@ -53,6 +53,24 @@ class MyPackageConfig(PackageConfigBase):
 
 `get_config()` is inherited from `PackageConfigBase`: call `MyPackageConfig.get_config()` to load from the active stack config. It delegates to `Resolver.resolve_package_config()`, which reads the `[tools.my_package]` section and validates every `RefTo`-marked field against it. If the section is missing, fields fall back to their defaults.
 
+The configure workflow validates the assembled `[tools.my_package]` values with
+`MyPackageConfig` before saving. This includes scalar and nested constraints,
+cross-field model validators, missing references, and wrong-kind references.
+Invalid candidates leave the existing file unchanged. Values accepted from CLI
+strings are saved from the validated model, so their normalized Python types are
+retained in TOML.
+
+For a candidate assembled by another frontend, validate without file I/O:
+
+```python
+candidate.tools[MyPackageConfig.tool_name] = proposed_values
+validated = MyPackageConfig.validate_candidate(candidate)
+candidate.tools[MyPackageConfig.tool_name] = validated.to_extra_dict()
+```
+
+`PackageConfigValidationError.errors()` retains the original pydantic field
+locations for structured presentation.
+
 ---
 
 ### 3. Register the entry point

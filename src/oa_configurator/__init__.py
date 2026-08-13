@@ -24,7 +24,11 @@ from .logging_config import (
     configure_logging,
     get_logger,
 )
-from .package_base import ConfigurationError, PackageConfigBase
+from .package_base import (
+    ConfigurationError,
+    PackageConfigBase,
+    PackageConfigValidationError,
+)
 from .refs import RefTo, Sensitive
 from .resolver import Resolver, ResolvedToolConfig
 from .stack_config import StackConfig, UnknownRefTarget
@@ -43,6 +47,7 @@ __all__ = [
     "ModelConfig",
     "RedactingFormatter",
     "PackageConfigBase",
+    "PackageConfigValidationError",
     "ProviderConfig",
     "RefTo",
     "Resolver",

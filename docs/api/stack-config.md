@@ -19,3 +19,5 @@ Every reference between sections (a database naming its connection, a model nami
 A `RefTo` names *which section* an entry must live in; it doesn't narrow *which subtype*. `mismatched_kind_refs()` covers the one place that matters today: a `RefTo(GenericDatabaseConfig)` field (e.g. `VectorStoreConfig.database`) pointed at a `CDMDatabaseConfig` entry, or a `RefTo(CDMDatabaseConfig)` field pointed at a `GenericDatabaseConfig` one. Reads as a distinct "wrong kind" error rather than `unresolved_refs()`'s "doesn't exist" one, and runs alongside it at the same three validation sites (`StackConfig.validate_references`, the CLI's entry-reference check, `Resolver.resolve_package_config()`).
 
 ::: oa_configurator.stack_config.mismatched_kind_refs
+
+Application code can import both helpers from the public package surface: `from oa_configurator import mismatched_kind_refs, unresolved_refs`.

@@ -84,7 +84,7 @@ model    = "nomic-embed-text:v1.5"
 
 ### Tool
 
-Per-package configuration in `[tools.<name>]`. The core model stores it as a plain, untyped dict; each consuming package defines a typed `PackageConfigBase` subclass that provides a validated view over it, resolved lazily since packages register via entry points and aren't known to `oa-configurator` itself at parse time.
+Per-package configuration lives in `[tools.<name>]`. `StackConfig` keeps these sections as plain dictionaries because oa-configurator discovers package schemas at runtime, but that does not make them unchecked: before an official configure flow saves a change, it loads the package's `PackageConfigBase` subclass and validates both the section and its `RefTo` fields against the proposed stack.
 
 ```toml
 [tools.omop_emb]
@@ -161,7 +161,9 @@ Consuming packages subclass `PackageConfigBase` and register via a `pyproject.to
 my_package = "my_package.config:MyPackageConfig"
 ```
 
-`omop-config configure my_package` discovers the class at runtime via `importlib.metadata.entry_points(group="omop.config")`, presents the typed fields for interactive configuration, and writes the result to `[tools.my_package]`. `oa-configurator` itself has no knowledge of any consuming package.
+`omop-config configure my_package` discovers the class at runtime via `importlib.metadata.entry_points(group="omop.config")`, uses its typed fields to guide the user, and saves the validated result to `[tools.my_package]`. This lets oa-configurator support package-specific configuration without building knowledge of each consuming package into the core library.
+
+An application with its own configuration UI uses `plan_configure()` to get the same package-aware behaviour without file I/O. It receives a new complete `StackConfig`, can present that proposal for review, and decides whether to pass it to `save_stack_config()`. Frontends therefore do not need to reproduce package schemas or `RefTo` traversal.
 
 ---
 
@@ -188,6 +190,8 @@ chmod 600 ~/.config/omop/config.toml
 `ResolvedConnection.safe_url` and `ResolvedConnection.url` are distinct: `safe_url` has the password replaced with `***` and is used for all logging and display. The `.url` value (with plaintext password) is used only for engine creation and never logged by the library.
 
 `RedactingFormatter` (applied by all non-library log presets) scrubs both `key=value` patterns and `://user:password@host` URL patterns from log output.
+
+`save_stack_config()` validates and serializes before changing the destination, protects candidate and backup files before writing credentials, and verifies the result after an atomic replacement. See [Saving configuration safely](api/persistence.md) for recovery behaviour. Atomic replacement protects file integrity but does not coordinate concurrent writers, which remain last-writer-wins in this release.
 
 **Future work**: `secret_source` support (`env:VAR`, `file:path`, Vault, cloud secret managers) is planned but not implemented in this version.
 

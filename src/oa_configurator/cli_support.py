@@ -11,12 +11,37 @@ consumer that never touches the CLI doesn't pay to load them.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from pydantic import BaseModel
 
 from .stack_config import StackConfig, mismatched_kind_refs, unresolved_refs
 from .resolver import _check_missing_required, _flag_name, _is_flag_settable, _resolve_named_entry
+
+
+def _save_stack_config_or_exit(
+    config: StackConfig,
+    *,
+    save: Callable[[StackConfig], object] | None = None,
+) -> None:
+    """Save for a CLI flow, rendering filesystem failures without a traceback."""
+    import typer
+    from rich.console import Console
+    from rich.markup import escape
+
+    if save is None:
+        from .io import save_stack_config
+
+        save = save_stack_config
+
+    try:
+        save(config)
+    except OSError as exc:
+        Console(stderr=True).print(
+            f"[red bold]Could not save configuration:[/red bold] {escape(str(exc))}"
+        )
+        raise typer.Exit(1) from None
 
 
 def _build_entry_params(target: type[BaseModel]) -> list[Any]:
@@ -76,7 +101,6 @@ def _add_entry(target: type[BaseModel], section: str, name: str, flags: dict[str
     import typer
     from rich.console import Console
 
-    from .io import save_stack_config
     from .loader import CONFIG_PATH, load_stack_config
 
     console = Console()
@@ -113,7 +137,7 @@ def _add_entry(target: type[BaseModel], section: str, name: str, flags: dict[str
         raise typer.Exit(1)
 
     section_dict[name] = entry
-    save_stack_config(config)
+    _save_stack_config_or_exit(config)
     console.print(f"[green]✓[/green] Saved \\[{section}.{name}] to [dim]{CONFIG_PATH}[/dim]")
 
 

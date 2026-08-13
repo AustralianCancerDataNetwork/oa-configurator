@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import errno
 import logging
 import os
+import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 import tomli_w
 
@@ -15,6 +17,18 @@ from .stack_config import StackConfig
 
 logger = logging.getLogger(__name__)
 FLAT_ENV_PATH = CONFIG_PATH.with_suffix(".env")
+
+
+class ConfigSaveError(OSError):
+    """Raised when a config replacement or its recovery cannot complete."""
+
+
+_UNSUPPORTED_DIRECTORY_FSYNC_ERRNOS = {
+    errno.EBADF,
+    errno.EINVAL,
+    getattr(errno, "ENOTSUP", errno.EINVAL),
+    getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+}
 
 
 def write_env_file(resolver: Resolver, path: Path = FLAT_ENV_PATH) -> Path:
@@ -83,34 +97,224 @@ def write_env_file(resolver: Resolver, path: Path = FLAT_ENV_PATH) -> Path:
 
 
 def save_stack_config(config: StackConfig, path: Path = CONFIG_PATH) -> Path:
-    """Serialize a :class:`~oa_configurator.stack_config.StackConfig` back to TOML.
+    """Validate and atomically replace a stack TOML file.
 
     Does NOT preserve comments or original formatting. The ``logging`` section
     is omitted when it equals the default (no custom logging configured).
-    Written with ``0600`` permissions, since it may contain plaintext
-    passwords.
+    Candidate and backup files have ``0600`` permissions before any secret
+    bytes are written.
+
+    If *path* already exists, its last complete contents are first installed at
+    ``<path>.bak`` through another atomic replacement. After the destination
+    swap, the file is reloaded and compared with the validated candidate. A
+    failed durability sync or reload verification restores the previous file;
+    a failed first save removes the new destination. The backup and destination
+    are separate atomic replacements, not one multi-file transaction.
+
+    This function does not lock out concurrent writers. Callers that need
+    compare-and-swap semantics must provide external coordination.
 
     TODO: adopt ``tomlkit`` for round-trip serialisation that preserves comments
     and original ordering.
     """
-    from .logging_config import LoggingConfig
-
     path = _normalize_path(path)
-    payload = _drop_none_and_empty(config.model_dump(mode="python"))
-    if config.logging == LoggingConfig():
-        payload.pop("logging", None)
+    persisted, serialized = _serialize_stack_config(config)
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(tomli_w.dumps(payload), encoding="utf-8")
-    os.chmod(path, 0o600)
-    invalidate_cache()
+    candidate_temp: Path | None = _write_secure_temp(path, serialized)
+    backup_path = path.with_name(f"{path.name}.bak")
+    backup_temp: Path | None = None
+    previous_exists = path.exists()
+    destination_replaced = False
+
+    try:
+        if previous_exists:
+            backup_temp = _copy_secure_temp(path, backup_path)
+            os.replace(backup_temp, backup_path)
+            backup_temp = None
+            _fsync_directory(path.parent)
+
+        os.replace(candidate_temp, path)
+        candidate_temp = None
+        destination_replaced = True
+        _fsync_directory(path.parent)
+
+        # A cache entry is valid until, and only until, the destination swap
+        # succeeds. Verification must parse the bytes that were just installed.
+        invalidate_cache()
+        _verify_saved_config(path, persisted)
+        # Verification uses the normal loader, which fills the cache. Leave
+        # the cache empty so save retains its established invalidation contract.
+        invalidate_cache()
+    except Exception as save_error:
+        if destination_replaced:
+            try:
+                _restore_previous(path, backup_path, previous_exists=previous_exists)
+                invalidate_cache()
+            except Exception as rollback_error:
+                raise ConfigSaveError(
+                    f"Failed to save {path}: {save_error}; "
+                    f"recovery also failed: {rollback_error}"
+                ) from save_error
+            recovery = (
+                "the previous state was restored"
+                if previous_exists
+                else "the new destination was removed"
+            )
+            raise ConfigSaveError(f"Failed to save {path}; {recovery}") from save_error
+        raise
+    finally:
+        _remove_temp(candidate_temp)
+        _remove_temp(backup_temp)
+
     return path
+
+
+def _serialize_stack_config(config: StackConfig) -> tuple[StackConfig, bytes]:
+    """Return the persisted model and complete TOML bytes without file I/O."""
+    from .logging_config import LoggingConfig
+
+    validated = StackConfig.model_validate(config.model_dump(mode="python"))
+    payload = _drop_none_and_empty(validated.model_dump(mode="python"))
+    if validated.logging == LoggingConfig():
+        payload.pop("logging", None)
+    persisted = StackConfig.model_validate(payload)
+    return persisted, tomli_w.dumps(payload).encode("utf-8")
+
+
+def _open_secure_temp(target: Path) -> tuple[int, Path]:
+    """Create a mode-0600 temporary file beside *target*."""
+    fd, raw_path = tempfile.mkstemp(
+        dir=target.parent,
+        prefix=f".{target.name}.",
+        suffix=".tmp",
+    )
+    try:
+        os.fchmod(fd, 0o600)
+    except BaseException:
+        os.close(fd)
+        Path(raw_path).unlink(missing_ok=True)
+        raise
+    return fd, Path(raw_path)
+
+
+def _write_and_sync(stream: BinaryIO, data: bytes) -> None:
+    """Write all *data* to *stream* and make the file contents durable."""
+    written = stream.write(data)
+    if written != len(data):
+        raise OSError(
+            errno.EIO, f"short write: expected {len(data)} bytes, wrote {written}"
+        )
+    stream.flush()
+    os.fsync(stream.fileno())
+
+
+def _write_secure_temp(target: Path, data: bytes) -> Path:
+    """Write and sync complete bytes to a restrictive sibling temp file."""
+    fd, temp_path = _open_secure_temp(target)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            _write_and_sync(stream, data)
+    except BaseException:
+        _close_fd(fd)
+        temp_path.unlink(missing_ok=True)
+        raise
+    return temp_path
+
+
+def _copy_secure_temp(source: Path, target: Path) -> Path:
+    """Copy *source* into a restrictive, synced sibling temp for *target*."""
+    fd, temp_path = _open_secure_temp(target)
+    try:
+        with source.open("rb") as source_stream, os.fdopen(fd, "wb") as target_stream:
+            while chunk := source_stream.read(1024 * 1024):
+                _write_chunk(target_stream, chunk)
+            target_stream.flush()
+            os.fsync(target_stream.fileno())
+    except BaseException:
+        _close_fd(fd)
+        temp_path.unlink(missing_ok=True)
+        raise
+    return temp_path
+
+
+def _write_chunk(stream: BinaryIO, chunk: bytes) -> None:
+    """Write one complete copy chunk or fail on a short write."""
+    written = stream.write(chunk)
+    if written != len(chunk):
+        raise OSError(
+            errno.EIO, f"short write: expected {len(chunk)} bytes, wrote {written}"
+        )
+
+
+def _fsync_directory(directory: Path) -> None:
+    """Synchronize directory entries when the platform supports it."""
+    if os.name == "nt":
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    try:
+        fd = os.open(directory, flags)
+    except OSError as exc:
+        if exc.errno in _UNSUPPORTED_DIRECTORY_FSYNC_ERRNOS:
+            return
+        raise
+    try:
+        os.fsync(fd)
+    except OSError as exc:
+        if exc.errno not in _UNSUPPORTED_DIRECTORY_FSYNC_ERRNOS:
+            raise
+    finally:
+        os.close(fd)
+
+
+def _verify_saved_config(path: Path, expected: StackConfig) -> None:
+    """Reload *path* and require the complete model to match *expected*."""
+    from .loader import _load_from_path
+
+    actual = _load_from_path(path)
+    if actual.model_dump(mode="python") != expected.model_dump(mode="python"):
+        raise ConfigSaveError(
+            f"Reload verification produced a different config for {path}"
+        )
+
+
+def _restore_previous(path: Path, backup_path: Path, *, previous_exists: bool) -> None:
+    """Restore the pre-save authoritative state after a post-swap failure."""
+    if previous_exists:
+        restore_temp = _copy_secure_temp(backup_path, path)
+        try:
+            os.replace(restore_temp, path)
+        finally:
+            restore_temp.unlink(missing_ok=True)
+    else:
+        path.unlink(missing_ok=True)
+    _fsync_directory(path.parent)
+
+
+def _remove_temp(path: Path | None) -> None:
+    """Remove a still-owned temporary path without masking the primary error."""
+    if path is None:
+        return
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        logger.warning("Could not remove temporary config file %s", path, exc_info=True)
+
+
+def _close_fd(fd: int) -> None:
+    """Best-effort close for an fd that may already belong to a closed stream."""
+    try:
+        os.close(fd)
+    except OSError:
+        pass
 
 
 def _drop_none_and_empty(value: Any) -> Any:
     """Recursively strip None values and empty dicts from a model_dump result."""
     if isinstance(value, dict):
-        cleaned = {k: _drop_none_and_empty(v) for k, v in value.items() if v is not None}
+        cleaned = {
+            k: _drop_none_and_empty(v) for k, v in value.items() if v is not None
+        }
         return {k: v for k, v in cleaned.items() if v != {}}
     if isinstance(value, list):
         return [_drop_none_and_empty(v) for v in value]

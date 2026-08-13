@@ -35,10 +35,11 @@ In ``pyproject.toml``::
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, ClassVar, Self
 
-from pydantic import BaseModel
-from pydantic_core import PydanticUndefined
+from pydantic import BaseModel, ValidationError
+from pydantic_core import ErrorDetails, PydanticUndefined
 
 if TYPE_CHECKING:
     from .stack_config import StackConfig
@@ -46,6 +47,35 @@ if TYPE_CHECKING:
 
 class ConfigurationError(ValueError):
     """Raised when a required database or connection is missing from the stack config."""
+
+
+class PackageConfigValidationError(ConfigurationError):
+    """A package section failed its concrete pydantic schema.
+
+    :meth:`errors` exposes sanitized pydantic details so field locations,
+    including the empty location used by model-level validators, are preserved
+    without retaining rejected input or validator context.
+    """
+
+    def __init__(self, tool_name: str, validation_error: ValidationError) -> None:
+        self.tool_name = tool_name
+        self._errors = tuple(
+            validation_error.errors(
+                include_url=False,
+                include_context=False,
+                include_input=False,
+            )
+        )
+        problems = []
+        for error in self.errors():
+            location = ".".join(str(part) for part in error["loc"])
+            prefix = f"{location}: " if location else ""
+            problems.append(f"{prefix}{error['msg']}")
+        super().__init__(f"Invalid [tools.{tool_name}]: " + "; ".join(problems))
+
+    def errors(self) -> list[ErrorDetails]:
+        """Return locations and messages without rejected input or context."""
+        return list(self._errors)
 
 
 class PackageConfigBase(BaseModel):
@@ -81,12 +111,16 @@ class PackageConfigBase(BaseModel):
     def get_config(cls) -> Self:
         """Load this package's config from the active stack config file."""
         from .resolver import Resolver
+
         return Resolver.from_active_config().resolve_package_config(cls)
 
     @classmethod
-    def configure_logging(cls, config=None, *, verbosity: int = 0, console=None) -> None:
+    def configure_logging(
+        cls, config=None, *, verbosity: int = 0, console=None
+    ) -> None:
         """Configure logging for this package and its declared transitive dependencies."""
         from .logging_config import configure_logging as _configure_logging
+
         _configure_logging(
             config,
             verbosity=verbosity,
@@ -107,6 +141,7 @@ class PackageConfigBase(BaseModel):
             Forwarded to :meth:`~oa_configurator.resolver.ResolvedDatabase.create_engine`.
         """
         from .resolver import Resolver
+
         return Resolver.from_active_config().resolve_engine(database, **engine_kwargs)
 
     def to_extra_dict(self) -> dict[str, Any]:
@@ -114,7 +149,33 @@ class PackageConfigBase(BaseModel):
         return self.model_dump(exclude_none=True)
 
     @classmethod
-    def resolve_fields(cls, config: StackConfig, *, set_dict: dict[str, Any], interactive: bool) -> dict[str, Any]:
+    def validate_candidate(cls, config: StackConfig) -> Self:
+        """Validate this package's section and references in *config*.
+
+        This is the package-aware apply boundary for the otherwise untyped
+        ``StackConfig.tools`` mapping. Field and model-validator failures raise
+        :class:`PackageConfigValidationError`; reference failures raise
+        :class:`ConfigurationError`. Neither path performs file I/O.
+        """
+        from .resolver import Resolver
+
+        error: PackageConfigValidationError | None = None
+        try:
+            return Resolver(config).resolve_package_config(cls)
+        except ValidationError as exc:
+            error = PackageConfigValidationError(cls.tool_name, exc)
+        assert error is not None
+        raise error from None
+
+    @classmethod
+    def resolve_fields(
+        cls,
+        config: StackConfig,
+        *,
+        set_dict: dict[str, Any],
+        interactive: bool,
+        headless: bool = False,
+    ) -> dict[str, Any]:
         """Resolve this package's own fields: flag (``--set`` or the field's
         own auto-generated flag), then stored, then an interactive prompt
         (seeded with the stored value as its default when one exists),
@@ -142,6 +203,9 @@ class PackageConfigBase(BaseModel):
             Non-interactively, fields covered by neither are simply omitted
             (they fall back to the field's own pydantic default when the
             config class is loaded).
+        headless : bool
+            Raise library exceptions without printing CLI-oriented errors.
+            Intended for :func:`plan_configure`; ignored by interactive paths.
 
         Returns
         -------
@@ -150,9 +214,10 @@ class PackageConfigBase(BaseModel):
 
         Raises
         ------
+        ConfigurationError
+            If headless non-interactive resolution fails.
         typer.Exit
-            If a nested ``--set`` creation (see above) is missing a
-            required field of the target it's creating, non-interactively.
+            If CLI-oriented non-interactive resolution fails.
         """
         import typer
         from rich.console import Console
@@ -184,8 +249,15 @@ class PackageConfigBase(BaseModel):
             if isinstance(raw_set, dict) and nested is not None:
                 is_test = nested.is_test
                 resolved_name = _resolve_nested_flag_value(
-                    field_name, info, nested, raw_set, config,
-                    name_hint=field_name, is_test=is_test, missing_required=missing_required,
+                    field_name,
+                    info,
+                    nested,
+                    raw_set,
+                    config,
+                    name_hint=field_name,
+                    is_test=is_test,
+                    missing_required=missing_required,
+                    headless=headless,
                 )
                 if resolved_name is not None:
                     extra[field_name] = resolved_name
@@ -206,15 +278,27 @@ class PackageConfigBase(BaseModel):
                         )
                     else:
                         desc = info.description or ""
-                        console.print(f"\n[dim]─── {field_name} (optional){f': {desc}' if desc else ''} ───[/dim]")
+                        console.print(
+                            f"\n[dim]─── {field_name} (optional){f': {desc}' if desc else ''} ───[/dim]"
+                        )
                     if not typer.confirm(f"Configure {field_name}?", default=False):
                         continue
-                default_name = stored if stored is not None else (
-                    str(info.default) if info.default not in (None, PydanticUndefined) else field_name
+                default_name = (
+                    stored
+                    if stored is not None
+                    else (
+                        str(info.default)
+                        if info.default not in (None, PydanticUndefined)
+                        else field_name
+                    )
                 )
                 resolved = _resolve_ref(
-                    field_name, info.description or "", nested.target, config,
-                    default_name=default_name, is_test=is_test,
+                    field_name,
+                    info.description or "",
+                    nested.target,
+                    config,
+                    default_name=default_name,
+                    is_test=is_test,
                 )
                 if resolved:
                     extra[field_name] = resolved
@@ -225,23 +309,40 @@ class PackageConfigBase(BaseModel):
                 if stored is not None:
                     extra[field_name] = stored
             elif info.annotation is bool:
-                default_bool = bool(stored) if stored is not None else (
-                    bool(info.default) if info.default not in (None, PydanticUndefined) else False
+                default_bool = (
+                    bool(stored)
+                    if stored is not None
+                    else (
+                        bool(info.default)
+                        if info.default not in (None, PydanticUndefined)
+                        else False
+                    )
                 )
-                extra[field_name] = typer.confirm(info.description or field_name, default=default_bool)
+                extra[field_name] = typer.confirm(
+                    info.description or field_name, default=default_bool
+                )
             else:
                 desc = info.description or ""
                 label = f"{field_name}" + (f"  ({desc})" if desc else "")
-                default_value = stored if stored is not None else (
-                    str(info.default)
-                    if info.default not in (None, PydanticUndefined)
-                    else ""
+                default_value = (
+                    stored
+                    if stored is not None
+                    else (
+                        str(info.default)
+                        if info.default not in (None, PydanticUndefined)
+                        else ""
+                    )
                 )
                 raw = typer.prompt(label, default=default_value)
                 if raw and raw != "None":
                     extra[field_name] = raw
 
-        _check_missing_required(f"tool {cls.tool_name!r}", missing_required, non_interactive=not interactive)
+        _check_missing_required(
+            f"tool {cls.tool_name!r}",
+            missing_required,
+            non_interactive=not interactive,
+            headless=headless,
+        )
         return extra
 
     @classmethod
@@ -252,7 +353,7 @@ class PackageConfigBase(BaseModel):
         """
         from rich.console import Console
 
-        from .io import save_stack_config
+        from .cli_support import _save_stack_config_or_exit
         from .loader import CONFIG_PATH, load_stack_config
         from .stack_config import StackConfig
 
@@ -271,5 +372,62 @@ class PackageConfigBase(BaseModel):
         extra = cls.resolve_fields(config, set_dict=set_dict, interactive=interactive)
 
         config.tools[tool_name] = extra
-        save_stack_config(config)
-        console.print(f"\n[green]✓[/green] Saved \\[tools.{tool_name}] to [dim]{CONFIG_PATH}[/dim]")
+        try:
+            validated = cls.validate_candidate(config)
+        except ConfigurationError as exc:
+            import typer
+            from rich.markup import escape
+
+            Console(stderr=True).print(
+                f"[red bold]Configuration rejected:[/red bold] {escape(str(exc))}"
+            )
+            raise typer.Exit(1) from exc
+
+        # Save pydantic-normalized values, not raw CLI strings.
+        config.tools[tool_name] = validated.to_extra_dict()
+        _save_stack_config_or_exit(config)
+        console.print(
+            f"\n[green]✓[/green] Saved \\[tools.{tool_name}] to [dim]{CONFIG_PATH}[/dim]"
+        )
+
+
+def plan_configure(
+    package_config: type[PackageConfigBase],
+    config: StackConfig,
+    set_dict: Mapping[str, object],
+) -> StackConfig:
+    """Return a complete validated package candidate without file I/O.
+
+    The input stack is deep-copied before field resolution, including nested
+    ``RefTo`` creation or updates. The returned stack contains pydantic-
+    normalized package values and preserves the input's ``loaded_path`` as
+    provenance. The caller's stack remains unchanged on success and failure.
+    """
+    import typer
+
+    from .stack_config import StackConfig
+
+    candidate = config.model_copy(deep=True)
+    try:
+        values = package_config.resolve_fields(
+            candidate,
+            set_dict=dict(set_dict),
+            interactive=False,
+            headless=True,
+        )
+    except typer.Exit as exc:
+        # Keep this public headless boundary free of CLI control-flow errors,
+        # including any future resolver path that accidentally raises one.
+        raise ConfigurationError(
+            f"Could not plan [tools.{package_config.tool_name}]"
+        ) from exc
+    candidate.tools[package_config.tool_name] = values
+    validated = package_config.validate_candidate(candidate)
+    candidate.tools[package_config.tool_name] = validated.to_extra_dict()
+
+    # Reconstruct the full root after nested resolution so all core section
+    # references are checked too, without carrying any accidental shared state.
+    planned = StackConfig.model_validate(candidate.model_dump(mode="python"))
+    if config.loaded_path is not None:
+        planned.bind_loaded_path(config.loaded_path)
+    return planned

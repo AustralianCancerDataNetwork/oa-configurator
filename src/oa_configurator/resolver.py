@@ -11,7 +11,12 @@ from pydantic import BaseModel, ValidationError
 from pydantic_core import PydanticUndefined
 from sqlalchemy.engine import Engine
 
-from .domains.llm.schema import ModelConfig, ProviderConfig, ResolvedModel, ResolvedProvider
+from .domains.llm.schema import (
+    ModelConfig,
+    ProviderConfig,
+    ResolvedModel,
+    ResolvedProvider,
+)
 from .domains.resources.schema import (
     ConnectionConfig,
     DatabaseConfig,
@@ -20,7 +25,12 @@ from .domains.resources.schema import (
     ResolvedDatabase,
 )
 from .domains.vector_stores.schema import ResolvedVectorStore, VectorStoreConfig
-from .stack_config import StackConfig, _ref_section, mismatched_kind_refs, unresolved_refs
+from .stack_config import (
+    StackConfig,
+    _ref_section,
+    mismatched_kind_refs,
+    unresolved_refs,
+)
 from .package_base import ConfigurationError, PackageConfigBase
 from .refs import RefTo, _iter_refs, is_sensitive
 
@@ -37,7 +47,9 @@ class ResolvedToolConfig:
     extra: dict[str, Any]
 
     def __repr__(self) -> str:
-        return f"ResolvedToolConfig(name={self.name!r}, extra_keys={sorted(self.extra)!r})"
+        return (
+            f"ResolvedToolConfig(name={self.name!r}, extra_keys={sorted(self.extra)!r})"
+        )
 
 
 # ------------------
@@ -51,6 +63,7 @@ class ResolvedToolConfig:
 # a consumer that only ever calls resolve_database()/get_engine() doesn't
 # pay to load them.
 # ------------------
+
 
 def _nested_ref(info: Any) -> RefTo | None:
     """Return the RefTo marker on a FieldInfo, if it has one."""
@@ -105,6 +118,7 @@ def _check_missing_required(
     missing_required: list[str],
     *,
     non_interactive: bool,
+    headless: bool = False,
 ) -> None:
     """Abort with a clear error, naming exact CLI flags, if fields are missing.
 
@@ -115,13 +129,17 @@ def _check_missing_required(
     """
     if not non_interactive or not missing_required:
         return
+    if headless:
+        fields = ", ".join(missing_required)
+        raise ConfigurationError(
+            f"Missing required field(s) for {display_name}: {fields}"
+        )
     import typer
     from rich.console import Console
 
     err_console = Console(stderr=True)
     hints = ", ".join(
-        f"--set {k}=<value>" if "." in k else _flag_name(k)
-        for k in missing_required
+        f"--set {k}=<value>" if "." in k else _flag_name(k) for k in missing_required
     )
     err_console.print(
         f"\n[red bold]Missing required field(s) for {display_name!r}:[/red bold] {hints}\n"
@@ -132,7 +150,7 @@ def _check_missing_required(
 
 def _is_test_marked(name: str, target: type[BaseModel], config: StackConfig) -> bool:
     """Whether an existing entry is marked test-only, checked recursively
-    through its primary RefTo field. Walks the entry's own runtime type, 
+    through its primary RefTo field. Walks the entry's own runtime type,
     not the caller-supplied target.
 
     Notes
@@ -179,7 +197,9 @@ def _resolve_ref(
 
     section = _ref_section(target, field_name=field_name)
     section_dict: dict[str, Any] = getattr(config, section)
-    candidates = sorted(n for n in section_dict if _is_test_marked(n, target, config) == is_test)
+    candidates = sorted(
+        n for n in section_dict if _is_test_marked(n, target, config) == is_test
+    )
 
     console.print(f"\n[bold]{escape(field_name)}[/bold]")
     if description:
@@ -188,18 +208,29 @@ def _resolve_ref(
     if candidates:
         console.print(f"  Configured {section}: {', '.join(candidates)}")
         suggested = default_name if default_name in candidates else candidates[0]
-        choice = typer.prompt("  Point to an existing entry, or 'new' to create one", default=suggested)
+        choice = typer.prompt(
+            "  Point to an existing entry, or 'new' to create one", default=suggested
+        )
         if choice != "new" and choice in candidates:
             return choice
-        name = typer.prompt(f"  New {section[:-1]} name", default=default_name) if choice == "new" else choice
+        name = (
+            typer.prompt(f"  New {section[:-1]} name", default=default_name)
+            if choice == "new"
+            else choice
+        )
     else:
         console.print(f"  No {section} configured yet.")
         name = typer.prompt(f"  New {section[:-1]} name", default=default_name)
 
     if name not in section_dict:
         section_dict[name] = _resolve_named_entry(
-            target, config, flags=None, existing=None, missing_required=[],
-            name_hint=name, is_test=is_test,
+            target,
+            config,
+            flags=None,
+            existing=None,
+            missing_required=[],
+            name_hint=name,
+            is_test=is_test,
         )
     elif is_test != _is_test_marked(name, target, config):
         if is_test:
@@ -225,12 +256,18 @@ def _find_production_collision(
     for conn_name, conn in config.connections.items():
         if conn.test_only:
             continue
-        if conn.host == host and conn.database_name == database_name and conn.port == port:
+        if (
+            conn.host == host
+            and conn.database_name == database_name
+            and conn.port == port
+        ):
             return conn_name
     return None
 
 
-def _abort_on_invalid_entry(target: type[BaseModel], exc: ValidationError) -> NoReturn:
+def _abort_on_invalid_entry(
+    target: type[BaseModel], exc: ValidationError, *, headless: bool = False
+) -> NoReturn:
     """Abort with a clear error when a schema rejects the assembled entry.
 
     Constructing the entry is the last thing :func:`_resolve_named_entry`
@@ -242,16 +279,28 @@ def _abort_on_invalid_entry(target: type[BaseModel], exc: ValidationError) -> No
     not at someone fixing a config entry. Each error becomes one line
     naming the flag to change instead.
     """
-    import typer
-    from rich.console import Console
-
-    problems = []
+    field_problems: list[tuple[str, str]] = []
     for error in exc.errors():
         # A model_validator(mode="after") has no loc: the complaint is about
         # the combination of fields, so there's no single flag to point at.
         location = ".".join(str(part) for part in error["loc"])
         message = error["msg"].removeprefix("Value error, ")
-        problems.append(f"  {_flag_name(location)}: {message}" if location else f"  {message}")
+        field_problems.append((location, message))
+
+    if headless:
+        problems = "; ".join(
+            f"{location}: {message}" if location else message
+            for location, message in field_problems
+        )
+        raise ConfigurationError(f"Invalid {target.__name__}: {problems}") from None
+
+    import typer
+    from rich.console import Console
+
+    problems = [
+        f"  {_flag_name(location)}: {message}" if location else f"  {message}"
+        for location, message in field_problems
+    ]
 
     Console(stderr=True).print(
         f"[red bold]Invalid {target.__name__}:[/red bold]\n" + "\n".join(problems)
@@ -259,18 +308,28 @@ def _abort_on_invalid_entry(target: type[BaseModel], exc: ValidationError) -> No
     raise typer.Exit(1)
 
 
-def _check_test_collision(new_conn: ConnectionConfig, config: StackConfig) -> None:
+def _check_test_collision(
+    new_conn: ConnectionConfig, config: StackConfig, *, headless: bool = False
+) -> None:
     """Abort if a new test-only connection's details match a real, non-test one.
 
     Test databases run DROP SCHEMA CASCADE; pointing one at production data
     by mistake (e.g. copy-pasted host/database name) would destroy it.
     """
-    import typer
-    from rich.console import Console
-
-    err_console = Console(stderr=True)
-    match = _find_production_collision(new_conn.host, new_conn.database_name, new_conn.port, config)
+    match = _find_production_collision(
+        new_conn.host, new_conn.database_name, new_conn.port, config
+    )
     if match is not None:
+        if headless:
+            raise ConfigurationError(
+                "Test-only connection details match non-test connection "
+                f"{match!r}; use a different host or database name"
+            )
+
+        import typer
+        from rich.console import Console
+
+        err_console = Console(stderr=True)
         err_console.print(
             f"\n[red bold]DANGER[/red bold]: these connection details match the"
             f" non-test connection [bold]{match!r}[/bold] (same host, database name, and port).\n"
@@ -290,6 +349,7 @@ def _resolve_nested_flag_value(
     name_hint: str | None,
     is_test: bool,
     missing_required: list[str],
+    headless: bool = False,
 ) -> str | None:
     """Resolve a RefTo field's nested ``--set field.subfield=value`` dict
     into a saved entry, returning the name it was saved under.
@@ -312,14 +372,24 @@ def _resolve_nested_flag_value(
     non-interactive call in a single error, at any nesting depth.
     """
     has_default = info.default not in (None, PydanticUndefined)
-    section_dict: dict[str, Any] = getattr(config, _ref_section(nested.target, field_name=field_name))
+    section_dict: dict[str, Any] = getattr(
+        config, _ref_section(nested.target, field_name=field_name)
+    )
     sub_flags = dict(raw)
-    name = sub_flags.pop("name", None) or (str(info.default) if has_default else (name_hint or field_name))
+    name = sub_flags.pop("name", None) or (
+        str(info.default) if has_default else (name_hint or field_name)
+    )
 
     nested_missing: list[str] = []
     nested_entry = _resolve_named_entry(
-        nested.target, config, flags=sub_flags, existing=section_dict.get(name),
-        missing_required=nested_missing, name_hint=name, is_test=is_test,
+        nested.target,
+        config,
+        flags=sub_flags,
+        existing=section_dict.get(name),
+        missing_required=nested_missing,
+        name_hint=name,
+        is_test=is_test,
+        headless=headless,
     )
     if nested_missing:
         missing_required.extend(f"{field_name}.{m}" for m in nested_missing)
@@ -337,6 +407,7 @@ def _resolve_named_entry(
     missing_required: list[str],
     name_hint: str | None = None,
     is_test: bool = False,
+    headless: bool = False,
 ) -> BaseModel | None:
     """Resolve one entry of *target*: flag, then stored value, then an
     interactive prompt, recursing into any RefTo field via
@@ -365,7 +436,10 @@ def _resolve_named_entry(
             # an existing value on update. A single-member Literal (e.g.
             # `kind`) never does, as it's a fixed per-class constant, and
             # carrying it over could be invalid for a different target class.
-            is_fixed_literal = get_origin(info.annotation) is Literal and len(get_args(info.annotation)) == 1
+            is_fixed_literal = (
+                get_origin(info.annotation) is Literal
+                and len(get_args(info.annotation)) == 1
+            )
             if stored is not None and not is_fixed_literal:
                 values[field_name] = stored
             continue
@@ -377,8 +451,15 @@ def _resolve_named_entry(
 
         if isinstance(raw, dict) and nested is not None:
             resolved_name = _resolve_nested_flag_value(
-                field_name, info, nested, raw, config,
-                name_hint=name_hint, is_test=is_test, missing_required=missing_required,
+                field_name,
+                info,
+                nested,
+                raw,
+                config,
+                name_hint=name_hint,
+                is_test=is_test,
+                missing_required=missing_required,
+                headless=headless,
             )
             if resolved_name is not None:
                 values[field_name] = resolved_name
@@ -386,7 +467,12 @@ def _resolve_named_entry(
 
         if raw is not None:
             if is_bool:
-                values[field_name] = str(raw).strip().lower() in ("1", "true", "yes", "on")
+                values[field_name] = str(raw).strip().lower() in (
+                    "1",
+                    "true",
+                    "yes",
+                    "on",
+                )
             else:
                 values[field_name] = raw if info.is_required() else (raw or None)
             continue
@@ -407,7 +493,9 @@ def _resolve_named_entry(
             else:
                 values[field_name] = typer.confirm(
                     info.description or field_name,
-                    default=bool(stored) if stored is not None else (bool(info.default) if has_default else False),
+                    default=bool(stored)
+                    if stored is not None
+                    else (bool(info.default) if has_default else False),
                 )
             continue
 
@@ -424,10 +512,18 @@ def _resolve_named_entry(
                 else:
                     values[field_name] = info.default
             else:
-                default_name = stored if stored is not None else (str(info.default) if has_default else (name_hint or ""))
+                default_name = (
+                    stored
+                    if stored is not None
+                    else (str(info.default) if has_default else (name_hint or ""))
+                )
                 values[field_name] = _resolve_ref(
-                    field_name, info.description or "", nested.target, config,
-                    default_name=default_name, is_test=is_test,
+                    field_name,
+                    info.description or "",
+                    nested.target,
+                    config,
+                    default_name=default_name,
+                    is_test=is_test,
                 )
             continue
 
@@ -442,14 +538,29 @@ def _resolve_named_entry(
             # let pydantic apply its own default.
             continue
 
-        default_value = str(stored) if stored is not None else (str(info.default) if has_default else "")
-        raw_input = typer.prompt(info.description or field_name, default=default_value, hide_input=is_sensitive(info))
+        default_value = (
+            str(stored)
+            if stored is not None
+            else (str(info.default) if has_default else "")
+        )
+        raw_input = typer.prompt(
+            info.description or field_name,
+            default=default_value,
+            hide_input=is_sensitive(info),
+        )
         values[field_name] = raw_input if info.is_required() else (raw_input or None)
 
     if non_interactive:
         unknown = set(flags) - set(target.model_fields)
         if unknown:
+            if headless:
+                names = ", ".join(sorted(unknown))
+                valid = ", ".join(target.model_fields)
+                raise ConfigurationError(
+                    f"{target.__name__} has no field(s): {names}. Valid fields: {valid}"
+                )
             from rich.console import Console
+
             Console(stderr=True).print(
                 f"[red bold]{target.__name__} has no field(s):[/red bold] {', '.join(sorted(unknown))}\n"
                 f"Valid fields: {', '.join(target.model_fields)}"
@@ -461,11 +572,11 @@ def _resolve_named_entry(
     try:
         entry = target(**values)
     except ValidationError as exc:
-        _abort_on_invalid_entry(target, exc)
+        _abort_on_invalid_entry(target, exc, headless=headless)
     if is_test and isinstance(entry, ConnectionConfig):
         entry.test_only = True
     if isinstance(entry, ConnectionConfig) and entry.test_only:
-        _check_test_collision(entry, config)
+        _check_test_collision(entry, config, headless=headless)
     return entry
 
 
@@ -521,7 +632,7 @@ class Resolver:
         Returns
         -------
         ResolvedDatabase
-            Fully resolved database. Returns a :class:`ResolvedCDMDatabase` for a 
+            Fully resolved database. Returns a :class:`ResolvedCDMDatabase` for a
             ``kind="cdm"`` entry, or a plain :class:`ResolvedDatabase` for ``kind="generic"``.
 
         Raises
@@ -561,7 +672,10 @@ class Resolver:
         """
         resolved = self.get_model(name).resolve(name, self.config)
         logger.debug(
-            "Resolved model %r → provider=%s model=%r", name, resolved.provider.provider, resolved.model
+            "Resolved model %r → provider=%s model=%r",
+            name,
+            resolved.provider.provider,
+            resolved.model,
         )
         return resolved
 
@@ -588,7 +702,9 @@ class Resolver:
             If *name* (or its database) does not exist in the config.
         """
         resolved = self.get_vector_store(name).resolve(name, self.config)
-        logger.debug("Resolved vector store %r → backend_type=%r", name, resolved.backend_type)
+        logger.debug(
+            "Resolved vector store %r → backend_type=%r", name, resolved.backend_type
+        )
         return resolved
 
     def resolve_tool(self, name: str) -> ResolvedToolConfig:
@@ -651,13 +767,16 @@ class Resolver:
 
         for field_name, value, section in unresolved_refs(instance, self.config):
             raise ConfigurationError(
-                f"{cls.__name__}.{field_name} references unknown {section[:-1]} {value!r}.\n"
+                f"[tools.{cls.tool_name}].{field_name} references unknown "
+                f"{section[:-1]} {value!r}.\n"
                 f"Run 'omop-config configure {cls.tool_name}' to set it up."
             )
 
-        for field_name, value, expected, actual in mismatched_kind_refs(instance, self.config):
+        for field_name, value, expected, actual in mismatched_kind_refs(
+            instance, self.config
+        ):
             raise ConfigurationError(
-                f"{cls.__name__}.{field_name} requires a {expected.__name__} entry, but "
+                f"[tools.{cls.tool_name}].{field_name} requires a {expected.__name__} entry, but "
                 f"{value!r} is a {actual.__name__}.\n"
                 f"Run 'omop-config configure {cls.tool_name}' to point it at a matching database."
             )
@@ -674,7 +793,7 @@ class Resolver:
             # VectorStoreConfig.database).
             if _is_test_marked(value, ref.target, self.config) != ref.is_test:
                 raise ConfigurationError(
-                    f"{cls.__name__}.{field_name} is marked is_test={ref.is_test}, but "
+                    f"[tools.{cls.tool_name}].{field_name} is marked is_test={ref.is_test}, but "
                     f"{value!r} does not resolve to a test_only={ref.is_test} connection.\n"
                     "A test field must point at a test_only connection (directly or via a "
                     "nested reference, e.g. a vector store's database), and a non-test field "
@@ -841,6 +960,7 @@ class Resolver:
     def from_active_config(cls) -> Resolver:
         """Create a Resolver from the currently active stack config file."""
         from .loader import load_stack_config
+
         return cls(load_stack_config())
 
     def __repr__(self) -> str:

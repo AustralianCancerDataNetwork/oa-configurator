@@ -53,6 +53,24 @@ class MyPackageConfig(PackageConfigBase):
 
 `get_config()` is inherited from `PackageConfigBase`: call `MyPackageConfig.get_config()` to load from the active stack config. It delegates to `Resolver.resolve_package_config()`, which reads the `[tools.my_package]` section and validates every `RefTo`-marked field against it. If the section is missing, fields fall back to their defaults.
 
+#### What package users get from the CLI
+
+`omop-config configure my_package` checks the complete proposed section with `MyPackageConfig` before it saves anything. This includes ordinary field constraints, cross-field validators, and missing or wrong-kind `RefTo` targets. CLI strings are converted to the model's real Python types before being written to TOML, and an invalid proposal leaves the existing file unchanged.
+
+A default `RefTo` value is still a real reference. For example, if `cdm_db` defaults to the name `"cdm_db"`, that database must exist before a non-interactive configure command can succeed. In scripted setup, create the target first or pass nested `--set` values that create the target chain in the same command. In the interactive flow, the user can create or select the missing target when prompted.
+
+#### Add configuration to your own application
+
+If your package has its own web form, desktop screen, or API, use `plan_configure()` rather than duplicating the CLI's field and `RefTo` logic:
+
+```python
+from oa_configurator import plan_configure
+
+candidate = plan_configure(MyPackageConfig, current_config, proposed_values)
+```
+
+The result is a new complete stack; `current_config` is unchanged. Submitted nested dictionaries can create or update the entries behind `RefTo` fields, while omitted fields continue to use their stored values. Use `PackageConfigValidationError.errors()` to place schema messages beside the relevant inputs, and present `ConfigurationError` as a reference problem. Once the user has reviewed the result, persist it with a separate `save_stack_config(candidate)` call. The library functions raise exceptions without printing CLI text or raising `typer.Exit`.
+
 ---
 
 ### 3. Register the entry point

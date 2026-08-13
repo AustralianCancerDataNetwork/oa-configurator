@@ -1,8 +1,10 @@
 # Inline & Session Usage
 
-`oa-configurator` works without a TOML file. Two patterns cover the main use cases.
+`oa-configurator` can build, validate, and resolve configuration without reading a TOML file. This is useful for applications that collect settings in their own UI, notebooks, tests, and short-lived jobs.
 
-Package configuration can also be planned as a pure in-memory operation:
+## Plan a package change without writing
+
+If your application offers its own configuration screen or API, use `plan_configure()` to turn submitted values into a complete candidate:
 
 ```python
 from oa_configurator import plan_configure
@@ -14,9 +16,7 @@ candidate = plan_configure(
 )
 ```
 
-`plan_configure()` does not load or save a file and does not mutate
-`current_config`. It returns a complete validated `StackConfig`; saving that
-candidate is a separate explicit action.
+Planning does not load or save a file and does not mutate `current_config`. If validation fails, keep showing the current settings and attach the returned errors to the proposed fields. Once the user approves the candidate, save it with `save_stack_config(candidate)`; keeping that call separate gives your application a natural preview or confirmation step.
 
 ---
 

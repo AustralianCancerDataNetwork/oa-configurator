@@ -14,7 +14,10 @@ After installing a package that supports oa_configurator, run its configure comm
 omop-config configure <package>   # e.g. omop_alchemy, omop_emb
 ```
 
-This prompts for any database connections and package-specific settings that package declares, then writes `~/.config/omop/config.toml`. Each package that depends on `oa-configurator` for functionality defines its own configuration, which is then interactively generated using the above command.
+The command asks for the settings that this package needs, helps you create or reuse related items such as databases and models, and then writes `~/.config/omop/config.toml`. Run it again whenever you need to change that package's settings.
+
+Before saving, `configure` checks the complete setup, including items named by package defaults. An interactive run offers to create or select missing connections, databases, providers, models, and vector stores. In a script, create the named item first or use the package's nested `--set` options to create it as part of the same command. A failed check leaves your existing configuration unchanged.
+
 To create an empty config file without prompts (useful for scripted setups), use:
 
 ```bash
@@ -49,13 +52,6 @@ omop-config models add nomic-embed \
 ```
 
 Passing *any* flag switches the command out of interactive mode: unflagged fields then fall back to their stored value (when updating an existing entry) or their default (when creating a new one) instead of prompting, and a required field with neither is an error. Run with `--help` for the full list.
-
-Every package configure operation validates its complete typed section and all
-of its references before saving. A reference supplied by a package default is
-still required to resolve. Create the referenced connection, database, provider,
-model, or vector store first, or use the package's nested `--set` form to create
-the reference chain in the same non-interactive command. Invalid candidates do
-not change the configuration file.
 
 List what's configured:
 

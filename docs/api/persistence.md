@@ -1,21 +1,16 @@
-# Persistence
+# Saving configuration safely
 
-`save_stack_config()` is the authoritative file-write path. It validates and
-serializes the complete candidate before touching the destination, writes secret
-bytes only to mode-`0600` files, and installs files with `os.replace()`.
+Analysts using `omop-config` do not need to call this API directly; the CLI uses it whenever a command changes `config.toml`. Application developers should call `save_stack_config()` only after a candidate has been validated, presented, and approved. The function validates and serializes the whole candidate before touching the current file, and any temporary or backup file containing credentials is created with mode `0600` before those credentials are written.
 
 ::: oa_configurator.io.save_stack_config
 
 ::: oa_configurator.io.ConfigSaveError
 
-## Recovery contract
+## What remains after a failed save
 
-For an existing `config.toml`, the writer first refreshes
-`config.toml.bak` through a restrictive temporary file and atomic rename. It
-then replaces `config.toml`, synchronizes the directory where the platform
-supports it, invalidates loader caches, and reloads the result for verification.
+When `config.toml` already exists, oa-configurator copies its complete contents to `config.toml.bak` before replacing it. It then reloads the new file to make sure the saved configuration is usable. If anything fails after replacement, it restores the previous file; if the failed operation was the first save, it removes the unusable new file.
 
-The authoritative state after each failure is:
+The table below is useful when an application catches `ConfigSaveError` or an analyst sees “Could not save configuration” in the CLI:
 
 | Failure point | Authoritative state |
 |---|---|
@@ -26,19 +21,10 @@ The authoritative state after each failure is:
 | First save fails after replacement | The writer removes the new destination. |
 | Recovery itself fails | `ConfigSaveError` reports both save and recovery failure; inspect the destination and backup before retrying. |
 
-Temporary files are removed on all handled success and failure paths. The
-destination and backup are two distinct atomic replacements, not a single
-multi-file transaction.
+Temporary files are removed on handled success and failure paths. The destination and backup are replaced separately, so a failure can leave an older backup while the current destination remains untouched; the table above identifies which file is authoritative.
 
-The backup is intentionally retained after successful verification as the
-previous complete configuration. It may contain plaintext credentials; see
-[Secrets](../secrets.md#backup-copies) for its lifecycle and symlink-location
-semantics.
+After a successful update, `config.toml.bak` remains available as the previous complete configuration. It may contain plaintext credentials, so analysts and applications must protect it just like the active file. See [Secrets](../secrets.md#backup-copies) before resetting credentials or saving through a symbolic link.
 
 ## Concurrency boundary
 
-Atomic replacement prevents partial-file visibility, but this release does not
-lock concurrent writers or compare revisions. Two overlapping successful saves
-still use last-writer-wins semantics. Applications requiring stale-draft
-protection must coordinate writers until the transactional persistence API is
-available.
+Atomic replacement prevents readers from seeing a partly written file, but it does not prevent two editors from overwriting each other's complete changes. If your application can have more than one active editor or worker, allow only one save at a time and reject stale drafts before calling `save_stack_config()`; successful overlapping saves are otherwise last-writer-wins in this release.

@@ -1,27 +1,18 @@
 # PackageConfigBase API
 
-`StackConfig.tools` deliberately stores untyped dictionaries because consuming
-packages are discovered at runtime. `PackageConfigBase.validate_candidate()` is
-the package-aware boundary: it constructs the concrete package model, runs all
-field and model validators, and validates each `RefTo` against the same candidate
-stack without reading or writing a file.
+Use these APIs when your application collects package settings itself instead of sending the user through `omop-config configure`.
 
-Schema failures raise `PackageConfigValidationError`. Its `tool_name` identifies
-the `[tools.<name>]` section, while `errors()` preserves pydantic locations and
-messages, including nested paths and the empty location used by cross-field
-validators. Rejected input and validator context are omitted so exception text,
-reprs, tracebacks, and CLI rendering cannot echo secrets. The exception does not
-retain the original pydantic error object. Reference failures raise
-`ConfigurationError` with the package field path.
+## Validate a complete candidate
 
-`plan_configure()` is the headless write-planning boundary. It deep-copies a
-stack, resolves non-interactive values—including nested `RefTo` creation or
-updates—validates the concrete package section and complete stack, and returns
-the new candidate. It performs no loader or persistence calls and leaves the
-input unchanged on both success and failure. A bound `loaded_path` is preserved
-on the returned candidate as source provenance. Planning failures raise
-`ConfigurationError` or `PackageConfigValidationError`; the headless API never
-prints CLI guidance or raises `typer.Exit`.
+`StackConfig.tools` holds plain dictionaries because oa-configurator cannot know the schemas of packages that are discovered later at runtime. Before accepting a proposed stack, call `PackageConfigBase.validate_candidate()` on the package class. It applies that package's field and model validators and checks every `RefTo` against the same proposed stack, without loading or saving a file.
+
+A schema problem raises `PackageConfigValidationError`. Use `tool_name` to identify the affected `[tools.<name>]` section and `errors()` to attach messages to form fields, including nested fields and model-level errors. These details deliberately omit rejected values and validator context, and the exception does not retain the original pydantic error, so displaying or logging the exception cannot echo a submitted secret. A missing or wrong-kind reference raises `ConfigurationError` with the package field path.
+
+## Plan a change for review
+
+Use `plan_configure()` when your application needs to preview a change before the user approves it. Pass the current stack and the proposed package values; the function returns a new, fully validated `StackConfig` and leaves the current object unchanged, even when planning fails. Nested dictionaries can create or update entries reached through `RefTo` fields, which lets a UI submit one complete proposal instead of reproducing oa-configurator's schema traversal.
+
+Planning never reads or writes the active configuration file. The returned candidate keeps `loaded_path` as provenance, but your application still decides whether and when to call `save_stack_config()`. Failures are ordinary `ConfigurationError` or `PackageConfigValidationError` exceptions: this API does not print CLI guidance or raise `typer.Exit`.
 
 ::: oa_configurator.package_base.PackageConfigBase
 

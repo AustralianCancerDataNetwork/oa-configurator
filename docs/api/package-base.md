@@ -7,9 +7,11 @@ field and model validators, and validates each `RefTo` against the same candidat
 stack without reading or writing a file.
 
 Schema failures raise `PackageConfigValidationError`. Its `tool_name` identifies
-the `[tools.<name>]` section, while `errors()` preserves pydantic locations,
-including nested paths and the empty location used by cross-field validators.
-Reference failures raise `ConfigurationError` with the package field path.
+the `[tools.<name>]` section, while `errors()` preserves pydantic locations and
+messages, including nested paths and the empty location used by cross-field
+validators. Rejected input and validator context are omitted so exception text,
+reprs, and CLI rendering cannot echo secrets. Reference failures raise
+`ConfigurationError` with the package field path.
 
 `plan_configure()` is the headless write-planning boundary. It deep-copies a
 stack, resolves non-interactive values—including nested `RefTo` creation or

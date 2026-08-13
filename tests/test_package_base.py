@@ -20,6 +20,7 @@ from oa_configurator import (
     ProviderConfig,
     RefTo,
     Resolver,
+    Sensitive,
     StackConfig,
     UnknownRefTarget,
     VectorStoreConfig,
@@ -169,6 +170,21 @@ class TestPackageCandidateValidation:
         assert result.port == 9000
         assert isinstance(result.port, int)
 
+    def test_validation_error_does_not_expose_rejected_secret(self):
+        class SecretPackageConfig(PackageConfigBase):
+            tool_name: ClassVar[str] = "secret_tool"
+            api_key: Annotated[str, Sensitive()] = Field(pattern=r"^valid-")
+
+        canary = "secret-canary-value"
+        cfg = StackConfig.for_session(tools={"secret_tool": {"api_key": canary}})
+
+        with pytest.raises(PackageConfigValidationError) as exc_info:
+            SecretPackageConfig.validate_candidate(cfg)
+
+        assert canary not in str(exc_info.value)
+        assert canary not in repr(exc_info.value)
+        assert all("input" not in detail for detail in exc_info.value.errors())
+
 
 class TestPlanConfigure:
     def test_returns_new_validated_candidate_without_file_io(
@@ -253,6 +269,15 @@ class TestPlanConfigure:
 
         with pytest.raises(PackageConfigValidationError):
             plan_configure(ValidatedPackageConfig, cfg, {"port": 999999})
+
+        assert cfg.model_dump(mode="python") == before
+
+    def test_reference_failure_leaves_input_unchanged(self):
+        cfg = _validated_stack({"cdm_db": "cdm_db", "port": 8000})
+        before = cfg.model_dump(mode="python")
+
+        with pytest.raises(ConfigurationError, match="unknown database"):
+            plan_configure(ValidatedPackageConfig, cfg, {"cdm_db": "missing"})
 
         assert cfg.model_dump(mode="python") == before
 

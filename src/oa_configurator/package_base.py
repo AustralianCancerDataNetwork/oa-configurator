@@ -60,11 +60,20 @@ class PackageConfigValidationError(ConfigurationError):
     def __init__(self, tool_name: str, validation_error: ValidationError) -> None:
         self.tool_name = tool_name
         self.validation_error = validation_error
-        super().__init__(f"Invalid [tools.{tool_name}]: {validation_error}")
+        problems = []
+        for error in self.errors():
+            location = ".".join(str(part) for part in error["loc"])
+            prefix = f"{location}: " if location else ""
+            problems.append(f"{prefix}{error['msg']}")
+        super().__init__(f"Invalid [tools.{tool_name}]: " + "; ".join(problems))
 
     def errors(self) -> list[ErrorDetails]:
-        """Return pydantic error details with their original locations."""
-        return self.validation_error.errors()
+        """Return locations and messages without rejected input or context."""
+        return self.validation_error.errors(
+            include_url=False,
+            include_context=False,
+            include_input=False,
+        )
 
 
 class PackageConfigBase(BaseModel):

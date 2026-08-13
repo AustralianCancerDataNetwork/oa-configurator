@@ -292,7 +292,7 @@ def _abort_on_invalid_entry(
             f"{location}: {message}" if location else message
             for location, message in field_problems
         )
-        raise ConfigurationError(f"Invalid {target.__name__}: {problems}") from exc
+        raise ConfigurationError(f"Invalid {target.__name__}: {problems}") from None
 
     import typer
     from rich.console import Console

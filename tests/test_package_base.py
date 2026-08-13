@@ -237,6 +237,29 @@ class TestPlanConfigure:
         assert captured.out == ""
         assert captured.err == ""
 
+    def test_invalid_nested_entry_traceback_omits_rejected_secret(self):
+        canary = "secret-model-canary"
+        cfg = StackConfig.for_session(
+            providers={"provider": ProviderConfig(provider="ollama")}
+        )
+
+        with pytest.raises(ConfigurationError) as exc_info:
+            plan_configure(
+                EmbeddingConfig,
+                cfg,
+                {
+                    "embedding_model_name": {
+                        "provider": "provider",
+                        "model": canary,
+                        "embedding_dim": 768,
+                    }
+                },
+            )
+
+        assert exc_info.value.__cause__ is None
+        assert exc_info.value.__suppress_context__ is True
+        assert canary not in "".join(traceback.format_exception(exc_info.value))
+
     def test_nested_refto_creation_is_confined_to_returned_candidate(self):
         cfg = StackConfig.for_session()
 

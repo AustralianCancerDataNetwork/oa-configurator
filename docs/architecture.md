@@ -189,6 +189,13 @@ chmod 600 ~/.config/omop/config.toml
 
 `RedactingFormatter` (applied by all non-library log presets) scrubs both `key=value` patterns and `://user:password@host` URL patterns from log output.
 
+`save_stack_config()` validates and serializes before changing the destination,
+writes candidate and backup bytes only after restrictive permissions are set,
+and uses atomic replacement with reload verification and recovery. See the
+[persistence contract](api/persistence.md) for the exact failure-state matrix.
+Atomic replacement protects file integrity; it does not serialize concurrent
+writers, which remain last-writer-wins in this release.
+
 **Future work**: `secret_source` support (`env:VAR`, `file:path`, Vault, cloud secret managers) is planned but not implemented in this version.
 
 ---

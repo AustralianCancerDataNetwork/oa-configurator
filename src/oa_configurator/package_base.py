@@ -164,7 +164,12 @@ class PackageConfigBase(BaseModel):
 
     @classmethod
     def resolve_fields(
-        cls, config: StackConfig, *, set_dict: dict[str, Any], interactive: bool
+        cls,
+        config: StackConfig,
+        *,
+        set_dict: dict[str, Any],
+        interactive: bool,
+        headless: bool = False,
     ) -> dict[str, Any]:
         """Resolve this package's own fields: flag (``--set`` or the field's
         own auto-generated flag), then stored, then an interactive prompt
@@ -193,6 +198,9 @@ class PackageConfigBase(BaseModel):
             Non-interactively, fields covered by neither are simply omitted
             (they fall back to the field's own pydantic default when the
             config class is loaded).
+        headless : bool
+            Raise library exceptions without printing CLI-oriented errors.
+            Intended for :func:`plan_configure`; ignored by interactive paths.
 
         Returns
         -------
@@ -201,9 +209,10 @@ class PackageConfigBase(BaseModel):
 
         Raises
         ------
+        ConfigurationError
+            If headless non-interactive resolution fails.
         typer.Exit
-            If a nested ``--set`` creation (see above) is missing a
-            required field of the target it's creating, non-interactively.
+            If CLI-oriented non-interactive resolution fails.
         """
         import typer
         from rich.console import Console
@@ -243,6 +252,7 @@ class PackageConfigBase(BaseModel):
                     name_hint=field_name,
                     is_test=is_test,
                     missing_required=missing_required,
+                    headless=headless,
                 )
                 if resolved_name is not None:
                     extra[field_name] = resolved_name
@@ -323,7 +333,10 @@ class PackageConfigBase(BaseModel):
                     extra[field_name] = raw
 
         _check_missing_required(
-            f"tool {cls.tool_name!r}", missing_required, non_interactive=not interactive
+            f"tool {cls.tool_name!r}",
+            missing_required,
+            non_interactive=not interactive,
+            headless=headless,
         )
         return extra
 
@@ -360,9 +373,8 @@ class PackageConfigBase(BaseModel):
             import typer
             from rich.markup import escape
 
-            label = escape(f"[tools.{tool_name}]")
             Console(stderr=True).print(
-                f"[red bold]Invalid {label}:[/red bold] {escape(str(exc))}"
+                f"[red bold]Configuration rejected:[/red bold] {escape(str(exc))}"
             )
             raise typer.Exit(1) from exc
 
@@ -386,14 +398,24 @@ def plan_configure(
     normalized package values and preserves the input's ``loaded_path`` as
     provenance. The caller's stack remains unchanged on success and failure.
     """
+    import typer
+
     from .stack_config import StackConfig
 
     candidate = config.model_copy(deep=True)
-    values = package_config.resolve_fields(
-        candidate,
-        set_dict=dict(set_dict),
-        interactive=False,
-    )
+    try:
+        values = package_config.resolve_fields(
+            candidate,
+            set_dict=dict(set_dict),
+            interactive=False,
+            headless=True,
+        )
+    except typer.Exit as exc:
+        # Keep this public headless boundary free of CLI control-flow errors,
+        # including any future resolver path that accidentally raises one.
+        raise ConfigurationError(
+            f"Could not plan [tools.{package_config.tool_name}]"
+        ) from exc
     candidate.tools[package_config.tool_name] = values
     validated = package_config.validate_candidate(candidate)
     candidate.tools[package_config.tool_name] = validated.to_extra_dict()

@@ -118,6 +118,7 @@ def _check_missing_required(
     missing_required: list[str],
     *,
     non_interactive: bool,
+    headless: bool = False,
 ) -> None:
     """Abort with a clear error, naming exact CLI flags, if fields are missing.
 
@@ -128,6 +129,11 @@ def _check_missing_required(
     """
     if not non_interactive or not missing_required:
         return
+    if headless:
+        fields = ", ".join(missing_required)
+        raise ConfigurationError(
+            f"Missing required field(s) for {display_name}: {fields}"
+        )
     import typer
     from rich.console import Console
 
@@ -259,7 +265,9 @@ def _find_production_collision(
     return None
 
 
-def _abort_on_invalid_entry(target: type[BaseModel], exc: ValidationError) -> NoReturn:
+def _abort_on_invalid_entry(
+    target: type[BaseModel], exc: ValidationError, *, headless: bool = False
+) -> NoReturn:
     """Abort with a clear error when a schema rejects the assembled entry.
 
     Constructing the entry is the last thing :func:`_resolve_named_entry`
@@ -271,18 +279,28 @@ def _abort_on_invalid_entry(target: type[BaseModel], exc: ValidationError) -> No
     not at someone fixing a config entry. Each error becomes one line
     naming the flag to change instead.
     """
-    import typer
-    from rich.console import Console
-
-    problems = []
+    field_problems: list[tuple[str, str]] = []
     for error in exc.errors():
         # A model_validator(mode="after") has no loc: the complaint is about
         # the combination of fields, so there's no single flag to point at.
         location = ".".join(str(part) for part in error["loc"])
         message = error["msg"].removeprefix("Value error, ")
-        problems.append(
-            f"  {_flag_name(location)}: {message}" if location else f"  {message}"
+        field_problems.append((location, message))
+
+    if headless:
+        problems = "; ".join(
+            f"{location}: {message}" if location else message
+            for location, message in field_problems
         )
+        raise ConfigurationError(f"Invalid {target.__name__}: {problems}") from exc
+
+    import typer
+    from rich.console import Console
+
+    problems = [
+        f"  {_flag_name(location)}: {message}" if location else f"  {message}"
+        for location, message in field_problems
+    ]
 
     Console(stderr=True).print(
         f"[red bold]Invalid {target.__name__}:[/red bold]\n" + "\n".join(problems)
@@ -290,20 +308,28 @@ def _abort_on_invalid_entry(target: type[BaseModel], exc: ValidationError) -> No
     raise typer.Exit(1)
 
 
-def _check_test_collision(new_conn: ConnectionConfig, config: StackConfig) -> None:
+def _check_test_collision(
+    new_conn: ConnectionConfig, config: StackConfig, *, headless: bool = False
+) -> None:
     """Abort if a new test-only connection's details match a real, non-test one.
 
     Test databases run DROP SCHEMA CASCADE; pointing one at production data
     by mistake (e.g. copy-pasted host/database name) would destroy it.
     """
-    import typer
-    from rich.console import Console
-
-    err_console = Console(stderr=True)
     match = _find_production_collision(
         new_conn.host, new_conn.database_name, new_conn.port, config
     )
     if match is not None:
+        if headless:
+            raise ConfigurationError(
+                "Test-only connection details match non-test connection "
+                f"{match!r}; use a different host or database name"
+            )
+
+        import typer
+        from rich.console import Console
+
+        err_console = Console(stderr=True)
         err_console.print(
             f"\n[red bold]DANGER[/red bold]: these connection details match the"
             f" non-test connection [bold]{match!r}[/bold] (same host, database name, and port).\n"
@@ -323,6 +349,7 @@ def _resolve_nested_flag_value(
     name_hint: str | None,
     is_test: bool,
     missing_required: list[str],
+    headless: bool = False,
 ) -> str | None:
     """Resolve a RefTo field's nested ``--set field.subfield=value`` dict
     into a saved entry, returning the name it was saved under.
@@ -362,6 +389,7 @@ def _resolve_nested_flag_value(
         missing_required=nested_missing,
         name_hint=name,
         is_test=is_test,
+        headless=headless,
     )
     if nested_missing:
         missing_required.extend(f"{field_name}.{m}" for m in nested_missing)
@@ -379,6 +407,7 @@ def _resolve_named_entry(
     missing_required: list[str],
     name_hint: str | None = None,
     is_test: bool = False,
+    headless: bool = False,
 ) -> BaseModel | None:
     """Resolve one entry of *target*: flag, then stored value, then an
     interactive prompt, recursing into any RefTo field via
@@ -430,6 +459,7 @@ def _resolve_named_entry(
                 name_hint=name_hint,
                 is_test=is_test,
                 missing_required=missing_required,
+                headless=headless,
             )
             if resolved_name is not None:
                 values[field_name] = resolved_name
@@ -523,6 +553,12 @@ def _resolve_named_entry(
     if non_interactive:
         unknown = set(flags) - set(target.model_fields)
         if unknown:
+            if headless:
+                names = ", ".join(sorted(unknown))
+                valid = ", ".join(target.model_fields)
+                raise ConfigurationError(
+                    f"{target.__name__} has no field(s): {names}. Valid fields: {valid}"
+                )
             from rich.console import Console
 
             Console(stderr=True).print(
@@ -536,11 +572,11 @@ def _resolve_named_entry(
     try:
         entry = target(**values)
     except ValidationError as exc:
-        _abort_on_invalid_entry(target, exc)
+        _abort_on_invalid_entry(target, exc, headless=headless)
     if is_test and isinstance(entry, ConnectionConfig):
         entry.test_only = True
     if isinstance(entry, ConnectionConfig) and entry.test_only:
-        _check_test_collision(entry, config)
+        _check_test_collision(entry, config, headless=headless)
     return entry
 
 

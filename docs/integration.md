@@ -73,7 +73,9 @@ It can create or update nested `RefTo` targets from nested dictionaries, uses
 stored values for omitted fields, and preserves `current_config.loaded_path` as
 provenance. `PackageConfigValidationError.errors()` retains the original
 pydantic field locations for structured presentation. Persistence is always a
-separate, explicit `save_stack_config(candidate)` operation.
+separate, explicit `save_stack_config(candidate)` operation. Missing or invalid
+nested values raise library configuration exceptions without printing CLI text
+or raising `typer.Exit`.
 
 ---
 

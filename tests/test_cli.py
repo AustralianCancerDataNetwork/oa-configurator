@@ -750,6 +750,7 @@ class TestRunConfigurePackage:
 
         captured = capsys.readouterr()
         assert "Invalid [tools.port_tool]" in captured.err
+        assert captured.err.count("Invalid [tools.port_tool]") == 1
         assert "Saved [tools.port_tool]" not in captured.out
         assert isolated_config.read_bytes() == original
 

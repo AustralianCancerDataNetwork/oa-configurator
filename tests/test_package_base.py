@@ -208,6 +208,31 @@ class TestPlanConfigure:
         assert cfg.tools["validated_tool"]["port"] == 8000
         assert planned.loaded_path == cfg.loaded_path
 
+    def test_missing_required_field_raises_silent_library_error(self, capsys):
+        cfg = StackConfig.for_session()
+
+        with pytest.raises(ConfigurationError, match="required_value") as exc_info:
+            plan_configure(RequiredFieldConfig, cfg, {})
+
+        assert not isinstance(exc_info.value, typer.Exit)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""
+
+    def test_unknown_nested_field_raises_silent_library_error(self, capsys):
+        cfg = StackConfig.for_session()
+
+        with pytest.raises(ConfigurationError, match="has no field"):
+            plan_configure(
+                DatabaseUserConfig,
+                cfg,
+                {"cdm_db": {"unknown": "value"}},
+            )
+
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""
+
     def test_nested_refto_creation_is_confined_to_returned_candidate(self):
         cfg = StackConfig.for_session()
 

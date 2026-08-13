@@ -18,7 +18,9 @@ stack, resolves non-interactive values—including nested `RefTo` creation or
 updates—validates the concrete package section and complete stack, and returns
 the new candidate. It performs no loader or persistence calls and leaves the
 input unchanged on both success and failure. A bound `loaded_path` is preserved
-on the returned candidate as source provenance.
+on the returned candidate as source provenance. Planning failures raise
+`ConfigurationError` or `PackageConfigValidationError`; the headless API never
+prints CLI guidance or raises `typer.Exit`.
 
 ::: oa_configurator.package_base.PackageConfigBase
 

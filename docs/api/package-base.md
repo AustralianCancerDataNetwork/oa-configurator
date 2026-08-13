@@ -10,7 +10,8 @@ Schema failures raise `PackageConfigValidationError`. Its `tool_name` identifies
 the `[tools.<name>]` section, while `errors()` preserves pydantic locations and
 messages, including nested paths and the empty location used by cross-field
 validators. Rejected input and validator context are omitted so exception text,
-reprs, and CLI rendering cannot echo secrets. Reference failures raise
+reprs, tracebacks, and CLI rendering cannot echo secrets. The exception does not
+retain the original pydantic error object. Reference failures raise
 `ConfigurationError` with the package field path.
 
 `plan_configure()` is the headless write-planning boundary. It deep-copies a

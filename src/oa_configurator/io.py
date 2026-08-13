@@ -118,7 +118,7 @@ def save_stack_config(config: StackConfig, path: Path = CONFIG_PATH) -> Path:
     and original ordering.
     """
     path = _normalize_path(path)
-    validated, serialized = _serialize_stack_config(config)
+    persisted, serialized = _serialize_stack_config(config)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     candidate_temp: Path | None = _write_secure_temp(path, serialized)
@@ -142,7 +142,7 @@ def save_stack_config(config: StackConfig, path: Path = CONFIG_PATH) -> Path:
         # A cache entry is valid until, and only until, the destination swap
         # succeeds. Verification must parse the bytes that were just installed.
         invalidate_cache()
-        _verify_saved_config(path, validated)
+        _verify_saved_config(path, persisted)
         # Verification uses the normal loader, which fills the cache. Leave
         # the cache empty so save retains its established invalidation contract.
         invalidate_cache()
@@ -156,9 +156,12 @@ def save_stack_config(config: StackConfig, path: Path = CONFIG_PATH) -> Path:
                     f"Failed to save {path}: {save_error}; "
                     f"recovery also failed: {rollback_error}"
                 ) from save_error
-            raise ConfigSaveError(
-                f"Failed to save {path}; the previous state was restored"
-            ) from save_error
+            recovery = (
+                "the previous state was restored"
+                if previous_exists
+                else "the new destination was removed"
+            )
+            raise ConfigSaveError(f"Failed to save {path}; {recovery}") from save_error
         raise
     finally:
         _remove_temp(candidate_temp)
@@ -168,14 +171,15 @@ def save_stack_config(config: StackConfig, path: Path = CONFIG_PATH) -> Path:
 
 
 def _serialize_stack_config(config: StackConfig) -> tuple[StackConfig, bytes]:
-    """Return a revalidated model and complete TOML bytes without file I/O."""
+    """Return the persisted model and complete TOML bytes without file I/O."""
     from .logging_config import LoggingConfig
 
     validated = StackConfig.model_validate(config.model_dump(mode="python"))
     payload = _drop_none_and_empty(validated.model_dump(mode="python"))
     if validated.logging == LoggingConfig():
         payload.pop("logging", None)
-    return validated, tomli_w.dumps(payload).encode("utf-8")
+    persisted = StackConfig.model_validate(payload)
+    return persisted, tomli_w.dumps(payload).encode("utf-8")
 
 
 def _open_secure_temp(target: Path) -> tuple[int, Path]:

@@ -52,14 +52,20 @@ class ConfigurationError(ValueError):
 class PackageConfigValidationError(ConfigurationError):
     """A package section failed its concrete pydantic schema.
 
-    The original :class:`pydantic.ValidationError` remains available as
-    :attr:`validation_error`; :meth:`errors` delegates to it so field locations,
-    including the empty location used by model-level validators, are preserved.
+    :meth:`errors` exposes sanitized pydantic details so field locations,
+    including the empty location used by model-level validators, are preserved
+    without retaining rejected input or validator context.
     """
 
     def __init__(self, tool_name: str, validation_error: ValidationError) -> None:
         self.tool_name = tool_name
-        self.validation_error = validation_error
+        self._errors = tuple(
+            validation_error.errors(
+                include_url=False,
+                include_context=False,
+                include_input=False,
+            )
+        )
         problems = []
         for error in self.errors():
             location = ".".join(str(part) for part in error["loc"])
@@ -69,11 +75,7 @@ class PackageConfigValidationError(ConfigurationError):
 
     def errors(self) -> list[ErrorDetails]:
         """Return locations and messages without rejected input or context."""
-        return self.validation_error.errors(
-            include_url=False,
-            include_context=False,
-            include_input=False,
-        )
+        return list(self._errors)
 
 
 class PackageConfigBase(BaseModel):
@@ -157,10 +159,13 @@ class PackageConfigBase(BaseModel):
         """
         from .resolver import Resolver
 
+        error: PackageConfigValidationError | None = None
         try:
             return Resolver(config).resolve_package_config(cls)
         except ValidationError as exc:
-            raise PackageConfigValidationError(cls.tool_name, exc) from exc
+            error = PackageConfigValidationError(cls.tool_name, exc)
+        assert error is not None
+        raise error from None
 
     @classmethod
     def resolve_fields(
@@ -348,7 +353,7 @@ class PackageConfigBase(BaseModel):
         """
         from rich.console import Console
 
-        from .io import save_stack_config
+        from .cli_support import _save_stack_config_or_exit
         from .loader import CONFIG_PATH, load_stack_config
         from .stack_config import StackConfig
 
@@ -369,7 +374,7 @@ class PackageConfigBase(BaseModel):
         config.tools[tool_name] = extra
         try:
             validated = cls.validate_candidate(config)
-        except (PackageConfigValidationError, ConfigurationError) as exc:
+        except ConfigurationError as exc:
             import typer
             from rich.markup import escape
 
@@ -380,7 +385,7 @@ class PackageConfigBase(BaseModel):
 
         # Save pydantic-normalized values, not raw CLI strings.
         config.tools[tool_name] = validated.to_extra_dict()
-        save_stack_config(config)
+        _save_stack_config_or_exit(config)
         console.print(
             f"\n[green]✓[/green] Saved \\[tools.{tool_name}] to [dim]{CONFIG_PATH}[/dim]"
         )

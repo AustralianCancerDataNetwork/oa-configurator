@@ -50,6 +50,13 @@ omop-config models add nomic-embed \
 
 Passing *any* flag switches the command out of interactive mode: unflagged fields then fall back to their stored value (when updating an existing entry) or their default (when creating a new one) instead of prompting, and a required field with neither is an error. Run with `--help` for the full list.
 
+Every package configure operation validates its complete typed section and all
+of its references before saving. A reference supplied by a package default is
+still required to resolve. Create the referenced connection, database, provider,
+model, or vector store first, or use the package's nested `--set` form to create
+the reference chain in the same non-interactive command. Invalid candidates do
+not change the configuration file.
+
 List what's configured:
 
 ```bash

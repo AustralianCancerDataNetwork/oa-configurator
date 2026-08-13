@@ -24,7 +24,7 @@ from typer.core import TyperGroup
 from rich.console import Console
 from rich.table import Table
 
-from .cli_support import _build_entry_params
+from .cli_support import _build_entry_params, _save_stack_config_or_exit
 from .domains.llm.cli import models_app, providers_app
 from .domains.resources.cli import connections_app, databases_app
 from .domains.vector_stores.cli import vector_stores_app
@@ -175,7 +175,7 @@ def init(
             raise typer.Exit(0)
 
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    save_stack_config(StackConfig())
+    _save_stack_config_or_exit(StackConfig(), save=save_stack_config)
     console.print(f"[green]✓[/green] Created [dim]{CONFIG_PATH}[/dim]")
 
     eps = entry_points(group=ENTRY_POINT_GROUP)

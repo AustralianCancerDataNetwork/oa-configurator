@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import traceback
 from typing import Annotated, Any, ClassVar, Self
 
 import pytest
@@ -184,6 +185,9 @@ class TestPackageCandidateValidation:
         assert canary not in str(exc_info.value)
         assert canary not in repr(exc_info.value)
         assert all("input" not in detail for detail in exc_info.value.errors())
+        assert not hasattr(exc_info.value, "validation_error")
+        assert exc_info.value.__context__ is None
+        assert canary not in "".join(traceback.format_exception(exc_info.value))
 
 
 class TestPlanConfigure:

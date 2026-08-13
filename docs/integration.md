@@ -60,6 +60,11 @@ Invalid candidates leave the existing file unchanged. Values accepted from CLI
 strings are saved from the validated model, so their normalized Python types are
 retained in TOML.
 
+Validation applies to defaulted `RefTo` fields as well as explicitly supplied
+ones. In a non-interactive setup, create those targets before configuring the
+package or pass a nested value that creates the target chain. The interactive
+flow can offer to create or select the missing target.
+
 For a candidate assembled by another frontend, plan without file I/O:
 
 ```python

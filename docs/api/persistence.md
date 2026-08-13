@@ -30,6 +30,11 @@ Temporary files are removed on all handled success and failure paths. The
 destination and backup are two distinct atomic replacements, not a single
 multi-file transaction.
 
+The backup is intentionally retained after successful verification as the
+previous complete configuration. It may contain plaintext credentials; see
+[Secrets](../secrets.md#backup-copies) for its lifecycle and symlink-location
+semantics.
+
 ## Concurrency boundary
 
 Atomic replacement prevents partial-file visibility, but this release does not

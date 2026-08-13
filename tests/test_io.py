@@ -24,6 +24,7 @@ from oa_configurator import (
     VectorStoreConfig,
 )
 from oa_configurator.io import ConfigSaveError, save_stack_config, write_env_file
+from oa_configurator.loader import _load_from_path
 
 
 def _make_cdm_stack() -> StackConfig:
@@ -185,6 +186,26 @@ class TestSaveStackConfig:
         out = tmp_path / "config.toml"
         save_stack_config(StackConfig.for_session(), out)
         assert "logging" not in tomllib.loads(out.read_text())
+
+    def test_empty_tool_section_is_verified_in_its_persisted_form(self, tmp_path):
+        out = tmp_path / "config.toml"
+
+        save_stack_config(StackConfig.for_session(tools={"empty_tool": {}}), out)
+
+        assert "tools" not in tomllib.loads(out.read_text())
+
+    def test_handwritten_empty_tool_section_does_not_block_later_save(self, tmp_path):
+        out = tmp_path / "config.toml"
+        out.write_text("[tools.empty_tool]\n", encoding="utf-8")
+
+        loaded = _load_from_path(out)
+        loaded.tools["other_tool"] = {"enabled": True}
+
+        save_stack_config(loaded, out)
+
+        data = tomllib.loads(out.read_text())
+        assert "empty_tool" not in data["tools"]
+        assert data["tools"]["other_tool"]["enabled"] is True
 
     def test_none_values_stripped(self, tmp_path):
         cfg = StackConfig.for_session(
@@ -419,7 +440,7 @@ class TestSaveStackConfig:
                 raise OSError("destination sync failed")
 
         monkeypatch.setattr(io_module, "_fsync_directory", fail_first_sync)
-        with pytest.raises(ConfigSaveError, match="previous state was restored"):
+        with pytest.raises(ConfigSaveError, match="new destination was removed"):
             save_stack_config(StackConfig.for_session(), out)
 
         assert not out.exists()
@@ -485,7 +506,7 @@ class TestSaveStackConfig:
             ),
         )
 
-        with pytest.raises(ConfigSaveError, match="previous state was restored"):
+        with pytest.raises(ConfigSaveError, match="new destination was removed"):
             save_stack_config(StackConfig.for_session(), out)
 
         assert not out.exists()

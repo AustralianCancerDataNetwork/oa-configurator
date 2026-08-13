@@ -58,6 +58,23 @@ def _seed(config_path, config: StackConfig) -> None:
     _real_save_stack_config(config, path=config_path)
 
 
+class TestInit:
+    def test_save_failure_is_rendered_without_traceback(
+        self, isolated_config, monkeypatch
+    ):
+        def fail_save(config):
+            raise OSError("disk unavailable")
+
+        monkeypatch.setattr(cli, "save_stack_config", fail_save)
+
+        result = runner.invoke(cli.app, ["init", "--force"])
+
+        assert result.exit_code == 1
+        assert "Could not save configuration" in result.output
+        assert "disk unavailable" in result.output
+        assert "Traceback" not in result.output
+
+
 class TestConnectionsAdd:
     def test_non_interactive_creates_connection(self, isolated_config):
         result = runner.invoke(
@@ -76,6 +93,34 @@ class TestConnectionsAdd:
         config = _load_from_path(isolated_config)
         assert config.connections["cdm"].dialect == "sqlite"
         assert config.connections["cdm"].database_name == ":memory:"
+
+    def test_save_failure_is_rendered_without_traceback(
+        self, isolated_config, monkeypatch
+    ):
+        import oa_configurator.io as io_module
+
+        def fail_save(config):
+            raise OSError("disk unavailable")
+
+        monkeypatch.setattr(io_module, "save_stack_config", fail_save)
+
+        result = runner.invoke(
+            cli.app,
+            [
+                "connections",
+                "add",
+                "cdm",
+                "--dialect",
+                "sqlite",
+                "--database-name",
+                ":memory:",
+            ],
+        )
+
+        assert result.exit_code == 1
+        assert "Could not save configuration" in result.output
+        assert "disk unavailable" in result.output
+        assert "Traceback" not in result.output
 
     def test_non_interactive_missing_required_field_fails(self, isolated_config):
         result = runner.invoke(
@@ -733,6 +778,34 @@ class TestRunConfigurePackage:
         config = _load_from_path(isolated_config)
         assert config.tools["demo_tool"]["cdm_db"] == "cdm_db"
         assert config.tools["demo_tool"]["backend"] == "custom"
+
+    def test_save_failure_is_rendered_without_traceback(
+        self, isolated_config, monkeypatch, capsys
+    ):
+        import oa_configurator.io as io_module
+
+        _seed(
+            isolated_config,
+            StackConfig.for_session(
+                connections={
+                    "db": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+                },
+                databases={"cdm_db": CDMDatabaseConfig(connection="db")},
+            ),
+        )
+
+        def fail_save(config):
+            raise OSError("disk unavailable")
+
+        monkeypatch.setattr(io_module, "save_stack_config", fail_save)
+
+        with pytest.raises(typer.Exit):
+            DemoConfig.run_configure({"cdm_db": "cdm_db"}, interactive=False)
+
+        captured = capsys.readouterr()
+        assert "Could not save configuration" in captured.err
+        assert "disk unavailable" in captured.err
+        assert "Traceback" not in captured.err
 
     def test_invalid_package_values_do_not_change_file(self, isolated_config, capsys):
         class PortConfig(PackageConfigBase):

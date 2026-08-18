@@ -135,7 +135,7 @@ A concrete LLM/embedding provider connection. Referenced by `[models.*].provider
 
 !!! warning "No credentials in `base_url`"
 
-    A `base_url` carrying userinfo (`https://user:password@host/v1`) is rejected. Put the credential in `api_key`, which is the field the stack masks in every display and log. See [Secrets](secrets.md).
+    A `base_url` carrying userinfo (`https://user:password@host/v1`) is rejected. Put the credential in `api_key`, which is declared secret and is masked wherever the stack renders configuration. See [Secrets](secrets.md).
 
 ```toml
 [providers.local-ollama]

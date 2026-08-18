@@ -8,7 +8,7 @@ rendering path honours the markers by running its own output through here.
 from __future__ import annotations
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from oa_configurator import (
     CDMDatabaseConfig,
@@ -34,8 +34,8 @@ class _Outer(BaseModel):
     api_key: Secret = None
     name: str | None = None
     child: _Nested | None = None
-    children: list[_Nested] = []
-    by_name: dict[str, _Nested] = {}
+    children: list[_Nested] = Field(default_factory=list)
+    by_name: dict[str, _Nested] = Field(default_factory=dict)
 
 
 def _stack_with_secrets() -> StackConfig:

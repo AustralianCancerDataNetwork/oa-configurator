@@ -16,6 +16,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from .refs import MASK, is_sensitive
 from .stack_config import StackConfig, mismatched_kind_refs, unresolved_refs
 from .resolver import _check_missing_required, _flag_name, _is_flag_settable, _resolve_named_entry
 
@@ -175,6 +176,13 @@ def _list_entries(target: type[BaseModel], section: str) -> None:
     table = Table("Name", *field_names)
     for entry_name in sorted(section_dict):
         entry = section_dict[entry_name]
-        row = ["[dim]-[/dim]" if (v := getattr(entry, f, None)) in (None, "") else str(v) for f in field_names]
+        row = [_cell(getattr(entry, f, None), field_infos[f]) for f in field_names]
         table.add_row(entry_name, *row)
     console.print(table)
+
+
+def _cell(value: Any, info: Any) -> str:
+    """Render one field for a `<section> list` table."""
+    if value in (None, ""):
+        return "[dim]-[/dim]"
+    return MASK if is_sensitive(info) else str(value)

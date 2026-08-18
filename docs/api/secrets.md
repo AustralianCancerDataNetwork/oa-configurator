@@ -70,4 +70,4 @@ def test_snapshot_redacts_secrets():
     assert_no_sensitive_values_leak(stack, my_package.snapshot(stack))
 ```
 
-Run it over every surface that renders configuration — a TUI snapshot, a `--describe` payload, an MCP tool response, a log line. It walks nested models and models held in lists and dicts, so a whole `StackConfig` can be passed in one call.
+Run it over every surface that renders configuration — a TUI snapshot, a `--describe` payload, an MCP tool response, a CLI listing. It walks nested models and models held in lists and dicts, so a whole `StackConfig` can be passed in one call.

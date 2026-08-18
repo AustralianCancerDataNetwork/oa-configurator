@@ -57,7 +57,7 @@ class ProviderConfig(BaseModel):
                 "base_url must not contain userinfo (the 'user:password@' part "
                 "before the host). Put the credential in this provider's "
                 "`api_key` field, which is declared Sensitive() and is masked "
-                "wherever the stack displays or logs it."
+                "wherever the stack renders configuration."
             )
         return v
 

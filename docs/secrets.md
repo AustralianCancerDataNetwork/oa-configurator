@@ -11,7 +11,7 @@ chmod 600 ~/.config/omop/config.toml
 
 ## What counts as a secret
 
-Two fields in `config.toml` hold credentials: `password` on a `[connections.*]` entry, and `api_key` on a `[providers.*]` entry. Both are *declared* secret in the schema, and every part of the stack that displays, logs, or serialises configuration keys off that declaration. 
+Two fields in `config.toml` hold credentials: `password` on a `[connections.*]` entry, and `api_key` on a `[providers.*]` entry. Both are *declared* secret in the schema, and every path that **renders your configuration** — the `omop-config` listings, an operator console, a package's `--describe` output — keys off that declaration rather than guessing from a field's name.
 
 Packages that add their own configuration declare their own secrets the same way — see the [Secrets API](api/secrets.md) if you maintain one.
 
@@ -19,12 +19,18 @@ Packages that add their own configuration declare their own secrets the same way
 
 | Surface | Behaviour |
 |---|---|
-| Interactive prompts | Secret fields are entered with the input hidden |
+| Interactive prompts | Declared secret fields are entered with the input hidden |
+| `omop-config <section> list` | Declared secret fields show `***` when set and `-` when not; no value is printed |
 | `ResolvedConnection.safe_url` | Password replaced with `***`; the username is kept. The plaintext `.url` is used only to create the engine |
 | `safe_endpoint()` on any other URL | Password in the `user:password@host` part replaced with `***`; every query-string *value* replaced with `***`, every key kept |
-| Log output | The formatter replaces `key=value` pairs for credential-shaped keys before the line is written |
 
 Query-string values are masked without exception, including harmless ones, because working out which parameter is a credential would mean guessing. You still see which parameters are set: `?api-version=2024-02-01&api_key=sk-x` displays as `?api-version=***&api_key=***`.
+
+## Log output is a backstop, not a guarantee
+
+Log redaction works differently, and it is worth knowing where the line falls. A log message is free text, so there is no field for the formatter to consult — it can only match `key=value` pairs against a fixed list of credential-shaped key names (`password`, `secret`, `token`, and so on, exported as `logging_config.SENSITIVE_KEYS`). That list is not derived from the `Sensitive()` declaration and does not track it: a message reading `api_key=sk-x` is written out unchanged.
+
+oa-configurator never logs a credential itself — its own resolver logs connections through `safe_url`. Treat the formatter as a net for accidents, and do not interpolate configuration values into log messages.
 
 ## Credentials do not belong in `base_url`
 

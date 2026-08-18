@@ -80,6 +80,7 @@ nav:
       - Loader: api/loader.md
       - Persistence: api/persistence.md
       - Stack Config: api/stack-config.md
+      - Secrets: api/secrets.md
       - Resources: api/resources.md
       - LLM: api/llm.md
       - Vector Stores: api/vector-stores.md

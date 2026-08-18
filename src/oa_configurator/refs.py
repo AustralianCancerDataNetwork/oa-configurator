@@ -1,15 +1,9 @@
-"""Generic field markers shared across every domain schema.
-
-Pure, dependency-free (beyond pydantic): no schema class, StackConfig, or
-domain lives here, so every domain module and the root StackConfig can both
-import from here without a cycle.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Any
+from typing import Annotated, Any
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel
 
@@ -22,9 +16,6 @@ class RefTo:
     marker drives both cross-reference validation (:func:`~oa_configurator.stack_config.unresolved_refs`)
     and the CLI wizard's reuse-or-create recursion for a consuming package's
     own fields (e.g. ``embedding_model_name: Annotated[str, RefTo(ModelConfig)]``).
-    It replaces a hand-written validator per pair and the separate
-    ``ModelFieldSpec``/``referenced_models`` side-list that used to carry the
-    same information for consumer fields.
 
     Attributes
     ----------
@@ -46,11 +37,19 @@ class RefTo:
 
 @dataclass(frozen=True)
 class Sensitive:
-    """Marks a string field as holding a secret: masked when interactively
-    prompted, and a future anchor for ``secret_source`` (``env:``/``file:``)
-    resolution. Applied via e.g. ``Annotated[str | None, Sensitive()]``.
+    """
+    Marks a string field as holding a secret: masked when interactively
+    prompted, excluded from anything this stack renders for display, and a
+    future anchor for ``secret_source`` (``env:``/``file:``) resolution.
     """
 
+
+Secret = Annotated[str | None, Sensitive()]
+"""Shorthand for an optional secret string field: ``api_key: Secret = None``.
+
+The whole design rests on implementers declaring their secrets.
+Prefer this over the equivalent  ``Annotated[str | None, Sensitive()]``
+"""
 
 def _iter_refs(cls: type[BaseModel]) -> Iterator[tuple[str, RefTo]]:
     """Yield (field_name, RefTo) for every RefTo-marked field on *cls*.
@@ -67,5 +66,109 @@ def _iter_refs(cls: type[BaseModel]) -> Iterator[tuple[str, RefTo]]:
 
 
 def is_sensitive(info: Any) -> bool:
-    """Whether a field is marked `Sensitive` and should be masked when prompted."""
+    """Whether a field carries the :class:`Sensitive` marker.
+
+    The stack's only runtime sensitivity predicate: masking a prompt, and
+    masking a field in anything that renders configuration, both consult this.
+    Free-text log scrubbing cannot -- a log message has no field to look up --
+    so :data:`~oa_configurator.logging_config.SENSITIVE_KEYS` stays a separate
+    key-name net, and call sites should keep config values out of log messages
+    rather than rely on it.
+
+    Parameters
+    ----------
+    info : pydantic.fields.FieldInfo
+        A field from ``SomeModel.model_fields``.
+
+    Returns
+    -------
+    bool
+        Whether the field is declared sensitive.
+    """
     return any(isinstance(m, Sensitive) for m in info.metadata)
+
+
+MASK = "***"
+"""Rendered in place of a secret value. Shared so displays match each other."""
+
+
+def safe_endpoint(url: str | None) -> str | None:
+    """Return *url* with every value that could be a credential masked.
+
+    For arbitrary endpoint URLs -- anything rendering
+    :attr:`~oa_configurator.domains.llm.schema.ProviderConfig.base_url`, most
+    often. :meth:`~oa_configurator.domains.resources.schema.ResolvedConnection.safe_url`
+    is the SQLAlchemy-specific equivalent and covers only the password.
+
+    - **Userinfo** (``https://user:pw@host``): the password is masked and the
+      username kept, matching ``safe_url``. The username answers "which
+      account is this connecting as?", which an operator reading a redacted
+      URL needs.
+    - **Query string**: every value is masked and every key kept, so
+      ``?api-version=2024-02-01&api_key=sk-x`` renders as
+      ``?api-version=***&api_key=***``. The operator still sees which
+      parameters are set without any value being shown. Dropping the query
+      entirely is not an option (Azure OpenAI needs ``api-version``), and
+      masking only the keys that look like secrets would be the guess this
+      module exists to avoid.
+
+    Parameters
+    ----------
+    url : str, optional
+        URL to scrub. ``None`` passes through, so callers can hand this an
+        optional config field directly.
+
+    Returns
+    -------
+    str, optional
+        The scrubbed URL, or the bare mask if *url* could not be parsed --
+        an unparseable string is scrubbed by refusing to show it at all
+        rather than by echoing it back.
+    """
+    if url is None:
+        return None
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return MASK
+    return urlunsplit(
+        (
+            parts.scheme,
+            _mask_userinfo(parts.netloc),
+            parts.path,
+            _mask_query_values(parts.query),
+            parts.fragment,
+        )
+    )
+
+
+def _mask_userinfo(netloc: str) -> str:
+    """Mask the password in ``user:pw@host:port``, keeping everything else.
+
+    Operates on the raw netloc rather than ``SplitResult.username``/``password``
+    so that percent-encoding, IPv6 brackets, and the port survive untouched.
+    """
+    userinfo, at, host = netloc.rpartition("@")
+    if not at:
+        return netloc
+    user, colon, _password = userinfo.partition(":")
+    if not colon:
+        return netloc  # username only: nothing here is a secret
+    return f"{user}:{MASK}@{host}"
+
+
+def _mask_query_values(query: str) -> str:
+    """Mask the value of every query parameter, keeping every key verbatim.
+
+    Splits on the raw string instead of round-tripping through
+    ``parse_qsl``/``urlencode``: that would percent-encode the mask into
+    ``%2A%2A%2A`` and re-spell the operator's own keys. A parameter with no
+    ``=`` is a bare flag, which is a key with no value to hide.
+    """
+    if not query:
+        return query
+    masked = []
+    for param in query.split("&"):
+        key, eq, _value = param.partition("=")
+        masked.append(f"{key}={MASK}" if eq else key)
+    return "&".join(masked)

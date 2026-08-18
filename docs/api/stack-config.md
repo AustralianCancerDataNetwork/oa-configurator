@@ -10,8 +10,6 @@ Every reference between sections (a database naming its connection, a model nami
 
 ::: oa_configurator.refs.RefTo
 
-::: oa_configurator.refs.Sensitive
-
 ::: oa_configurator.stack_config.unresolved_refs
 
 ## Kind mismatches

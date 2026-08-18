@@ -19,6 +19,7 @@ from oa_configurator import (
     RefTo,
     StackConfig,
     VectorStoreConfig,
+    assert_no_sensitive_values_leak,
 )
 from oa_configurator.io import save_stack_config as _real_save_stack_config
 from oa_configurator.loader import _load_from_path
@@ -26,6 +27,10 @@ from oa_configurator.package_base import PackageConfigBase
 from oa_configurator.resolver import _resolve_ref
 
 runner = CliRunner()
+
+# Distinctive enough that a substring search for it cannot match anything the
+# CLI legitimately prints.
+_CANARY = "canary-8f21c0-do-not-render"
 
 
 @pytest.fixture
@@ -189,6 +194,26 @@ class TestConnectionsList:
         assert result.exit_code == 0
         assert "cdm" in result.output
         assert "sqlite" in result.output
+
+    def test_password_is_masked(self, isolated_config):
+        """A listing shows that a secret is set, never what it is."""
+        stack = StackConfig.for_session(
+            connections={
+                "cdm": ConnectionConfig(
+                    dialect="postgresql+psycopg",
+                    host="db.hospital.org",
+                    user="omop",
+                    password=_CANARY,
+                    database_name="omop_cdm",
+                )
+            },
+        )
+        _seed(isolated_config, stack)
+        result = runner.invoke(cli.app, ["connections", "list"])
+        assert result.exit_code == 0
+        assert_no_sensitive_values_leak(stack, result.output)
+        assert "***" in result.output
+        assert "omop" in result.output  # the username is not a secret
 
     def test_lists_test_only_column(self, isolated_config):
         _seed(
@@ -480,6 +505,21 @@ class TestProvidersList:
         assert result.exit_code == 0
         assert "p" in result.output
         assert "ollama" in result.output
+
+    def test_api_key_is_masked(self, isolated_config):
+        """A listing shows that a secret is set, never what it is."""
+        stack = StackConfig.for_session(
+            providers={
+                "p": ProviderConfig(
+                    provider="ollama", base_url="http://x", api_key=_CANARY
+                )
+            }
+        )
+        _seed(isolated_config, stack)
+        result = runner.invoke(cli.app, ["providers", "list"])
+        assert result.exit_code == 0
+        assert_no_sensitive_values_leak(stack, result.output)
+        assert "***" in result.output
 
 
 class TestModelsAdd:

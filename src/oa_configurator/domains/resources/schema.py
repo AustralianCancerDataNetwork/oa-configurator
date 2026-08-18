@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.engine import URL, Engine
 import sqlalchemy as sa
 
-from ...refs import RefTo, Sensitive
+from ...refs import RefTo, Secret
 
 if TYPE_CHECKING:
     from ...stack_config import StackConfig
@@ -57,7 +57,7 @@ class ConnectionConfig(BaseModel):
     )
     port: int | None = Field(default=None, description="Port number.")
     user: str | None = Field(default=None, description="Database username.")
-    password: Annotated[str | None, Sensitive()] = Field(
+    password: Secret = Field(
         default=None,
         description="Plaintext password. Secret management support is planned for a future release.",
     )

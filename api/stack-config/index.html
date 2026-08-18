@@ -16,7 +16,7 @@
         <link rel="prev" href="../persistence/">
       
       
-        <link rel="next" href="../resources/">
+        <link rel="next" href="../secrets/">
       
       
         
@@ -884,17 +884,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.refs.Sensitive" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Sensitive
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#oa_configurator.stack_config.unresolved_refs" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -931,6 +920,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../secrets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Secrets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1274,17 +1291,6 @@
     <span class="md-ellipsis">
       
         RefTo
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.refs.Sensitive" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Sensitive
       
     </span>
   </a>
@@ -1790,10 +1796,7 @@ caller can pass just one concrete kind, for example
 <p>Applied via e.g. <code>Annotated[str, RefTo(ConnectionConfig)]</code>. One generic
 marker drives both cross-reference validation (:func:<code>~oa_configurator.stack_config.unresolved_refs</code>)
 and the CLI wizard's reuse-or-create recursion for a consuming package's
-own fields (e.g. <code>embedding_model_name: Annotated[str, RefTo(ModelConfig)]</code>).
-It replaces a hand-written validator per pair and the separate
-<code>ModelFieldSpec</code>/<code>referenced_models</code> side-list that used to carry the
-same information for consumer fields.</p>
+own fields (e.g. <code>embedding_model_name: Annotated[str, RefTo(ModelConfig)]</code>).</p>
 
 
 <p><span class="doc-section-title">Attributes:</span></p>
@@ -1836,48 +1839,6 @@ CLI wizard's "Test database (optional)" prompt and the symmetric
           </tr>
       </tbody>
     </table>
-
-
-
-
-
-
-
-
-
-
-
-<div class="doc doc-children">
-
-
-
-
-
-
-
-
-
-
-
-
-  </div>
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-class">
-
-
-
-<a id="oa_configurator.refs.Sensitive"></a>
-    <div class="doc doc-contents first">
-
-
-
-        <p>Marks a string field as holding a secret: masked when interactively
-prompted, and a future anchor for <code>secret_source</code> (<code>env:</code>/<code>file:</code>)
-resolution. Applied via e.g. <code>Annotated[str | None, Sensitive()]</code>.</p>
 
 
 

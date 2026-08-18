@@ -48,6 +48,9 @@ from oa_configurator import safe_endpoint
 
 safe_endpoint("https://svc:hunter2@api.example.org/v1?api-version=2024-02-01&api_key=sk-x")
 # 'https://svc:***@api.example.org/v1?api-version=***&api_key=***'
+
+safe_endpoint("https://api.example.org/v1#access_token=sk-x")
+# 'https://api.example.org/v1#***'
 ```
 
 ## Proving a package does not leak

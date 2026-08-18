@@ -157,6 +157,33 @@ class TestSafeEndpoint:
         assert "abc" not in redacted
         assert redacted == "https://user:***@host:8443/v1/chat?api_key=***&model=***"
 
+    def test_fragment_is_masked_whole(self):
+        """The OAuth implicit flow delivers access tokens in the fragment.
+
+        Masked rather than dropped: a fragment has no guaranteed ``key=value``
+        structure to mask value-by-value, and dropping it silently would hide
+        that an operator put something in a ``base_url`` that does not belong
+        there.
+        """
+        assert safe_endpoint("https://host/v1#access_token=abc") == (
+            "https://host/v1#***"
+        )
+
+    def test_opaque_fragment_is_masked_too(self):
+        """No fragment is judged on its shape, for the same reason no query key is."""
+        assert safe_endpoint("https://host/v1#section-3") == "https://host/v1#***"
+
+    def test_empty_fragment_adds_no_mask(self):
+        """A bare trailing ``#`` holds nothing, so it renders as nothing."""
+        assert safe_endpoint("https://host/v1#") == "https://host/v1"
+
+    def test_fragment_masked_alongside_query_and_userinfo(self):
+        redacted = safe_endpoint("https://user:pw@host/v1?api_key=abc#token=xyz")
+        assert redacted == "https://user:***@host/v1?api_key=***#***"
+        assert "pw" not in redacted
+        assert "abc" not in redacted
+        assert "xyz" not in redacted
+
     def test_unparseable_url_is_withheld_entirely(self):
         """Nothing structural can be trusted, so nothing is echoed back."""
         assert safe_endpoint("https://[::1/v1?api_key=abc") == "***"

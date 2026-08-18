@@ -9,7 +9,43 @@ In the current version, passwords are stored as plaintext in `~/.config/omop/con
 chmod 600 ~/.config/omop/config.toml
 ```
 
-`ResolvedConnection.safe_url` redacts passwords in all display and log output. The plaintext `.url` is used only internally for engine creation.
+## What counts as a secret
+
+Two fields in `config.toml` hold credentials: `password` on a `[connections.*]` entry, and `api_key` on a `[providers.*]` entry. Both are *declared* secret in the schema, and every part of the stack that displays, logs, or serialises configuration keys off that declaration. 
+
+Packages that add their own configuration declare their own secrets the same way — see the [Secrets API](api/secrets.md) if you maintain one.
+
+## What is redacted where
+
+| Surface | Behaviour |
+|---|---|
+| Interactive prompts | Secret fields are entered with the input hidden |
+| `ResolvedConnection.safe_url` | Password replaced with `***`; the username is kept. The plaintext `.url` is used only to create the engine |
+| `safe_endpoint()` on any other URL | Password in the `user:password@host` part replaced with `***`; every query-string *value* replaced with `***`, every key kept |
+| Log output | The formatter replaces `key=value` pairs for credential-shaped keys before the line is written |
+
+Query-string values are masked without exception, including harmless ones, because working out which parameter is a credential would mean guessing. You still see which parameters are set: `?api-version=2024-02-01&api_key=sk-x` displays as `?api-version=***&api_key=***`.
+
+## Credentials do not belong in `base_url`
+
+A provider's `base_url` is rejected if it carries userinfo — the `user:password@` part before the host:
+
+```toml
+[providers.vendor]
+provider = "openai"
+base_url = "https://svc:hunter2@api.vendor.com/v1"   # rejected at load time
+```
+
+Put the credential in `api_key`, which is the field the stack knows to mask:
+
+```toml
+[providers.vendor]
+provider = "openai"
+base_url = "https://api.vendor.com/v1"
+api_key  = "hunter2"
+```
+
+A credential passed as a query parameter (`?api_key=...`) is accepted, since rejecting it would mean guessing at parameter names — but it is stored in plaintext in `config.toml` like any other part of the URL, and only ever *displayed* masked. Prefer `api_key`.
 
 ## Backup copies
 

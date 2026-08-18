@@ -1,3 +1,4 @@
+from .conformance import SensitiveValueLeak, assert_no_sensitive_values_leak
 from .domains.llm.schema import (
     ModelConfig,
     ProviderConfig,
@@ -30,7 +31,7 @@ from .package_base import (
     PackageConfigValidationError,
     plan_configure,
 )
-from .refs import RefTo, Sensitive
+from .refs import MASK, RefTo, Secret, Sensitive, is_sensitive, safe_endpoint
 from .resolver import Resolver, ResolvedToolConfig
 from .stack_config import (
     StackConfig,
@@ -50,6 +51,7 @@ __all__ = [
     "DatabaseKind",
     "GenericDatabaseConfig",
     "LoggingConfig",
+    "MASK",
     "ModelConfig",
     "RedactingFormatter",
     "PackageConfigBase",
@@ -65,15 +67,20 @@ __all__ = [
     "ResolvedToolConfig",
     "ResolvedVectorStore",
     "Role",
+    "Secret",
     "Sensitive",
+    "SensitiveValueLeak",
     "StackConfig",
     "UnknownRefTarget",
     "VectorStoreConfig",
+    "assert_no_sensitive_values_leak",
     "configure_logging",
     "get_logger",
+    "is_sensitive",
     "load_stack_config",
     "mismatched_kind_refs",
     "plan_configure",
+    "safe_endpoint",
     "save_stack_config",
     "unresolved_refs",
     "write_env_file",

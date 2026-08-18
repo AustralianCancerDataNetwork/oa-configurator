@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from ...refs import RefTo, Sensitive
+from ...refs import RefTo, Secret
 
 if TYPE_CHECKING:
     from ...stack_config import StackConfig
@@ -35,10 +36,30 @@ class ProviderConfig(BaseModel):
         default=None,
         description="Base URL for this specific deployment of the provider (a local llama-server, a cloud vendor endpoint, and so on).",
     )
-    api_key: Annotated[str | None, Sensitive()] = Field(
+    api_key: Secret = Field(
         default=None,
         description="Plaintext API key for this deployment, if one is required. Secret management support is planned for a future release.",
     )
+
+    @field_validator("base_url")
+    @classmethod
+    def _reject_userinfo(cls, v: str | None) -> str | None:
+        """Reject a URL carrying userinfo (``https://user:pw@host/v1``).
+        """
+        if v is None:
+            return v
+        try:
+            parts = urlsplit(v)
+        except ValueError as exc:
+            raise ValueError(f"base_url is not a valid URL: {exc}") from None
+        if parts.username is not None or parts.password is not None:
+            raise ValueError(
+                "base_url must not contain userinfo (the 'user:password@' part "
+                "before the host). Put the credential in this provider's "
+                "`api_key` field, which is declared Sensitive() and is masked "
+                "wherever the stack displays or logs it."
+            )
+        return v
 
     def resolve(self, name: str) -> ResolvedProvider:
         """Resolve this provider to a concrete, backend-ready connection."""

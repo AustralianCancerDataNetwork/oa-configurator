@@ -19,26 +19,90 @@ _DATEFMT = "%Y-%m-%d %H:%M:%S"
 _VERBOSITY_LEVELS = {0: "WARNING", 1: "INFO", 2: "DEBUG"}
 
 _URL_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
+"""Matches a bare URL anywhere in a message.
+
+Deliberately the *only* pattern here. It exists for log records this library does
+not produce: a driver or engine writing a credential-bearing DSN into its own
+error, ``postgresql://user:pw@host/db`` in a SQLAlchemy connection failure being
+the case that motivated it. Those bytes never pass through a config model, so no
+amount of schema-level safety reaches them, and there is no field to consult.
+
+A previous version also matched ``<key>=<value>`` against a list of
+credential-shaped key names. That list is gone. It was a second, independent
+definition of what counts as sensitive, and once
+:class:`~oa_configurator.refs.SecretSafeModel` made config objects safe to render,
+the list only destroyed information -- masking ``base_url`` for ending in ``url``,
+on output that was already safe. Do not reintroduce it as defence in depth.
+"""
+
+
+def _scrub_urls(text: str) -> str:
+    """Mask credentials in every URL in *text*, via the shared primitive.
+
+    The single implementation of what a safe URL looks like: both
+    :class:`RedactingFilter` and :class:`RedactingFormatter` route through here,
+    and both delegate the actual masking to
+    :func:`~oa_configurator.refs.safe_endpoint`.
+    """
+    return _URL_RE.sub(lambda m: safe_endpoint(m.group(0)) or MASK, text)
+
+
+class RedactingFilter(logging.Filter):
+    """Scrubs credential-bearing URLs before a handler emits its record.
+
+    A filter rather than a formatter, for two reasons.
+
+    **It reaches handlers that do their own rendering.** ``RichHandler`` builds
+    its output from the record itself, so a formatter attached to it governs only
+    part of the result; the guarantee used to hold on the plain ``StreamHandler``
+    path and vanish the moment a caller passed ``console=``. Handler filters run
+    in ``Handler.handle()`` before ``emit()``, so both paths are covered by one
+    mechanism and neither needs its own code path.
+
+    **It survives customisation.** Replacing a handler's formatter is an ordinary
+    thing to do and must not silently remove a security guarantee. Redaction is
+    not a presentation concern, so it does not live in the presentation layer.
+
+    The record is only rewritten when a URL was actually found. Records without
+    one keep their lazy ``%``-style ``args`` intact, so structured handlers
+    downstream still see the original fields.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        scrubbed = _scrub_urls(message)
+        if scrubbed != message:
+            record.msg = scrubbed
+            record.args = None
+        if record.exc_info and not record.exc_text:
+            # Caching a scrubbed traceback here is what keeps the exception path
+            # covered: Formatter.format() appends record.exc_text verbatim when it
+            # is already set, rather than re-deriving it from exc_info.
+            record.exc_text = _scrub_urls(
+                logging.Formatter().formatException(record.exc_info)
+            )
+        return True
 
 
 class RedactingFormatter(logging.Formatter):
-    """Logging formatter that masks credentials in URLs written by other libraries.
+    """Formatter applying the same URL scrubbing as :class:`RedactingFilter`.
 
-    Config objects are safe to log on their own account: every field declared
-    ``Sensitive()`` is masked in ``repr`` and ``str`` by
-    :class:`~oa_configurator.refs.SecretSafeModel`, so ``logger.info("%s", config)``
-    cannot expose one. 
+    Retained for callers who wired it up directly. ``configure_logging`` installs
+    the filter instead, because a formatter cannot cover a handler that renders
+    the record itself. Both share :func:`_scrub_urls`, so there is one audited
+    answer to what a safe URL looks like; applying both is harmless, since the
+    scrub is idempotent.
 
-    It does not attempt to catch a caller who extracts a secret deliberately.
-    ``logger.info("password=%s", config.password)`` names the field and chooses to
-    log it at the caller's decision, which is not an accident this library can 
-    prevent without guessing.
+    Neither this nor the filter attempts to catch a caller who extracts a secret
+    deliberately. ``logger.info("password=%s", config.password)`` names the field
+    and chooses the sink; that is the caller's decision, not an accident this
+    library can prevent without guessing. Config objects themselves are safe to
+    log on their own account -- see
+    :class:`~oa_configurator.refs.SecretSafeModel`.
     """
 
     def format(self, record: logging.LogRecord) -> str:
-        return _URL_RE.sub(
-            lambda m: safe_endpoint(m.group(0)) or MASK, super().format(record)
-        )
+        return _scrub_urls(super().format(record))
 
 
 def _coerce_level(value: str) -> str:
@@ -128,7 +192,8 @@ def configure_logging(
         handler: logging.Handler = RichHandler(console=console, show_path=False, rich_tracebacks=True)
     else:
         handler = logging.StreamHandler(sys.stderr)
-        handler.setFormatter(RedactingFormatter(_FORMAT, datefmt=_DATEFMT))
+        handler.setFormatter(logging.Formatter(_FORMAT, datefmt=_DATEFMT))
+    handler.addFilter(RedactingFilter())
 
     namespaces = (_OWN_NAMESPACE,) + tuple(extra_namespaces or [])
     stale: list[logging.Handler] = []

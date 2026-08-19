@@ -24,7 +24,8 @@ from typer.core import TyperGroup
 from rich.console import Console
 from rich.table import Table
 
-from .cli_support import _build_entry_params, _save_stack_config_or_exit, masked_json
+from .cli_support import _build_entry_params, _save_stack_config_or_exit
+from .refs import masked_json
 from .domains.llm.cli import models_app, providers_app
 from .domains.resources.cli import connections_app, databases_app
 from .domains.vector_stores.cli import vector_stores_app

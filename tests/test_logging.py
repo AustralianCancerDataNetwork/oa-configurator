@@ -12,6 +12,7 @@ from oa_configurator import (
     configure_logging,
     get_logger,
 )
+from oa_configurator.logging_config import RedactingFilter
 from oa_configurator.logging_config import LoggingConfig
 
 
@@ -161,3 +162,132 @@ class TestRedactingFormatterUrls:
 
     def test_non_url_text_is_untouched(self):
         assert _formatted("connecting to the database") == "connecting to the database"
+
+
+DSN = "postgresql://user:pw@host/db"
+
+
+def _emit_through(console, message, args=None):
+    """Log *message* through a real configure_logging() handler and capture output.
+
+    Goes through ``configure_logging`` rather than a hand-built handler, because
+    which handler gets the redaction is exactly what regressed: the guarantee held
+    on the plain path and vanished when a console was passed.
+    """
+    import io
+
+    buffer = io.StringIO()
+    if console:
+        from rich.console import Console
+
+        configure_logging(verbosity=2, extra_namespaces=["probe"],
+                          console=Console(file=buffer, width=200, no_color=True, markup=False))
+    else:
+        configure_logging(verbosity=2, extra_namespaces=["probe"])
+        handler = logging.getLogger("probe").handlers[0]
+        handler.stream = buffer
+    logging.getLogger("probe").warning(message, *(args or ()))
+    return buffer.getvalue()
+
+
+class TestUrlRedactionIsHandlerIndependent:
+    """The same guarantee whichever handler is configured.
+
+    ``RichHandler`` renders the record itself, so the redaction cannot live in a
+    formatter: it held on ``StreamHandler`` and was bypassed entirely the moment a
+    caller passed ``console=``.
+    """
+
+    def setup_method(self):
+        _reset("probe")
+
+    def teardown_method(self):
+        _reset("probe")
+
+    @pytest.mark.parametrize("console", [False, True], ids=["stream", "rich"])
+    def test_dsn_password_is_masked(self, console):
+        output = _emit_through(console, "connecting to %s", (DSN,))
+        assert "user:pw@" not in output
+        assert "user:***@host/db" in output
+
+    @pytest.mark.parametrize("console", [False, True], ids=["stream", "rich"])
+    def test_query_values_are_masked(self, console):
+        output = _emit_through(console, "GET https://host/v1?api_key=abc&model=gpt")
+        assert "abc" not in output
+        assert "api_key=***" in output and "model=***" in output
+
+    @pytest.mark.parametrize("console", [False, True], ids=["stream", "rich"])
+    def test_ordinary_text_is_untouched(self, console):
+        output = _emit_through(console, "connecting to the vocabulary database")
+        assert "connecting to the vocabulary database" in output
+
+    @pytest.mark.parametrize("console", [False, True], ids=["stream", "rich"])
+    def test_a_deliberately_extracted_secret_is_not_caught(self, console):
+        """Both paths, so nobody closes this by adding a key-name rule to one."""
+        connection = ConnectionConfig(
+            dialect="postgresql+psycopg", host="h", user="u",
+            password="hunter2", database_name="omop",
+        )
+        output = _emit_through(console, "password=%s", (connection.password,))
+        assert "password=hunter2" in output
+
+    @pytest.mark.parametrize("console", [False, True], ids=["stream", "rich"])
+    def test_a_logged_config_object_is_safe_without_the_scrubber(self, console):
+        """Safety here comes from SecretSafeModel, not from this filter."""
+        connection = ConnectionConfig(
+            dialect="postgresql+psycopg", host="h", user="u",
+            password="pw-CANARY", database_name="omop",
+        )
+        assert "pw-CANARY" not in _emit_through(console, "%s", (connection,))
+        assert "pw-CANARY" not in _emit_through(console, "%r", (connection,))
+
+
+class TestRedactingFilter:
+    def test_it_is_installed_on_both_handler_types(self):
+        """Pins the mechanism, not just the outcome."""
+        _reset("probe")
+        configure_logging(verbosity=2, extra_namespaces=["probe"])
+        plain = logging.getLogger("probe").handlers[0]
+        assert any(isinstance(f, RedactingFilter) for f in plain.filters)
+
+        from rich.console import Console
+        _reset("probe")
+        configure_logging(verbosity=2, extra_namespaces=["probe"], console=Console())
+        rich_handler = logging.getLogger("probe").handlers[0]
+        assert any(isinstance(f, RedactingFilter) for f in rich_handler.filters)
+        _reset("probe")
+
+    def test_records_without_a_url_keep_their_lazy_args(self):
+        """Only a record that actually carried a URL is rewritten, so structured
+        handlers downstream still see the original fields."""
+        record = logging.LogRecord("t", logging.WARNING, "", 0, "count=%d", (3,), None)
+        RedactingFilter().filter(record)
+        assert record.args == (3,)
+        assert record.msg == "count=%d"
+
+    def test_a_record_carrying_a_url_is_rewritten_once(self):
+        record = logging.LogRecord("t", logging.WARNING, "", 0, "at %s", (DSN,), None)
+        f = RedactingFilter()
+        f.filter(record)
+        assert record.args is None
+        assert record.msg == "at postgresql://user:***@host/db"
+        f.filter(record)  # idempotent: a second handler with the same filter
+        assert record.msg == "at postgresql://user:***@host/db"
+
+    def test_the_traceback_is_scrubbed_too(self):
+        """Formatter.format() appends exc_text verbatim once it is set."""
+        try:
+            raise ValueError(f"could not connect: {DSN}")
+        except ValueError:
+            record = logging.LogRecord("t", logging.ERROR, "", 0, "failed", None,
+                                       __import__("sys").exc_info())
+        RedactingFilter().filter(record)
+        assert "user:pw@" not in record.exc_text
+        assert "user:***@host/db" in record.exc_text
+
+
+class TestRedactingFormatterStillWorks:
+    """Public API, retained for callers who wired it up directly."""
+
+    def test_it_shares_the_filter_s_scrubbing(self):
+        assert _formatted(DSN) == "postgresql://user:***@host/db"

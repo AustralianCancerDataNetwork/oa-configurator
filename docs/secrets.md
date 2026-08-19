@@ -51,7 +51,9 @@ So this leaks, and nothing will stop it:
 logger.debug("password=%s", connection.password)   # this is considered the responsibility of downstream consumers - if you ask to log a raw string like this, that's your explicit choice at that point
 ```
 
-`RedactingFormatter` covers one case none of the above reaches: a URL written into a log record by *another* library, such as a SQLAlchemy connection error echoing the DSN it was handed. Those bytes never pass through a config model, so it scrubs them with `safe_endpoint`. It does not attempt anything else.
+`configure_logging()` covers one case none of the above reaches: a URL written into a log record by *another* library, such as a SQLAlchemy connection error echoing the DSN it was handed. Those bytes never pass through a config model, so `RedactingFilter` scrubs them with `safe_endpoint` before the handler emits. It is installed on the handler, not the formatter, so the guarantee is the same whether you log through a plain stream or pass `console=` for Rich output, and replacing the formatter does not remove it. It does not attempt anything else.
+
+One gap worth knowing: with `console=`, Rich renders tracebacks from the exception object rather than from the formatted record, so a credential inside an *exception message* is scrubbed on the plain path but not in a Rich traceback.
 
 oa-configurator never logs a credential itself — its own resolver logs connections through `safe_url`.
 

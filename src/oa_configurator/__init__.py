@@ -43,6 +43,7 @@ from .refs import (
     SecretSafeModel,
     Sensitive,
     is_sensitive,
+    masked_json,
     safe_endpoint,
 )
 from .resolver import Resolver, ResolvedToolConfig
@@ -93,6 +94,7 @@ __all__ = [
     "get_logger",
     "is_sensitive",
     "load_stack_config",
+    "masked_json",
     "load_stack_config_from_path",
     "mismatched_kind_refs",
     "plan_configure",

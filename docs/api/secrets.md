@@ -47,6 +47,8 @@ for name, info in ConnectionConfig.model_fields.items():
 
 ::: oa_configurator.refs.SecretSafeModel
 
+::: oa_configurator.refs.masked_json
+
 Use `safe_endpoint()` for any URL-shaped value, `ProviderConfig.base_url` above all. For a database connection, [`ConnectionConfig.safe_url()`](resources.md) is the SQLAlchemy-specific equivalent.
 
 ```python

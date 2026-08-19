@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Annotated, Any
@@ -195,3 +196,47 @@ def _mask_query_values(query: str) -> str:
         key, eq, _value = param.partition("=")
         masked.append(f"{key}={MASK}" if eq else key)
     return "&".join(masked)
+
+
+def masked_json(model: BaseModel, *, exclude_none: bool = True, indent: int = 2) -> str:
+    """Serialize *model* to JSON for display, with every secret replaced by ``MASK``.
+
+    ``model_dump_json`` deliberately emits plaintext, because saving the config
+    depends on it. That makes it the wrong call for anything shown to a person:
+    ``omop-config show`` printed every password and API key in the stack straight
+    to the terminal, and into scrollback, screen shares and CI logs with it.
+
+    Masking the rendered structure rather than the model keeps the two concerns
+    apart -- serialization stays lossless, display stays safe -- and walking the
+    model alongside its dump means the decision still comes from
+    :func:`~oa_configurator.refs.is_sensitive` rather than from key names.
+    """
+    dumped = model.model_dump(mode="json", exclude_none=exclude_none)
+    _mask_dumped(model, dumped)
+    return json.dumps(dumped, indent=indent)
+
+
+def _mask_dumped(model: BaseModel, dumped: Any) -> None:
+    """Overwrite every sensitive field of *model* in its own ``model_dump`` result."""
+    if not isinstance(dumped, dict):
+        return
+    for name, info in type(model).model_fields.items():
+        if name not in dumped:
+            continue
+        if is_sensitive(info):
+            dumped[name] = MASK
+        else:
+            _mask_nested(getattr(model, name, None), dumped[name])
+
+
+def _mask_nested(value: Any, dumped: Any) -> None:
+    """Recurse into containers, pairing each live value with its dumped counterpart."""
+    if isinstance(value, BaseModel):
+        _mask_dumped(value, dumped)
+    elif isinstance(value, dict) and isinstance(dumped, dict):
+        for key, item in value.items():
+            if key in dumped:
+                _mask_nested(item, dumped[key])
+    elif isinstance(value, list | tuple) and isinstance(dumped, list):
+        for item, item_dumped in zip(value, dumped, strict=False):
+            _mask_nested(item, item_dumped)

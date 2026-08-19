@@ -16,21 +16,23 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from oa_configurator import (
+    MASK,
     CDMDatabaseConfig,
     ConnectionConfig,
     PackageConfigBase,
     ProviderConfig,
     Secret,
+    SecretSafeModel,
     SensitiveValueLeak,
     Sensitive,
     StackConfig,
     assert_no_sensitive_values_leak,
     is_sensitive,
+    masked_json,
     safe_endpoint,
     save_stack_config,
     write_env_file,
 )
-from oa_configurator.cli_support import masked_json
 from oa_configurator.resolver import Resolver
 
 
@@ -348,3 +350,62 @@ class TestDisplayPathsWeOwn:
         """The oracle every consuming package tests against. Pin it."""
         with pytest.raises(SensitiveValueLeak):
             assert_no_sensitive_values_leak(_stack(), f"password={CANARY}")
+
+
+class TestMaskedJson:
+    """Recursive masking, driven by the marker at every depth.
+
+    Lives beside ``SecretSafeModel`` in ``refs``: it is the JSON counterpart of the
+    same rule, not CLI behaviour. ``model_dump_json`` deliberately emits plaintext
+    because saving depends on it, so anything showing a config to a person needs
+    this instead.
+    """
+
+    def test_nested_models_are_masked(self):
+        rendered = masked_json(_stack())
+        assert CANARY not in rendered and KEY_CANARY not in rendered
+
+    def test_dictionaries_of_models_are_walked(self):
+        """Secrets live under `connections['cdm']`, two levels down."""
+        assert CANARY not in masked_json(_stack().connections["cdm"])
+        assert CANARY not in masked_json(_stack())
+
+    def test_lists_and_tuples_are_walked(self):
+        class Holder(SecretSafeModel):
+            entries: list[ConnectionConfig] = []
+
+        holder = Holder(entries=[_stack().connections["cdm"]])
+        assert CANARY not in masked_json(holder)
+
+    def test_free_form_mappings_are_preserved_not_masked(self):
+        """A dict of plain values has no field metadata, so nothing is guessed."""
+        rendered = masked_json(
+            ProviderConfig(provider="openai", base_url="https://h/v1", api_key=KEY_CANARY)
+        )
+        assert "https://h/v1" in rendered
+        assert KEY_CANARY not in rendered
+
+    def test_exclude_none_is_honoured(self):
+        connection = ConnectionConfig(dialect="sqlite", database_name=":memory:")
+        assert "port" not in masked_json(connection, exclude_none=True)
+        assert "port" in masked_json(connection, exclude_none=False)
+
+    def test_a_field_that_merely_looks_sensitive_is_not_masked(self):
+        """The name says secret; the declaration does not. The declaration wins."""
+
+        class Lookalike(SecretSafeModel):
+            password_policy: str = "rotate-90d"
+            api_key_name: str = "PROD_KEY"
+            token: str = "not-declared-sensitive"
+
+        rendered = masked_json(Lookalike())
+        assert "rotate-90d" in rendered
+        assert "PROD_KEY" in rendered
+        assert "not-declared-sensitive" in rendered
+        assert MASK not in rendered
+
+    def test_a_declared_secret_is_masked_whatever_it_is_called(self):
+        class OddlyNamed(SecretSafeModel):
+            innocuous: Secret = None
+
+        assert masked_json(OddlyNamed(innocuous="s3cret")) .count(MASK) == 1

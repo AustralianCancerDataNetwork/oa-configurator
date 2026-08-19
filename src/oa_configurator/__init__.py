@@ -18,7 +18,11 @@ from .domains.resources.schema import (
 )
 from .domains.vector_stores.schema import ResolvedVectorStore, VectorStoreConfig
 from .io import ConfigSaveError, FLAT_ENV_PATH, save_stack_config, write_env_file
-from .loader import DEFAULT_CONFIG_PATH, load_stack_config
+from .loader import (
+    DEFAULT_CONFIG_PATH,
+    load_stack_config,
+    load_stack_config_from_path,
+)
 from .logging_config import (
     LoggingConfig,
     RedactingFormatter,
@@ -29,9 +33,18 @@ from .package_base import (
     ConfigurationError,
     PackageConfigBase,
     PackageConfigValidationError,
+    StackConfigValidationError,
     plan_configure,
 )
-from .refs import MASK, RefTo, Secret, Sensitive, is_sensitive, safe_endpoint
+from .refs import (
+    MASK,
+    RefTo,
+    Secret,
+    SecretSafeModel,
+    Sensitive,
+    is_sensitive,
+    safe_endpoint,
+)
 from .resolver import Resolver, ResolvedToolConfig
 from .stack_config import (
     StackConfig,
@@ -68,9 +81,11 @@ __all__ = [
     "ResolvedVectorStore",
     "Role",
     "Secret",
+    "SecretSafeModel",
     "Sensitive",
     "SensitiveValueLeak",
     "StackConfig",
+    "StackConfigValidationError",
     "UnknownRefTarget",
     "VectorStoreConfig",
     "assert_no_sensitive_values_leak",
@@ -78,6 +93,7 @@ __all__ = [
     "get_logger",
     "is_sensitive",
     "load_stack_config",
+    "load_stack_config_from_path",
     "mismatched_kind_refs",
     "plan_configure",
     "safe_endpoint",

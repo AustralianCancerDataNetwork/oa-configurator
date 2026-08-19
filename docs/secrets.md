@@ -23,16 +23,37 @@ Packages that add their own configuration declare their own secrets the same way
 | `omop-config <section> list` | Declared secret fields show `***` when set and `-` when not; no value is printed |
 | `ResolvedConnection.safe_url` | Password replaced with `***`; the username is kept. The plaintext `.url` is used only to create the engine |
 | `safe_endpoint()` on any other URL | Password in the `user:password@host` part replaced with `***`, query-string *values* replaced with `***`, keys kept, fragments replaced with `#***` |
+| `repr()` / `str()` of any config object | Declared secret fields render as `***`, at any nesting depth |
+| `omop-config show` | Declared secret fields render as `***`; everything else is printed in full |
 
 Query-string values are masked without exception, including harmless ones, because working out which parameter is a credential would mean guessing. You still see which parameters are set: `?api-version=2024-02-01&api_key=sk-x` displays as `?api-version=***&api_key=***`.
 
 A fragment is masked whole rather than value-by-value, because it has no guaranteed `key=value` structure to take apart.
 
-## Log output is a backstop, not a guarantee
+Config objects are safe to log, print or interpolate. Every model masks its declared secrets in `repr` and `str`, at any depth, so all of these are safe:
 
-Log redaction works differently, and it is worth knowing where the line falls. A log message is free text, so there is no field for the formatter to consult — it can only match `key=value` pairs against a fixed list of credential-shaped key names (`password`, `secret`, `token`, and so on, exported as `logging_config.SENSITIVE_KEYS`). That list is not derived from the `Sensitive()` declaration and does not track it: a message reading `api_key=sk-x` is written out unchanged.
+```python
+logger.debug("%s", config)
+logger.debug("%r", config)
+print(config)
+raise ValueError(f"could not connect: {connection}")
+```
 
-oa-configurator never logs a credential itself — its own resolver logs connections through `safe_url`. Treat the formatter as a net for accidents, and do not interpolate configuration values into log messages.
+Reading a secret attribute returns the real value, because that is the only way it can reach SQLAlchemy, the `.env` writer and the TOML writer:
+
+```python
+connection.password        # 'hunter2' - real value
+```
+
+So this leaks, and nothing will stop it:
+
+```python
+logger.debug("password=%s", connection.password)   # this is considered the responsibility of downstream consumers - if you ask to log a raw string like this, that's your explicit choice at that point
+```
+
+`RedactingFormatter` covers one case none of the above reaches: a URL written into a log record by *another* library, such as a SQLAlchemy connection error echoing the DSN it was handed. Those bytes never pass through a config model, so it scrubs them with `safe_endpoint`. It does not attempt anything else.
+
+oa-configurator never logs a credential itself — its own resolver logs connections through `safe_url`.
 
 ## Credentials do not belong in `base_url`
 

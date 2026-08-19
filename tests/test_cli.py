@@ -22,7 +22,7 @@ from oa_configurator import (
     assert_no_sensitive_values_leak,
 )
 from oa_configurator.io import save_stack_config as _real_save_stack_config
-from oa_configurator.loader import _load_from_path
+from oa_configurator.loader import load_stack_config_from_path
 from oa_configurator.package_base import PackageConfigBase
 from oa_configurator.resolver import _resolve_ref
 
@@ -47,7 +47,7 @@ def isolated_config(tmp_path, monkeypatch):
     import oa_configurator.loader as loader_mod
 
     config_path = tmp_path / "config.toml"
-    load = lambda: _load_from_path(config_path)  # noqa: E731
+    load = lambda: load_stack_config_from_path(config_path)  # noqa: E731
     save = lambda config: _real_save_stack_config(config, path=config_path)  # noqa: E731
 
     monkeypatch.setattr(cli, "CONFIG_PATH", config_path)
@@ -95,7 +95,7 @@ class TestConnectionsAdd:
             ],
         )
         assert result.exit_code == 0, result.output
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert config.connections["cdm"].dialect == "sqlite"
         assert config.connections["cdm"].database_name == ":memory:"
 
@@ -145,7 +145,7 @@ class TestConnectionsAdd:
             cli.app, ["connections", "add", "cdm", "--host", "otherhost"]
         )
         assert result.exit_code == 0, result.output
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert config.connections["cdm"].dialect == "sqlite"
         assert config.connections["cdm"].host == "otherhost"
 
@@ -163,7 +163,7 @@ class TestConnectionsAdd:
             ],
         )
         assert result.exit_code == 0, result.output
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert config.connections["test_cdm"].test_only is True
 
     def test_test_only_flag_accepts_false_variants(self, isolated_config):
@@ -172,7 +172,7 @@ class TestConnectionsAdd:
             ["connections", "add", "cdm", "--dialect", "sqlite", "--test-only", "no"],
         )
         assert result.exit_code == 0, result.output
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert config.connections["cdm"].test_only is False
 
 
@@ -253,7 +253,7 @@ class TestDatabasesAdd:
             ],
         )
         assert result.exit_code == 0, result.output
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert config.databases["cdm_db"].connection == "cdm"
         assert config.databases["cdm_db"].schema_name == "omop"
 
@@ -269,7 +269,7 @@ class TestDatabasesAdd:
             ["databases", "add", "emb_db", "--kind", "generic", "--connection", "emb"],
         )
         assert result.exit_code == 0, result.output
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert config.databases["emb_db"].connection == "emb"
         assert config.databases["emb_db"].schema_name is None
 
@@ -301,7 +301,7 @@ class TestDatabasesAdd:
             ],
         )
         assert result.exit_code != 0
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert "cdm_db" not in config.databases
 
     def test_kind_change_refused_when_a_vector_store_depends_on_it(
@@ -328,7 +328,7 @@ class TestDatabasesAdd:
             ["databases", "add", "emb_db", "--kind", "cdm", "--connection", "c"],
         )
         assert result.exit_code != 0
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert isinstance(config.databases["emb_db"], GenericDatabaseConfig)
 
     def test_kind_change_warns_when_nothing_depends_on_it(self, isolated_config):
@@ -347,7 +347,7 @@ class TestDatabasesAdd:
         )
         assert result.exit_code == 0, result.output
         assert "was a GenericDatabaseConfig" in result.output
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert isinstance(config.databases["emb_db"], CDMDatabaseConfig)
 
     def test_cdm_only_flag_on_generic_kind_fails_instead_of_silently_dropping(
@@ -377,7 +377,7 @@ class TestDatabasesAdd:
         )
         assert result.exit_code != 0
         assert "vocab_connection" in result.output
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert "emb_db" not in config.databases
 
 
@@ -450,7 +450,7 @@ class TestProvidersAdd:
             ],
         )
         assert result.exit_code == 0, result.output
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert config.providers["local-ollama"].provider == "ollama"
         assert config.providers["local-ollama"].base_url == "http://localhost:11434"
         assert config.providers["local-ollama"].api_key is None
@@ -478,7 +478,7 @@ class TestProvidersAdd:
             cli.app, ["providers", "add", "p", "--api-key", "sk-test"]
         )
         assert result.exit_code == 0, result.output
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert config.providers["p"].provider == "ollama"
         assert config.providers["p"].api_key == "sk-test"
 
@@ -551,7 +551,7 @@ class TestModelsAdd:
             ],
         )
         assert result.exit_code == 0, result.output
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         model = config.models["nomic-embed"]
         assert model.provider == "p"
         assert model.model == "nomic-embed-text:v1.5"
@@ -578,7 +578,7 @@ class TestModelsAdd:
             ],
         )
         assert result.exit_code != 0
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert "m" not in config.models
 
     def test_update_preserves_existing_free_form_configuration(self, isolated_config):
@@ -603,7 +603,7 @@ class TestModelsAdd:
             cli.app, ["models", "add", "m", "--embedding-dim", "768"]
         )
         assert result.exit_code == 0, result.output
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert config.models["m"].configuration == {"max_tokens": 8000}
         assert config.models["m"].embedding_dim == 768
         assert config.models["m"].embeddings is True
@@ -637,7 +637,7 @@ class TestModelsAdd:
         assert "Invalid ModelConfig" in result.stderr
         assert "embedding_dim requires embeddings=true" in result.stderr
         assert "pydantic.dev" not in result.stderr  # no raw ValidationError rendering
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert "chat" not in config.models
 
     def test_field_level_validation_error_names_the_flag(self, isolated_config):
@@ -664,7 +664,7 @@ class TestModelsAdd:
         )
         assert result.exit_code == 1
         assert "--embedding-dim:" in result.stderr
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert "m" not in config.models
 
     def test_validation_error_is_reported_interactively_too(
@@ -815,7 +815,7 @@ class TestRunConfigurePackage:
         DemoConfig.run_configure(
             {"cdm_db": "cdm_db", "backend": "custom"}, interactive=False
         )
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert config.tools["demo_tool"]["cdm_db"] == "cdm_db"
         assert config.tools["demo_tool"]["backend"] == "custom"
 
@@ -876,7 +876,7 @@ class TestRunConfigurePackage:
 
         PortConfig.run_configure({"port": "9000"}, interactive=False)
 
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert config.tools["port_tool"]["port"] == 9000
         assert isinstance(config.tools["port_tool"]["port"], int)
 
@@ -891,7 +891,7 @@ class TestRunConfigurePackage:
 
         DemoConfig.run_configure({}, interactive=True)
 
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert config.tools["demo_tool"]["cdm_db"] == "cdm_db"
         assert "cdm_db" in config.databases
         database = config.databases["cdm_db"]
@@ -916,7 +916,7 @@ class TestRunConfigurePackage:
 
         DemoConfig.run_configure({}, interactive=True)
 
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert "secondary_db" not in config.tools["demo_tool"]
 
     def test_interactive_opts_into_optional_non_test_database(
@@ -936,7 +936,7 @@ class TestRunConfigurePackage:
 
         DemoConfig.run_configure({}, interactive=True)
 
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert config.tools["demo_tool"]["secondary_db"] == "cdm_db"
         conn_name = config.databases["cdm_db"].connection
         assert config.connections[conn_name].test_only is False
@@ -963,7 +963,7 @@ class TestRunConfigurePackage:
 
         DemoConfig.run_configure({}, interactive=True)
 
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         test_name = config.tools["demo_tool"]["test_cdm_db"]
         assert test_name in config.databases
         test_conn_name = config.databases[test_name].connection
@@ -1000,7 +1000,7 @@ class TestRunConfigurePackage:
         DemoConfig.run_configure({}, interactive=True)
 
         assert seen_defaults["backend"] == "first_value"
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert config.tools["demo_tool"]["backend"] == "second_value"
 
     def test_interactive_reconfigure_reprompts_refto_field_with_stored_default(
@@ -1036,7 +1036,7 @@ class TestRunConfigurePackage:
             seen_defaults["  Point to an existing entry, or 'new' to create one"]
             == "cdm_db"
         )
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert config.tools["demo_tool"]["cdm_db"] == "cdm_db"
 
     def test_non_interactive_one_shot_creates_database_and_connection(
@@ -1061,7 +1061,7 @@ class TestRunConfigurePackage:
             interactive=False,
         )
 
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         cdm_db_name = config.tools["demo_tool"]["cdm_db"]
         assert cdm_db_name in config.databases
         conn_name = config.databases[cdm_db_name].connection
@@ -1138,7 +1138,7 @@ class TestConfigureSetFlag:
             ],
         )
         assert result.exit_code == 0, result.output
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert config.tools["demo_tool"]["backend"] == "custom"
         cdm_db_name = config.tools["demo_tool"]["cdm_db"]
         assert cdm_db_name in config.databases
@@ -1189,7 +1189,7 @@ class TestConfigureSetFlag:
         )
         assert result.exit_code != 0
         assert "cdm_db" in result.output
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert config.databases["cdm_db_prod"].schema_name == "prod_omop"
         assert "cdm_db" not in config.databases
         assert "demo_tool" not in config.tools
@@ -1286,7 +1286,7 @@ class TestVectorStoresAdd:
             ],
         )
         assert result.exit_code == 0, result.output
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert config.vector_stores["vs"].backend_type == "pgvector"
         assert config.vector_stores["vs"].database == "emb_db"
 
@@ -1330,7 +1330,7 @@ class TestVectorStoresAdd:
             cli.app, ["vector-stores", "add", "vs", "--backend-type", "pgvector"]
         )
         assert result.exit_code == 0, result.output
-        config = _load_from_path(isolated_config)
+        config = load_stack_config_from_path(isolated_config)
         assert config.vector_stores["vs"].backend_type == "pgvector"
         assert config.vector_stores["vs"].database == "emb_db"
 

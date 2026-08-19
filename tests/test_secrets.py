@@ -16,13 +16,22 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from oa_configurator import (
+    CDMDatabaseConfig,
     ConnectionConfig,
+    PackageConfigBase,
     ProviderConfig,
     Secret,
+    SensitiveValueLeak,
     Sensitive,
+    StackConfig,
+    assert_no_sensitive_values_leak,
     is_sensitive,
     safe_endpoint,
+    save_stack_config,
+    write_env_file,
 )
+from oa_configurator.cli_support import masked_json
+from oa_configurator.resolver import Resolver
 
 
 class _Fields(BaseModel):
@@ -229,3 +238,113 @@ class TestProviderBaseUrlValidation:
         url = "https://host/v1?passwd=x"
         assert ProviderConfig(provider="vllm", base_url=url).base_url == url
         assert safe_endpoint(url) == "https://host/v1?passwd=***"
+
+
+CANARY = "pw-CANARY"
+KEY_CANARY = "sk-CANARY"
+
+
+def _stack() -> StackConfig:
+    return StackConfig.for_session(
+        connections={
+            "cdm": ConnectionConfig(
+                dialect="postgresql+psycopg", host="db.example", user="analyst",
+                password=CANARY, database_name="omop",
+            )
+        },
+        databases={"cdm": CDMDatabaseConfig(kind="cdm", connection="cdm", vocab_connection="cdm")},
+        providers={
+            "azure": ProviderConfig(
+                provider="openai", base_url="https://api.example.org/v1", api_key=KEY_CANARY,
+            )
+        },
+    )
+
+
+class ToolWithSecret(PackageConfigBase):
+    """A consuming package declaring its own secret, to prove inheritance."""
+
+    tool_name = "tool_with_secret"
+    endpoint: str = "https://svc.example"
+    api_token: Secret = None
+
+
+class TestRenderingIsSafeByDefault:
+    """Ordinary use of a config object must not expose a secret.
+
+    ``print(config)``, an f-string, a traceback rendering a local, an exception
+    message built from a config -- none of those are a decision to expose a
+    secret, so none of them may.
+    """
+
+    def test_repr_str_and_fstring_of_a_whole_stack_are_safe(self):
+        stack = _stack()
+        for rendered in (repr(stack), str(stack), f"{stack}"):
+            assert CANARY not in rendered
+            assert KEY_CANARY not in rendered
+
+    def test_masking_survives_nesting(self):
+        """Secrets live two levels down, in ``connections['cdm'].password``."""
+        stack = _stack()
+        assert CANARY not in repr(stack.connections)
+        assert CANARY not in repr(stack.connections["cdm"])
+
+    def test_an_exception_built_from_a_config_is_safe(self):
+        """The path no log formatter can reach."""
+        error = ValueError(f"could not connect: {_stack().connections['cdm']}")
+        assert CANARY not in str(error)
+
+    def test_a_consuming_packages_own_secret_is_masked_too(self):
+        """Inherited through PackageConfigBase, without the package doing anything."""
+        rendered = repr(ToolWithSecret(api_token="tool-CANARY"))
+        assert "tool-CANARY" not in rendered
+        assert "svc.example" in rendered
+
+    def test_non_secret_fields_are_not_redacted(self):
+        """The word list masked `base_url` for ending in `url`. Nothing does now."""
+        rendered = repr(_stack())
+        assert "api.example.org" in rendered
+        assert "db.example" in rendered
+        assert "analyst" in rendered
+
+
+class TestPlaintextStillReachesEverySink:
+    """The contract's deliberate other half: declared consumption returns the real
+    value. Every one of these would break silently under a ``SecretStr`` design."""
+
+    def test_attribute_access_returns_the_real_secret(self):
+        assert _stack().connections["cdm"].password == CANARY
+
+    def test_model_dump_round_trips(self):
+        stack = _stack()
+        assert StackConfig.model_validate(
+            stack.model_dump(mode="python")
+        ).connections["cdm"].password == CANARY
+
+    def test_the_written_config_file_carries_the_real_secret(self, tmp_path):
+        path = save_stack_config(_stack(), path=tmp_path / "config.toml")
+        assert CANARY in path.read_text()
+
+    def test_the_env_export_carries_the_real_secret(self, tmp_path):
+        path = write_env_file(Resolver(_stack()), path=tmp_path / "config.env")
+        assert f"_PASSWORD={CANARY}" in path.read_text()
+
+    def test_build_url_carries_the_real_secret(self):
+        assert CANARY in _stack().connections["cdm"].build_url()
+
+    def test_safe_url_still_does_not(self):
+        assert CANARY not in _stack().connections["cdm"].safe_url()
+
+
+class TestDisplayPathsWeOwn:
+    def test_show_does_not_print_secrets(self):
+        """`omop-config show` printed every credential in the stack as plaintext."""
+        rendered = masked_json(_stack())
+        assert CANARY not in rendered
+        assert KEY_CANARY not in rendered
+        assert "api.example.org" in rendered
+
+    def test_the_leak_detector_still_detects(self):
+        """The oracle every consuming package tests against. Pin it."""
+        with pytest.raises(SensitiveValueLeak):
+            assert_no_sensitive_values_leak(_stack(), f"password={CANARY}")

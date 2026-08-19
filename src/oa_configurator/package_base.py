@@ -36,10 +36,13 @@ In ``pyproject.toml``::
 from __future__ import annotations
 
 from collections.abc import Mapping
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Self
 
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 from pydantic_core import ErrorDetails, PydanticUndefined
+
+from .refs import SecretSafeModel
 
 if TYPE_CHECKING:
     from .stack_config import StackConfig
@@ -47,6 +50,33 @@ if TYPE_CHECKING:
 
 class ConfigurationError(ValueError):
     """Raised when a required database or connection is missing from the stack config."""
+
+
+def _sanitized_errors(validation_error: ValidationError) -> tuple[ErrorDetails, ...]:
+    """Pydantic error details with the rejected input and validator context dropped.
+    Error messages reach logs and CI output, so the value must never travel with the
+    diagnosis. What survives is the field location and the reason, which is what a
+    person needs to fix the file.
+    """
+    return tuple(
+        validation_error.errors(
+            include_url=False,
+            include_context=False,
+            include_input=False,
+        )
+    )
+
+
+def _describe_errors(errors: tuple[ErrorDetails, ...]) -> str:
+    """
+    Render sanitized errors as ``field.path: reason`` fragments.
+    """
+    problems = []
+    for error in errors:
+        location = ".".join(str(part) for part in error["loc"])
+        prefix = f"{location}: " if location else ""
+        problems.append(f"{prefix}{error['msg']}")
+    return "; ".join(problems)
 
 
 class PackageConfigValidationError(ConfigurationError):
@@ -59,26 +89,43 @@ class PackageConfigValidationError(ConfigurationError):
 
     def __init__(self, tool_name: str, validation_error: ValidationError) -> None:
         self.tool_name = tool_name
-        self._errors = tuple(
-            validation_error.errors(
-                include_url=False,
-                include_context=False,
-                include_input=False,
-            )
+        self._errors = _sanitized_errors(validation_error)
+        super().__init__(
+            f"Invalid [tools.{tool_name}]: " + _describe_errors(self._errors)
         )
-        problems = []
-        for error in self.errors():
-            location = ".".join(str(part) for part in error["loc"])
-            prefix = f"{location}: " if location else ""
-            problems.append(f"{prefix}{error['msg']}")
-        super().__init__(f"Invalid [tools.{tool_name}]: " + "; ".join(problems))
 
     def errors(self) -> list[ErrorDetails]:
         """Return locations and messages without rejected input or context."""
         return list(self._errors)
 
 
-class PackageConfigBase(BaseModel):
+class StackConfigValidationError(ConfigurationError):
+    """The config file parsed as TOML but failed :class:`StackConfig` validation.
+
+    Sibling of :class:`PackageConfigValidationError`, sharing its sanitising: a
+    stack config holds every connection password and API key in the deployment,
+    so this is the error most likely to be pasted into an issue or a CI log.
+    The message names the file and the offending field paths and nothing else.
+
+    Attributes
+    ----------
+    path : pathlib.Path
+        The file that failed to validate.
+    """
+
+    def __init__(self, path: Path, validation_error: ValidationError) -> None:
+        self.path = path
+        self._errors = _sanitized_errors(validation_error)
+        super().__init__(
+            f"Invalid stack config {path}: " + _describe_errors(self._errors)
+        )
+
+    def errors(self) -> list[ErrorDetails]:
+        """Return locations and messages without rejected input or context."""
+        return list(self._errors)
+
+
+class PackageConfigBase(SecretSafeModel):
     """Typed view over a package's ``[tools.<tool_name>]`` TOML section.
 
     Subclass this and declare typed fields for whatever this package needs.

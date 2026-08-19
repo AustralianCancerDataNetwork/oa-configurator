@@ -7,7 +7,9 @@ import re
 import sys
 from typing import Any, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import ConfigDict, Field, field_validator
+
+from .refs import MASK, SecretSafeModel, safe_endpoint
 
 _OWN_NAMESPACE = "oa_configurator"
 
@@ -16,20 +18,27 @@ _DATEFMT = "%Y-%m-%d %H:%M:%S"
 
 _VERBOSITY_LEVELS = {0: "WARNING", 1: "INFO", 2: "DEBUG"}
 
-SENSITIVE_KEYS: frozenset[str] = frozenset({
-    "dsn", "key", "passwd", "password", "secret", "token", "uri", "url",
-})
-
-_REDACT_RE = re.compile(
-    r"(?i)(\b(?:" + "|".join(re.escape(k) for k in sorted(SENSITIVE_KEYS)) + r")\b\s*[:=]\s*)\S+"
-)
+_URL_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
 
 
 class RedactingFormatter(logging.Formatter):
-    """Logging formatter that redacts sensitive key=value pairs from log messages."""
+    """Logging formatter that masks credentials in URLs written by other libraries.
+
+    Config objects are safe to log on their own account: every field declared
+    ``Sensitive()`` is masked in ``repr`` and ``str`` by
+    :class:`~oa_configurator.refs.SecretSafeModel`, so ``logger.info("%s", config)``
+    cannot expose one. 
+
+    It does not attempt to catch a caller who extracts a secret deliberately.
+    ``logger.info("password=%s", config.password)`` names the field and chooses to
+    log it at the caller's decision, which is not an accident this library can 
+    prevent without guessing.
+    """
 
     def format(self, record: logging.LogRecord) -> str:
-        return _REDACT_RE.sub(r"\1<REDACTED>", super().format(record))
+        return _URL_RE.sub(
+            lambda m: safe_endpoint(m.group(0)) or MASK, super().format(record)
+        )
 
 
 def _coerce_level(value: str) -> str:
@@ -41,7 +50,7 @@ def _coerce_level(value: str) -> str:
     return upper
 
 
-class LoggingConfig(BaseModel):
+class LoggingConfig(SecretSafeModel):
     """Logging overrides from the ``[logging]`` section of config.toml.
 
     ``level`` overrides the verbosity-derived level for all OMOP loggers.

@@ -8,6 +8,9 @@ import stat
 import tomllib
 from pathlib import Path
 
+from pydantic import ValidationError
+
+from .package_base import ConfigurationError, StackConfigValidationError
 from .stack_config import StackConfig
 
 logger = logging.getLogger(__name__)
@@ -110,14 +113,36 @@ def load_stack_config() -> StackConfig:
     FileNotFoundError
         If ``CONFIG_PATH`` does not exist.
     """
-    return _load_from_path(CONFIG_PATH)
+    return load_stack_config_from_path(CONFIG_PATH)
 
 
-def _load_from_path(path: str | Path) -> StackConfig:
+def load_stack_config_from_path(path: str | Path) -> StackConfig:
     """Load a :class:`StackConfig` from an explicit path.
 
-    Intended for CLI commands and tooling. Application code should use
-    :func:`load_stack_config` instead.
+    For anything that accepts a config path of its own -- a ``--config-path``
+    flag, a CLI command, a test fixture. Application code with no such flag
+    should use :func:`load_stack_config`, which reads ``CONFIG_PATH``.
+
+    Parameters
+    ----------
+    path : str or pathlib.Path
+        File to load. ``~`` is expanded and the path resolved.
+
+    Returns
+    -------
+    StackConfig
+        A deep copy, so a caller can mutate it without disturbing the cache
+        or any other holder.
+
+    Raises
+    ------
+    FileNotFoundError
+        If *path* does not exist.
+    ConfigurationError
+        If the file is not valid TOML, or does not validate as a
+        :class:`StackConfig`. Both carry the file path; the validation case
+        is a :class:`~oa_configurator.StackConfigValidationError` naming the
+        offending fields. Neither echoes a rejected value.
     """
     resolved_path = _normalize_path(path)
 
@@ -140,9 +165,14 @@ def _load_from_path(path: str | Path) -> StackConfig:
     try:
         data = tomllib.loads(resolved_path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as exc:
-        raise ValueError(f"Malformed TOML in {resolved_path}: {exc}") from exc
+        # tomllib reports a position ("at line 2, column 9"), never the offending
+        # text, so a malformed line holding a password cannot echo it here.
+        raise ConfigurationError(f"Malformed TOML in {resolved_path}: {exc}") from exc
 
-    config = StackConfig.model_validate(data)
+    try:
+        config = StackConfig.model_validate(data)
+    except ValidationError as exc:
+        raise StackConfigValidationError(resolved_path, exc) from None
     config.bind_loaded_path(resolved_path)
 
     _ConfigCache.put(resolved_path, st, config)

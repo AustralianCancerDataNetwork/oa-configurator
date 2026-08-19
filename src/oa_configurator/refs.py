@@ -68,12 +68,13 @@ def _iter_refs(cls: type[BaseModel]) -> Iterator[tuple[str, RefTo]]:
 def is_sensitive(info: Any) -> bool:
     """Whether a field carries the :class:`Sensitive` marker.
 
-    The stack's only runtime sensitivity predicate: masking a prompt, and
-    masking a field in anything that renders configuration, both consult this.
-    Free-text log scrubbing cannot -- a log message has no field to look up --
-    so :data:`~oa_configurator.logging_config.SENSITIVE_KEYS` stays a separate
-    key-name net, and call sites should keep config values out of log messages
-    rather than rely on it.
+    The stack's only runtime sensitivity predicate: masking a field in anything, 
+    rendering configuration, and :class:`SecretSafeModel`'s repr all consult this. 
+
+    What it cannot reach is free text, which has no field to look up. 
+    
+    :class:`~oa_configurator.logging_config.RedactingFormatter` is scoped to URLs
+    written by other libraries rather than trying to guess.
 
     Parameters
     ----------
@@ -90,6 +91,23 @@ def is_sensitive(info: Any) -> bool:
 
 MASK = "***"
 """Rendered in place of a secret value. Shared so displays match each other."""
+
+
+class SecretSafeModel(BaseModel):
+    """Base for config models: ``Sensitive()`` fields are masked in repr and str.
+
+    All config base classes must subclass this base, so that a ``PackageConfigBase`` 
+    subclass declaring its own ``Secret`` field inherits safe rendering automatically. 
+    """
+
+    def __repr_args__(self) -> Any:
+        fields = type(self).model_fields
+        for name, value in super().__repr_args__():
+            info = fields.get(name) if name is not None else None
+            if info is not None and value is not None and is_sensitive(info):
+                yield name, MASK
+            else:
+                yield name, value
 
 
 def safe_endpoint(url: str | None) -> str | None:

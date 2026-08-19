@@ -41,6 +41,12 @@ for name, info in ConnectionConfig.model_fields.items():
 
 ::: oa_configurator.refs.MASK
 
+## Making your own models safe to render
+
+`PackageConfigBase` already inherits `SecretSafeModel`, so a consuming package's config section is masked in `repr`/`str` without doing anything. Subclass it directly only for a *nested* model of your own that is not a `PackageConfigBase`.
+
+::: oa_configurator.refs.SecretSafeModel
+
 Use `safe_endpoint()` for any URL-shaped value, `ProviderConfig.base_url` above all. For a database connection, [`ConnectionConfig.safe_url()`](resources.md) is the SQLAlchemy-specific equivalent.
 
 ```python

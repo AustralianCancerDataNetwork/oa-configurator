@@ -18,4 +18,10 @@ Planning never reads or writes the active configuration file. The returned candi
 
 ::: oa_configurator.package_base.PackageConfigValidationError
 
+## Errors from the stack file itself
+
+`StackConfigValidationError` is the whole-file sibling of the above, raised by [`load_stack_config_from_path()`](loader.md) when a file parses as TOML but does not validate as a `StackConfig`. It sanitizes identically by providing field paths and reasons, never the rejected value, because a stack file holds every password and API key in the deployment.
+
+::: oa_configurator.package_base.StackConfigValidationError
+
 ::: oa_configurator.package_base.plan_configure

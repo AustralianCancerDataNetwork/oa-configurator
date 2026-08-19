@@ -111,6 +111,11 @@ def safe_endpoint(url: str | None) -> str | None:
       entirely is not an option (Azure OpenAI needs ``api-version``), and
       masking only the keys that look like secrets would be the guess this
       module exists to avoid.
+    - **Fragment** (``https://host/v1#access_token=abc``): masked whole, to
+      ``#***``. A fragment is never sent to the server, so nothing in an
+      endpoint's fragment is operationally meaningful, but the OAuth implicit
+      flow delivers access tokens like this, and a fragment has no guaranteed 
+      ``key=value`` structure to mask value-by-value. 
 
     Parameters
     ----------
@@ -137,7 +142,7 @@ def safe_endpoint(url: str | None) -> str | None:
             _mask_userinfo(parts.netloc),
             parts.path,
             _mask_query_values(parts.query),
-            parts.fragment,
+            MASK if parts.fragment else "",
         )
     )
 

@@ -22,9 +22,11 @@ Packages that add their own configuration declare their own secrets the same way
 | Interactive prompts | Declared secret fields are entered with the input hidden |
 | `omop-config <section> list` | Declared secret fields show `***` when set and `-` when not; no value is printed |
 | `ResolvedConnection.safe_url` | Password replaced with `***`; the username is kept. The plaintext `.url` is used only to create the engine |
-| `safe_endpoint()` on any other URL | Password in the `user:password@host` part replaced with `***`; every query-string *value* replaced with `***`, every key kept |
+| `safe_endpoint()` on any other URL | Password in the `user:password@host` part replaced with `***`, query-string *values* replaced with `***`, keys kept, fragments replaced with `#***` |
 
 Query-string values are masked without exception, including harmless ones, because working out which parameter is a credential would mean guessing. You still see which parameters are set: `?api-version=2024-02-01&api_key=sk-x` displays as `?api-version=***&api_key=***`.
+
+A fragment is masked whole rather than value-by-value, because it has no guaranteed `key=value` structure to take apart.
 
 ## Log output is a backstop, not a guarantee
 

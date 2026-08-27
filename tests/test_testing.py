@@ -1,6 +1,5 @@
 """Tests for oa_configurator.testing: isolated_test_database()'s field
-resolution and test_only enforcement, dialect dispatch, and the deprecated
-compatibility wrappers it's built on top of.
+resolution and test_only enforcement, and dialect dispatch.
 
 TestDatabaseStrategy._resolve_and_check(cls, field_name) is the one place
 every consumer routes through to resolve a test database. field_name is
@@ -17,7 +16,7 @@ silently pointing a destructive test suite at real data.
 
 from __future__ import annotations
 
-from typing import Annotated, ClassVar, cast
+from typing import Annotated, ClassVar
 
 import pytest
 
@@ -28,14 +27,8 @@ from oa_configurator import (
     RefTo,
     StackConfig,
 )
-from oa_configurator.testing import (
-    create_fresh_test_db,
-    drop_test_db,
-    isolated_test_database,
-    isolated_test_schema,
-    pytest_runtest_setup,
-    resolve_test_database,
-)
+from oa_configurator.config import OAConfiguratorConfig
+from oa_configurator.testing import isolated_test_database, isolated_test_schema
 from oa_configurator.testing.base import TestDatabaseStrategy
 
 
@@ -46,7 +39,7 @@ class DemoTestConfig(PackageConfigBase):
 
 class DemoTestConfigWithDefault(PackageConfigBase):
     """A test field with a real string default, distinct from its own
-    field name, to prove resolve_test_database uses the field's declared
+    field name, to prove _resolve_and_check uses the field's declared
     default rather than falling back to the field name itself."""
 
     tool_name: ClassVar[str] = "demo_test_default_tool"
@@ -67,156 +60,9 @@ def _stack_config(*, test_only: bool, tools: dict | None = None) -> StackConfig:
     )
 
 
-class TestResolveTestDatabase:
-    """resolve_test_database() is deprecated. Its only wrapper-specific
-    behavior, beyond delegating to _resolve_and_check() (covered directly by
-    TestResolveAndCheck below), is warning and returning a bare url string
-    instead of the resolved object. That is all this class checks."""
-
-    def test_warns_and_returns_the_connection_url(self, monkeypatch):
-        cfg = _stack_config(test_only=True)
-        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
-
-        with pytest.warns(DeprecationWarning, match="resolve_test_database"):
-            url = resolve_test_database(DemoTestConfig, "test_cdm_db")
-
-        assert url == "sqlite:///:memory:"
-
-
-class TestRefuseIfProduction:
-    """create_fresh_test_db/drop_test_db must refuse to touch a database
-    name that matches a non-test_only connection in the stack config, even
-    when that connection isn't the one being connected as, isn't wired to
-    any database entry, or is only reachable via a secondary field like
-    vocab_connection. The guard checks config.connections directly."""
-
-    def test_create_fresh_test_db_refuses_matching_production_connection(
-        self, monkeypatch
-    ):
-        cfg = StackConfig.for_session(
-            connections={
-                "prod": ConnectionConfig(
-                    dialect="postgresql+psycopg",
-                    host="dbhost",
-                    port=5432,
-                    database_name="shared_name",
-                    test_only=False,
-                ),
-            },
-        )
-        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
-
-        with pytest.warns(DeprecationWarning, match="create_fresh_test_db"):
-            with pytest.raises(RuntimeError, match="prod"):
-                create_fresh_test_db("postgresql+psycopg://user:pw@dbhost:5432/shared_name")
-
-    def test_drop_test_db_refuses_matching_production_connection(self, monkeypatch):
-        cfg = StackConfig.for_session(
-            connections={
-                "prod": ConnectionConfig(
-                    dialect="postgresql+psycopg",
-                    host="dbhost",
-                    port=5432,
-                    database_name="shared_name",
-                    test_only=False,
-                ),
-            },
-        )
-        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
-
-        with pytest.warns(DeprecationWarning, match="drop_test_db"):
-            with pytest.raises(RuntimeError, match="prod"):
-                drop_test_db("postgresql+psycopg://user:pw@dbhost:5432/shared_name")
-
-    def test_refuses_a_production_connection_not_referenced_by_any_database(
-        self, monkeypatch
-    ):
-        """The colliding connection isn't wired to a [databases.*] entry at
-        all. Deriving connections from config.databases (the old
-        behaviour) would have missed this entirely."""
-        cfg = StackConfig.for_session(
-            connections={
-                "orphan_prod": ConnectionConfig(
-                    dialect="postgresql+psycopg",
-                    host="dbhost",
-                    port=5432,
-                    database_name="vocab_name",
-                    test_only=False,
-                ),
-            },
-        )
-        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
-
-        with pytest.warns(DeprecationWarning, match="create_fresh_test_db"):
-            with pytest.raises(RuntimeError, match="orphan_prod"):
-                create_fresh_test_db("postgresql+psycopg://user:pw@dbhost:5432/vocab_name")
-
-
-class _FakeMarker:
-    def __init__(self, *args):
-        self.args = args
-
-
-class _FakeItem:
-    """Minimal stand-in for pytest.Item: only iter_markers is used by
-    pytest_runtest_setup."""
-
-    def __init__(self, *database_names: str):
-        self._markers = [_FakeMarker(name) for name in database_names]
-
-    def iter_markers(self, name):
-        return iter(self._markers) if name == "requires_database" else iter([])
-
-
-class TestRequiresDatabaseMarker:
-    """The requires_database marker must apply the same test_only safety
-    check as resolve_test_database, not just check the database resolves."""
-
-    def test_fails_when_database_is_not_test_only(self, monkeypatch):
-        cfg = StackConfig.for_session(
-            connections={
-                "prod": ConnectionConfig(
-                    dialect="sqlite", database_name=":memory:", test_only=False
-                )
-            },
-            databases={"prod_db": CDMDatabaseConfig(connection="prod")},
-        )
-        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
-
-        with pytest.warns(DeprecationWarning, match="requires_database"):
-            with pytest.raises(pytest.fail.Exception, match="test_only"):
-                pytest_runtest_setup(cast(pytest.Item, _FakeItem("prod_db")))
-
-    def test_skips_when_database_not_configured(self, monkeypatch):
-        monkeypatch.setattr(
-            "oa_configurator.loader.load_stack_config",
-            lambda: StackConfig.for_session(),
-        )
-
-        with pytest.warns(DeprecationWarning, match="requires_database"):
-            with pytest.raises(pytest.skip.Exception):
-                pytest_runtest_setup(cast(pytest.Item, _FakeItem("missing_db")))
-
-    def test_passes_when_test_only(self, monkeypatch):
-        cfg = StackConfig.for_session(
-            connections={
-                "test_conn": ConnectionConfig(
-                    dialect="sqlite", database_name=":memory:", test_only=True
-                )
-            },
-            databases={"test_db": CDMDatabaseConfig(connection="test_conn")},
-        )
-        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
-
-        with pytest.warns(DeprecationWarning, match="requires_database"):
-            pytest_runtest_setup(cast(pytest.Item, _FakeItem("test_db")))  # must not raise
-
-
 class TestIsolatedTestDatabase:
-    """isolated_test_database() is the canonical replacement for
-    resolve_test_database() plus a hand-built engine. It must enforce the
-    same test_only/skip/fail safety, plus actually hand back a working,
-    isolated connection/session pair."""
+    """isolated_test_database() must enforce test_only/skip/fail safety,
+    plus actually hand back a working, isolated connection/session pair."""
 
     def test_yields_a_working_connection_and_session(self, monkeypatch):
         cfg = _stack_config(test_only=True)
@@ -279,15 +125,82 @@ class TestIsolatedTestSchema:
             with isolated_test_schema(engine):
                 pass
 
+    def test_refuses_an_engine_matching_no_known_connection(self, monkeypatch):
+        """isolated_test_schema() creates and drops a real, committed
+        schema. An engine that doesn't match any connection in the active
+        config can't be verified test_only, so it must be refused outright,
+        not silently allowed through."""
+        import sqlalchemy as sa
+
+        monkeypatch.setattr(
+            "oa_configurator.loader.load_stack_config",
+            lambda: StackConfig.for_session(),
+        )
+
+        engine = sa.create_engine("postgresql+psycopg://user:pw@dbhost:5432/unknown_db")
+        with pytest.raises(pytest.fail.Exception, match="SAFETY ABORT"):
+            with isolated_test_schema(engine):
+                pass
+
+    def test_refuses_an_engine_matching_a_non_test_only_connection(self, monkeypatch):
+        cfg = StackConfig.for_session(
+            connections={
+                "prod": ConnectionConfig(
+                    dialect="postgresql+psycopg",
+                    host="dbhost",
+                    port=5432,
+                    database_name="prod_db",
+                    test_only=False,
+                )
+            },
+        )
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        import sqlalchemy as sa
+
+        engine = sa.create_engine("postgresql+psycopg://user:pw@dbhost:5432/prod_db")
+        with pytest.raises(pytest.fail.Exception, match="not marked test_only"):
+            with isolated_test_schema(engine):
+                pass
+
+    def test_creates_and_drops_a_real_schema_for_a_test_only_engine(self):
+        """A genuinely separate connection can see the schema while it exists, 
+        and it's gone once the context manager exits. Proves the real point of 
+        this mechanism, not just that it doesn't raise."""
+        import sqlalchemy as sa
+
+        resolved = TestDatabaseStrategy._resolve_and_check(
+            OAConfiguratorConfig, "test_postgres_db"
+        )
+        engine = resolved.create_engine()
+        other_engine = resolved.create_engine()
+        try:
+            with isolated_test_schema(engine, prefix="ttest") as schema:
+                with other_engine.connect() as conn:
+                    exists = conn.execute(
+                        sa.text(
+                            "SELECT 1 FROM information_schema.schemata WHERE schema_name = :s"
+                        ),
+                        {"s": schema},
+                    ).scalar()
+                assert exists == 1
+
+            with other_engine.connect() as conn:
+                exists_after = conn.execute(
+                    sa.text(
+                        "SELECT 1 FROM information_schema.schemata WHERE schema_name = :s"
+                    ),
+                    {"s": schema},
+                ).scalar()
+            assert exists_after is None
+        finally:
+            engine.dispose()
+            other_engine.dispose()
+
 
 class TestResolveAndCheck:
     """TestDatabaseStrategy._resolve_and_check() is the shared,
-    dialect-agnostic resolution step both isolated_test_database() and the
-    deprecated resolve_test_database() are built on. It is covered directly
-    here since it's the one place this logic actually lives now. (The
-    test_only-enforcement/skip-when-unconfigured behaviors also get
-    end-to-end coverage via isolated_test_database() itself, in
-    TestIsolatedTestDatabase below. They are not duplicated here.)"""
+    dialect-agnostic resolution step isolated_test_database() is built on."""
 
     def test_returns_resolved_database_object(self, monkeypatch):
         cfg = _stack_config(test_only=True)

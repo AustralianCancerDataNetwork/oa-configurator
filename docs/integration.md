@@ -175,8 +175,8 @@ def pg_db():
 
 For the rare case where the code under test constructs its own engine/connection and needs to see real, committed state (rather than the rolled-back transaction above), use `isolated_test_schema(engine)` instead (see `oa_configurator.testing`'s module docstring).
 
-!!! note "Migrating from `resolve_test_database`"
-    `resolve_test_database`/`ensure_test_db_exists`/`create_fresh_test_db`/`drop_test_db`/`ensure_test_user_exists`/`require_pg_extension` still work (now importable from `oa_configurator.testing`, deprecated) but no longer need to be called directly. `isolated_test_database()` provisions automatically and needs no manual teardown -> supported version for the future.
+!!! note "Migrating from `resolve_test_database` (removed in 2.0)"
+    `resolve_test_database`/`ensure_test_db_exists`/`create_fresh_test_db`/`drop_test_db`/`ensure_test_user_exists`/`require_pg_extension` and the `requires_database` pytest marker are removed as of 2.0. Replace any use of them with `isolated_test_database()`, which provisions automatically and needs no manual teardown.
 
 #### Provisioning the test database
 

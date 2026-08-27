@@ -1,7 +1,7 @@
 [project]
 name = "oa-configurator"
 dynamic = ["version"]
-description = "Prototype shared configuration layer for the OMOP-oriented stack."
+description = "Shared configuration and database-resolution layer for the OMOP-oriented stack."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

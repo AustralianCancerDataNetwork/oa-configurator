@@ -54,6 +54,28 @@ def _not_test_only_message(name: str, connection_name: str) -> str:
     )
 
 
+def _unknown_engine_message(safe_url: str) -> str:
+    return (
+        f"SAFETY ABORT: no connection in the active config matches {safe_url!r} "
+        "by host/database/port.\n"
+        "  Refusing to use it with isolated_test_schema(), since this creates and drops"
+        " a real, committed schema and can only be verified test_only=true against a"
+        " known connection.\n"
+        "  Run: omop-config connections add <name> ... --test-only true"
+    )
+
+
+def _engine_not_test_only_message(connection_name: str) -> str:
+    return (
+        f"SAFETY ABORT: this engine matches connection {connection_name!r}, which is"
+        " not marked test_only=true.\n"
+        "  Refusing to use it with isolated_test_schema(), since this creates and drops"
+        " a real, committed schema and could destroy real data if pointed at production.\n"
+        f"  Run: omop-config connections add {connection_name} ... --test-only true"
+        " (or mark the existing connection test_only=true directly in config.toml)"
+    )
+
+
 class TestDatabaseStrategy(ABC):
     """Per-dialect isolation strategy for test-database provisioning."""
 
@@ -92,6 +114,43 @@ class TestDatabaseStrategy(ABC):
         if not resolver.config.connections[connection_name].test_only:
             pytest.fail(_not_test_only_message(name, connection_name))
         return resolved
+
+    @staticmethod
+    def _require_test_only_engine(engine: Engine) -> None:
+        """Refuse to use *engine* with ``isolated_test_schema()`` unless it
+        matches a ``test_only=true`` connection in the active config.
+
+        Unlike ``isolated_database()``, this path is handed an already-built
+        engine directly, not a config field name, so there's nothing to
+        resolve through ``_resolve_and_check()``. The engine's own URL is
+        matched against ``config.connections`` by host/database/port
+        instead, applying the same safety posture: refuse by default,
+        require a positive, known, test_only match before creating a real,
+        committed schema.
+        """
+        from ..loader import load_stack_config
+
+        url = engine.url
+        safe_url = url.render_as_string(hide_password=True)
+        try:
+            config = load_stack_config()
+        except FileNotFoundError:
+            pytest.fail(_unknown_engine_message(safe_url))
+
+        match = next(
+            (
+                name
+                for name, conn in config.connections.items()
+                if conn.host == url.host
+                and conn.database_name == url.database
+                and conn.port == url.port
+            ),
+            None,
+        )
+        if match is None:
+            pytest.fail(_unknown_engine_message(safe_url))
+        if not config.connections[match].test_only:
+            pytest.fail(_engine_not_test_only_message(match))
 
     @abstractmethod
     def isolated_database(

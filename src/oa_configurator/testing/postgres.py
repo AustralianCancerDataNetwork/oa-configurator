@@ -1,10 +1,4 @@
-"""PostgreSQL test-database provisioning strategy.
-
-Every non-destructive admin/DDL operation the old flat ``pytest_plugin.py``
-exposed as standalone functions lives here now, as private methods -- this
-class is the one place PostgreSQL test-database lifecycle logic lives, not
-a class that calls out to functions scattered elsewhere.
-"""
+"""PostgreSQL test-database provisioning strategy."""
 
 from __future__ import annotations
 
@@ -74,27 +68,6 @@ class PostgresTestStrategy(TestDatabaseStrategy):
         """
         base = self._find_admin_url(test_url.host) or test_url
         return sa.create_engine(base.set(database="postgres"), isolation_level="AUTOCOMMIT")
-
-    def _refuse_if_production(self, target: sa.URL) -> None:
-        """Abort if target's host/database name/port match a non-test_only
-        connection in the stack config, regardless of how that connection is
-        (or isn't) wired to a database entry."""
-        if target.database is None:
-            return
-        from ..loader import load_stack_config
-        from ..resolver import _find_production_collision
-
-        try:
-            config = load_stack_config()
-        except (FileNotFoundError, ValueError):
-            return
-        match = _find_production_collision(target.host, target.database, target.port, config)
-        if match is not None:
-            raise RuntimeError(
-                f"SAFETY ABORT: refusing to drop/recreate database {target.database!r} on "
-                f"{target.host!r}: it matches the non-test connection {match!r} in the stack "
-                f"config. This would destroy production data."
-            )
 
     # -- non-destructive provisioning (idempotent, safe under concurrency) --
 
@@ -195,77 +168,6 @@ class PostgresTestStrategy(TestDatabaseStrategy):
         finally:
             ext_engine.dispose()
 
-    # -- destructive provisioning (kept for the deprecated public wrappers;
-    #    isolated_database() itself, below, is non-destructive) --------------
-
-    def _create_fresh_test_db(self, url: str | sa.URL, *, extensions: Sequence[str] = ()) -> sa.URL:
-        """Drop and recreate the target database; returns the target sa.URL."""
-        target = sa.engine.make_url(url)
-        db_name = target.database
-        if db_name is None:
-            return target
-        self._refuse_if_production(target)
-        admin = self._admin_engine(target)
-        try:
-            with admin.connect() as conn:
-                conn.execute(sa.text(_pg_ddl("DROP DATABASE IF EXISTS {}", _pg_ident(db_name))))
-                owner = target.username or "postgres"
-                conn.execute(
-                    sa.text(
-                        _pg_ddl(
-                            "CREATE DATABASE {} OWNER {}",
-                            _pg_ident(db_name),
-                            _pg_ident(owner),
-                        )
-                    )
-                )
-        finally:
-            admin.dispose()
-        self._install_extensions(target, extensions)
-        return target
-
-    def _drop_test_db(self, url: str | sa.URL) -> None:
-        """Terminate open connections and drop the target database."""
-        target = sa.engine.make_url(url)
-        db_name = target.database
-        if db_name is None:
-            return
-        self._refuse_if_production(target)
-        admin = self._admin_engine(target)
-        try:
-            with admin.connect() as conn:
-                conn.execute(
-                    sa.text(
-                        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity"
-                        " WHERE datname = :n AND pid <> pg_backend_pid()"
-                    ),
-                    {"n": db_name},
-                )
-                conn.execute(sa.text(_pg_ddl("DROP DATABASE IF EXISTS {}", _pg_ident(db_name))))
-        finally:
-            admin.dispose()
-
-    def _require_pg_extension(self, db_url: str | sa.URL, extension: str) -> None:
-        """Skip the test session if a required PostgreSQL extension is not installed."""
-        target = sa.engine.make_url(db_url)
-        engine = sa.create_engine(target)
-        try:
-            with engine.connect() as conn:
-                installed = conn.execute(
-                    sa.text("SELECT 1 FROM pg_extension WHERE extname = :n"),
-                    {"n": extension},
-                ).scalar()
-        finally:
-            engine.dispose()
-        if not installed:
-            import pytest
-
-            pytest.skip(
-                f"PostgreSQL extension {extension!r} is not installed in "
-                f"{target.database!r}. Pre-install it via a container init script "
-                f"or run: psql -U postgres -c 'CREATE EXTENSION {extension}'"
-            )
-
     # -- TestDatabaseStrategy interface --------------------------------------
 
     @contextmanager
@@ -300,6 +202,7 @@ class PostgresTestStrategy(TestDatabaseStrategy):
 
     @contextmanager
     def temporary_schema(self, engine: sa.Engine, *, prefix: str = "test") -> Iterator[str]:
+        self._require_test_only_engine(engine)
         schema = f"{prefix}_{uuid.uuid4().hex[:12]}"
         with engine.begin() as conn:
             conn.execute(sa.text(_pg_ddl("CREATE SCHEMA {}", _pg_ident(schema))))

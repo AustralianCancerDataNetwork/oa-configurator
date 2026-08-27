@@ -1,6 +1,6 @@
 """SQLite test-database provisioning strategy.
 
-Isolation is already free here -- every call gets a brand-new, disposable
+Isolation is already free here. Every call gets a brand-new, disposable
 file database, so there's nothing shared to protect and no savepoint
 wrapping is needed (unlike Postgres, whose ``isolated_database()`` has to isolate
 against a persistent, shared server). Same public interface either way
@@ -34,7 +34,7 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
         extensions: Sequence[str] = (),
         **engine_kwargs: object,
     ) -> Iterator[IsolatedTestDatabase]:
-        # extensions is a Postgres-only concept (pgvector etc.) -- accepted
+        # extensions is a Postgres-only concept (pgvector etc.). Accepted
         # and silently ignored here so callers don't need dialect-specific
         # branching just to call isolated_test_database() uniformly.
         with tempfile.TemporaryDirectory() as tmp_dir:

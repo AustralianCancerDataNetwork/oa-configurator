@@ -9,8 +9,8 @@ for everything that's genuinely dialect-agnostic, via the parametrized
 MockConnection.schema_for_object ignores schema_translate_map entirely,
 which would make a test pass whether or not translation actually works.
 
-Only ensure_schema keeps separate, dialect-conditional test classes --
-sqlite and Postgres genuinely behave differently there (no-op vs real DDL),
+Only ensure_schema keeps separate, dialect-conditional test classes.
+Sqlite and Postgres genuinely behave differently there (no-op vs real DDL),
 which is the one place these primitives branch on dialect at all.
 
 Rule: no test reads from ~/.config/omop/ directly (see conftest.py).
@@ -50,7 +50,7 @@ DIALECTS = ["sqlite", "postgres"]
 @pytest.fixture(params=DIALECTS)
 def engine(request):
     """A real engine per dialect, execution_options carrying an arbitrary
-    schema_translate_map. The schema doesn't need to really exist -- these
+    schema_translate_map. The schema doesn't need to really exist. These
     primitives never query it, only read/build the dict and quote names."""
     if request.param == "sqlite":
         cfg = StackConfig.for_session(
@@ -204,7 +204,7 @@ class TestSchemaInspect:
     def test_delegates_unwrapped_methods_to_the_real_inspector(self, probe_table):
         conn, schema, _table_name = probe_table
         bound = schema_inspect(conn, schema=schema)
-        bound.clear_cache()  # no schema-aware wrapper exists for this -- must not raise
+        bound.clear_cache()  # no schema-aware wrapper exists for this, must not raise
 
 
 class TestAutocommitConnection:
@@ -231,7 +231,7 @@ class TestAutocommitConnection:
 
 
 class TestEnsureSchemaSqlite:
-    """sqlite has no schema DDL at all -- every call is a no-op, regardless
+    """sqlite has no schema DDL at all. Every call is a no-op, regardless
     of *why* (arbitrary name, None, or "public"), covering the two distinct
     early-return branches ensure_schema has."""
 
@@ -263,7 +263,7 @@ class TestEnsureSchemaSqlite:
 
 
 class TestEnsureSchemaPostgres:
-    """Real CREATE SCHEMA DDL and transaction participation -- the one
+    """Real CREATE SCHEMA DDL and transaction participation. The one
     ensure_schema() branch sqlite structurally can't reach."""
 
     @pytest.fixture
@@ -273,7 +273,7 @@ class TestEnsureSchemaPostgres:
 
     def test_with_connection_participates_in_callers_transaction(self, pg_db):
         """Given a Connection, must not open a nested transaction of its
-        own -- a rollback on the caller's transaction has to take the new
+        own. A rollback on the caller's transaction has to take the new
         schema with it."""
         schema = f"test_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection

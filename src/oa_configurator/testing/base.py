@@ -2,7 +2,7 @@
 
 Add a new dialect by subclassing :class:`TestDatabaseStrategy` (two
 abstract methods) and registering it in ``testing/__init__.py``'s dispatch
-table -- no other code changes.
+table. No other code changes are needed.
 """
 
 from __future__ import annotations
@@ -26,8 +26,8 @@ if TYPE_CHECKING:
 class IsolatedTestDatabase:
     """An isolated database resource scoped to one test.
 
-    ``.connection`` and ``.session`` share the same underlying transaction --
-    pick whichever fits (Core vs. ORM) for a given test, never mix a
+    ``.connection`` and ``.session`` share the same underlying transaction.
+    Pick whichever fits (Core vs. ORM) for a given test, never mix a
     different one in alongside them.
     """
 

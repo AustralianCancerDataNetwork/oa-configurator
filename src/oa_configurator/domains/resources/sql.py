@@ -134,7 +134,7 @@ class SchemaBoundInspector:
         table_name : str
             Table to look up.
         schema : str, None, or ..., optional
-            Per-call override of ``self._schema`` -- see :class:`SchemaBoundInspector`.
+            Per-call override of ``self._schema``. See :class:`SchemaBoundInspector`.
 
         Returns
         -------
@@ -151,7 +151,7 @@ class SchemaBoundInspector:
         table_name : str
             Table to reflect.
         schema : str, None, or ..., optional
-            Per-call override of ``self._schema`` -- see :class:`SchemaBoundInspector`.
+            Per-call override of ``self._schema``. See :class:`SchemaBoundInspector`.
         **kwargs
             Forwarded to ``Inspector.get_columns``.
 
@@ -172,7 +172,7 @@ class SchemaBoundInspector:
         table_name : str
             Table to reflect.
         schema : str, None, or ..., optional
-            Per-call override of ``self._schema`` -- see :class:`SchemaBoundInspector`.
+            Per-call override of ``self._schema``. See :class:`SchemaBoundInspector`.
         **kwargs
             Forwarded to ``Inspector.get_indexes``.
 
@@ -191,7 +191,7 @@ class SchemaBoundInspector:
         Parameters
         ----------
         schema : str, None, or ..., optional
-            Per-call override of ``self._schema`` -- see :class:`SchemaBoundInspector`.
+            Per-call override of ``self._schema``. See :class:`SchemaBoundInspector`.
         **kwargs
             Forwarded to ``Inspector.get_table_names``.
 

@@ -99,7 +99,7 @@ class ConnectionConfig(BaseModel):
             if not self.database_name:
                 raise ValueError(
                     "ConnectionConfig has no `database_name` set for a sqlite dialect and no"
-                    " longer defaults to ':memory:'. Set `database_name` explicitly -- pass"
+                    " longer defaults to ':memory:'. Set `database_name` explicitly, passing"
                     " ':memory:' if that's actually what you want."
                 )
             return URL.create(drivername=self.dialect, database=self.database_name)

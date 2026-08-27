@@ -41,7 +41,7 @@ postgres = [
 omop-config = "oa_configurator.cli:app"
 
 [project.entry-points.pytest11]
-oa_configurator = "oa_configurator.pytest_plugin"
+oa_configurator = "oa_configurator.testing"
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]

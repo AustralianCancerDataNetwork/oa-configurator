@@ -157,21 +157,26 @@ For tests that exercise a real database (e.g. PostgreSQL-specific SQL, bulk load
 
 The convention is `test_<package>_db` (e.g. `test_cdm_db` for omop-alchemy) for readability, but what actually marks a field as a test field is `RefTo(CDMDatabaseConfig, is_test=True)` (or `RefTo(GenericDatabaseConfig, is_test=True)`, whichever kind the package's real database is). The field's own Python name carries no meaning to `oa-configurator` itself. Keeping the *value* distinct from the production database (`cdm_db`) is still a mandatory safety guard: the test suite must never accidentally connect to a production database.
 
-In `conftest.py`, resolve the test database via the `resolve_test_database` pytest-plugin helper, which skips cleanly whether `config.toml` is entirely missing or simply doesn't have this database configured yet:
+In `conftest.py`, resolve the test database via the `isolated_test_database()` context manager, which skips cleanly whether `config.toml` is entirely missing or simply doesn't have this database configured yet, provisions it if needed, and yields an already-isolated `.connection`/`.session` pair. 
+- Postgres wraps the whole thing in one transaction that's rolled back on exit (nothing your test does ever commits, so concurrent test runs against the same shared server can't collide);
+- SQLite gets a fresh, disposable database per call:
 
 ```python
-@pytest.fixture(scope="session")
-def pg_engine():
-    from oa_configurator.pytest_plugin import resolve_test_database
+@pytest.fixture
+def pg_db():
+    from oa_configurator.testing import isolated_test_database
     from my_package.config import MyPackageConfig
 
-    url = resolve_test_database(MyPackageConfig, "test_cdm_db")
-    engine = sa.create_engine(url, future=True)
-    yield engine
-    engine.dispose()
+    with isolated_test_database(MyPackageConfig, "test_cdm_db") as db:
+        yield db  # db.connection (Core) / db.session (ORM)
 ```
 
-`resolve_test_database(cls, field_name)` always takes the field name explicitly, with no auto-discovery, so it resolves without requiring the rest of your package's config (e.g. a required `cdm_db` field) to also be configured. That's deliberate on both counts: a CI runner that only provisions a test database shouldn't need a "production" database configured just to find it, and a class with more than one `is_test=True` field (e.g. one per backend) would otherwise have no way to say which one a caller means.
+`isolated_test_database(cls, field_name)` always takes the field name explicitly, with no auto-discovery, so it resolves without requiring the rest of your package's config (e.g. a required `cdm_db` field) to also be configured. That's deliberate on both counts: a CI runner that only provisions a test database shouldn't need a "production" database configured just to find it, and a class with more than one `is_test=True` field (e.g. one per backend) would otherwise have no way to say which one a caller means.
+
+For the rare case where the code under test constructs its own engine/connection and needs to see real, committed state (rather than the rolled-back transaction above), use `isolated_test_schema(engine)` instead (see `oa_configurator.testing`'s module docstring).
+
+!!! note "Migrating from `resolve_test_database`"
+    `resolve_test_database`/`ensure_test_db_exists`/`create_fresh_test_db`/`drop_test_db`/`ensure_test_user_exists`/`require_pg_extension` still work (now importable from `oa_configurator.testing`, deprecated) but no longer need to be called directly. `isolated_test_database()` provisions automatically and needs no manual teardown -> supported version for the future.
 
 #### Provisioning the test database
 

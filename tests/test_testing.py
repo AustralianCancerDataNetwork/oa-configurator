@@ -1,18 +1,18 @@
-"""Tests for pytest_plugin.py: resolve_test_database's field resolution and
-test_only enforcement.
+"""Tests for oa_configurator.testing: isolated_test_database()'s field
+resolution and test_only enforcement, dialect dispatch, and the deprecated
+compatibility wrappers it's built on top of.
 
-resolve_test_database(cls, field_name) is the one place every consumer
-routes through to get a test database's connection URL. field_name is
+TestDatabaseStrategy._resolve_and_check(cls, field_name) is the one place
+every consumer routes through to resolve a test database. field_name is
 always explicit: a class may eventually have more than one
 RefTo(CDMDatabaseConfig, is_test=True) field (e.g. one per backend), and
 there is no way to guess which one a caller wants, so the caller always
-names it. resolve_test_database does two things: resolves the named
-field's configured value (tolerating the rest of the class being
-unconfigured, see its own docstring for why), and enforces that the
-resolved connection is actually marked test_only=true, refusing to resolve
-otherwise. That second part is load-bearing: it's the only thing stopping a
-misconfigured test field from silently pointing a destructive test suite at
-real data.
+names it. It does two things: resolves the named field's configured value
+(tolerating the rest of the class being unconfigured, see its own docstring
+for why), and enforces that the resolved connection is actually marked
+test_only=true, refusing to resolve otherwise. That second part is
+load-bearing: it's the only thing stopping a misconfigured test field from
+silently pointing a destructive test suite at real data.
 """
 
 from __future__ import annotations
@@ -28,12 +28,15 @@ from oa_configurator import (
     RefTo,
     StackConfig,
 )
-from oa_configurator.pytest_plugin import (
+from oa_configurator.testing import (
     create_fresh_test_db,
     drop_test_db,
+    isolated_test_database,
+    isolated_test_schema,
     pytest_runtest_setup,
     resolve_test_database,
 )
+from oa_configurator.testing.base import TestDatabaseStrategy
 
 
 class DemoTestConfig(PackageConfigBase):
@@ -286,3 +289,83 @@ class TestRequiresDatabaseMarker:
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
 
         pytest_runtest_setup(cast(pytest.Item, _FakeItem("test_db")))  # must not raise
+
+
+class TestIsolatedTestDatabase:
+    """isolated_test_database() is the canonical replacement for
+    resolve_test_database() + a hand-built engine -- it must enforce the
+    same test_only/skip/fail safety, plus actually hand back a working,
+    isolated connection/session pair."""
+
+    def test_yields_a_working_connection_and_session(self, monkeypatch):
+        cfg = _stack_config(test_only=True)
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        with isolated_test_database(DemoTestConfig, "test_cdm_db") as db:
+            assert db.connection.execute(pytest.importorskip("sqlalchemy").text("SELECT 1")).scalar() == 1
+            assert db.session.connection() is db.connection
+
+    def test_fails_loudly_when_connection_is_not_test_only(self, monkeypatch):
+        cfg = _stack_config(test_only=False)
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        with pytest.raises(pytest.fail.Exception, match="SAFETY ABORT"):
+            with isolated_test_database(DemoTestConfig, "test_cdm_db"):
+                pass
+
+    def test_skips_when_database_is_not_configured(self, monkeypatch):
+        cfg = StackConfig.for_session()
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        with pytest.raises(pytest.skip.Exception):
+            with isolated_test_database(DemoTestConfig, "test_cdm_db"):
+                pass
+
+    def test_unregistered_dialect_raises_not_implemented_error(self, monkeypatch):
+        """A dialect with no registered TestDatabaseStrategy (e.g. mssql, in
+        this codebase today) must fail clearly, naming what IS supported --
+        not silently pick the wrong strategy or crash obscurely."""
+        cfg = StackConfig.for_session(
+            connections={
+                "test_mssql": ConnectionConfig(
+                    dialect="mssql+pyodbc",
+                    host="dbhost",
+                    database_name="test_db",
+                    test_only=True,
+                )
+            },
+            databases={"test_cdm_db": CDMDatabaseConfig(connection="test_mssql")},
+        )
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        with pytest.raises(NotImplementedError, match="mssql"):
+            with isolated_test_database(DemoTestConfig, "test_cdm_db"):
+                pass
+
+
+class TestIsolatedTestSchema:
+    """The narrow, real-commit exception path -- SQLite has no schema
+    concept, so it must refuse clearly rather than pretend to support it."""
+
+    def test_sqlite_raises_not_implemented(self):
+        import sqlalchemy as sa
+
+        engine = sa.create_engine("sqlite:///:memory:")
+        with pytest.raises(NotImplementedError, match="no schema concept"):
+            with isolated_test_schema(engine):
+                pass
+
+
+class TestResolveAndCheck:
+    """TestDatabaseStrategy._resolve_and_check() is the shared,
+    dialect-agnostic resolution step both isolated_test_database() and the
+    deprecated resolve_test_database() are built on -- covered directly
+    here since it's the one place this logic actually lives now."""
+
+    def test_returns_resolved_database_object(self, monkeypatch):
+        cfg = _stack_config(test_only=True)
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        resolved = TestDatabaseStrategy._resolve_and_check(DemoTestConfig, "test_cdm_db")
+
+        assert resolved.connection.url == "sqlite:///:memory:"

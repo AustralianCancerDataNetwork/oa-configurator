@@ -43,6 +43,9 @@ omop-config = "oa_configurator.cli:app"
 [project.entry-points.pytest11]
 oa_configurator = "oa_configurator.testing"
 
+[project.entry-points."omop.config"]
+oa_configurator = "oa_configurator.config:OAConfiguratorConfig"
+
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"

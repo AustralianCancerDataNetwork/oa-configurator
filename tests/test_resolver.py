@@ -406,13 +406,13 @@ class TestResolveVectorStore:
 
 
 class TestSchemaTranslateMap:
-    def test_no_results_schema(self, minimal_stack):
+    def test_results_schema_defaults_to_cdm(self, minimal_stack):
         r = Resolver(minimal_stack)
         res = r.resolve_database("default")
         assert isinstance(res, ResolvedCDMDatabase)
         stm = res.schema_translate_map()
         assert stm[None] == "omop"
-        assert "results" not in stm
+        assert stm["results"] == "omop"
 
     def test_with_all_schemas(self, pg_stack):
         r = Resolver(pg_stack)
@@ -463,6 +463,24 @@ class TestCreateEngine:
         res = r.resolve_database("default")
         engine = res.create_engine()
         assert engine.dialect.name == "sqlite"
+
+
+class TestPoolPrePing:
+    def test_defaults_to_true(self, minimal_stack):
+        target = Resolver(minimal_stack).resolve_connection("db")
+        engine = target.create_engine()
+        try:
+            assert engine.pool._pre_ping is True
+        finally:
+            engine.dispose()
+
+    def test_overridable(self, minimal_stack):
+        target = Resolver(minimal_stack).resolve_connection("db")
+        engine = target.create_engine(pool_pre_ping=False)
+        try:
+            assert engine.pool._pre_ping is False
+        finally:
+            engine.dispose()
 
 
 class TestWithOverrides:

@@ -108,8 +108,14 @@ class TestDatabaseStrategy(ABC):
         self, engine: Engine, *, prefix: str = "test"
     ) -> AbstractContextManager[str]:
         """Yield a uniquely-named, genuinely-committed schema, dropped on exit.
+        The schema itself is created empty. Filling it with data is the
+        caller's job, done inside the ``with`` block, using its own
+        connection. The point is that this is a real commit, not a
+        rollback-only transaction, so a separate connection can see it too.
+        That separate connection is normally not the test's own, but one
+        built internally by the code under test.
 
-        For the rare case where the code under test constructs its own
-        engine/connection and must see real, committed state -- not the
-        default path (see ``isolated_test_database()`` for that).
+        Notes
+        -----
+        Not the default path - see ``isolated_database()`` for that. 
         """

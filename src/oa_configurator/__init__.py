@@ -16,6 +16,15 @@ from .domains.resources.schema import (
     ResolvedDatabase,
     Role,
 )
+from .domains.resources.sql import (
+    SchemaBoundInspector,
+    autocommit_connection,
+    ensure_schema,
+    qualified,
+    schema_inspect,
+    schema_of,
+    schema_options,
+)
 from .domains.vector_stores.schema import ResolvedVectorStore, VectorStoreConfig
 from .io import ConfigSaveError, FLAT_ENV_PATH, save_stack_config, write_env_file
 from .loader import DEFAULT_CONFIG_PATH, load_stack_config
@@ -67,6 +76,7 @@ __all__ = [
     "ResolvedToolConfig",
     "ResolvedVectorStore",
     "Role",
+    "SchemaBoundInspector",
     "Secret",
     "Sensitive",
     "SensitiveValueLeak",
@@ -74,14 +84,20 @@ __all__ = [
     "UnknownRefTarget",
     "VectorStoreConfig",
     "assert_no_sensitive_values_leak",
+    "autocommit_connection",
     "configure_logging",
+    "ensure_schema",
     "get_logger",
     "is_sensitive",
     "load_stack_config",
     "mismatched_kind_refs",
     "plan_configure",
+    "qualified",
     "safe_endpoint",
     "save_stack_config",
+    "schema_inspect",
+    "schema_of",
+    "schema_options",
     "unresolved_refs",
     "write_env_file",
 ]

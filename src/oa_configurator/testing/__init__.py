@@ -100,14 +100,8 @@ def isolated_test_schema(engine: sa.Engine, *, prefix: str = "test") -> Iterator
 
 
 # ---------------------------------------------------------------------------
-# Deprecated compatibility wrappers
+# Deprecated compatibility wrappers - Removed in breaking release
 # ---------------------------------------------------------------------------
-# oa-configurator is a published PyPI package. Within this monorepo every
-# caller has been migrated onto isolated_test_database() above in the same
-# pass, but an external consumer outside these 7 repos could still depend on
-# these names -- kept as thin, deprecated delegations rather than deleted.
-
-
 def resolve_test_database(config_cls: type["PackageConfigBase"], field_name: str) -> str:
     """Deprecated: use :func:`isolated_test_database` instead."""
     import warnings
@@ -192,16 +186,32 @@ def require_pg_extension(url: str | sa.URL, extension: str) -> None:
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers",
-        "requires_database(*args): skip when a named OA_Configurator database is absent, "
-        "fail if it resolves to a non-test_only connection. "
-        "Accepts one or more database-name strings.",
+        "requires_database(*args): deprecated, predates isolated_test_database(). "
+        "Skip when a named OA_Configurator database is absent, fail if it resolves "
+        "to a non-test_only connection. Accepts one or more database-name strings.",
     )
 
 
 def pytest_runtest_setup(item: pytest.Item) -> None:
+    """Deprecated: a marker's fixed database-name argument can't track what
+    database a config field actually resolves to, so it silently stops
+    matching the moment that field is pointed at a differently-named
+    database. isolated_test_database(config_cls, field_name) resolves by
+    field name directly and already skips/fails the same way on its own --
+    every pg_db-style fixture gets this for free with no marker needed.
+    """
     from ..resolver import Resolver
 
     for marker in item.iter_markers("requires_database"):
+        import warnings
+
+        warnings.warn(
+            "@pytest.mark.requires_database is deprecated; isolated_test_database() "
+            "already skips/fails the same way on its own, resolved by field name "
+            "instead of a fixed database-name string.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         for name in marker.args:
             try:
                 resolver = Resolver.from_active_config()

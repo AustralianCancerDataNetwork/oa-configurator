@@ -229,7 +229,7 @@ class CDMDatabaseConfig(DatabaseConfig):
     )
     results_schema: str | None = Field(
         default=None,
-        description="Achilles / Atlas results schema.",
+        description="Achilles / Atlas results schema. Falls back to schema_name when not set.",
     )
 
     def resolve(self, name: str, stack: StackConfig) -> ResolvedCDMDatabase:
@@ -251,7 +251,7 @@ class CDMDatabaseConfig(DatabaseConfig):
             schema_name=self.schema_name,
             vocab_connection=vocab,
             vocab_schema=self.vocab_schema or self.schema_name,
-            results_schema=self.results_schema,
+            results_schema=self.results_schema or self.schema_name,
         )
 
 
@@ -292,12 +292,22 @@ class ResolvedConnection:
         Parameters
         ----------
         **kwargs
-            Forwarded to ``sqlalchemy.create_engine``.
+            Forwarded to ``sqlalchemy.create_engine``. ``pool_pre_ping``
+            defaults to ``True``. Pass ``pool_pre_ping=False`` to opt out.
+
+        Notes
+        -----
+        ``pool_pre_ping=True`` checks a pooled connection is still alive
+        before handing it out, avoiding stale-connection failures after
+        a long-idle period. It adds a small overhead to every checkout,
+        so it can be disabled when the database is known to be reliable 
+        and the application is latency-sensitive using ``**kwargs``.
 
         Returns
         -------
         sqlalchemy.engine.Engine
         """
+        kwargs.setdefault("pool_pre_ping", True)
         return sa.create_engine(self._engine_url, **kwargs)
 
     def __repr__(self) -> str:
@@ -373,13 +383,14 @@ class ResolvedCDMDatabase(ResolvedDatabase):
     vocab_schema : str
         Effective vocabulary schema name for this database. May be the same as
         schema_name if no separate vocab schema is configured.
-    results_schema : str | None
-        Effective results schema name for this database, or None if not configured.
+    results_schema : str
+        Effective results schema name for this database. May be the same as
+        schema_name if no separate results schema is configured.
     """
 
     vocab_connection: ResolvedConnection
     vocab_schema: str
-    results_schema: str | None
+    results_schema: str
 
     def connection_target(self, role: Role = Role.PRIMARY) -> ResolvedConnection:
         """Return the resolved connection for a given role.

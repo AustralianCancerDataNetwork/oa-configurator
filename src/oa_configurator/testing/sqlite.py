@@ -54,8 +54,31 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
                 engine.dispose()
 
     def temporary_schema(self, engine: sa.Engine, *, prefix: str = "test"):
+        """Always raises. SQLite cannot satisfy this method's contract.
+
+        SQLite's closest equivalent is ATTACH DATABASE. It only affects
+        the one connection that runs it. A second connection, even to
+        the same file, never sees it. This was tested directly, not
+        assumed. Implementing this anyway would look like it works, then
+        fail the moment a genuinely separate connection is involved,
+        which is the only real reason this method exists at all.
+
+        Parameters
+        ----------
+        engine : sqlalchemy.engine.Engine
+            Unused. Kept to match the abstract method's signature.
+        prefix : str, optional
+            Unused. Kept to match the abstract method's signature.
+
+        Raises
+        ------
+        NotImplementedError
+            Always. Use ``isolated_test_database()`` instead, which is
+            already free for SQLite.
+        """
         raise NotImplementedError(
-            "SQLite has no schema concept -- temporary_schema() is not "
-            "applicable here. Use a fresh isolated_test_database() call "
-            "instead, which is already free for SQLite."
+            "SQLite cannot implement temporary_schema(). ATTACH DATABASE "
+            "only works for the connection that runs it. A second "
+            "connection never sees it. Use isolated_test_database() "
+            "instead."
         )

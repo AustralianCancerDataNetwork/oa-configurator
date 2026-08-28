@@ -42,7 +42,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self
 from pydantic import ValidationError
 from pydantic_core import ErrorDetails, PydanticUndefined
 
-from .refs import SecretSafeModel
+from .refs import SecretSafeBaseModel, describe_errors, sanitized_errors
 
 if TYPE_CHECKING:
     from .stack_config import StackConfig
@@ -52,34 +52,32 @@ class ConfigurationError(ValueError):
     """Raised when a required database or connection is missing from the stack config."""
 
 
-def _sanitized_errors(validation_error: ValidationError) -> tuple[ErrorDetails, ...]:
-    """Pydantic error details with the rejected input and validator context dropped.
-    Error messages reach logs and CI output, so the value must never travel with the
-    diagnosis. What survives is the field location and the reason, which is what a
-    person needs to fix the file.
+class _SanitizedValidationErrorMixin:
+    """Shared sanitizing/storage/accessor for exceptions built from a
+    pydantic :class:`~pydantic.ValidationError`.
+
+    Both :class:`PackageConfigValidationError` and
+    :class:`StackConfigValidationError` wrap a validation failure whose
+    ``.errors()`` may be pasted into an issue or a CI log: both need the
+    input sanitized via :func:`~oa_configurator.refs.sanitized_errors`
+    before it touches ``self`` or the exception message, and both expose it
+    back the same way. Centralising the call means neither ``__init__`` can
+    accidentally store or format the raw, un-sanitized errors instead.
     """
-    return tuple(
-        validation_error.errors(
-            include_url=False,
-            include_context=False,
-            include_input=False,
-        )
-    )
+
+    _errors: tuple[ErrorDetails, ...]
+
+    def _sanitize(self, validation_error: ValidationError) -> str:
+        """Store the sanitized errors on self and return them rendered as text."""
+        self._errors = sanitized_errors(validation_error)
+        return describe_errors(self._errors)
+
+    def errors(self) -> list[ErrorDetails]:
+        """Return locations and messages without rejected input or context."""
+        return list(self._errors)
 
 
-def _describe_errors(errors: tuple[ErrorDetails, ...]) -> str:
-    """
-    Render sanitized errors as ``field.path: reason`` fragments.
-    """
-    problems = []
-    for error in errors:
-        location = ".".join(str(part) for part in error["loc"])
-        prefix = f"{location}: " if location else ""
-        problems.append(f"{prefix}{error['msg']}")
-    return "; ".join(problems)
-
-
-class PackageConfigValidationError(ConfigurationError):
+class PackageConfigValidationError(_SanitizedValidationErrorMixin, ConfigurationError):
     """A package section failed its concrete pydantic schema.
 
     :meth:`errors` exposes sanitized pydantic details so field locations,
@@ -89,17 +87,12 @@ class PackageConfigValidationError(ConfigurationError):
 
     def __init__(self, tool_name: str, validation_error: ValidationError) -> None:
         self.tool_name = tool_name
-        self._errors = _sanitized_errors(validation_error)
         super().__init__(
-            f"Invalid [tools.{tool_name}]: " + _describe_errors(self._errors)
+            f"Invalid [tools.{tool_name}]: " + self._sanitize(validation_error)
         )
 
-    def errors(self) -> list[ErrorDetails]:
-        """Return locations and messages without rejected input or context."""
-        return list(self._errors)
 
-
-class StackConfigValidationError(ConfigurationError):
+class StackConfigValidationError(_SanitizedValidationErrorMixin, ConfigurationError):
     """The config file parsed as TOML but failed :class:`StackConfig` validation.
 
     Sibling of :class:`PackageConfigValidationError`, sharing its sanitising: a
@@ -115,17 +108,12 @@ class StackConfigValidationError(ConfigurationError):
 
     def __init__(self, path: Path, validation_error: ValidationError) -> None:
         self.path = path
-        self._errors = _sanitized_errors(validation_error)
         super().__init__(
-            f"Invalid stack config {path}: " + _describe_errors(self._errors)
+            f"Invalid stack config {path}: " + self._sanitize(validation_error)
         )
 
-    def errors(self) -> list[ErrorDetails]:
-        """Return locations and messages without rejected input or context."""
-        return list(self._errors)
 
-
-class PackageConfigBase(SecretSafeModel):
+class PackageConfigBase(SecretSafeBaseModel):
     """Typed view over a package's ``[tools.<tool_name>]`` TOML section.
 
     Subclass this and declare typed fields for whatever this package needs.

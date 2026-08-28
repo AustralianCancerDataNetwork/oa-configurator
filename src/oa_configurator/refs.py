@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from typing import Annotated, Any
 from urllib.parse import urlsplit, urlunsplit
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
+from pydantic_core import ErrorDetails
 
 
 @dataclass(frozen=True)
@@ -69,8 +70,8 @@ def _iter_refs(cls: type[BaseModel]) -> Iterator[tuple[str, RefTo]]:
 def is_sensitive(info: Any) -> bool:
     """Whether a field carries the :class:`Sensitive` marker.
 
-    The stack's only runtime sensitivity predicate: masking a field in anything, 
-    rendering configuration, and :class:`SecretSafeModel`'s repr all consult this. 
+    The stack's only runtime sensitivity predicate: masking a field in anything,
+    rendering configuration, and :class:`SecretSafeBaseModel`'s repr all consult this.
 
     What it cannot reach is free text, which has no field to look up. 
     
@@ -94,11 +95,11 @@ MASK = "***"
 """Rendered in place of a secret value. Shared so displays match each other."""
 
 
-class SecretSafeModel(BaseModel):
+class SecretSafeBaseModel(BaseModel):
     """Base for config models: ``Sensitive()`` fields are masked in repr and str.
 
-    All config base classes must subclass this base, so that a ``PackageConfigBase`` 
-    subclass declaring its own ``Secret`` field inherits safe rendering automatically. 
+    All config base classes must subclass this base, so that a ``PackageConfigBase``
+    subclass declaring its own ``Secret`` field inherits safe rendering automatically.
     """
 
     def __repr_args__(self) -> Any:
@@ -109,6 +110,23 @@ class SecretSafeModel(BaseModel):
                 yield name, MASK
             else:
                 yield name, value
+
+    def masked_json(self, *, exclude_none: bool = True, indent: int = 2) -> str:
+        """Serialize to JSON for display, with every secret replaced by ``MASK``.
+
+        ``model_dump_json`` deliberately emits plaintext, because saving the config
+        depends on it. That makes it the wrong call for anything shown to a person:
+        ``omop-config show`` printed every password and API key in the stack straight
+        to the terminal, and into scrollback, screen shares and CI logs with it.
+
+        Masking the rendered structure rather than the model keeps the two concerns
+        apart -- serialization stays lossless, display stays safe -- and walking the
+        model alongside its dump means the decision still comes from
+        :func:`is_sensitive` rather than from key names.
+        """
+        dumped = self.model_dump(mode="json", exclude_none=exclude_none)
+        _mask_dumped(self, dumped)
+        return json.dumps(dumped, indent=indent)
 
 
 def safe_endpoint(url: str | None) -> str | None:
@@ -198,24 +216,6 @@ def _mask_query_values(query: str) -> str:
     return "&".join(masked)
 
 
-def masked_json(model: BaseModel, *, exclude_none: bool = True, indent: int = 2) -> str:
-    """Serialize *model* to JSON for display, with every secret replaced by ``MASK``.
-
-    ``model_dump_json`` deliberately emits plaintext, because saving the config
-    depends on it. That makes it the wrong call for anything shown to a person:
-    ``omop-config show`` printed every password and API key in the stack straight
-    to the terminal, and into scrollback, screen shares and CI logs with it.
-
-    Masking the rendered structure rather than the model keeps the two concerns
-    apart -- serialization stays lossless, display stays safe -- and walking the
-    model alongside its dump means the decision still comes from
-    :func:`~oa_configurator.refs.is_sensitive` rather than from key names.
-    """
-    dumped = model.model_dump(mode="json", exclude_none=exclude_none)
-    _mask_dumped(model, dumped)
-    return json.dumps(dumped, indent=indent)
-
-
 def _mask_dumped(model: BaseModel, dumped: Any) -> None:
     """Overwrite every sensitive field of *model* in its own ``model_dump`` result."""
     if not isinstance(dumped, dict):
@@ -240,3 +240,32 @@ def _mask_nested(value: Any, dumped: Any) -> None:
     elif isinstance(value, list | tuple) and isinstance(dumped, list):
         for item, item_dumped in zip(value, dumped, strict=False):
             _mask_nested(item, item_dumped)
+
+
+def sanitized_errors(validation_error: ValidationError) -> tuple[ErrorDetails, ...]:
+    """Pydantic error details with the rejected input and validator context dropped.
+
+    Error messages reach logs and CI output, so the value must never travel with the
+    diagnosis. What survives is the field location and the reason, which is what a
+    person needs to fix the file. Every caller that turns a pydantic
+    :class:`~pydantic.ValidationError` into user-facing text should route through
+    this rather than calling ``validation_error.errors()`` directly, so there is one
+    audited answer to what is safe to show.
+    """
+    return tuple(
+        validation_error.errors(
+            include_url=False,
+            include_context=False,
+            include_input=False,
+        )
+    )
+
+
+def describe_errors(errors: tuple[ErrorDetails, ...]) -> str:
+    """Render sanitized errors as ``field.path: reason`` fragments."""
+    problems = []
+    for error in errors:
+        location = ".".join(str(part) for part in error["loc"])
+        prefix = f"{location}: " if location else ""
+        problems.append(f"{prefix}{error['msg']}")
+    return "; ".join(problems)

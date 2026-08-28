@@ -40,10 +40,9 @@ from .refs import (
     MASK,
     RefTo,
     Secret,
-    SecretSafeModel,
+    SecretSafeBaseModel,
     Sensitive,
     is_sensitive,
-    masked_json,
     safe_endpoint,
 )
 from .resolver import Resolver, ResolvedToolConfig
@@ -82,7 +81,7 @@ __all__ = [
     "ResolvedVectorStore",
     "Role",
     "Secret",
-    "SecretSafeModel",
+    "SecretSafeBaseModel",
     "Sensitive",
     "SensitiveValueLeak",
     "StackConfig",
@@ -94,7 +93,6 @@ __all__ = [
     "get_logger",
     "is_sensitive",
     "load_stack_config",
-    "masked_json",
     "load_stack_config_from_path",
     "mismatched_kind_refs",
     "plan_configure",

@@ -8,8 +8,9 @@ import sys
 from typing import Any, Protocol
 
 from pydantic import ConfigDict, Field, field_validator
+from typing_extensions import deprecated
 
-from .refs import MASK, SecretSafeModel, safe_endpoint
+from .refs import MASK, SecretSafeBaseModel, safe_endpoint
 
 _OWN_NAMESPACE = "oa_configurator"
 
@@ -20,19 +21,6 @@ _VERBOSITY_LEVELS = {0: "WARNING", 1: "INFO", 2: "DEBUG"}
 
 _URL_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
 """Matches a bare URL anywhere in a message.
-
-Deliberately the *only* pattern here. It exists for log records this library does
-not produce: a driver or engine writing a credential-bearing DSN into its own
-error, ``postgresql://user:pw@host/db`` in a SQLAlchemy connection failure being
-the case that motivated it. Those bytes never pass through a config model, so no
-amount of schema-level safety reaches them, and there is no field to consult.
-
-A previous version also matched ``<key>=<value>`` against a list of
-credential-shaped key names. That list is gone. It was a second, independent
-definition of what counts as sensitive, and once
-:class:`~oa_configurator.refs.SecretSafeModel` made config objects safe to render,
-the list only destroyed information -- masking ``base_url`` for ending in ``url``,
-on output that was already safe. Do not reintroduce it as defence in depth.
 """
 
 
@@ -52,20 +40,15 @@ class RedactingFilter(logging.Filter):
 
     A filter rather than a formatter, for two reasons.
 
-    **It reaches handlers that do their own rendering.** ``RichHandler`` builds
-    its output from the record itself, so a formatter attached to it governs only
-    part of the result; the guarantee used to hold on the plain ``StreamHandler``
-    path and vanish the moment a caller passed ``console=``. Handler filters run
-    in ``Handler.handle()`` before ``emit()``, so both paths are covered by one
-    mechanism and neither needs its own code path.
+    **It reaches handlers that do their own rendering.** e.g. ``RichHandler`` -
+    a formatter attached to it governs only part of the result; 
+    Handler filters run in ``Handler.handle()`` before ``emit()``, so concole
+    and stream paths are covered by one mechanism and neither needs its own code 
+    path.
 
     **It survives customisation.** Replacing a handler's formatter is an ordinary
     thing to do and must not silently remove a security guarantee. Redaction is
     not a presentation concern, so it does not live in the presentation layer.
-
-    The record is only rewritten when a URL was actually found. Records without
-    one keep their lazy ``%``-style ``args`` intact, so structured handlers
-    downstream still see the original fields.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
@@ -84,22 +67,13 @@ class RedactingFilter(logging.Filter):
         return True
 
 
+@deprecated(
+    "RedactingFormatter is deprecated; configure_logging installs RedactingFilter "
+    "instead, which also covers handlers (e.g. RichHandler) that render the record "
+    "themselves. Use RedactingFilter directly."
+)
 class RedactingFormatter(logging.Formatter):
-    """Formatter applying the same URL scrubbing as :class:`RedactingFilter`.
-
-    Retained for callers who wired it up directly. ``configure_logging`` installs
-    the filter instead, because a formatter cannot cover a handler that renders
-    the record itself. Both share :func:`_scrub_urls`, so there is one audited
-    answer to what a safe URL looks like; applying both is harmless, since the
-    scrub is idempotent.
-
-    Neither this nor the filter attempts to catch a caller who extracts a secret
-    deliberately. ``logger.info("password=%s", config.password)`` names the field
-    and chooses the sink; that is the caller's decision, not an accident this
-    library can prevent without guessing. Config objects themselves are safe to
-    log on their own account -- see
-    :class:`~oa_configurator.refs.SecretSafeModel`.
-    """
+    """Deprecated: formatter applying the same URL scrubbing as :class:`RedactingFilter`."""
 
     def format(self, record: logging.LogRecord) -> str:
         return _scrub_urls(super().format(record))
@@ -114,7 +88,7 @@ def _coerce_level(value: str) -> str:
     return upper
 
 
-class LoggingConfig(SecretSafeModel):
+class LoggingConfig(SecretSafeBaseModel):
     """Logging overrides from the ``[logging]`` section of config.toml.
 
     ``level`` overrides the verbosity-derived level for all OMOP loggers.

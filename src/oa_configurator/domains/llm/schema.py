@@ -8,13 +8,13 @@ from urllib.parse import urlsplit
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
-from ...refs import RefTo, Secret, SecretSafeModel
+from ...refs import RefTo, Secret, SecretSafeBaseModel
 
 if TYPE_CHECKING:
     from ...stack_config import StackConfig
 
 
-class ProviderConfig(SecretSafeModel):
+class ProviderConfig(SecretSafeBaseModel):
     """Concrete connection to one LLM provider: which one, and how to reach it.
 
     Peer of :class:`~oa_configurator.domains.resources.schema.ConnectionConfig`
@@ -66,7 +66,7 @@ class ProviderConfig(SecretSafeModel):
         return ResolvedProvider(name=name, provider=self.provider, base_url=self.base_url, api_key=self.api_key)
 
 
-class ModelConfig(SecretSafeModel):
+class ModelConfig(SecretSafeBaseModel):
     """A named, reusable, concretely-configured model.
 
     Peer of :class:`~oa_configurator.domains.resources.schema.DatabaseConfig`

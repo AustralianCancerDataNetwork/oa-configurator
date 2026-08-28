@@ -10,7 +10,7 @@ from pydantic import ConfigDict, Field
 from sqlalchemy.engine import URL, Engine
 import sqlalchemy as sa
 
-from ...refs import RefTo, Secret, SecretSafeModel
+from ...refs import RefTo, Secret, SecretSafeBaseModel
 
 if TYPE_CHECKING:
     from ...stack_config import StackConfig
@@ -31,7 +31,7 @@ class Role(str, Enum):
     RESULTS = "results"
 
 
-class ConnectionConfig(SecretSafeModel):
+class ConnectionConfig(SecretSafeBaseModel):
     """Complete specification of one physical database connection: server
     address, credentials, and target database.
 
@@ -160,7 +160,7 @@ class DatabaseKind(str, Enum):
     CDM = "cdm"
 
 
-class DatabaseConfig(SecretSafeModel):
+class DatabaseConfig(SecretSafeBaseModel):
     """Shared interface for every named database: a connection plus a schema
     to route into.
 

@@ -25,7 +25,6 @@ from rich.console import Console
 from rich.table import Table
 
 from .cli_support import _build_entry_params, _save_stack_config_or_exit
-from .refs import masked_json
 from .domains.llm.cli import models_app, providers_app
 from .domains.resources.cli import connections_app, databases_app
 from .domains.vector_stores.cli import vector_stores_app
@@ -196,7 +195,7 @@ def show() -> None:
         err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
         err_console.print("Run [bold]omop-config init[/bold] to create it.")
         raise typer.Exit(1)
-    rich.print_json(masked_json(config, exclude_none=True, indent=2))
+    rich.print_json(config.masked_json(exclude_none=True, indent=2))
 
 
 @app.command()

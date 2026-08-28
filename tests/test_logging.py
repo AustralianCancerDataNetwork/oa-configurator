@@ -101,11 +101,19 @@ def _formatted(message: str) -> str:
     return RedactingFormatter("%(message)s").format(record)
 
 
+class TestRedactingFormatterDeprecation:
+    """``configure_logging`` moved to ``RedactingFilter``; the formatter should say so."""
+
+    def test_instantiation_warns(self):
+        with pytest.warns(DeprecationWarning, match="RedactingFilter"):
+            RedactingFormatter("%(message)s")
+
+
 class TestRedactingFormatterScope:
     """The formatter no longer guesses which key names are sensitive.
 
     Config objects are safe to render on their own account (see
-    ``SecretSafeModel``), so the key-name word list had nothing left to protect
+    ``SecretSafeBaseModel``), so the key-name word list had nothing left to protect
     and was actively masking non-secrets like ``base_url`` for ending in ``url``.
     """
 
@@ -233,7 +241,7 @@ class TestUrlRedactionIsHandlerIndependent:
 
     @pytest.mark.parametrize("console", [False, True], ids=["stream", "rich"])
     def test_a_logged_config_object_is_safe_without_the_scrubber(self, console):
-        """Safety here comes from SecretSafeModel, not from this filter."""
+        """Safety here comes from SecretSafeBaseModel, not from this filter."""
         connection = ConnectionConfig(
             dialect="postgresql+psycopg", host="h", user="u",
             password="pw-CANARY", database_name="omop",

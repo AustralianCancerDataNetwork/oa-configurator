@@ -7,14 +7,14 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from pydantic import ConfigDict, Field
 
-from ...refs import RefTo, SecretSafeModel
+from ...refs import RefTo, SecretSafeBaseModel
 from ..resources.schema import GenericDatabaseConfig, ResolvedDatabase
 
 if TYPE_CHECKING:
     from ...stack_config import StackConfig
 
 
-class VectorStoreConfig(SecretSafeModel):
+class VectorStoreConfig(SecretSafeBaseModel):
     """Which storage backend an embedding-capable package should use.
 
     Peer of :class:`~oa_configurator.domains.resources.schema.DatabaseConfig`

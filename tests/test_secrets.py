@@ -22,13 +22,12 @@ from oa_configurator import (
     PackageConfigBase,
     ProviderConfig,
     Secret,
-    SecretSafeModel,
+    SecretSafeBaseModel,
     SensitiveValueLeak,
     Sensitive,
     StackConfig,
     assert_no_sensitive_values_leak,
     is_sensitive,
-    masked_json,
     safe_endpoint,
     save_stack_config,
     write_env_file,
@@ -341,7 +340,7 @@ class TestPlaintextStillReachesEverySink:
 class TestDisplayPathsWeOwn:
     def test_show_does_not_print_secrets(self):
         """`omop-config show` printed every credential in the stack as plaintext."""
-        rendered = masked_json(_stack())
+        rendered = _stack().masked_json()
         assert CANARY not in rendered
         assert KEY_CANARY not in rendered
         assert "api.example.org" in rendered
@@ -355,57 +354,57 @@ class TestDisplayPathsWeOwn:
 class TestMaskedJson:
     """Recursive masking, driven by the marker at every depth.
 
-    Lives beside ``SecretSafeModel`` in ``refs``: it is the JSON counterpart of the
-    same rule, not CLI behaviour. ``model_dump_json`` deliberately emits plaintext
-    because saving depends on it, so anything showing a config to a person needs
-    this instead.
+    ``masked_json`` lives on ``SecretSafeBaseModel`` itself: it is the JSON
+    counterpart of the same rule, not CLI behaviour. ``model_dump_json``
+    deliberately emits plaintext because saving depends on it, so anything
+    showing a config to a person needs this instead.
     """
 
     def test_nested_models_are_masked(self):
-        rendered = masked_json(_stack())
+        rendered = _stack().masked_json()
         assert CANARY not in rendered and KEY_CANARY not in rendered
 
     def test_dictionaries_of_models_are_walked(self):
         """Secrets live under `connections['cdm']`, two levels down."""
-        assert CANARY not in masked_json(_stack().connections["cdm"])
-        assert CANARY not in masked_json(_stack())
+        assert CANARY not in _stack().connections["cdm"].masked_json()
+        assert CANARY not in _stack().masked_json()
 
     def test_lists_and_tuples_are_walked(self):
-        class Holder(SecretSafeModel):
+        class Holder(SecretSafeBaseModel):
             entries: list[ConnectionConfig] = []
 
         holder = Holder(entries=[_stack().connections["cdm"]])
-        assert CANARY not in masked_json(holder)
+        assert CANARY not in holder.masked_json()
 
     def test_free_form_mappings_are_preserved_not_masked(self):
         """A dict of plain values has no field metadata, so nothing is guessed."""
-        rendered = masked_json(
-            ProviderConfig(provider="openai", base_url="https://h/v1", api_key=KEY_CANARY)
-        )
+        rendered = ProviderConfig(
+            provider="openai", base_url="https://h/v1", api_key=KEY_CANARY
+        ).masked_json()
         assert "https://h/v1" in rendered
         assert KEY_CANARY not in rendered
 
     def test_exclude_none_is_honoured(self):
         connection = ConnectionConfig(dialect="sqlite", database_name=":memory:")
-        assert "port" not in masked_json(connection, exclude_none=True)
-        assert "port" in masked_json(connection, exclude_none=False)
+        assert "port" not in connection.masked_json(exclude_none=True)
+        assert "port" in connection.masked_json(exclude_none=False)
 
     def test_a_field_that_merely_looks_sensitive_is_not_masked(self):
         """The name says secret; the declaration does not. The declaration wins."""
 
-        class Lookalike(SecretSafeModel):
+        class Lookalike(SecretSafeBaseModel):
             password_policy: str = "rotate-90d"
             api_key_name: str = "PROD_KEY"
             token: str = "not-declared-sensitive"
 
-        rendered = masked_json(Lookalike())
+        rendered = Lookalike().masked_json()
         assert "rotate-90d" in rendered
         assert "PROD_KEY" in rendered
         assert "not-declared-sensitive" in rendered
         assert MASK not in rendered
 
     def test_a_declared_secret_is_masked_whatever_it_is_called(self):
-        class OddlyNamed(SecretSafeModel):
+        class OddlyNamed(SecretSafeBaseModel):
             innocuous: Secret = None
 
-        assert masked_json(OddlyNamed(innocuous="s3cret")) .count(MASK) == 1
+        assert OddlyNamed(innocuous="s3cret").masked_json().count(MASK) == 1

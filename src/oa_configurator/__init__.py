@@ -25,7 +25,7 @@ from .loader import (
 )
 from .logging_config import (
     LoggingConfig,
-    RedactingFormatter,
+    RedactingFormatter,  # ty: ignore[deprecated]
     configure_logging,
     get_logger,
 )

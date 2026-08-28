@@ -291,6 +291,57 @@ def ensure_schema(bindable: Engine | Connection, schema: str | None) -> None:
         bind.execute(ddl)
 
 
+_reserved_schemas: dict[str, str] = {}
+
+
+def register_reserved_schema(name: str, *, owner: str) -> None:
+    """Register *name* as a schema no db_schema config may ever collide with.
+
+    Parameters
+    ----------
+    name : str
+        Schema name to reserve.
+    owner : str
+        Package reserving it, used in the error message on a later
+        collision. Called once at module import time by the owning
+        package, so the reservation is always in effect by the time any
+        caller could reach :func:`reject_reserved_schema`.
+
+    Raises
+    ------
+    RuntimeError
+        If *name* is already reserved by a different owner. Re-registering
+        the same name by the same owner is a no-op.
+    """
+    existing_owner = _reserved_schemas.get(name)
+    if existing_owner is not None and existing_owner != owner:
+        raise RuntimeError(
+            f"Schema {name!r} is already reserved by {existing_owner!r}; "
+            f"cannot also reserve it for {owner!r}."
+        )
+    _reserved_schemas[name] = owner
+
+
+def reject_reserved_schema(db_schema: str | None) -> None:
+    """Raise if *db_schema* collides with a schema reserved for internal bookkeeping.
+
+    Parameters
+    ----------
+    db_schema : str or None
+        Schema name to check.
+
+    Raises
+    ------
+    RuntimeError
+        If *db_schema* is reserved, naming the owning package.
+    """
+    owner = _reserved_schemas.get(db_schema)
+    if owner is not None:
+        raise RuntimeError(
+            f"db_schema cannot be {db_schema!r}: reserved for internal use by {owner!r}."
+        )
+
+
 def autocommit_connection(bindable: Engine | Connection) -> Connection:
     """Return a ``Connection`` in ``AUTOCOMMIT`` isolation mode.
 

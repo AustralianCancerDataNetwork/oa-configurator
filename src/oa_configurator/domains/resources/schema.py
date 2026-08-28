@@ -11,6 +11,7 @@ from sqlalchemy.engine import URL, Engine
 import sqlalchemy as sa
 
 from ...refs import RefTo, Secret
+from .sql import reject_reserved_schema
 
 if TYPE_CHECKING:
     from ...stack_config import StackConfig
@@ -190,7 +191,14 @@ class DatabaseConfig(BaseModel):
 
         *stack* must already have passed :meth:`StackConfig.validate_references`,
         so ``self.connection`` is guaranteed to exist in ``stack.connections``.
+
+        Raises
+        ------
+        RuntimeError
+            If ``schema_name`` collides with a schema reserved for internal
+            bookkeeping (see :func:`~.sql.register_reserved_schema`).
         """
+        reject_reserved_schema(self.schema_name)
         primary = stack.connections[self.connection].resolve(self.connection)
         return ResolvedDatabase(name=name, connection=primary, schema_name=self.schema_name)
 
@@ -241,7 +249,19 @@ class CDMDatabaseConfig(DatabaseConfig):
         :meth:`StackConfig.validate_references`, so ``self.connection``/
         ``self.vocab_connection`` are guaranteed to exist in
         ``stack.connections``.
+
+        Raises
+        ------
+        RuntimeError
+            If ``schema_name``, ``vocab_schema``, or ``results_schema``
+            collides with a schema reserved for internal bookkeeping (see
+            :func:`~.sql.register_reserved_schema`).
         """
+        effective_vocab_schema = self.vocab_schema or self.schema_name
+        effective_results_schema = self.results_schema or self.schema_name
+        reject_reserved_schema(self.schema_name)
+        reject_reserved_schema(effective_vocab_schema)
+        reject_reserved_schema(effective_results_schema)
         primary = stack.connections[self.connection].resolve(self.connection)
         vocab_name = self.vocab_connection or self.connection
         vocab = stack.connections[vocab_name].resolve(vocab_name)
@@ -250,8 +270,8 @@ class CDMDatabaseConfig(DatabaseConfig):
             connection=primary,
             schema_name=self.schema_name,
             vocab_connection=vocab,
-            vocab_schema=self.vocab_schema or self.schema_name,
-            results_schema=self.results_schema or self.schema_name,
+            vocab_schema=effective_vocab_schema,
+            results_schema=effective_results_schema,
         )
 
 
@@ -356,7 +376,16 @@ class ResolvedDatabase:
             Engine configured with ``schema_translate_map`` set to
             ``{None: schema_name}``, a genuine no-op when ``schema_name``
             is None, deferring to the connection's own default/search_path.
+
+        Raises
+        ------
+        RuntimeError
+            If ``schema_name`` collides with a reserved schema. Normally
+            already caught by :meth:`DatabaseConfig.resolve`; repeated here
+            as defense in depth for a hand-built ``ResolvedDatabase`` that
+            skipped ``.resolve()``.
         """
+        reject_reserved_schema(self.schema_name)
         engine = self.connection.create_engine(**kwargs)
         merged_opts = dict(execution_options or {})
         merged_opts.setdefault("schema_translate_map", {None: self.schema_name})
@@ -463,7 +492,21 @@ class ResolvedCDMDatabase(ResolvedDatabase):
         -------
         sqlalchemy.engine.Engine
             Engine configured with ``schema_translate_map`` for OMOP ORM routing.
+
+        Raises
+        ------
+        RuntimeError
+            If ``schema_name``, ``vocab_schema``, or ``results_schema``
+            collides with a reserved schema. Normally already caught by
+            :meth:`CDMDatabaseConfig.resolve`; repeated here as defense in
+            depth for a hand-built ``ResolvedCDMDatabase`` that skipped
+            ``.resolve()``. Does not call ``ResolvedDatabase.create_engine``
+            (this override builds its own engine via ``connection_target``),
+            so that check doesn't run here for free and needs repeating.
         """
+        reject_reserved_schema(self.schema_name)
+        reject_reserved_schema(self.vocab_schema)
+        reject_reserved_schema(self.results_schema)
         engine = self.connection_target(role).create_engine(**kwargs)
         stm = self.schema_translate_map()
         merged_opts = dict(execution_options or {})

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 import typer
 from pydantic import ValidationError
@@ -21,6 +23,7 @@ from oa_configurator import (
     ResolvedVectorStore,
     StackConfig,
     VectorStoreConfig,
+    register_reserved_schema,
 )
 from oa_configurator.resolver import _check_test_collision
 
@@ -463,6 +466,90 @@ class TestCreateEngine:
         res = r.resolve_database("default")
         engine = res.create_engine()
         assert engine.dialect.name == "sqlite"
+
+
+class TestReservedSchemaCollision:
+    """register_reserved_schema/reject_reserved_schema live in
+    domains/resources/sql.py (Phase 2.3); the check itself runs inside
+    resolve()/create_engine(), not as a manual call anywhere downstream.
+    Every test reserves its own uuid-suffixed name to avoid colliding with
+    other tests or real callers sharing the same module-level registry."""
+
+    def _reserved_name(self) -> str:
+        name = f"reserved_{uuid.uuid4().hex[:8]}"
+        register_reserved_schema(name, owner="test-owner")
+        return name
+
+    def test_generic_database_resolve_raises_on_reserved_schema_name(self):
+        reserved = self._reserved_name()
+        cfg = StackConfig.for_session(
+            connections={"c": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={"default": GenericDatabaseConfig(connection="c", schema_name=reserved)},
+        )
+        with pytest.raises(RuntimeError, match=f"{reserved!r}.*test-owner"):
+            Resolver(cfg).resolve_database("default")
+
+    def test_cdm_database_resolve_raises_on_reserved_schema_name(self):
+        reserved = self._reserved_name()
+        cfg = StackConfig.for_session(
+            connections={"c": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={"default": CDMDatabaseConfig(connection="c", schema_name=reserved)},
+        )
+        with pytest.raises(RuntimeError, match=f"{reserved!r}.*test-owner"):
+            Resolver(cfg).resolve_database("default")
+
+    def test_cdm_database_resolve_raises_on_reserved_vocab_schema(self):
+        reserved = self._reserved_name()
+        cfg = StackConfig.for_session(
+            connections={"c": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={
+                "default": CDMDatabaseConfig(
+                    connection="c", schema_name="omop", vocab_schema=reserved
+                )
+            },
+        )
+        with pytest.raises(RuntimeError, match=f"{reserved!r}.*test-owner"):
+            Resolver(cfg).resolve_database("default")
+
+    def test_cdm_database_resolve_raises_on_reserved_results_schema(self):
+        reserved = self._reserved_name()
+        cfg = StackConfig.for_session(
+            connections={"c": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+            databases={
+                "default": CDMDatabaseConfig(
+                    connection="c", schema_name="omop", results_schema=reserved
+                )
+            },
+        )
+        with pytest.raises(RuntimeError, match=f"{reserved!r}.*test-owner"):
+            Resolver(cfg).resolve_database("default")
+
+    def test_non_reserved_schema_name_resolves_fine(self, minimal_stack):
+        res = Resolver(minimal_stack).resolve_database("default")
+        assert res.schema_name == "omop"
+
+    def test_hand_built_resolved_database_raises_on_create_engine(self, minimal_stack):
+        """Defense in depth: a ResolvedDatabase built directly (bypassing
+        resolve()) is still caught at create_engine() time."""
+        reserved = self._reserved_name()
+        connection = Resolver(minimal_stack).resolve_connection("db")
+        res = ResolvedDatabase(name="hand-built", connection=connection, schema_name=reserved)
+        with pytest.raises(RuntimeError, match=f"{reserved!r}.*test-owner"):
+            res.create_engine()
+
+    def test_hand_built_resolved_cdm_database_raises_on_create_engine(self, minimal_stack):
+        reserved = self._reserved_name()
+        connection = Resolver(minimal_stack).resolve_connection("db")
+        res = ResolvedCDMDatabase(
+            name="hand-built",
+            connection=connection,
+            schema_name="omop",
+            vocab_connection=connection,
+            vocab_schema=reserved,
+            results_schema="omop",
+        )
+        with pytest.raises(RuntimeError, match=f"{reserved!r}.*test-owner"):
+            res.create_engine()
 
 
 class TestPoolPrePing:

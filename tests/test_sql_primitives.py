@@ -1,6 +1,7 @@
 """Cross-dialect tests for the schema-aware SQL primitives in
 domains/resources/sql.py: _as_bind, schema_of, qualified, schema_inspect,
-schema_options, ensure_schema, autocommit_connection.
+schema_options, ensure_schema, autocommit_connection,
+register_reserved_schema, reject_reserved_schema.
 
 One shared test body runs against both sqlite (fully hermetic) and real
 Postgres (via OA_Configurator's own test_postgres_db field, see config.py)
@@ -36,12 +37,13 @@ from oa_configurator import (
     autocommit_connection,
     ensure_schema,
     qualified,
+    register_reserved_schema,
     schema_inspect,
     schema_of,
     schema_options,
 )
 from oa_configurator.config import OAConfiguratorConfig
-from oa_configurator.domains.resources.sql import _as_bind
+from oa_configurator.domains.resources.sql import _as_bind, reject_reserved_schema
 from oa_configurator.testing import isolated_test_database
 
 DIALECTS = ["sqlite", "postgres"]
@@ -296,3 +298,37 @@ class TestEnsureSchemaPostgres:
         schema = f"test_{uuid.uuid4().hex[:8]}"
         ensure_schema(pg_db.connection, schema)
         ensure_schema(pg_db.connection, schema)  # must not raise
+
+
+class TestReservedSchemas:
+    """register_reserved_schema/reject_reserved_schema share one module-level
+    registry, so every test uses a unique name (uuid-suffixed) to avoid
+    colliding with other tests or with real callers in the same process."""
+
+    def _name(self) -> str:
+        return f"reserved_{uuid.uuid4().hex[:8]}"
+
+    def test_reject_passes_for_none(self):
+        reject_reserved_schema(None)  # must not raise
+
+    def test_reject_passes_for_unregistered_name(self):
+        reject_reserved_schema(self._name())  # must not raise
+
+    def test_register_then_reject_raises(self):
+        name = self._name()
+        register_reserved_schema(name, owner="test-owner")
+        with pytest.raises(RuntimeError, match=f"{name!r}.*test-owner"):
+            reject_reserved_schema(name)
+
+    def test_same_owner_reregistration_is_a_noop(self):
+        name = self._name()
+        register_reserved_schema(name, owner="test-owner")
+        register_reserved_schema(name, owner="test-owner")  # must not raise
+        with pytest.raises(RuntimeError):
+            reject_reserved_schema(name)
+
+    def test_different_owner_registration_raises(self):
+        name = self._name()
+        register_reserved_schema(name, owner="first-owner")
+        with pytest.raises(RuntimeError, match=f"{name!r}.*first-owner.*second-owner"):
+            register_reserved_schema(name, owner="second-owner")

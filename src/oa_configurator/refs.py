@@ -125,8 +125,20 @@ class SecretSafeBaseModel(BaseModel):
         :func:`is_sensitive` rather than from key names.
         """
         dumped = self.model_dump(mode="json", exclude_none=exclude_none)
-        _mask_dumped(self, dumped)
+        self._mask_dumped(dumped)
         return json.dumps(dumped, indent=indent)
+
+    def _mask_dumped(self, dumped: Any) -> None:
+        """Overwrite every sensitive field of *self* in its own ``model_dump`` result."""
+        if not isinstance(dumped, dict):
+            return
+        for name, info in type(self).model_fields.items():
+            if name not in dumped:
+                continue
+            if is_sensitive(info):
+                dumped[name] = MASK
+            else:
+                _mask_nested(getattr(self, name, None), dumped[name])
 
 
 def safe_endpoint(url: str | None) -> str | None:
@@ -216,23 +228,10 @@ def _mask_query_values(query: str) -> str:
     return "&".join(masked)
 
 
-def _mask_dumped(model: BaseModel, dumped: Any) -> None:
-    """Overwrite every sensitive field of *model* in its own ``model_dump`` result."""
-    if not isinstance(dumped, dict):
-        return
-    for name, info in type(model).model_fields.items():
-        if name not in dumped:
-            continue
-        if is_sensitive(info):
-            dumped[name] = MASK
-        else:
-            _mask_nested(getattr(model, name, None), dumped[name])
-
-
 def _mask_nested(value: Any, dumped: Any) -> None:
     """Recurse into containers, pairing each live value with its dumped counterpart."""
-    if isinstance(value, BaseModel):
-        _mask_dumped(value, dumped)
+    if isinstance(value, SecretSafeBaseModel):
+        value._mask_dumped(dumped)
     elif isinstance(value, dict) and isinstance(dumped, dict):
         for key, item in value.items():
             if key in dumped:

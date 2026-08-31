@@ -269,9 +269,9 @@ def _fsync_directory(directory: Path) -> None:
 
 def _verify_saved_config(path: Path, expected: StackConfig) -> None:
     """Reload *path* and require the complete model to match *expected*."""
-    from .loader import _load_from_path
+    from .loader import load_stack_config_from_path
 
-    actual = _load_from_path(path)
+    actual = load_stack_config_from_path(path)
     if actual.model_dump(mode="python") != expected.model_dump(mode="python"):
         raise ConfigSaveError(
             f"Reload verification produced a different config for {path}"

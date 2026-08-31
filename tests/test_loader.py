@@ -3,21 +3,28 @@ the process-local StackConfig cache keyed on file identity (mtime + size)."""
 
 from __future__ import annotations
 
+import logging
 import tomllib
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 
-from oa_configurator import ConnectionConfig, StackConfig
+from oa_configurator import (
+    ConfigurationError,
+    ConnectionConfig,
+    StackConfig,
+    StackConfigValidationError,
+)
 from oa_configurator.io import save_stack_config
 from oa_configurator.loader import (
     DEFAULT_CONFIG_PATH,
     ENV_CONFIG_PATH,
     _ConfigCache,
-    _load_from_path,
     _normalize_path,
     _resolve_config_path,
     invalidate_cache,
+    load_stack_config_from_path,
 )
 
 
@@ -28,6 +35,36 @@ def _clear_cache():
     invalidate_cache()
     yield
     invalidate_cache()
+
+
+@contextmanager
+def _captured_warnings():
+    """Capture warnings straight off the loader's own logger.
+
+    Deliberately not ``caplog``: other test modules call ``configure_logging``
+    and leave the ``oa_configurator`` logger with handlers and ``propagate``
+    turned off, so whether a record reaches the root logger depends on test
+    ordering. Attaching here and isolating the logger makes the assertion about
+    this function rather than about global logging state.
+    """
+    logger = logging.getLogger("oa_configurator.loader")
+    messages: list[str] = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            messages.append(record.getMessage())
+
+    handler = _Capture(level=logging.WARNING)
+    previous_level, previous_propagate = logger.level, logger.propagate
+    logger.addHandler(handler)
+    logger.setLevel(logging.WARNING)
+    logger.propagate = False
+    try:
+        yield messages
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous_level)
+        logger.propagate = previous_propagate
 
 
 def _make_config_file(tmp_path: Path, **connection_kwargs) -> Path:
@@ -98,27 +135,27 @@ class TestResolveConfigPath:
 class TestLoadFromPath:
     def test_loads_valid_config(self, tmp_path):
         path = _make_config_file(tmp_path)
-        config = _load_from_path(path)
+        config = load_stack_config_from_path(path)
         assert config.connections["cdm"].dialect == "sqlite"
 
     def test_missing_file_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
-            _load_from_path(tmp_path / "does_not_exist.toml")
+            load_stack_config_from_path(tmp_path / "does_not_exist.toml")
 
     def test_malformed_toml_raises_value_error(self, tmp_path):
         path = tmp_path / "config.toml"
         path.write_text("not [valid [ toml")
         with pytest.raises(ValueError, match="Malformed TOML"):
-            _load_from_path(path)
+            load_stack_config_from_path(path)
 
     def test_binds_loaded_path(self, tmp_path):
         path = _make_config_file(tmp_path)
-        config = _load_from_path(path)
+        config = load_stack_config_from_path(path)
         assert config.loaded_path == path.resolve()
 
 
 class TestLoadFromPathCaching:
-    """Exercises the real cache through _load_from_path, not just _ConfigCache
+    """Exercises the real cache through load_stack_config_from_path, not just _ConfigCache
     in isolation. Proves the whole read path, not just the cache class."""
 
     def test_second_load_is_a_cache_hit(self, tmp_path, monkeypatch):
@@ -132,24 +169,24 @@ class TestLoadFromPathCaching:
 
         monkeypatch.setattr("oa_configurator.loader.tomllib.loads", counting_loads)
 
-        first = _load_from_path(path)
-        second = _load_from_path(path)
+        first = load_stack_config_from_path(path)
+        second = load_stack_config_from_path(path)
 
         assert len(calls) == 1, "second load re-parsed the file instead of hitting the cache"
         assert first.connections["cdm"].dialect == second.connections["cdm"].dialect
 
     def test_mutating_one_load_does_not_affect_another(self, tmp_path):
         path = _make_config_file(tmp_path)
-        first = _load_from_path(path)
+        first = load_stack_config_from_path(path)
         first.connections["cdm"].dialect = "mutated"
 
-        second = _load_from_path(path)
+        second = load_stack_config_from_path(path)
 
         assert second.connections["cdm"].dialect == "sqlite"
 
     def test_content_change_invalidates_cache(self, tmp_path):
         path = _make_config_file(tmp_path)
-        first = _load_from_path(path)
+        first = load_stack_config_from_path(path)
         assert first.connections["cdm"].dialect == "sqlite"
 
         save_stack_config(
@@ -158,7 +195,7 @@ class TestLoadFromPathCaching:
             ),
             path=path,
         )
-        second = _load_from_path(path)
+        second = load_stack_config_from_path(path)
         assert second.connections["cdm"].dialect == "postgresql+psycopg"
 
     def test_invalidate_cache_forces_reparse_even_without_content_change(self, tmp_path, monkeypatch):
@@ -172,10 +209,10 @@ class TestLoadFromPathCaching:
 
         monkeypatch.setattr("oa_configurator.loader.tomllib.loads", counting_loads)
 
-        _load_from_path(path)
+        load_stack_config_from_path(path)
         assert len(calls) == 1
         invalidate_cache()
-        _load_from_path(path)
+        load_stack_config_from_path(path)
         assert len(calls) == 2
 
 
@@ -210,3 +247,98 @@ class TestConfigCache:
         _ConfigCache.put(path, st, StackConfig.for_session())
         _ConfigCache.clear()
         assert _ConfigCache.get(path, st) is None
+
+
+class TestLoadStackConfigFromPathIsPublic:
+    """Promoted from ``_load_from_path``.
+
+    The private version was being reimplemented by consumers, and the copies
+    dropped the loose-permissions warning -- a security behaviour nobody should
+    have to re-derive to get.
+    """
+
+    def test_exported_from_the_package_root(self):
+        import oa_configurator
+
+        assert "load_stack_config_from_path" in oa_configurator.__all__
+        assert (
+            oa_configurator.load_stack_config_from_path is load_stack_config_from_path
+        )
+
+    def test_group_readable_file_warns_that_it_holds_passwords(self, tmp_path):
+        path = _make_config_file(tmp_path)
+        path.chmod(0o644)
+
+        with _captured_warnings() as messages:
+            load_stack_config_from_path(path)
+
+        assert any("loose permissions" in message for message in messages)
+        assert any("chmod 600" in message for message in messages)
+
+    def test_owner_only_file_is_silent(self, tmp_path):
+        path = _make_config_file(tmp_path)
+        path.chmod(0o600)
+
+        with _captured_warnings() as messages:
+            load_stack_config_from_path(path)
+
+        assert messages == []
+
+
+class TestLoadStackConfigFromPathErrors:
+    """A broken config file is the error most likely to be pasted into an issue.
+
+    So the diagnosis must name the field that is wrong and never carry the value
+    that was rejected.
+    """
+
+    def test_validation_failure_names_the_offending_field(self, tmp_path):
+        path = tmp_path / "config.toml"
+        path.write_text(
+            '[connections.cdm]\n'
+            'dialect = "sqlite"\n'
+            'port = "not-a-port"\n'
+            'password = "s3cret-CANARY"\n'
+        )
+
+        with pytest.raises(StackConfigValidationError) as excinfo:
+            load_stack_config_from_path(path)
+
+        message = str(excinfo.value)
+        assert "connections.cdm.port" in message
+        assert str(path) in message
+
+    def test_validation_failure_never_echoes_the_rejected_value(self, tmp_path):
+        path = tmp_path / "config.toml"
+        path.write_text(
+            '[connections.cdm]\n'
+            'dialect = "sqlite"\n'
+            'port = "s3cret-CANARY"\n'
+        )
+
+        with pytest.raises(StackConfigValidationError) as excinfo:
+            load_stack_config_from_path(path)
+
+        assert "s3cret-CANARY" not in str(excinfo.value)
+        assert not any(
+            "s3cret-CANARY" in str(error) for error in excinfo.value.errors()
+        )
+
+    def test_malformed_toml_names_the_file_without_echoing_its_contents(self, tmp_path):
+        path = tmp_path / "config.toml"
+        path.write_text('password = "s3cret-CANARY"\ngarbage here\n')
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_stack_config_from_path(path)
+
+        message = str(excinfo.value)
+        assert str(path) in message
+        assert "s3cret-CANARY" not in message
+
+    def test_malformed_toml_is_still_a_value_error(self, tmp_path):
+        """ConfigurationError subclasses ValueError, so existing handlers keep working."""
+        path = tmp_path / "config.toml"
+        path.write_text("not [valid [ toml")
+
+        with pytest.raises(ValueError, match="Malformed TOML"):
+            load_stack_config_from_path(path)

@@ -7,7 +7,10 @@ import re
 import sys
 from typing import Any, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import ConfigDict, Field, field_validator
+from typing_extensions import deprecated
+
+from .refs import MASK, SecretSafeBaseModel, safe_endpoint
 
 _OWN_NAMESPACE = "oa_configurator"
 
@@ -16,20 +19,64 @@ _DATEFMT = "%Y-%m-%d %H:%M:%S"
 
 _VERBOSITY_LEVELS = {0: "WARNING", 1: "INFO", 2: "DEBUG"}
 
-SENSITIVE_KEYS: frozenset[str] = frozenset({
-    "dsn", "key", "passwd", "password", "secret", "token", "uri", "url",
-})
+_URL_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
+"""Matches a bare URL anywhere in a message.
+"""
 
-_REDACT_RE = re.compile(
-    r"(?i)(\b(?:" + "|".join(re.escape(k) for k in sorted(SENSITIVE_KEYS)) + r")\b\s*[:=]\s*)\S+"
+
+def _scrub_urls(text: str) -> str:
+    """Mask credentials in every URL in *text*, via the shared primitive.
+
+    The single implementation of what a safe URL looks like: both
+    :class:`RedactingFilter` and :class:`RedactingFormatter` route through here,
+    and both delegate the actual masking to
+    :func:`~oa_configurator.refs.safe_endpoint`.
+    """
+    return _URL_RE.sub(lambda m: safe_endpoint(m.group(0)) or MASK, text)
+
+
+class RedactingFilter(logging.Filter):
+    """Scrubs credential-bearing URLs before a handler emits its record.
+
+    A filter rather than a formatter, for two reasons.
+
+    **It reaches handlers that do their own rendering.** e.g. ``RichHandler`` -
+    a formatter attached to it governs only part of the result; 
+    Handler filters run in ``Handler.handle()`` before ``emit()``, so concole
+    and stream paths are covered by one mechanism and neither needs its own code 
+    path.
+
+    **It survives customisation.** Replacing a handler's formatter is an ordinary
+    thing to do and must not silently remove a security guarantee. Redaction is
+    not a presentation concern, so it does not live in the presentation layer.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        scrubbed = _scrub_urls(message)
+        if scrubbed != message:
+            record.msg = scrubbed
+            record.args = None
+        if record.exc_info and not record.exc_text:
+            # Caching a scrubbed traceback here is what keeps the exception path
+            # covered: Formatter.format() appends record.exc_text verbatim when it
+            # is already set, rather than re-deriving it from exc_info.
+            record.exc_text = _scrub_urls(
+                logging.Formatter().formatException(record.exc_info)
+            )
+        return True
+
+
+@deprecated(
+    "RedactingFormatter is deprecated; configure_logging installs RedactingFilter "
+    "instead, which also covers handlers (e.g. RichHandler) that render the record "
+    "themselves. Use RedactingFilter directly."
 )
-
-
 class RedactingFormatter(logging.Formatter):
-    """Logging formatter that redacts sensitive key=value pairs from log messages."""
+    """Deprecated: formatter applying the same URL scrubbing as :class:`RedactingFilter`."""
 
     def format(self, record: logging.LogRecord) -> str:
-        return _REDACT_RE.sub(r"\1<REDACTED>", super().format(record))
+        return _scrub_urls(super().format(record))
 
 
 def _coerce_level(value: str) -> str:
@@ -41,7 +88,7 @@ def _coerce_level(value: str) -> str:
     return upper
 
 
-class LoggingConfig(BaseModel):
+class LoggingConfig(SecretSafeBaseModel):
     """Logging overrides from the ``[logging]`` section of config.toml.
 
     ``level`` overrides the verbosity-derived level for all OMOP loggers.
@@ -119,7 +166,8 @@ def configure_logging(
         handler: logging.Handler = RichHandler(console=console, show_path=False, rich_tracebacks=True)
     else:
         handler = logging.StreamHandler(sys.stderr)
-        handler.setFormatter(RedactingFormatter(_FORMAT, datefmt=_DATEFMT))
+        handler.setFormatter(logging.Formatter(_FORMAT, datefmt=_DATEFMT))
+    handler.addFilter(RedactingFilter())
 
     namespaces = (_OWN_NAMESPACE,) + tuple(extra_namespaces or [])
     stale: list[logging.Handler] = []

@@ -32,7 +32,7 @@ from .stack_config import (
     unresolved_refs,
 )
 from .package_base import ConfigurationError, PackageConfigBase
-from .refs import RefTo, _iter_refs, is_sensitive
+from .refs import RefTo, _iter_refs, is_sensitive, sanitized_errors
 
 T = TypeVar("T")
 TConfig = TypeVar("TConfig", bound=PackageConfigBase)
@@ -277,10 +277,13 @@ def _abort_on_invalid_entry(
     Pydantic's own ``str(exc)`` reports the whole input dict, the error
     type, and a docs URL, which is a traceback aimed at a Python caller,
     not at someone fixing a config entry. Each error becomes one line
-    naming the flag to change instead.
+    naming the flag to change instead. Reads ``exc`` through
+    :func:`~oa_configurator.refs.sanitized_errors` rather than calling
+    ``exc.errors()`` directly, so a value like a database password can
+    never end up in the printed problem list.
     """
     field_problems: list[tuple[str, str]] = []
-    for error in exc.errors():
+    for error in sanitized_errors(exc):
         # A model_validator(mode="after") has no loc: the complaint is about
         # the combination of fields, so there's no single flag to point at.
         location = ".".join(str(part) for part in error["loc"])

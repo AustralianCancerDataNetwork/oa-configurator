@@ -195,7 +195,7 @@ def show() -> None:
         err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
         err_console.print("Run [bold]omop-config init[/bold] to create it.")
         raise typer.Exit(1)
-    rich.print_json(config.model_dump_json(exclude_none=True, indent=2))
+    rich.print_json(config.masked_json(exclude_none=True, indent=2))
 
 
 @app.command()

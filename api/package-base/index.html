@@ -1030,10 +1030,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.package_base.PackageConfigValidationError.errors" class="md-nav__link">
+  <a href="#errors-from-the-stack-file-itself" class="md-nav__link">
     <span class="md-ellipsis">
       
-        errors
+        Errors from the stack file itself
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.StackConfigValidationError" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        StackConfigValidationError
       
     </span>
   </a>
@@ -1243,10 +1254,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.package_base.PackageConfigValidationError.errors" class="md-nav__link">
+  <a href="#errors-from-the-stack-file-itself" class="md-nav__link">
     <span class="md-ellipsis">
       
-        errors
+        Errors from the stack file itself
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.package_base.StackConfigValidationError" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        StackConfigValidationError
       
     </span>
   </a>
@@ -1349,7 +1371,7 @@
 <a id="oa_configurator.package_base.PackageConfigBase"></a>
     <div class="doc doc-contents first">
             <p class="doc doc-class-bases">
-              Bases: <code><span title="pydantic.BaseModel">BaseModel</span></code></p>
+              Bases: <code><a class="autorefs autorefs-internal" title="oa_configurator.refs.SecretSafeBaseModel" href="../secrets/#oa_configurator.refs.SecretSafeBaseModel">SecretSafeBaseModel</a></code></p>
 
 
 
@@ -1821,7 +1843,7 @@ stack config file.</p>
 <a id="oa_configurator.package_base.PackageConfigValidationError"></a>
     <div class="doc doc-contents first">
             <p class="doc doc-class-bases">
-              Bases: <code><span title="oa_configurator.package_base.ConfigurationError">ConfigurationError</span></code></p>
+              Bases: <code><span title="oa_configurator.package_base._SanitizedValidationErrorMixin">_SanitizedValidationErrorMixin</span></code>, <code><span title="oa_configurator.package_base.ConfigurationError">ConfigurationError</span></code></p>
 
 
 
@@ -1851,25 +1873,78 @@ without retaining rejected input or validator context.</p>
 
 
 
-<div class="doc doc-object doc-function">
 
 
-<h2 id="oa_configurator.package_base.PackageConfigValidationError.errors" class="doc doc-heading">
-            <span class="doc doc-object-name doc-function-name">errors</span>
-
-
-<a href="#oa_configurator.package_base.PackageConfigValidationError.errors" class="headerlink" title="Permanent link">&para;</a></h2>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">errors</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">ErrorDetails</span><span class="p">]</span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>Return locations and messages without rejected input or context.</p>
-
+  </div>
 
     </div>
 
-</div>
+</div><h2 id="errors-from-the-stack-file-itself">Errors from the stack file itself<a class="headerlink" href="#errors-from-the-stack-file-itself" title="Permanent link">&para;</a></h2>
+<p><code>StackConfigValidationError</code> is the whole-file sibling of the above, raised by <a href="../loader/"><code>load_stack_config_from_path()</code></a> when a file parses as TOML but does not validate as a <code>StackConfig</code>. It sanitizes identically by providing field paths and reasons, never the rejected value, because a stack file holds every password and API key in the deployment.</p>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<a id="oa_configurator.package_base.StackConfigValidationError"></a>
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="oa_configurator.package_base._SanitizedValidationErrorMixin">_SanitizedValidationErrorMixin</span></code>, <code><span title="oa_configurator.package_base.ConfigurationError">ConfigurationError</span></code></p>
+
+
+
+        <p>The config file parsed as TOML but failed :class:<code>StackConfig</code> validation.</p>
+<p>Sibling of :class:<code>PackageConfigValidationError</code>, sharing its sanitising: a
+stack config holds every connection password and API key in the deployment,
+so this is the error most likely to be pasted into an issue or a CI log.
+The message names the file and the offending field paths and nothing else.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="oa_configurator.package_base.StackConfigValidationError.path">path</span></code></td>
+            <td>
+                  <code><span title="pathlib.Path">Path</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The file that failed to validate.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
 
 
 

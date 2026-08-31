@@ -706,6 +706,28 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#oa_configurator.loader.load_stack_config_from_path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_stack_config_from_path
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.loader.invalidate_cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        invalidate_cache
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1022,6 +1044,28 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#oa_configurator.loader.load_stack_config_from_path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_stack_config_from_path
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#oa_configurator.loader.invalidate_cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        invalidate_cache
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1092,6 +1136,27 @@
 
 <h1 id="loader">Loader<a class="headerlink" href="#loader" title="Permanent link">&para;</a></h1>
 <p>The loader reads a TOML file, validates it against the typed models, and applies any environment-variable overrides before returning a bound <code>StackConfig</code>.</p>
+<p>Two entry points, differing only in where the path comes from:</p>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Use when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>load_stack_config()</code></td>
+<td>The application has no config-path option of its own. Reads <code>CONFIG_PATH</code> (default <code>~/.config/omop/config.toml</code>, overridable with <code>OA_CONFIG_PATH</code>).</td>
+</tr>
+<tr>
+<td><code>load_stack_config_from_path(path)</code></td>
+<td>Something supplies a path — a <code>--config-path</code> flag, a CLI command, a test fixture.</td>
+</tr>
+</tbody>
+</table>
+<p>Prefer <code>load_stack_config_from_path</code> over reimplementing the read. It warns when the file is group- or world-readable, which matters because the file holds database passwords, and it caches by path and file identity so repeated loads do not re-parse. A hand-rolled <code>tomllib.loads</code> + <code>model_validate</code> gets neither.</p>
+<p>Both raise <code>ConfigurationError</code> for a file that is present but unusable: malformed TOML, or content that does not validate. The validation case is a <code>StackConfigValidationError</code> naming the offending field paths. Neither ever echoes the value that was rejected, since a rejected value is often the secret itself and these messages end up in issues and CI logs.</p>
 
 
 <div class="doc doc-object doc-module">
@@ -1164,6 +1229,146 @@ before starting the process; changing it at runtime does not change
           </tr>
       </tbody>
     </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="oa_configurator.loader.load_stack_config_from_path" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">load_stack_config_from_path</span>
+
+
+<a href="#oa_configurator.loader.load_stack_config_from_path" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">load_stack_config_from_path</span><span class="p">(</span>
+    <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StackConfig</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Load a :class:<code>StackConfig</code> from an explicit path.</p>
+<p>For anything that accepts a config path of its own -- a <code>--config-path</code>
+flag, a CLI command, a test fixture. Application code with no such flag
+should use :func:<code>load_stack_config</code>, which reads <code>CONFIG_PATH</code>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>path</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> or <span title="pathlib.Path">Path</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>File to load. <code>~</code> is expanded and the path resolved.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="oa_configurator.stack_config.StackConfig" href="../stack-config/#oa_configurator.stack_config.StackConfig">StackConfig</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A deep copy, so a caller can mutate it without disturbing the cache
+or any other holder.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="FileNotFoundError">FileNotFoundError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If <em>path</em> does not exist.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="oa_configurator.package_base.ConfigurationError">ConfigurationError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If the file is not valid TOML, or does not validate as a
+:class:<code>StackConfig</code>. Both carry the file path; the validation case
+is a :class:<code>~oa_configurator.StackConfigValidationError</code> naming the
+offending fields. Neither echoes a rejected value.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="oa_configurator.loader.invalidate_cache" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">invalidate_cache</span>
+
+
+<a href="#oa_configurator.loader.invalidate_cache" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">invalidate_cache</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Clear the process-local config cache.</p>
+<p>Called by :mod:<code>~oa_configurator.io</code> after writing to the config file
+(<code>save_stack_config</code>), as a guard against filesystems with coarse
+mtime resolution where a write and the next read could otherwise land
+in the same cache key.</p>
 
 
     </div>

@@ -258,6 +258,28 @@ def schema_options(
     return {"schema_translate_map": {None: effective_schema}}
 
 
+def supports_schemas(bindable: Bindable) -> bool:
+    """True if bindable's dialect has a genuine multi-schema concept.
+
+    False for SQLite, which has no schema namespacing at all: every table
+    lives in one flat file-level namespace, and even a schema_translate_map
+    that resolves a table's schema key back to the connection's own default
+    can't make SQLite create an inline foreign key across a schema
+    boundary: that check runs against the table's own literal Python-level
+    schema attribute, not the translated one.
+
+    Parameters
+    ----------
+    bindable : sqlalchemy.engine.Engine or sqlalchemy.engine.Connection or sqlalchemy.orm.Session
+
+    Returns
+    -------
+    bool
+    """
+    bind = _as_bind(bindable)
+    return bind.dialect.name != "sqlite"
+
+
 def ensure_schema(bindable: Engine | Connection, schema: str | None) -> None:
     """``CREATE SCHEMA IF NOT EXISTS``, dialect-aware.
 
@@ -281,7 +303,7 @@ def ensure_schema(bindable: Engine | Connection, schema: str | None) -> None:
     if schema is None or schema == "public":
         return
     bind = _as_bind(bindable)
-    if bind.dialect.name == "sqlite":
+    if not supports_schemas(bind):
         return
     ddl = sa.schema.CreateSchema(schema, if_not_exists=True)
     if isinstance(bind, Engine):

@@ -513,6 +513,42 @@ class ResolvedCDMDatabase(ResolvedDatabase):
         merged_opts.setdefault("schema_translate_map", stm)
         return engine.execution_options(**merged_opts)
 
+    def vocab_engine_for(
+        self,
+        primary: Engine,
+        *,
+        execution_options: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> Engine:
+        """Return the vocab-role engine paired with an already-built *primary*.
+
+        Returns *primary* unchanged when ``vocab_connection`` is not a
+        genuinely different connection -- avoids opening a second, redundant
+        connection pool to the same target. For a caller that builds its own
+        primary engine (e.g. one that also registers extra state against it)
+        rather than via a plain :meth:`create_engine` call.
+        """
+        if self.connection is self.vocab_connection:
+            return primary
+        return self.create_engine(
+            role=Role.VOCAB, execution_options=execution_options, **kwargs
+        )
+
+    def create_engines(
+        self,
+        *,
+        execution_options: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> tuple[Engine, Engine]:
+        """Return ``(primary_engine, vocab_engine)``, built together.
+
+        See :meth:`vocab_engine_for` for the pairing rule. Parameters are
+        forwarded to :meth:`create_engine` for both.
+        """
+        primary = self.create_engine(execution_options=execution_options, **kwargs)
+        vocab = self.vocab_engine_for(primary, execution_options=execution_options, **kwargs)
+        return primary, vocab
+
     def __repr__(self) -> str:
         return (
             f"ResolvedCDMDatabase(name={self.name!r}, "

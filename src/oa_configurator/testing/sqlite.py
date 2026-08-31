@@ -15,25 +15,54 @@ import tempfile
 from collections.abc import Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import TYPE_CHECKING, Iterator
 
 import sqlalchemy as sa
 import sqlalchemy.orm as so
 
 from .base import IsolatedTestDatabase, TestDatabaseStrategy
 
+if TYPE_CHECKING:
+    from ..domains.resources.schema import ResolvedDatabase
+
 
 class SQLiteTestStrategy(TestDatabaseStrategy):
-    """Test-database provisioning for SQLite."""
+    """Test-database provisioning for SQLite.
+
+    Internal implementation detail of ``isolated_test_database()`` --
+    not part of the public surface. SQLite needs no server or credentials,
+    so it's the one strategy that overrides ``resolve_without_config()``.
+    """
+
+    def resolve_without_config(self) -> "ResolvedDatabase":
+        """Fabricate a ``ResolvedDatabase`` pointing at an in-memory target.
+
+        The URL is only used by ``isolated_test_database()`` to determine
+        the dialect name -- ``isolated_database()`` below ignores *resolved*
+        entirely and always provisions its own fresh tempfile database.
+        """
+        from ..domains.resources.schema import ResolvedConnection, ResolvedDatabase
+
+        url = "sqlite:///:memory:"
+        connection = ResolvedConnection(
+            name="sqlite-in-memory",
+            url=url,
+            safe_url=url,
+            _engine_url=sa.engine.make_url(url),
+        )
+        return ResolvedDatabase(name="sqlite-in-memory", connection=connection, schema_name=None)
 
     @contextmanager
     def isolated_database(
         self,
-        resolved,
+        resolved: "ResolvedDatabase | None" = None,
         *,
         extensions: Sequence[str] = (),
         **engine_kwargs: object,
     ) -> Iterator[IsolatedTestDatabase]:
+        # resolved is unused: SQLite has nothing to resolve. Kept, defaulted
+        # to None, only so this matches TestDatabaseStrategy's shared
+        # signature for callers going through isolated_test_database().
         # extensions is a Postgres-only concept (pgvector etc.). Accepted
         # and silently ignored here so callers don't need dialect-specific
         # branching just to call isolated_test_database() uniformly.

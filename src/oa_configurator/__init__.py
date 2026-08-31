@@ -25,6 +25,7 @@ from .domains.resources.sql import (
     schema_inspect,
     schema_of,
     schema_options,
+    supports_schemas,
 )
 from .domains.vector_stores.schema import ResolvedVectorStore, VectorStoreConfig
 from .io import ConfigSaveError, FLAT_ENV_PATH, save_stack_config, write_env_file
@@ -100,6 +101,7 @@ __all__ = [
     "schema_inspect",
     "schema_of",
     "schema_options",
+    "supports_schemas",
     "unresolved_refs",
     "write_env_file",
 ]

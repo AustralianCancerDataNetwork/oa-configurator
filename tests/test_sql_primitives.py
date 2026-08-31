@@ -41,6 +41,7 @@ from oa_configurator import (
     schema_inspect,
     schema_of,
     schema_options,
+    supports_schemas,
 )
 from oa_configurator.config import OAConfiguratorConfig
 from oa_configurator.domains.resources.sql import _as_bind, reject_reserved_schema
@@ -207,6 +208,23 @@ class TestSchemaInspect:
         conn, schema, _table_name = probe_table
         bound = schema_inspect(conn, schema=schema)
         bound.clear_cache()  # no schema-aware wrapper exists for this, must not raise
+
+
+class TestSupportsSchemas:
+    def test_sqlite_does_not(self):
+        cfg = StackConfig.for_session(
+            connections={"db": ConnectionConfig(dialect="sqlite", database_name=":memory:")}
+        )
+        eng = Resolver(cfg).resolve_connection("db").create_engine()
+        try:
+            assert supports_schemas(eng) is False
+        finally:
+            eng.dispose()
+
+    def test_postgres_does(self, engine):
+        if engine.dialect.name != "postgresql":
+            pytest.skip("postgres-only")
+        assert supports_schemas(engine) is True
 
 
 class TestAutocommitConnection:

@@ -28,6 +28,7 @@ from oa_configurator import (
     StackConfig,
 )
 from oa_configurator.config import OAConfiguratorConfig
+from oa_configurator.testing.base import ConfigurationError
 from oa_configurator.testing import isolated_test_database, isolated_test_schema
 from oa_configurator.testing.base import TestDatabaseStrategy
 
@@ -107,6 +108,55 @@ class TestIsolatedTestDatabase:
 
         with pytest.raises(NotImplementedError, match="mssql"):
             with isolated_test_database(DemoTestConfig, "test_cdm_db"):
+                pass
+
+
+class TestIsolatedTestDatabaseDialect:
+    """The dialect= parameter: validates a resolved field against an
+    expected dialect (always raising on mismatch, never substituting), and
+    falls back to a strategy's resolve_without_config() when the field
+    isn't configured at all and that dialect supports it."""
+
+    def test_matching_dialect_passes_through(self, monkeypatch):
+        cfg = _stack_config(test_only=True)
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        with isolated_test_database(DemoTestConfig, "test_cdm_db", dialect="sqlite") as db:
+            assert db.connection.execute(pytest.importorskip("sqlalchemy").text("SELECT 1")).scalar() == 1
+
+    def test_mismatched_dialect_raises_even_though_configured(self, monkeypatch):
+        """test_cdm_db resolves fine (to sqlite) -- a real, configured value,
+        not an unconfigured field. Asking for postgresql here is a bug in
+        the caller (wrong field for what it's testing), not something to
+        route around by substituting a different database."""
+        cfg = _stack_config(test_only=True)
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        with pytest.raises(ValueError, match="sqlite.*postgresql"):
+            with isolated_test_database(DemoTestConfig, "test_cdm_db", dialect="postgresql"):
+                pass
+
+    def test_unconfigured_field_falls_back_to_config_free_dialect(self, monkeypatch):
+        cfg = StackConfig.for_session()
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        with isolated_test_database(DemoTestConfig, "test_cdm_db", dialect="sqlite") as db:
+            assert db.connection.execute(pytest.importorskip("sqlalchemy").text("SELECT 1")).scalar() == 1
+
+    def test_unconfigured_field_still_skips_for_a_dialect_needing_real_config(self, monkeypatch):
+        cfg = StackConfig.for_session()
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        with pytest.raises(pytest.skip.Exception):
+            with isolated_test_database(DemoTestConfig, "test_cdm_db", dialect="postgresql"):
+                pass
+
+    def test_unknown_dialect_raises_immediately(self, monkeypatch):
+        cfg = _stack_config(test_only=True)
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        with pytest.raises(ValueError, match="postgres.*sqlite"):
+            with isolated_test_database(DemoTestConfig, "test_cdm_db", dialect="postgres"):
                 pass
 
 
@@ -220,11 +270,15 @@ class TestResolveAndCheck:
         assert "test_cdm_db" in str(exc_info.value)
         assert "test_cdm" in str(exc_info.value)
 
-    def test_skips_when_no_config_file_exists(self, monkeypatch):
-        """Regression check: a missing config file must skip, not crash.
-        load_stack_config() is called twice on this path (once to look up
-        the field, once inside Resolver.from_active_config()); both must
-        be guarded against FileNotFoundError."""
+    def test_raises_not_configured_when_no_config_file_exists(self, monkeypatch):
+        """Regression check: a missing config file must raise ConfigurationError,
+        not crash. load_stack_config() is called twice on this path (once to
+        look up the field, once inside Resolver.from_active_config()); both
+        must be guarded against FileNotFoundError. _resolve_and_check() itself
+        no longer skips directly -- isolated_test_database() decides whether
+        to skip or try a strategy's resolve_without_config() fallback first
+        (covered end-to-end by test_skips_when_database_is_not_configured
+        above)."""
 
         def _raise_not_found():
             raise FileNotFoundError("no config file")
@@ -233,7 +287,7 @@ class TestResolveAndCheck:
             "oa_configurator.loader.load_stack_config", _raise_not_found
         )
 
-        with pytest.raises(pytest.skip.Exception):
+        with pytest.raises(ConfigurationError):
             TestDatabaseStrategy._resolve_and_check(DemoTestConfig, "test_cdm_db")
 
     def test_honors_a_configured_override(self, monkeypatch):

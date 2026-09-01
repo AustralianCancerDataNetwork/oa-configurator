@@ -17,5 +17,5 @@ from .refs import RefTo
 
 class OAConfiguratorConfig(PackageConfigBase):
     tool_name: ClassVar[str] = "oa_configurator"
-    test_postgres_db: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = None
-    # Extend with other dialects if required
+    test_db_pg: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = None
+    test_db_sqlite: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = None

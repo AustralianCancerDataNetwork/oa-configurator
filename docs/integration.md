@@ -155,9 +155,9 @@ This covers the vast majority of tests. No file I/O, no environment-specific set
 
 For tests that exercise a real database (e.g. PostgreSQL-specific SQL, bulk loading, trigger management), use a **dedicated named database** in the user's config, never a copy of the production database under a different guise.
 
-The convention is `test_<package>_db` (e.g. `test_cdm_db` for omop-alchemy) for readability, but what actually marks a field as a test field is `RefTo(CDMDatabaseConfig, is_test=True)` (or `RefTo(GenericDatabaseConfig, is_test=True)`, whichever kind the package's real database is). The field's own Python name carries no meaning to `oa-configurator` itself. Keeping the *value* distinct from the production database (`cdm_db`) is still a mandatory safety guard: the test suite must never accidentally connect to a production database.
+The convention is `test_<package>_db_<dialect>` (e.g. `test_cdm_db_pg` for a Postgres-backed field, `test_cdm_db_sqlite` for a SQLite one), one field per dialect your package's tests actually exercise. What marks a field as a test field is `RefTo(CDMDatabaseConfig, is_test=True)` (or `RefTo(GenericDatabaseConfig, is_test=True)`, whichever kind the package's real database is), not its Python name, which carries no meaning to `oa-configurator` itself. Keeping the *value* distinct from the production database is still a mandatory safety guard: the test suite must never accidentally connect to a production database. Declare one field per dialect rather than reusing a single field for both: a field that's genuinely dialect-agnostic (works whether it happens to resolve to Postgres or SQLite) is rare in practice, and a field pinned to a specific dialect via `dialect=` (below) will raise if it ever resolves to the wrong one, since a mismatch is treated as a real misconfiguration, never silently substituted.
 
-In `conftest.py`, resolve the test database via the `isolated_test_database()` context manager, which skips cleanly whether `config.toml` is entirely missing or simply doesn't have this database configured yet, provisions it if needed, and yields an already-isolated `.connection`/`.session` pair. 
+In `conftest.py`, resolve the test database via the `isolated_test_database()` context manager, which skips cleanly whether `config.toml` is entirely missing or simply doesn't have this database configured yet, provisions it if needed, and yields an already-isolated `.connection`/`.session` pair.
 - Postgres wraps the whole thing in one transaction that's rolled back on exit (nothing your test does ever commits, so concurrent test runs against the same shared server can't collide);
 - SQLite gets a fresh, disposable database per call:
 
@@ -167,11 +167,22 @@ def pg_db():
     from oa_configurator.testing import isolated_test_database
     from my_package.config import MyPackageConfig
 
-    with isolated_test_database(MyPackageConfig, "test_cdm_db") as db:
+    with isolated_test_database(MyPackageConfig, "test_cdm_db_pg") as db:
         yield db  # db.connection (Core) / db.session (ORM)
 ```
 
-`isolated_test_database(cls, field_name)` always takes the field name explicitly, with no auto-discovery, so it resolves without requiring the rest of your package's config (e.g. a required `cdm_db` field) to also be configured. That's deliberate on both counts: a CI runner that only provisions a test database shouldn't need a "production" database configured just to find it, and a class with more than one `is_test=True` field (e.g. one per backend) would otherwise have no way to say which one a caller means.
+`isolated_test_database(cls, field_name)` always takes the field name explicitly, with no auto-discovery, so it resolves without requiring the rest of your package's config (e.g. a required `cdm_db` field) to also be configured. That's deliberate on both counts: a CI runner that only provisions a test database shouldn't need a "production" database configured just to find it, and a class with more than one `is_test=True` field (one per dialect, per the convention above) would otherwise have no way to say which one a caller means.
+
+Pass `dialect=` to pin the resolved connection to a specific dialect regardless of what the field happens to resolve to. A mismatch always raises, and an unconfigured field falls back to that dialect's own zero-config provisioning if it supports one (SQLite always does; Postgres doesn't, since it needs a real server):
+
+```python
+@pytest.fixture
+def empty_engine():
+    with isolated_test_database(
+        MyPackageConfig, "test_cdm_db_sqlite", dialect="sqlite",
+    ) as db:
+        yield db.connection.engine
+```
 
 For the rare case where the code under test constructs its own engine/connection and needs to see real, committed state (rather than the rolled-back transaction above), use `isolated_test_schema(engine)` instead (see `oa_configurator.testing`'s module docstring).
 
@@ -180,9 +191,9 @@ For the rare case where the code under test constructs its own engine/connection
 
 #### Provisioning the test database
 
-The test database must be provisioned for real before pytest runs. There is no fallback that papers over a missing one, by design (see the callout above).
+The test database must be provisioned for real before pytest runs. There is no fallback that papers over a missing one, by design (see the callout above). A field targeting SQLite needs no provisioning at all: leave it unconfigured in `config.toml`, and `isolated_test_database(..., dialect="sqlite")` builds a disposable instance with no server, no credentials, nothing to set up.
 
-A package field marked `is_test=True` (e.g. `test_cdm_db: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = None`) gets special handling in `omop-config configure <package>`'s **interactive** flow: it asks whether to configure a test database, and if you accept, recurses through creating both the connection and the database, marking the connection `test_only = true` automatically and refusing to reuse (or collide with) a non-test connection's host/database combination. `resolve_package_config()` (used by `get_config()` and this interactive flow alike) separately enforces, every time your config loads, that an `is_test=True` field always resolves to a `test_only=true` connection and an `is_test=False` field never does. Pointing either one at the wrong kind of connection raises `ConfigurationError` immediately, not just when a test happens to run.
+A package field marked `is_test=True` (e.g. `test_cdm_db_pg: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = None`) gets special handling in `omop-config configure <package>`'s **interactive** flow: it asks whether to configure a test database, and if you accept, recurses through creating both the connection and the database, marking the connection `test_only = true` automatically and refusing to reuse (or collide with) a non-test connection's host/database combination. `resolve_package_config()` (used by `get_config()` and this interactive flow alike) separately enforces, every time your config loads, that an `is_test=True` field always resolves to a `test_only=true` connection and an `is_test=False` field never does. Pointing either one at the wrong kind of connection raises `ConfigurationError` immediately, not just when a test happens to run.
 
 Non-interactively, `--test-only` is an ordinary flag on `connections add` (accepting `true`/`false`/`yes`/`no`/`1`/`0`):
 
@@ -191,21 +202,21 @@ omop-config connections add test_cdm \
   --dialect postgresql+psycopg --host localhost --port 5432 \
   --user test --password test --database-name test_db --test-only true
 
-omop-config databases add test_cdm_db --kind cdm --connection test_cdm --schema-name public
+omop-config databases add test_cdm_db_pg --kind cdm --connection test_cdm --schema-name public
 
-omop-config configure <package> --test-cdm-db test_cdm_db
+omop-config configure <package> --test-cdm-db-pg test_cdm_db_pg
 ```
 
-The `--test-cdm-db` flag above is the field's own auto-generated flag (`test_cdm_db` -> `--test-cdm-db`); it points the field at an already-created database by name, same as any other `RefTo` field passed non-interactively. Or do it in the single `configure` call directly with `--set` (see [Docker Compose](#docker-compose) below):
+The `--test-cdm-db-pg` flag above is the field's own auto-generated flag (`test_cdm_db_pg` -> `--test-cdm-db-pg`); it points the field at an already-created database by name, same as any other `RefTo` field passed non-interactively. Or do it in the single `configure` call directly with `--set` (see [Docker Compose](#docker-compose) below):
 
 ```bash
 omop-config configure <package> \
-  --set test_cdm_db.kind=cdm \
-  --set test_cdm_db.connection.dialect=postgresql+psycopg \
-  --set test_cdm_db.connection.host=localhost \
-  --set test_cdm_db.connection.database_name=test_db \
-  --set test_cdm_db.connection.test_only=true \
-  --set test_cdm_db.schema_name=public
+  --set test_cdm_db_pg.kind=cdm \
+  --set test_cdm_db_pg.connection.dialect=postgresql+psycopg \
+  --set test_cdm_db_pg.connection.host=localhost \
+  --set test_cdm_db_pg.connection.database_name=test_db \
+  --set test_cdm_db_pg.connection.test_only=true \
+  --set test_cdm_db_pg.schema_name=public
 ```
 
 === "Local development"
@@ -219,8 +230,50 @@ omop-config configure <package> \
 !!! info "Safety"
     The test database must point to a dedicated, empty database.
     If your test session drops and recreates schemas, add a runtime guard that compares the
-    resolved URL of `test_cdm_db` against all other configured databases and calls
+    resolved URL of `test_cdm_db_pg` against all other configured databases and calls
     `pytest.fail()` on any match.
+
+### Testing across dialects
+
+A fixture that needs to exercise the *same* test body against every supported dialect should use `DIALECT_PARAMS` rather than a hand-rolled `params=` list:
+
+```python
+from oa_configurator.testing import DIALECT_PARAMS, isolated_test_database
+
+# request.param is SQLAlchemy's own dialect name ("postgresql", "sqlite",
+# ...), not the field-naming convention's abbreviation ("pg"), so this maps
+# one to the other explicitly rather than interpolating request.param
+# straight into the field name.
+_FIELD_BY_DIALECT = {"postgresql": "test_cdm_db_pg", "sqlite": "test_cdm_db_sqlite"}
+
+
+@pytest.fixture(params=DIALECT_PARAMS)
+def db(request):
+    with isolated_test_database(
+        MyPackageConfig, _FIELD_BY_DIALECT[request.param], dialect=request.param
+    ) as db:
+        yield db
+```
+
+`DIALECT_PARAMS` is generated from the same registry that backs `isolated_test_database()`'s dialect dispatch, so it always matches whatever dialects your installed `oa-configurator` actually supports, with no list to keep in sync by hand. Each param always carries its own dialect name (`sqlite`, `postgresql`, ...), plus a second, generic `db_dialect` mark, but only if that dialect is actually capable of the corruption described below; a dialect that structurally can't cause it (SQLite today) skips that second mark, since excluding it from the default run would buy nothing.
+
+Add this to your package's `pyproject.toml` so tests capable of that corruption are excluded from the default run and only execute when explicitly selected:
+
+```toml
+[tool.pytest.ini_options]
+addopts = "-m 'not db_dialect'"
+```
+
+Then `pytest -m postgresql` (or `-m sqlite`) runs just that dialect's tests, explicitly, regardless of whether it's excluded by default. This is the shape a CI pipeline should use for its Postgres step, typically as a second job or step alongside the default run. 
+
+!!! note "Reason for exclusion"
+  The exclusion exists because SQLAlchemy's `create_all()` permanently mutates shared `ForeignKeyConstraint` state the first time it defers a circular-dependency foreign key on a dialect whose `supports_alter` is true, which corrupts a *later* `create_all()` call against the same shared metadata on any other dialect in the same process. The fix is making sure that never happens within one pytest invocation, not chasing the mutation itself, and only excluding dialects that can actually cause it in the first place.
+
+If a test already gets its Postgres connection through a `pg_db`-named fixture (rather than `DIALECT_PARAMS`), it's marked `postgresql` + `db_dialect` automatically, with no changes needed, as long as the fixture keeps the established `pg_db` name.
+
+### Adding a new dialect
+
+`oa_configurator.testing` dispatches to one `TestDatabaseStrategy` subclass per dialect via a plain dict, keyed off SQLAlchemy's own dialect name string. Supporting a new dialect in tests means writing one subclass and registering it there. Once registered, that dialect's pytest marker, its slot in `DIALECT_PARAMS`, and whether it's excluded from `-m 'not db_dialect'` all follow automatically, based on that dialect's own real `supports_alter` value, with no further changes needed anywhere.
 
 ---
 

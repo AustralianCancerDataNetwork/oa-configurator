@@ -4,7 +4,7 @@ schema_options, ensure_schema, autocommit_connection,
 register_reserved_schema, reject_reserved_schema.
 
 One shared test body runs against both sqlite (fully hermetic) and real
-Postgres (via OA_Configurator's own test_postgres_db field, see config.py)
+Postgres (via OA_Configurator's own test_db_pg field, see config.py)
 for everything that's genuinely dialect-agnostic, via the parametrized
 `engine`/`probe_table` fixtures below. Not create_mock_engine:
 MockConnection.schema_for_object ignores schema_translate_map entirely,
@@ -16,14 +16,13 @@ which is the one place these primitives branch on dialect at all.
 
 Rule: no test reads from ~/.config/omop/ directly (see conftest.py).
 Postgres access goes through isolated_test_database(OAConfiguratorConfig,
-"test_postgres_db"), which resolves by field name and skips cleanly when
+"test_db_pg"), which resolves by field name and skips cleanly when
 that field isn't configured, whatever database it's been pointed at.
 """
 
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
@@ -47,69 +46,6 @@ from oa_configurator.config import OAConfiguratorConfig
 from oa_configurator.domains.resources.sql import _as_bind, reject_reserved_schema
 from oa_configurator.testing import isolated_test_database
 
-DIALECTS = ["sqlite", "postgres"]
-
-
-@pytest.fixture(params=DIALECTS)
-def engine(request):
-    """A real engine per dialect, execution_options carrying an arbitrary
-    schema_translate_map. The schema doesn't need to really exist. These
-    primitives never query it, only read/build the dict and quote names."""
-    if request.param == "sqlite":
-        cfg = StackConfig.for_session(
-            connections={"db": ConnectionConfig(dialect="sqlite", database_name=":memory:")}
-        )
-        eng = Resolver(cfg).resolve_connection("db").create_engine().execution_options(
-            schema_translate_map={None: "myschema"}
-        )
-        try:
-            yield eng
-        finally:
-            eng.dispose()
-    else:
-        with isolated_test_database(OAConfiguratorConfig, "test_postgres_db") as db:
-            yield db.connection.engine.execution_options(
-                schema_translate_map={None: "myschema"}
-            )
-
-
-@pytest.fixture(params=DIALECTS)
-def probe_table(request, tmp_path: Path):
-    """(connection, schema_name, table_name) with a real table + index in a
-    genuinely non-default schema, per dialect. sqlite's ATTACH DATABASE and
-    Postgres's real CREATE SCHEMA are different mechanisms, but the same
-    observable contract: a table schema_inspect() can find and a bare
-    sa.inspect() can't."""
-    table_name = "probe"
-    if request.param == "sqlite":
-        cfg = StackConfig.for_session(
-            connections={
-                "db": ConnectionConfig(dialect="sqlite", database_name=str(tmp_path / "main.db"))
-            }
-        )
-        engine = Resolver(cfg).resolve_connection("db").create_engine()
-        try:
-            other_path = tmp_path / "other.db"
-            with engine.connect() as conn:
-                conn.execute(sa.text(f"ATTACH DATABASE '{other_path}' AS other_schema"))
-                conn.execute(sa.text(f"CREATE TABLE other_schema.{table_name} (id INTEGER)"))
-                conn.execute(
-                    sa.text(f"CREATE INDEX other_schema.{table_name}_idx ON {table_name} (id)")
-                )
-                conn.commit()
-                yield conn, "other_schema", table_name
-        finally:
-            engine.dispose()
-    else:
-        with isolated_test_database(OAConfiguratorConfig, "test_postgres_db") as db:
-            conn = db.connection
-            schema = f"test_{uuid.uuid4().hex[:8]}"
-            conn.execute(sa.text(f'CREATE SCHEMA "{schema}"'))
-            conn.execute(sa.text(f'CREATE TABLE "{schema}"."{table_name}" (id INTEGER)'))
-            conn.execute(
-                sa.text(f'CREATE INDEX "{table_name}_idx" ON "{schema}"."{table_name}" (id)')
-            )
-            yield conn, schema, table_name
 
 
 class TestAsBind:
@@ -287,8 +223,8 @@ class TestEnsureSchemaPostgres:
     ensure_schema() branch sqlite structurally can't reach."""
 
     @pytest.fixture
-    def pg_db(self):
-        with isolated_test_database(OAConfiguratorConfig, "test_postgres_db") as db:
+    def pg_db(self, request):
+        with isolated_test_database(OAConfiguratorConfig, "test_db_pg", request=request) as db:
             yield db
 
     def test_with_connection_participates_in_callers_transaction(self, pg_db):

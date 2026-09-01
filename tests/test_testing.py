@@ -165,7 +165,15 @@ class TestIsolatedTestSchema:
     equivalent (ATTACH DATABASE) is per-connection state, not visible to a
     genuinely separate connection, so it can't back this primitive's
     cross-connection contract. It must refuse clearly rather than silently
-    pass a single-connection test and then fail for real callers."""
+    pass a single-connection test and then fail for real callers.
+
+    The three ``test_refuses_*``/``test_sqlite_raises_*`` tests below build
+    raw ``sa.create_engine()`` calls deliberately, rather than going
+    through ``isolated_test_database()``: they test *this module's own*
+    rejection logic against an engine that hasn't been vetted by it, so
+    going through the vetted path would make the fixture itself skip/fail
+    before the test's own assertion ever ran.
+    """
 
     def test_sqlite_raises_not_implemented(self):
         import sqlalchemy as sa
@@ -213,20 +221,26 @@ class TestIsolatedTestSchema:
             with isolated_test_schema(engine):
                 pass
 
-    def test_creates_and_drops_a_real_schema_for_a_test_only_engine(self):
-        """A genuinely separate connection can see the schema while it exists, 
-        and it's gone once the context manager exits. Proves the real point of 
-        this mechanism, not just that it doesn't raise."""
+    @pytest.mark.postgresql
+    @pytest.mark.db_dialect
+    def test_creates_and_drops_a_real_schema_for_a_test_only_engine(self, request):
+        """A genuinely separate connection can see the schema while it exists,
+        and it's gone once the context manager exits. Proves the real point of
+        this mechanism, not just that it doesn't raise.
+
+        Uses the documented ``pg_db.connection.engine`` shim (a real,
+        independently-connectable Engine, already test_only-vetted by
+        isolated_test_database()) rather than hand-building two raw
+        engines: ``.connect()`` on the same Engine object twice already
+        gives two independent physical connections, which is all this test
+        needs to prove cross-connection visibility.
+        """
         import sqlalchemy as sa
 
-        resolved = TestDatabaseStrategy._resolve_and_check(
-            OAConfiguratorConfig, "test_postgres_db"
-        )
-        engine = resolved.create_engine()
-        other_engine = resolved.create_engine()
-        try:
+        with isolated_test_database(OAConfiguratorConfig, "test_db_pg", request=request) as pg_db:
+            engine = pg_db.connection.engine
             with isolated_test_schema(engine, prefix="ttest") as schema:
-                with other_engine.connect() as conn:
+                with engine.connect() as conn:
                     exists = conn.execute(
                         sa.text(
                             "SELECT 1 FROM information_schema.schemata WHERE schema_name = :s"
@@ -235,7 +249,7 @@ class TestIsolatedTestSchema:
                     ).scalar()
                 assert exists == 1
 
-            with other_engine.connect() as conn:
+            with engine.connect() as conn:
                 exists_after = conn.execute(
                     sa.text(
                         "SELECT 1 FROM information_schema.schemata WHERE schema_name = :s"
@@ -243,9 +257,6 @@ class TestIsolatedTestSchema:
                     {"s": schema},
                 ).scalar()
             assert exists_after is None
-        finally:
-            engine.dispose()
-            other_engine.dispose()
 
 
 class TestResolveAndCheck:

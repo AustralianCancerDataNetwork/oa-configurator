@@ -723,3 +723,35 @@ class TestResolveFieldsStaleRefFallback:
         )
         extra = MixedFieldConfig.resolve_fields(cfg, set_dict={}, interactive=False)
         assert extra["backend"] == "custom_value"
+
+
+class TestResolveFieldsUnrecognizedKeys:
+    """A set_dict key with no matching field must raise, not silently
+    produce an incomplete saved section (the pre-fix behavior: an
+    unrecognized key was simply never consumed by the per-field loop)."""
+
+    def test_headless_raises_configuration_error(self):
+        with pytest.raises(ConfigurationError, match="stale_field_name"):
+            MixedFieldConfig.resolve_fields(
+                StackConfig.for_session(),
+                set_dict={"stale_field_name": "value"},
+                interactive=False,
+                headless=True,
+            )
+
+    def test_non_headless_raises_typer_exit(self):
+        with pytest.raises(typer.Exit):
+            MixedFieldConfig.resolve_fields(
+                StackConfig.for_session(),
+                set_dict={"stale_field_name": "value"},
+                interactive=False,
+                headless=False,
+            )
+
+    def test_a_real_field_name_is_unaffected(self):
+        extra = MixedFieldConfig.resolve_fields(
+            StackConfig.for_session(),
+            set_dict={"backend": "custom_value"},
+            interactive=False,
+        )
+        assert extra["backend"] == "custom_value"

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, NoReturn, TypeVar, get_args, get_origin
 
@@ -144,6 +144,39 @@ def _check_missing_required(
     err_console.print(
         f"\n[red bold]Missing required field(s) for {display_name!r}:[/red bold] {hints}\n"
         f"No flag or stored config is available for these. Pass them explicitly."
+    )
+    raise typer.Exit(1)
+
+
+def _check_unrecognized_keys(
+    display_name: str,
+    set_dict: Mapping[str, Any],
+    valid_names: Collection[str],
+    *,
+    headless: bool = False,
+) -> None:
+    """Abort if ``set_dict`` has a top-level key that isn't a real field name.
+
+    Catches a stale or misspelled ``--set``/flag target immediately. Without
+    this, an unrecognized key is silently never consumed by the per-field
+    loop in :func:`~oa_configurator.package_base.PackageConfigBase.resolve_fields`,
+    producing an incomplete saved section with no error at all.
+    """
+    unrecognized = sorted(set(set_dict) - set(valid_names))
+    if not unrecognized:
+        return
+    if headless:
+        raise ConfigurationError(
+            f"Unrecognized field(s) for {display_name}: {', '.join(unrecognized)}"
+        )
+    import typer
+    from rich.console import Console
+
+    err_console = Console(stderr=True)
+    err_console.print(
+        f"\n[red bold]Unrecognized field(s) for {display_name!r}:[/red bold] "
+        f"{', '.join(unrecognized)}\n"
+        f"Valid fields: {', '.join(sorted(valid_names))}"
     )
     raise typer.Exit(1)
 

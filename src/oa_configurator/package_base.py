@@ -225,6 +225,7 @@ class PackageConfigBase(BaseModel):
         from .resolver import (
             Resolver,
             _check_missing_required,
+            _check_unrecognized_keys,
             _is_flag_settable,
             _nested_ref,
             _resolve_nested_flag_value,
@@ -232,6 +233,13 @@ class PackageConfigBase(BaseModel):
         )
 
         console = Console()
+
+        _check_unrecognized_keys(
+            f"tool {cls.tool_name!r}",
+            set_dict,
+            cls.model_fields.keys(),
+            headless=headless,
+        )
 
         try:
             current = Resolver(config).resolve_package_config(cls)

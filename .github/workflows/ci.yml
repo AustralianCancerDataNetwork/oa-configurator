@@ -6,5 +6,20 @@ on:
 jobs:
   label-gate:
     uses: AustralianCancerDataNetwork/cava-devops/.github/workflows/label-gate.yml@main
-  build-test:
+  build-test-sqlite:
     uses: AustralianCancerDataNetwork/cava-devops/.github/workflows/build-test.yml@main
+  build-test:
+    uses: AustralianCancerDataNetwork/cava-devops/.github/workflows/build-test-postgres.yml@main
+    with:
+      postgres-db: oa_configurator_test
+      setup-commands: |
+        uv run omop-config configure oa_configurator \
+          --set test_db_pg.kind=cdm \
+          --set test_db_pg.connection.dialect=postgresql+psycopg \
+          --set test_db_pg.connection.host=localhost \
+          --set test_db_pg.connection.port=5432 \
+          --set test_db_pg.connection.user=test \
+          --set test_db_pg.connection.password=test \
+          --set test_db_pg.connection.database_name=oa_configurator_test \
+          --set test_db_pg.connection.test_only=true \
+          --set test_db_pg.schema_name=public

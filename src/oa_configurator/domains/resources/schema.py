@@ -11,25 +11,10 @@ from sqlalchemy.engine import URL, Engine
 import sqlalchemy as sa
 
 from ...refs import RefTo, Secret
-from .sql import reject_reserved_schema
+from .sql import Role, reject_reserved_schema
 
 if TYPE_CHECKING:
     from ...stack_config import StackConfig
-
-
-class Role(str, Enum):
-    """Which physical target a database's logical role maps to.
-
-    Shared between :meth:`ResolvedDatabase.connection_target`, which picks
-    a concrete connection (only PRIMARY/VOCAB apply; RESULTS has no
-    connection of its own), and :meth:`ResolvedDatabase.schema_translate_map`,
-    which picks a schema name (all three apply). One enum instead of two
-    separately-typed, overlapping string sets.
-    """
-
-    PRIMARY = "primary"
-    VOCAB = "vocab"
-    RESULTS = "results"
 
 
 class ConnectionConfig(BaseModel):
@@ -391,6 +376,38 @@ class ResolvedDatabase:
         merged_opts.setdefault("schema_translate_map", {None: self.schema_name})
         return engine.execution_options(**merged_opts)
 
+    def connection_target(self, role: Role = Role.PRIMARY) -> ResolvedConnection:
+        """Return the resolved connection for a given role.
+        Only PRIMARY is valid here as ResolvedDatabase has no vocab/results role-splitting.
+
+        Raises
+        ------
+        ValueError
+            If *role* is not ``Role.PRIMARY``.
+        """
+        if role != Role.PRIMARY:
+            raise ValueError(
+                f"Role.{role.name} has no meaning for {type(self).__name__}; "
+                "only ResolvedCDMDatabase has vocab/results roles."
+            )
+        return self.connection
+
+    def schema_for_role(self, role: Role = Role.PRIMARY) -> str | None:
+        """Return the effective schema for a given role.
+        Only PRIMARY is valid here as ResolvedDatabase has no vocab/results role-splitting.
+
+        Raises
+        ------
+        ValueError
+            If *role* is not ``Role.PRIMARY``.
+        """
+        if role != Role.PRIMARY:
+            raise ValueError(
+                f"Role.{role.name} has no meaning for {type(self).__name__}; "
+                "only ResolvedCDMDatabase has vocab/results roles."
+            )
+        return self.schema_name
+
     def __repr__(self) -> str:
         return (
             f"ResolvedDatabase(name={self.name!r}, "
@@ -423,29 +440,42 @@ class ResolvedCDMDatabase(ResolvedDatabase):
 
     def connection_target(self, role: Role = Role.PRIMARY) -> ResolvedConnection:
         """Return the resolved connection for a given role.
+        See ~meth:`CDMDatabaseConfig.resolve` for how vocab/results roles are handled.
 
         Parameters
         ----------
         role : Role, optional
             Which connection to return. Defaults to ``Role.PRIMARY``.
-            When ``vocab_connection`` was not configured, ``Role.VOCAB`` returns
-            the same connection as ``Role.PRIMARY``.
 
         Returns
         -------
         ResolvedConnection
-            The concrete connection for *role*.
-
-        Raises
-        ------
-        ValueError
-            If *role* is ``Role.RESULTS`` (results has no connection of its own).
+            The concrete connection for *role*
         """
-        if role == Role.PRIMARY:
-            return self.connection
         if role == Role.VOCAB:
             return self.vocab_connection
-        raise ValueError(f"Role {role!r} has no connection. Valid roles: PRIMARY, VOCAB")
+        return self.connection
+
+    def schema_for_role(self, role: Role = Role.PRIMARY) -> str | None:
+        """Return the effective schema for a given role.
+        See ~meth:`CDMDatabaseConfig.resolve` for how vocab/results roles are handled.
+
+        Parameters
+        ----------
+        role : Role, optional
+            Which schema to return. Defaults to ``Role.PRIMARY``.
+
+        Returns
+        -------
+        str or None
+            ``vocab_schema`` for ``Role.VOCAB``, ``results_schema`` for
+            ``Role.RESULTS``, ``schema_name`` otherwise.
+        """
+        if role == Role.VOCAB:
+            return self.vocab_schema
+        if role == Role.RESULTS:
+            return self.results_schema
+        return self.schema_name
 
     def schema_translate_map(self) -> dict[str | None, str | None]:
         """SQLAlchemy schema translate map for OMOP ORM models.

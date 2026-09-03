@@ -27,6 +27,8 @@ from rich.table import Table
 from .cli_support import _build_entry_params, _save_stack_config_or_exit
 from .domains.llm.cli import models_app, providers_app
 from .domains.resources.cli import connections_app, databases_app
+from .domains.resources.schema import ResolvedCDMDatabase, ResolvedDatabase, Role
+from .domains.resources.sql import SchemaDriftError, guard_schema_provenance
 from .domains.vector_stores.cli import vector_stores_app
 from .io import save_stack_config, write_env_file
 from .loader import CONFIG_PATH, load_stack_config
@@ -234,8 +236,71 @@ def verify() -> None:
             all_ok = False
 
     console.print(table)
-    if not all_ok:
+
+    schema_table = Table("Database", "Role", "Schema", "Status", "Detail")
+    schema_ok = True
+    for db_name in sorted(config.databases):
+        try:
+            resolved = resolver.resolve_database(db_name)
+        except Exception as exc:
+            schema_table.add_row(db_name, "-", "-", "[red]FAIL[/red]", str(exc)[:60])
+            schema_ok = False
+            continue
+        for role in _roles_for(resolved):
+            schema_ok &= _verify_schema_provenance(schema_table, config, resolved, role, label=db_name)
+
+    for vs_name in sorted(config.vector_stores):
+        try:
+            resolved_vs = resolver.resolve_vector_store(vs_name)
+        except Exception as exc:
+            schema_table.add_row(vs_name, "-", "-", "[red]FAIL[/red]", str(exc)[:60])
+            schema_ok = False
+            continue
+        schema_ok &= _verify_schema_provenance(
+            schema_table, config, resolved_vs.database, Role.PRIMARY, label=vs_name
+        )
+
+    if schema_table.row_count:
+        console.print(schema_table)
+
+    if not all_ok or not schema_ok:
         raise typer.Exit(1)
+
+
+def _roles_for(resolved: ResolvedDatabase) -> tuple[Role, ...]:
+    if isinstance(resolved, ResolvedCDMDatabase):
+        return (Role.PRIMARY, Role.VOCAB, Role.RESULTS)
+    return (Role.PRIMARY,)
+
+
+def _verify_schema_provenance(
+    table: Table, config: StackConfig, resolved: ResolvedDatabase, role: Role, *, label: str
+) -> bool:
+    """Open guard_schema_provenance() with an empty body: the exact same
+    check the DDL-time gate uses, no DDL run, refreshing last_verified_at
+    on success as a side effect. Adds one row to table (whose columns are
+    the Table("Database", "Role", ...) headers passed by the caller, in
+    that order), returns whether it passed.
+    """
+    target_connection = resolved.connection_target(role)
+    test_only = config.connections[target_connection.name].test_only
+    try:
+        engine = target_connection.create_engine()
+        try:
+            with engine.begin() as connection, guard_schema_provenance(
+                connection, resolved, role=role, test_only=test_only
+            ):
+                pass
+        finally:
+            engine.dispose()
+    except SchemaDriftError as exc:
+        table.add_row(label, role.value, "?", "[red]DRIFT[/red]", str(exc)[:80])
+        return False
+    except Exception as exc:
+        table.add_row(label, role.value, "?", "[red]FAIL[/red]", str(exc)[:60])
+        return False
+    table.add_row(label, role.value, "-", "[green]OK[/green]", "")
+    return True
 
 
 @app.command("export-env")

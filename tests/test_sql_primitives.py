@@ -30,21 +30,31 @@ import sqlalchemy.orm as so
 
 from oa_configurator import (
     ConnectionConfig,
+    ResolvedCDMDatabase,
+    ResolvedConnection,
+    ResolvedDatabase,
     Resolver,
+    Role,
     SchemaBoundInspector,
+    SchemaDriftError,
     StackConfig,
     autocommit_connection,
     ensure_schema,
+    find_table_in_other_schemas,
+    guard_schema_provenance,
     qualified,
+    record_schema_provenance,
     register_reserved_schema,
     schema_inspect,
     schema_of,
     schema_options,
     supports_schemas,
 )
-from oa_configurator.config import OAConfiguratorConfig
-from oa_configurator.domains.resources.sql import _as_bind, reject_reserved_schema
-from oa_configurator.testing import isolated_test_database
+from oa_configurator.domains.resources.sql import (
+    _as_bind,
+    _system_schemas_for,
+    reject_reserved_schema,
+)
 
 
 
@@ -222,11 +232,6 @@ class TestEnsureSchemaPostgres:
     """Real CREATE SCHEMA DDL and transaction participation. The one
     ensure_schema() branch sqlite structurally can't reach."""
 
-    @pytest.fixture
-    def pg_db(self, request):
-        with isolated_test_database(OAConfiguratorConfig, "test_db_pg", request=request) as db:
-            yield db
-
     def test_with_connection_participates_in_callers_transaction(self, pg_db):
         """Given a Connection, must not open a nested transaction of its
         own. A rollback on the caller's transaction has to take the new
@@ -286,3 +291,202 @@ class TestReservedSchemas:
         register_reserved_schema(name, owner="first-owner")
         with pytest.raises(RuntimeError, match=f"{name!r}.*first-owner.*second-owner"):
             register_reserved_schema(name, owner="second-owner")
+
+
+class TestSystemSchemasFor:
+    def test_postgres_excludes_its_catalogs(self):
+        schemas = _system_schemas_for("postgresql")
+        assert "information_schema" in schemas
+        assert "pg_catalog" in schemas
+
+    def test_unknown_dialect_is_empty(self):
+        assert _system_schemas_for("sqlite") == frozenset()
+        assert _system_schemas_for("not_a_real_dialect") == frozenset()
+
+
+class TestFindTableInOtherSchemas:
+    def test_finds_a_table_relocated_to_another_schema(self, pg_db):
+        conn = pg_db.connection
+        expected = f"test_{uuid.uuid4().hex[:8]}"
+        actual = f"test_{uuid.uuid4().hex[:8]}"
+        ensure_schema(conn, expected)
+        ensure_schema(conn, actual)
+        conn.execute(sa.text(f'CREATE TABLE "{actual}".orphan (id int)'))
+        found = find_table_in_other_schemas(conn, "orphan", expected_schema=expected)
+        assert found == (actual,)
+
+    def test_empty_when_table_only_exists_where_expected(self, pg_db):
+        conn = pg_db.connection
+        expected = f"test_{uuid.uuid4().hex[:8]}"
+        ensure_schema(conn, expected)
+        conn.execute(sa.text(f'CREATE TABLE "{expected}".present (id int)'))
+        found = find_table_in_other_schemas(conn, "present", expected_schema=expected)
+        assert found == ()
+
+    def test_empty_when_table_does_not_exist_anywhere(self, pg_db):
+        found = find_table_in_other_schemas(
+            pg_db.connection, "nonexistent_table_xyz", expected_schema="public"
+        )
+        assert found == ()
+
+    def test_excludes_postgres_system_schemas(self, pg_db):
+        found = find_table_in_other_schemas(
+            pg_db.connection, "pg_tables", expected_schema="public"
+        )
+        assert "information_schema" not in found
+        assert "pg_catalog" not in found
+
+
+class TestGuardSchemaProvenance:
+    """Guard's core drift semantics, exercised against real Postgres --
+    SQLite's supports_schemas()=False collapses every role to the same
+    None schema, which can't meaningfully distinguish these cases.
+    """
+
+    def _resolved(self, pg_db, *, database_name: str, schema_name: str) -> ResolvedDatabase:
+        url = pg_db.connection.engine.url
+        connection = ResolvedConnection(
+            name="test_guard", url=url.render_as_string(hide_password=False),
+            safe_url=url.render_as_string(hide_password=True), _engine_url=url,
+        )
+        return ResolvedDatabase(name=database_name, connection=connection, schema_name=schema_name)
+
+    def _resolved_cdm(self, pg_db, *, database_name: str, schema_name: str) -> ResolvedCDMDatabase:
+        url = pg_db.connection.engine.url
+        connection = ResolvedConnection(
+            name="test_guard", url=url.render_as_string(hide_password=False),
+            safe_url=url.render_as_string(hide_password=True), _engine_url=url,
+        )
+        return ResolvedCDMDatabase(
+            name=database_name, connection=connection, schema_name=schema_name,
+            vocab_connection=connection, vocab_schema=schema_name, results_schema=schema_name,
+        )
+
+    def test_results_role_uses_the_primary_connection(self, pg_db):
+        """Role.RESULTS has no connection of its own -- connection_target()
+        returns the primary connection for it, and the guard must accept
+        that rather than needing special-case handling for the role."""
+        db_name = f"guard_{uuid.uuid4().hex[:8]}"
+        schema = f"test_{uuid.uuid4().hex[:8]}"
+        resolved = self._resolved_cdm(pg_db, database_name=db_name, schema_name=schema)
+        conn = pg_db.connection
+        with guard_schema_provenance(conn, resolved, role=Role.RESULTS):
+            ensure_schema(conn, schema)
+
+    def test_fresh_empty_schema_proceeds_and_records(self, pg_db):
+        db_name = f"guard_{uuid.uuid4().hex[:8]}"
+        schema = f"test_{uuid.uuid4().hex[:8]}"
+        resolved = self._resolved(pg_db, database_name=db_name, schema_name=schema)
+        conn = pg_db.connection
+        with guard_schema_provenance(conn, resolved, role=Role.PRIMARY):
+            ensure_schema(conn, schema)
+            conn.execute(sa.text(f'CREATE TABLE "{schema}".t (id int)'))
+
+    def test_agreeing_second_call_proceeds(self, pg_db):
+        db_name = f"guard_{uuid.uuid4().hex[:8]}"
+        schema = f"test_{uuid.uuid4().hex[:8]}"
+        resolved = self._resolved(pg_db, database_name=db_name, schema_name=schema)
+        conn = pg_db.connection
+        with guard_schema_provenance(conn, resolved, role=Role.PRIMARY):
+            ensure_schema(conn, schema)
+        with guard_schema_provenance(conn, resolved, role=Role.PRIMARY):
+            pass  # must not raise: same resolved schema as before
+
+    def test_disagreeing_second_call_raises_schema_drift(self, pg_db):
+        db_name = f"guard_{uuid.uuid4().hex[:8]}"
+        schema_a = f"test_{uuid.uuid4().hex[:8]}"
+        schema_b = f"test_{uuid.uuid4().hex[:8]}"
+        conn = pg_db.connection
+        with guard_schema_provenance(conn, self._resolved(pg_db, database_name=db_name, schema_name=schema_a), role=Role.PRIMARY):
+            ensure_schema(conn, schema_a)
+        with pytest.raises(SchemaDriftError, match=f"{schema_a!r}.*{schema_b!r}"):
+            with guard_schema_provenance(conn, self._resolved(pg_db, database_name=db_name, schema_name=schema_b), role=Role.PRIMARY):
+                ensure_schema(conn, schema_b)
+
+    def test_test_only_short_circuits_even_on_drift(self, pg_db):
+        db_name = f"guard_{uuid.uuid4().hex[:8]}"
+        schema_a = f"test_{uuid.uuid4().hex[:8]}"
+        schema_b = f"test_{uuid.uuid4().hex[:8]}"
+        conn = pg_db.connection
+        with guard_schema_provenance(conn, self._resolved(pg_db, database_name=db_name, schema_name=schema_a), role=Role.PRIMARY):
+            ensure_schema(conn, schema_a)
+        with guard_schema_provenance(
+            conn, self._resolved(pg_db, database_name=db_name, schema_name=schema_b),
+            role=Role.PRIMARY, test_only=True,
+        ):
+            pass  # must not raise despite disagreeing with the recorded schema
+
+    def test_no_row_but_schema_already_populated_hard_stops(self, pg_db):
+        db_name = f"guard_{uuid.uuid4().hex[:8]}"
+        schema = f"test_{uuid.uuid4().hex[:8]}"
+        conn = pg_db.connection
+        ensure_schema(conn, schema)
+        conn.execute(sa.text(f'CREATE TABLE "{schema}".preexisting (id int)'))
+        with pytest.raises(SchemaDriftError, match="no schema-provenance record"):
+            with guard_schema_provenance(conn, self._resolved(pg_db, database_name=db_name, schema_name=schema), role=Role.PRIMARY):
+                pass
+
+    def test_exception_in_body_does_not_record(self, pg_db):
+        db_name = f"guard_{uuid.uuid4().hex[:8]}"
+        schema = f"test_{uuid.uuid4().hex[:8]}"
+        conn = pg_db.connection
+        resolved = self._resolved(pg_db, database_name=db_name, schema_name=schema)
+        with pytest.raises(ValueError, match="boom"):
+            with guard_schema_provenance(conn, resolved, role=Role.PRIMARY):
+                ensure_schema(conn, schema)
+                raise ValueError("boom")
+        # No record was written, so an empty schema now looks like day one again:
+        # the guard would proceed silently rather than treat it as a stale claim.
+        with guard_schema_provenance(conn, resolved, role=Role.PRIMARY):
+            pass
+
+
+class TestRecordSchemaProvenance:
+    def _resolved(self, pg_db, *, database_name: str, schema_name: str) -> ResolvedDatabase:
+        url = pg_db.connection.engine.url
+        connection = ResolvedConnection(
+            name="ack_test", url=url.render_as_string(hide_password=False),
+            safe_url=url.render_as_string(hide_password=True), _engine_url=url,
+        )
+        return ResolvedDatabase(name=database_name, connection=connection, schema_name=schema_name)
+
+    def test_blank_reason_raises(self, pg_db):
+        db_name = f"ack_{uuid.uuid4().hex[:8]}"
+        resolved = self._resolved(pg_db, database_name=db_name, schema_name="whatever")
+        with pytest.raises(ValueError, match="reason"):
+            record_schema_provenance(pg_db.connection, resolved, role=Role.PRIMARY, new_schema="s", reason="  ")
+
+    def test_recording_resolves_prior_drift(self, pg_db):
+        """After recording a new baseline, the guard must accept it without raising."""
+        db_name = f"ack_{uuid.uuid4().hex[:8]}"
+        schema_a = f"test_{uuid.uuid4().hex[:8]}"
+        schema_b = f"test_{uuid.uuid4().hex[:8]}"
+        conn = pg_db.connection
+        with guard_schema_provenance(conn, self._resolved(pg_db, database_name=db_name, schema_name=schema_a), role=Role.PRIMARY):
+            ensure_schema(conn, schema_a)
+
+        record_schema_provenance(
+            conn, self._resolved(pg_db, database_name=db_name, schema_name=schema_b),
+            role=Role.PRIMARY, new_schema=schema_b, reason="deliberate migration in a test",
+        )
+
+        with guard_schema_provenance(conn, self._resolved(pg_db, database_name=db_name, schema_name=schema_b), role=Role.PRIMARY):
+            pass  # must not raise: recorded as the new baseline
+
+    def test_recording_establishes_a_baseline_with_no_prior_row(self, pg_db):
+        """Retrofit case: no row exists, target schema already has tables."""
+        db_name = f"ack_{uuid.uuid4().hex[:8]}"
+        schema = f"test_{uuid.uuid4().hex[:8]}"
+        conn = pg_db.connection
+        ensure_schema(conn, schema)
+        conn.execute(sa.text(f'CREATE TABLE "{schema}".preexisting (id int)'))
+        resolved = self._resolved(pg_db, database_name=db_name, schema_name=schema)
+
+        with pytest.raises(SchemaDriftError):
+            with guard_schema_provenance(conn, resolved, role=Role.PRIMARY):
+                pass
+
+        record_schema_provenance(conn, resolved, role=Role.PRIMARY, new_schema=schema, reason="retrofit baseline")
+
+        with guard_schema_provenance(conn, resolved, role=Role.PRIMARY):
+            pass  # must not raise now

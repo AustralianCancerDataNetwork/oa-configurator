@@ -136,6 +136,7 @@ class ConnectionConfig(BaseModel):
             url=url_obj.render_as_string(hide_password=False),
             safe_url=url_obj.render_as_string(hide_password=True),
             _engine_url=url_obj,
+            test_only=self.test_only,
         )
 
 
@@ -284,12 +285,15 @@ class ResolvedConnection:
     _engine_url : sqlalchemy.engine.URL
         SQLAlchemy URL object used for engine creation. Avoids the lossy string
         round-trip through ``url`` for SQLite paths containing ``?``/``#``.
+    test_only : bool
+        Whether it is a test-only connection. 
     """
 
     name: str
     url: str
     safe_url: str
     _engine_url: URL = field(repr=False, compare=False)
+    test_only: bool = False
 
     def create_engine(self, **kwargs: Any) -> Engine:
         """Create a SQLAlchemy engine for this connection.
@@ -340,6 +344,7 @@ class ResolvedDatabase:
 
     def create_engine(
         self,
+        role: Role = Role.PRIMARY,
         *,
         execution_options: dict[str, Any] | None = None,
         **kwargs: Any,
@@ -348,6 +353,10 @@ class ResolvedDatabase:
 
         Parameters
         ----------
+        role : Role, optional
+            Which role to create an engine for. Only ``Role.PRIMARY`` is valid
+            here; anything else raises as a ResolvedDatabase has no vocab/results 
+            role-splitting. Defaults to ``Role.PRIMARY``.
         execution_options : dict, optional
             Additional execution options merged into the engine. The
             ``schema_translate_map`` key is set automatically and must
@@ -371,7 +380,7 @@ class ResolvedDatabase:
             skipped ``.resolve()``.
         """
         reject_reserved_schema(self.schema_name)
-        engine = self.connection.create_engine(**kwargs)
+        engine = self.connection_target(role).create_engine(**kwargs)
         merged_opts = dict(execution_options or {})
         merged_opts.setdefault("schema_translate_map", {None: self.schema_name})
         return engine.execution_options(**merged_opts)
@@ -550,13 +559,13 @@ class ResolvedCDMDatabase(ResolvedDatabase):
         execution_options: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> Engine:
-        """Return the vocab-role engine paired with an already-built *primary*.
+        """Return the vocab-role engine paired with an already-built ``primary`` engine.
 
-        Returns *primary* unchanged when ``vocab_connection`` is not a
-        genuinely different connection -- avoids opening a second, redundant
-        connection pool to the same target. For a caller that builds its own
-        primary engine (e.g. one that also registers extra state against it)
-        rather than via a plain :meth:`create_engine` call.
+        Returns ``primary`` unchanged when ``vocab_connection`` is not a genuinely
+        different connection, avoiding a second, redundant connection pool
+        to the same target. For a caller that builds its own primary engine
+        (e.g. one that also registers extra state against it) rather than
+        via a plain :meth:`create_engine` call.
         """
         if self.connection is self.vocab_connection:
             return primary

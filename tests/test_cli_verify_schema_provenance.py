@@ -1,14 +1,14 @@
-"""Phase 9: `omop-config verify`'s schema-provenance section.
+"""`omop-config verify`'s schema-provenance section.
 
-Live-Postgres regression: verify() opens guard_schema_provenance() with an
-empty body per resolved database entry -- the same agree/disagree check the
+Live-Postgres regression. verify() opens guard_schema_provenance() with an
+empty body per resolved database entry, the same agree/disagree check the
 DDL-time gate uses, unconditional (no --deep-style gate), refreshing
 last_verified_at on success as a side effect.
 
 verify() always builds its own fresh, real engines internally (never the
 rollback-protected pg_db.connection), so every provenance row it writes is
-a genuine commit. No cleanup here yet -- pending a generic test-cleanup
-interface in oa-configurator's testing module (plan Phase 10).
+a genuine commit. No cleanup here yet, pending a generic test-cleanup
+interface in oa-configurator's testing module.
 """
 
 from __future__ import annotations
@@ -87,7 +87,7 @@ def test_verify_clean_after_acknowledging_drift(pg_db, monkeypatch):
     runner.invoke(app, ["verify"])
 
     # vocab/results fall back to schema_name (unconfigured), so verify()
-    # checks all three roles for a CDM database -- all three drifted.
+    # checks all three roles for a CDM database, and all three drifted.
     stack_b = _stack_with_one_cdm_db(pg_db, database_name=db_name, schema=schema_b)
     resolved = Resolver(stack_b).resolve_database(db_name)
     with pg_db.connection.engine.begin() as connection:

@@ -10,6 +10,7 @@ Role lives here rather than in schema.py.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from enum import StrEnum
@@ -24,6 +25,8 @@ from sqlalchemy.orm import Session
 if TYPE_CHECKING:
     from .schema import ResolvedDatabase
 
+logger = logging.getLogger(__name__)
+
 Bindable = Engine | Connection | Session
 
 
@@ -31,10 +34,7 @@ class Role(StrEnum):
     """Which physical target a database's logical role maps to.
 
     Every ResolvedDatabase picks a connection (.connection_target) and a
-    schema (.schema_for_role) for a role -- only PRIMARY is valid on the
-    base class; ResolvedCDMDatabase's override adds VOCAB (its own
-    connection and schema) and RESULTS (its own schema, but no connection
-    of its own -- it shares PRIMARY's).
+    schema (.schema_for_role) for a role.
     """
 
     PRIMARY = "primary"
@@ -456,7 +456,7 @@ def _schema_provenance_table(bookkeeping_schema: str | None) -> sa.Table:
 @contextmanager
 def guard_schema_provenance(
     connection: Connection,
-    resolved: ResolvedDatabase,
+    resolved: ResolvedDatabase | None,
     *,
     role: Role,
     test_only: bool = False,
@@ -476,10 +476,12 @@ def guard_schema_provenance(
     connection : sqlalchemy.engine.Connection
         Open connection/transaction the guarded DDL runs on. The
         provenance table is created on it the first time it's needed.
-    resolved : ResolvedDatabase
+    resolved : ResolvedDatabase or None
         Supplies database_name and the role-appropriate schema/connection,
         derived internally rather than three independent strings, so a
-        caller can't pass a mismatched trio.
+        caller can't pass a mismatched trio. None short-circuits to a
+        no-op, for a bare-engine caller with no resolved config behind it
+        (e.g. a test or programmatic caller).
     role : Role
         No default: every real call site already knows its role.
     test_only : bool, optional
@@ -500,7 +502,12 @@ def guard_schema_provenance(
     Accepted limitation: a connection repointed to a brand-new, genuinely
     empty server is indistinguishable from real day-one setup.
     """
+    if resolved is None:
+        logger.debug("guard_schema_provenance(role=%s): no resolved, skipping.", role.value)
+        yield
+        return
     if test_only:
+        logger.debug("guard_schema_provenance(role=%s): test_only, skipping.", role.value)
         yield
         return
 
@@ -575,22 +582,13 @@ def record_schema_provenance(
 ) -> None:
     """Overwrite the provenance baseline for resolved's database/role with new_schema.
 
-    A deliberate write, not a passive acknowledgment: this is what makes
-    new_schema the value guard_schema_provenance() treats as current from
-    now on. If a row already exists, its resolved_schema moves into
-    previous_schema and is replaced by new_schema -- callers must be sure
-    new_schema is correct, since the row's prior value stops being treated
-    as current the moment this returns.
-
-    Covers both hard-stop cases guard_schema_provenance() raises on:
-    1. a genuine schema migration (a row exists and disagrees), and
-    2. retrofitting provenance onto an already-populated deployment
-    (no row exists yet, but the target schema already has tables).
-
-    Only this bookkeeping row is written. The actual CDM tables at either
-    the old or new schema are never moved, dropped, or otherwise touched
-    here -- reconciling the real data is the operator's own responsibility
-    (see drop_orphan_schema_tables for the cleanup half of that).
+    Makes new_schema the value guard_schema_provenance() treats as current
+    from now on. Overwrites any existing row for this database/role: its
+    prior resolved_schema moves into previous_schema rather than being
+    discarded, but stops being treated as current, so callers must be sure
+    new_schema is correct. Writes only this bookkeeping row; the CDM tables
+    at either schema are never moved or dropped here (see
+    drop_orphan_schema_tables for that).
 
     Parameters
     ----------

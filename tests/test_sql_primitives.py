@@ -363,7 +363,7 @@ class TestGuardSchemaProvenance:
         )
 
     def test_results_role_uses_the_primary_connection(self, pg_db):
-        """Role.RESULTS has no connection of its own -- connection_target()
+        """Role.RESULTS has no connection of its own; connection_target()
         returns the primary connection for it, and the guard must accept
         that rather than needing special-case handling for the role."""
         db_name = f"guard_{uuid.uuid4().hex[:8]}"

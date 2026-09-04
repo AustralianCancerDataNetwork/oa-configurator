@@ -10,6 +10,7 @@ Role lives here rather than in schema.py.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -19,7 +20,6 @@ from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
 from sqlalchemy.engine import Connection, Engine, Inspector
-from sqlalchemy.engine.interfaces import ReflectedColumn, ReflectedIndex
 from sqlalchemy.orm import Session
 
 if TYPE_CHECKING:
@@ -93,20 +93,29 @@ def qualified(
     return f"{preparer.quote(effective_schema)}.{quoted_name}"
 
 
+def _takes_schema_param(func: Any) -> bool:
+    """True if func has a 'schema' parameter, False for anything unintrospectable."""
+    try:
+        return "schema" in inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return False
+
+
 class SchemaBoundInspector:
     """``sa.inspect()`` wrapper defaulting ``schema=`` to the bound engine's
     own ``schema_translate_map``.
 
-    Every method not listed below delegates straight to the underlying
-    ``Inspector`` with no schema default applied.
+    Every ``Inspector`` method that takes a ``schema`` parameter (found via
+    ``inspect.signature()`` at class-definition time, not a hand-maintained
+    list) is wrapped below to default it to the bound schema when omitted.
+    Every other method delegates straight to the underlying ``Inspector``.
 
     Parameters
     ----------
     inspector : sqlalchemy.engine.reflection.Inspector
         The real inspector every call delegates to.
     schema : str or None
-        Default schema applied to ``has_table``/``get_columns``/
-        ``get_indexes``/``get_table_names`` below whenever their own
+        Default schema applied to every wrapped method whenever its own
         ``schema=`` argument is omitted.
     """
 
@@ -126,96 +135,44 @@ class SchemaBoundInspector:
         """
         return self._schema if schema is ... else schema
 
-    def has_table(
-        self, table_name: str, *, schema: str | None | EllipsisType = ...
-    ) -> bool:
-        """
-        Parameters
-        ----------
-        table_name : str
-            Table to look up.
-        schema : str, None, or ..., optional
-            Per-call override of ``self._schema``. See :class:`SchemaBoundInspector`.
-
-        Returns
-        -------
-        bool
-            True if the table exists in the effective schema, False otherwise.
-        """
-        return self._inspector.has_table(table_name, schema=self._resolve(schema))
-
-    def get_columns(
-        self, table_name: str, *, schema: str | None | EllipsisType = ..., **kwargs: Any
-    ) -> list[ReflectedColumn]:
-        """
-        Parameters
-        ----------
-        table_name : str
-            Table to reflect.
-        schema : str, None, or ..., optional
-            Per-call override of ``self._schema``. See :class:`SchemaBoundInspector`.
-        **kwargs
-            Forwarded to ``Inspector.get_columns``.
-
-        Returns
-        -------
-        list of sqlalchemy.engine.interfaces.ReflectedColumn
-            Column metadata for the table in the effective schema.
-        """
-        return self._inspector.get_columns(
-            table_name, schema=self._resolve(schema), **kwargs
-        )
-
-    def get_indexes(
-        self, table_name: str, *, schema: str | None | EllipsisType = ..., **kwargs: Any
-    ) -> list[ReflectedIndex]:
-        """
-        Parameters
-        ----------
-        table_name : str
-            Table to reflect.
-        schema : str, None, or ..., optional
-            Per-call override of ``self._schema``. See :class:`SchemaBoundInspector`.
-        **kwargs
-            Forwarded to ``Inspector.get_indexes``.
-
-        Returns
-        -------
-        list of sqlalchemy.engine.interfaces.ReflectedIndex
-            Index metadata for the table in the effective schema.
-        """
-        return self._inspector.get_indexes(
-            table_name, schema=self._resolve(schema), **kwargs
-        )
-
-    def get_table_names(
-        self, *, schema: str | None | EllipsisType = ..., **kwargs: Any
-    ) -> list[str]:
-        """
-        Parameters
-        ----------
-        schema : str, None, or ..., optional
-            Per-call override of ``self._schema``. See :class:`SchemaBoundInspector`.
-        **kwargs
-            Forwarded to ``Inspector.get_table_names``.
-
-        Returns
-        -------
-        list of str
-            Table names in the effective schema.
-        """
-        return self._inspector.get_table_names(schema=self._resolve(schema), **kwargs)
-
     def __getattr__(self, name: str) -> Any:
-        return getattr(self._inspector, name)
+        attr = getattr(self._inspector, name)
+        if callable(attr) and _takes_schema_param(getattr(type(self._inspector), name, None)):
+            raise AttributeError(
+                f"{name!r} takes a schema parameter but has no schema-defaulting wrapper on "
+                "SchemaBoundInspector, likely a dialect-specific Inspector subclass method "
+                "invisible to the class-time auto-wrap. Access self._inspector directly with "
+                "an explicit schema=, or extend the auto-wrap to cover it."
+            )
+        return attr
+
+
+def _make_schema_wrapper(name: str) -> Any:
+    def wrapper(
+        self: SchemaBoundInspector, *args: Any, schema: str | None | EllipsisType = ..., **kwargs: Any
+    ) -> Any:
+        return getattr(self._inspector, name)(*args, schema=self._resolve(schema), **kwargs)
+
+    wrapper.__name__ = name
+    wrapper.__doc__ = (
+        f"``Inspector.{name}``, with ``schema=`` defaulted to this wrapper's bound "
+        "schema when omitted. See SchemaBoundInspector."
+    )
+    return wrapper
+
+
+for _name in dir(Inspector):
+    if not _name.startswith("_") and _takes_schema_param(getattr(Inspector, _name, None)):
+        setattr(SchemaBoundInspector, _name, _make_schema_wrapper(_name))
+del _name
 
 
 def schema_inspect(
     bindable: Bindable, *, schema: str | None | EllipsisType = ...
 ) -> SchemaBoundInspector:
-    """``sa.inspect(bindable)``, wrapped so ``has_table``/``get_columns``/
-    ``get_indexes``/``get_table_names`` default ``schema=`` to
-    ``schema_of(bindable)`` instead of silently reflecting the wrong schema.
+    """``sa.inspect(bindable)``, wrapped so every ``Inspector`` method taking
+    a ``schema`` parameter defaults it to ``schema_of(bindable)`` instead of
+    silently reflecting the wrong schema.
 
     Parameters
     ----------
@@ -257,30 +214,45 @@ def schema_options(
     Returns
     -------
     dict
-        ``{"schema_translate_map": {None: <effective schema>}}``, ready to
-        pass as ``execution_options=...`` on a single statement/connection.
+        ``{"schema_translate_map": {...}}``, ready to pass as
+        ``execution_options=...`` on a single statement/connection.
+        Carries forward any ``vocab``/``results``-keyed entries already on
+        ``bindable``'s own map, overriding only the ``None`` key.
+        ``execution_options(schema_translate_map=...)`` replaces the whole
+        map rather than merging it, so rebuilding from scratch here would
+        silently drop those other keys for a caller on a role-split
+        ``ResolvedCDMDatabase``.
     """
     bind = _as_bind(bindable)
-    effective_schema = schema_of(bind) if schema is ... else schema
-    return {"schema_translate_map": {None: effective_schema}}
+    existing = bind.get_execution_options().get("schema_translate_map") or {}
+    effective_schema = existing.get(None) if schema is ... else schema
+    return {"schema_translate_map": {**existing, None: effective_schema}}
 
 
-def supports_schemas(bindable: Bindable) -> bool:
-    """True if bindable's dialect has a genuine multi-schema concept.
+def supports_schemas(bindable: Bindable | str) -> bool:
+    """True if the dialect has a genuine multi-schema concept.
+
+    Parameters
+    ----------
+    bindable : Engine | Connection | Session | str
+        A live bindable, or a dialect name directly (e.g. "sqlite"),
+        for a caller that only has a `ResolvedConnection`/URL in hand and
+        doesn't need (or want) to build an engine just to ask this.
 
     Notes
     -----
     False for SQLite, as:
-    - every table lives in one flat file-level namespace, and 
+    - every table lives in one flat file-level namespace, and
     - it can't create an inline FK across a schema boundary even when
     schema_translate_map resolves both sides to the same connection.
     """
-    bind = _as_bind(bindable)
-    return bind.dialect.name != "sqlite"
+    dialect_name = bindable if isinstance(bindable, str) else _as_bind(bindable).dialect.name
+    return dialect_name != "sqlite"
 
 
 def ensure_schema(bindable: Engine | Connection, schema: str | None) -> None:
-    """CREATE SCHEMA IF NOT EXISTS, dialect-aware.
+    """CREATE SCHEMA IF NOT EXISTS, for Postgres and SQLite; not validated
+    for other dialects.
 
     Given a Connection, executes directly on it (no nested transaction),
     so it participates in a caller's already-open transaction. Given an
@@ -346,15 +318,18 @@ def reject_reserved_schema(db_schema: str | None) -> None:
         )
 
 
-def autocommit_connection(bindable: Engine | Connection) -> Connection:
-    """Return a ``Connection`` in ``AUTOCOMMIT`` isolation mode.
+@contextmanager
+def autocommit_connection(bindable: Engine | Connection) -> Iterator[Connection]:
+    """Yield a ``Connection`` in ``AUTOCOMMIT`` isolation mode.
 
     Parameters
     ----------
     bindable : sqlalchemy.engine.Engine or sqlalchemy.engine.Connection
-        Given an ``Engine``, opens and returns a new connection. Given an
-        already-open ``Connection``, returns it with the isolation level
-        overridden instead.
+        Given an ``Engine``, opens a new connection for the duration of the
+        ``with`` block and closes it on exit. Given an already-open
+        ``Connection``, yields it with the isolation level overridden,
+        restored to what it was on exit rather than left mutated for the
+        rest of the connection's life.
 
     Notes
     -----
@@ -363,14 +338,27 @@ def autocommit_connection(bindable: Engine | Connection) -> Connection:
     - The connection must not already have an active transaction:
       SQLAlchemy refuses to change ``isolation_level`` once one has started.
 
-    Returns
-    -------
+    Yields
+    ------
     sqlalchemy.engine.Connection
     """
     bind = _as_bind(bindable)
     if isinstance(bind, Engine):
-        return bind.connect().execution_options(isolation_level="AUTOCOMMIT")
-    return bind.execution_options(isolation_level="AUTOCOMMIT")
+        connection = bind.connect()
+        try:
+            connection.execution_options(isolation_level="AUTOCOMMIT")
+            yield connection
+        finally:
+            connection.close()
+        return
+
+    previous_isolation_level = bind.get_isolation_level()
+    bind.execution_options(isolation_level="AUTOCOMMIT")
+    try:
+        yield bind
+    finally:
+        bind.rollback()
+        bind.execution_options(isolation_level=previous_isolation_level)
 
 
 # ── Schema-provenance drift: detection, prevention, rectification ──────────────
@@ -459,7 +447,6 @@ def guard_schema_provenance(
     resolved: ResolvedDatabase | None,
     *,
     role: Role,
-    test_only: bool = False,
 ) -> Iterator[None]:
     """Guard against creating tables under a schema that silently drifted
     from a previously-recorded one.
@@ -481,14 +468,17 @@ def guard_schema_provenance(
         derived internally rather than three independent strings, so a
         caller can't pass a mismatched trio. None short-circuits to a
         no-op, for a bare-engine caller with no resolved config behind it
-        (e.g. a test or programmatic caller).
+        (e.g. a test or programmatic caller). When not None, a role whose
+        connection_target(role).test_only is True also short-circuits to a
+        no-op, since a test-only database is already documented as
+        disposable and a test that legitimately reconfigures its schema
+        between runs would otherwise trip constant false positives. A test
+        that wants to exercise real drift detection against a connection
+        that's test_only=true at the config level should build its own
+        resolved with connection.test_only overridden to False, rather
+        than relying on a separate override parameter here.
     role : Role
         No default: every real call site already knows its role.
-    test_only : bool, optional
-        True short-circuits to a no-op, since a test_only database is already
-        documented as disposable and a test that legitimately reconfigures
-        its schema between runs would otherwise trip constant false
-        positives.
 
     Raises
     ------
@@ -506,7 +496,8 @@ def guard_schema_provenance(
         logger.debug("guard_schema_provenance(role=%s): no resolved, skipping.", role.value)
         yield
         return
-    if test_only:
+    target_connection = resolved.connection_target(role)
+    if target_connection.test_only:
         logger.debug("guard_schema_provenance(role=%s): test_only, skipping.", role.value)
         yield
         return
@@ -514,7 +505,7 @@ def guard_schema_provenance(
     database_name = resolved.name
     role_value = str(role.value)
     schema_name = resolved.schema_for_role(role)
-    connection_safe_url = resolved.connection_target(role).safe_url
+    connection_safe_url = target_connection.safe_url
 
     bookkeeping_schema = _provenance_schema_for(connection)
     ensure_schema(connection, bookkeeping_schema)

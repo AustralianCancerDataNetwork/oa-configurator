@@ -247,7 +247,7 @@ def verify() -> None:
             schema_ok = False
             continue
         for role in _roles_for(resolved):
-            schema_ok &= _verify_schema_provenance(schema_table, config, resolved, role, label=db_name)
+            schema_ok &= _verify_schema_provenance(schema_table, resolved, role, label=db_name)
 
     for vs_name in sorted(config.vector_stores):
         try:
@@ -257,7 +257,7 @@ def verify() -> None:
             schema_ok = False
             continue
         schema_ok &= _verify_schema_provenance(
-            schema_table, config, resolved_vs.database, Role.PRIMARY, label=vs_name
+            schema_table, resolved_vs.database, Role.PRIMARY, label=vs_name
         )
 
     if schema_table.row_count:
@@ -274,7 +274,7 @@ def _roles_for(resolved: ResolvedDatabase) -> tuple[Role, ...]:
 
 
 def _verify_schema_provenance(
-    table: Table, config: StackConfig, resolved: ResolvedDatabase, role: Role, *, label: str
+    table: Table, resolved: ResolvedDatabase, role: Role, *, label: str
 ) -> bool:
     """Open guard_schema_provenance() with an empty body: the exact same
     check the DDL-time gate uses, no DDL run, refreshing last_verified_at
@@ -283,12 +283,11 @@ def _verify_schema_provenance(
     that order), returns whether it passed.
     """
     target_connection = resolved.connection_target(role)
-    test_only = config.connections[target_connection.name].test_only
     try:
         engine = target_connection.create_engine()
         try:
             with engine.begin() as connection, guard_schema_provenance(
-                connection, resolved, role=role, test_only=test_only
+                connection, resolved, role=role
             ):
                 pass
         finally:

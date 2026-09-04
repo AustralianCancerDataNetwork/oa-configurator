@@ -22,6 +22,7 @@ that field isn't configured, whatever database it's been pointed at.
 
 from __future__ import annotations
 
+import dataclasses
 import uuid
 
 import pytest
@@ -31,7 +32,6 @@ import sqlalchemy.orm as so
 from oa_configurator import (
     ConnectionConfig,
     ResolvedCDMDatabase,
-    ResolvedConnection,
     ResolvedDatabase,
     Resolver,
     Role,
@@ -172,15 +172,19 @@ class TestSupportsSchemas:
             pytest.skip("postgres-only")
         assert supports_schemas(engine) is True
 
+    def test_accepts_a_dialect_name_string_directly(self):
+        """A caller with only a ResolvedConnection/URL in hand shouldn't
+        need to build an engine just to ask this."""
+        assert supports_schemas("sqlite") is False
+        assert supports_schemas("postgresql") is True
+
 
 class TestAutocommitConnection:
     def test_from_an_engine(self, engine):
-        conn = autocommit_connection(engine)
-        try:
+        with autocommit_connection(engine) as conn:
             assert conn.get_execution_options()["isolation_level"] == "AUTOCOMMIT"
             conn.execute(sa.text("SELECT 1"))  # runs with no explicit transaction/commit
-        finally:
-            conn.close()
+        assert conn.closed
 
     def test_from_an_already_open_connection(self, engine):
         """Must be a fresh Connection with no transaction started yet:
@@ -188,10 +192,13 @@ class TestAutocommitConnection:
         underway."""
         conn = engine.connect()
         try:
-            result = autocommit_connection(conn)
-            assert result is conn
-            assert result.get_execution_options()["isolation_level"] == "AUTOCOMMIT"
-            result.execute(sa.text("SELECT 1"))
+            previous_isolation_level = conn.get_isolation_level()
+            with autocommit_connection(conn) as result:
+                assert result is conn
+                assert result.get_execution_options()["isolation_level"] == "AUTOCOMMIT"
+                result.execute(sa.text("SELECT 1"))
+            # isolation_level is restored, not left mutated, once the block exits.
+            assert conn.get_isolation_level() == previous_isolation_level
         finally:
             conn.close()
 
@@ -344,22 +351,24 @@ class TestGuardSchemaProvenance:
     """
 
     def _resolved(self, pg_db, *, database_name: str, schema_name: str) -> ResolvedDatabase:
-        url = pg_db.connection.engine.url
-        connection = ResolvedConnection(
-            name="test_guard", url=url.render_as_string(hide_password=False),
-            safe_url=url.render_as_string(hide_password=True), _engine_url=url,
+        """pg_db.resolved's connection, with test_only forced False so the
+        guard exercises real drift detection rather than no-opping against
+        pg_db's own test-only marking.
+        """
+        return ResolvedDatabase(
+            name=database_name,
+            connection=dataclasses.replace(pg_db.resolved.connection, test_only=False),
+            schema_name=schema_name,
         )
-        return ResolvedDatabase(name=database_name, connection=connection, schema_name=schema_name)
 
     def _resolved_cdm(self, pg_db, *, database_name: str, schema_name: str) -> ResolvedCDMDatabase:
-        url = pg_db.connection.engine.url
-        connection = ResolvedConnection(
-            name="test_guard", url=url.render_as_string(hide_password=False),
-            safe_url=url.render_as_string(hide_password=True), _engine_url=url,
-        )
-        return ResolvedCDMDatabase(
-            name=database_name, connection=connection, schema_name=schema_name,
-            vocab_connection=connection, vocab_schema=schema_name, results_schema=schema_name,
+        return dataclasses.replace(
+            pg_db.resolved,
+            name=database_name,
+            schema_name=schema_name,
+            vocab_schema=schema_name,
+            results_schema=schema_name,
+            connection=dataclasses.replace(pg_db.resolved.connection, test_only=False),
         )
 
     def test_results_role_uses_the_primary_connection(self, pg_db):
@@ -410,10 +419,12 @@ class TestGuardSchemaProvenance:
         conn = pg_db.connection
         with guard_schema_provenance(conn, self._resolved(pg_db, database_name=db_name, schema_name=schema_a), role=Role.PRIMARY):
             ensure_schema(conn, schema_a)
-        with guard_schema_provenance(
-            conn, self._resolved(pg_db, database_name=db_name, schema_name=schema_b),
-            role=Role.PRIMARY, test_only=True,
-        ):
+        # pg_db.resolved.connection is test_only=true unmodified here (unlike
+        # _resolved()'s override above), so the guard must no-op on its own.
+        test_only_resolved = ResolvedDatabase(
+            name=db_name, connection=pg_db.resolved.connection, schema_name=schema_b
+        )
+        with guard_schema_provenance(conn, test_only_resolved, role=Role.PRIMARY):
             pass  # must not raise despite disagreeing with the recorded schema
 
     def test_no_row_but_schema_already_populated_hard_stops(self, pg_db):
@@ -443,12 +454,15 @@ class TestGuardSchemaProvenance:
 
 class TestRecordSchemaProvenance:
     def _resolved(self, pg_db, *, database_name: str, schema_name: str) -> ResolvedDatabase:
-        url = pg_db.connection.engine.url
-        connection = ResolvedConnection(
-            name="ack_test", url=url.render_as_string(hide_password=False),
-            safe_url=url.render_as_string(hide_password=True), _engine_url=url,
+        """pg_db.resolved's connection, with test_only forced False so the
+        guard exercises real drift detection rather than no-opping against
+        pg_db's own test-only marking.
+        """
+        return ResolvedDatabase(
+            name=database_name,
+            connection=dataclasses.replace(pg_db.resolved.connection, test_only=False),
+            schema_name=schema_name,
         )
-        return ResolvedDatabase(name=database_name, connection=connection, schema_name=schema_name)
 
     def test_blank_reason_raises(self, pg_db):
         db_name = f"ack_{uuid.uuid4().hex[:8]}"

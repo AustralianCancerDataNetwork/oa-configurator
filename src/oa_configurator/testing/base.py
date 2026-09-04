@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from ..package_base import PackageConfigBase
 
 
-class ConfigurationError(Exception):
+class TestDatabaseNotConfigured(Exception):
     """No real configuration is available.
 
     Raised by ``_resolve_and_check()`` when a config field has no
@@ -32,7 +32,13 @@ class ConfigurationError(Exception):
     strategy's own ``resolve_without_config()`` when it genuinely needs
     real configuration (the default for anything but an embedded,
     serverless dialect). *field_name* is set only in the first case.
+
+    ``__test__ = False`` tells pytest not to collect this as a test class:
+    its name starts with ``Test``, and pytest would otherwise try (and warn)
+    the moment any test module imports it as a top-level name.
     """
+
+    __test__ = False
 
     def __init__(self, message: str = "", *, field_name: str | None = None) -> None:
         super().__init__(message)
@@ -46,10 +52,17 @@ class IsolatedTestDatabase:
     ``.connection`` and ``.session`` share the same underlying transaction.
     Pick whichever fits (Core vs. ORM) for a given test, never mix a
     different one in alongside them.
+
+    ``resolved`` is the ``ResolvedDatabase`` this database was resolved
+    from (real config, or a strategy's ``resolve_without_config()``
+    fallback). Use ``dataclasses.replace(db.resolved, ...)`` rather than
+    hand-building a ``ResolvedConnection``/``ResolvedDatabase`` from scratch
+    when a test needs one with a field or two overridden.
     """
 
     connection: Connection
     session: Session
+    resolved: "ResolvedDatabase | None" = None
 
 
 def _skip_message(name: str) -> str:
@@ -108,7 +121,7 @@ class TestDatabaseStrategy(ABC):
         relies on before diverging into dialect-specific work, not
         duplicated per subclass.
 
-        Raises ``ConfigurationError`` (rather than skipping directly) when
+        Raises ``TestDatabaseNotConfigured`` (rather than skipping directly) when
         *field_name* has no resolvable value, so a caller with a
         config-free fallback available gets a chance to use it first.
         """
@@ -129,8 +142,11 @@ class TestDatabaseStrategy(ABC):
         try:
             resolver = Resolver.from_active_config()
             resolved = resolver.resolve_database(name)
-        except Exception:
-            raise ConfigurationError(field_name=name) from None
+        except (FileNotFoundError, KeyError):
+            # FileNotFoundError: no config file at all. 
+            # KeyError: `name` isn't  a database entry in the config. 
+            # Both are genuinely "not configured". 
+            raise TestDatabaseNotConfigured(field_name=name) from None
         connection_name = resolved.connection.name
         if not resolver.config.connections[connection_name].test_only:
             pytest.fail(_not_test_only_message(name, connection_name))
@@ -139,12 +155,12 @@ class TestDatabaseStrategy(ABC):
     def resolve_without_config(self) -> "ResolvedDatabase":
         """Build a ``ResolvedDatabase`` needing no real configuration.
 
-        Raises :class:`ConfigurationError` for any strategy that requires a
+        Raises :class:`TestDatabaseNotConfigured` for any strategy that requires a
         real, resolved connection, the default for everything except an
         embedded, serverless dialect. Override only where this genuinely
         holds.
         """
-        raise ConfigurationError(
+        raise TestDatabaseNotConfigured(
             f"{type(self).__name__} cannot resolve a test database without configuration."
         )
 

@@ -53,21 +53,27 @@ Pass this function your fixture's own ``request`` (``isolated_test_database(
 time, before any DDL runs, if the resolved dialect can corrupt shared
 metadata but the test isn't marked ``db_dialect``. Recommended for every
 fixture not already covered by ``DIALECT_PARAMS``.
+
+A test that must hold a real, committing ``Engine``/``Connection`` (e.g.
+via ``db.connection.engine`` above) gets no automatic cleanup from
+``isolated_test_database()``, since rollback only isolates code operating
+on the connection it's handed. Use the ``cleanup_after_test`` fixture to
+register whatever the test needs undone at teardown.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.dialects import registry
 
 from .base import (
-    ConfigurationError,
     IsolatedTestDatabase,
+    TestDatabaseNotConfigured,
     TestDatabaseStrategy,
     _skip_message,
 )
@@ -81,6 +87,8 @@ if TYPE_CHECKING:
 __all__ = [
     "DIALECT_PARAMS",
     "IsolatedTestDatabase",
+    "cleanup_after_test",
+    "delete_rows_on_cleanup",
     "isolated_test_database",
     "isolated_test_schema",
 ]
@@ -234,12 +242,12 @@ def isolated_test_database(
 
     try:
         resolved: "ResolvedDatabase" = TestDatabaseStrategy._resolve_and_check(config_cls, field_name)
-    except ConfigurationError as exc:
+    except TestDatabaseNotConfigured as exc:
         if dialect is None:
             pytest.skip(_skip_message(exc.field_name or field_name))
         try:
             resolved = _STRATEGIES[dialect]().resolve_without_config()
-        except ConfigurationError:
+        except TestDatabaseNotConfigured:
             pytest.skip(_skip_message(exc.field_name or field_name))
 
     dialect_name = sa.engine.make_url(resolved.connection.url).get_backend_name()
@@ -267,3 +275,76 @@ def isolated_test_schema(engine: sa.Engine, *, prefix: str = "test") -> Iterator
     strategy = _strategy_for(engine.dialect.name)
     with strategy.temporary_schema(engine, prefix=prefix) as schema:
         yield schema
+
+
+@pytest.fixture
+def cleanup_after_test() -> Iterator[Callable[[Callable[[], None]], None]]:
+    """Register teardown work to run unconditionally after this test.
+
+    ``isolated_test_database()`` already gives every test the guarantee
+    that it leaves nothing behind, via rollback (Postgres) or a vanishing
+    tempfile (SQLite). This fixture is the counterpart for a test that
+    genuinely can't get that guarantee for free because it holds a real,
+    committing engine or connection instead (``pg_engine``,
+    ``resolved.create_engine()``, ``target_connection.create_engine()``).
+    Register whatever undoes what the test actually committed::
+
+        def test_records_a_provenance_row(pg_engine, cleanup_after_test):
+            with pg_engine.begin() as conn:
+                record_schema_provenance(conn, resolved, role=Role.PRIMARY, ...)
+            cleanup_after_test(lambda: _delete_provenance_row(pg_engine, resolved))
+
+    Callbacks run in reverse-registration order, even when the test itself
+    raises. One callback raising doesn't stop the rest from running; every
+    exception raised by a callback is collected and re-raised together
+    once all of them have run.
+
+    Yields
+    ------
+    Callable[[Callable[[], None]], None]
+        Call this with a zero-argument callback to register it.
+    """
+    callbacks: list[Callable[[], None]] = []
+    try:
+        yield callbacks.append
+    finally:
+        errors: list[Exception] = []
+        for callback in reversed(callbacks):
+            try:
+                callback()
+            except Exception as exc:  # noqa: BLE001 - collected, not swallowed
+                errors.append(exc)
+        if errors:
+            raise ExceptionGroup("cleanup_after_test callback(s) failed", errors)
+
+
+def delete_rows_on_cleanup(
+    cleanup_after_test: Callable[[Callable[[], None]], None],
+    engine: sa.Engine,
+    table: sa.Table,
+    whereclause: Any,
+) -> None:
+    """Register the common row-deletion cleanup case with :func:`cleanup_after_test`.
+
+    Equivalent to calling ``cleanup_after_test`` with a callback that opens
+    a fresh connection on *engine* and deletes the matching rows. A fresh
+    connection is used because the test's own connection may already be
+    closed by the time teardown runs.
+
+    Parameters
+    ----------
+    cleanup_after_test : Callable[[Callable[[], None]], None]
+        The registration function yielded by the ``cleanup_after_test`` fixture.
+    engine : sqlalchemy.engine.Engine
+        Opened fresh at teardown time to run the delete.
+    table : sqlalchemy.Table
+        Table to delete rows from.
+    whereclause : Any
+        Passed to ``table.delete().where(...)``.
+    """
+
+    def _cleanup() -> None:
+        with engine.begin() as conn:
+            conn.execute(table.delete().where(whereclause))
+
+    cleanup_after_test(_cleanup)

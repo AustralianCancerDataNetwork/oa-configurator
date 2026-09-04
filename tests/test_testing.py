@@ -28,7 +28,7 @@ from oa_configurator import (
     StackConfig,
 )
 from oa_configurator.config import OAConfiguratorConfig
-from oa_configurator.testing.base import ConfigurationError
+from oa_configurator.testing.base import TestDatabaseNotConfigured
 from oa_configurator.testing import isolated_test_database, isolated_test_schema
 from oa_configurator.testing.base import TestDatabaseStrategy
 
@@ -282,7 +282,7 @@ class TestResolveAndCheck:
         assert "test_cdm" in str(exc_info.value)
 
     def test_raises_not_configured_when_no_config_file_exists(self, monkeypatch):
-        """Regression check: a missing config file must raise ConfigurationError,
+        """Regression check: a missing config file must raise TestDatabaseNotConfigured,
         not crash. load_stack_config() is called twice on this path (once to
         look up the field, once inside Resolver.from_active_config()); both
         must be guarded against FileNotFoundError. _resolve_and_check() itself
@@ -298,7 +298,7 @@ class TestResolveAndCheck:
             "oa_configurator.loader.load_stack_config", _raise_not_found
         )
 
-        with pytest.raises(ConfigurationError):
+        with pytest.raises(TestDatabaseNotConfigured):
             TestDatabaseStrategy._resolve_and_check(DemoTestConfig, "test_cdm_db")
 
     def test_honors_a_configured_override(self, monkeypatch):

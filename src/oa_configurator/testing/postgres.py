@@ -5,24 +5,23 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from contextlib import contextmanager
-from typing import Iterator
+from typing import TYPE_CHECKING, Iterator
 
+import pytest
 import sqlalchemy as sa
 import sqlalchemy.orm as so
+from sqlalchemy import exc as sa_exc
 
 from .base import IsolatedTestDatabase, TestDatabaseStrategy
+
+if TYPE_CHECKING:
+    from ..domains.resources.schema import ResolvedConnection
 
 
 def _pg_ident(name: str) -> object:
     from psycopg.sql import Identifier
 
     return Identifier(name)
-
-
-def _pg_lit(value: str) -> object:
-    from psycopg.sql import Literal
-
-    return Literal(value)
 
 
 def _pg_ddl(template: str, *parts: object) -> str:
@@ -32,135 +31,87 @@ def _pg_ddl(template: str, *parts: object) -> str:
     return SQL(template).format(*parts).as_string(None)  # ty: ignore[invalid-argument-type]
 
 
+def _production_target_message(target: sa.URL, match: str) -> str:
+    return (
+        f"SAFETY ABORT: test database target ({target.host}:{target.port}/{target.database}) "
+        f"matches the non-test connection {match!r} (same host, database name, and port).\n"
+        "  Refusing to provision it.\n"
+        "  Use a different host, database name, or port for the test connection."
+    )
+
+
+def _create_database_permission_message(db_name: str, username: str | None) -> str:
+    return (
+        f"Could not create database {db_name!r} as {username!r}: insufficient privileges.\n"
+        f"  Grant CREATEDB to {username!r}, or create {db_name!r} yourself before running tests."
+    )
+
+
 class PostgresTestStrategy(TestDatabaseStrategy):
-    """Test-database provisioning for PostgreSQL."""
+    """Test-database provisioning for PostgreSQL.
 
-    # -- admin credentials ---------------------------------------------------
+    Uses the configured connection's own credentials for every operation,
+    including creating the target database itself.  A connection that can't 
+    create its own database fails with a clear, actionable error.
+    """
 
-    def _find_admin_url(self, host: str | None) -> sa.URL | None:
-        """Return admin (non-test-only) DB credentials on the same host, or None."""
-        if host is None:
-            return None
+    def _guard_against_production_target(self, target: sa.URL) -> None:
+        """Abort if target's host/database/port matches a non-test_only connection.
+
+        A test_only connection's own details are already checked against
+        this at ``connections add`` time (``_check_test_collision``). This
+        is the same check (``_find_production_collision``), reapplied here
+        at provisioning time, catching a ``config.toml`` hand-edited to
+        bypass that check before CREATE DATABASE ever runs against it.
+        """
         from ..loader import load_stack_config
+        from ..resolver import _find_production_collision
 
         try:
             config = load_stack_config()
         except (FileNotFoundError, ValueError):
-            return None
-        admin_conn = next(
-            (
-                conn
-                for conn in config.connections.values()
-                if not conn.test_only and conn.host == host
-            ),
-            None,
-        )
-        if admin_conn is None:
-            return None
-        return sa.engine.make_url(admin_conn.build_url())
-
-    def _admin_engine(self, test_url: sa.URL) -> sa.Engine:
-        """Engine on the 'postgres' maintenance DB.
-
-        Prefers admin credentials from the stack config; falls back to the
-        test user's own credentials when running in a standalone container
-        where the test user is the superuser.
-        """
-        base = self._find_admin_url(test_url.host) or test_url
-        return sa.create_engine(base.set(database="postgres"), isolation_level="AUTOCOMMIT")
-
-    # -- non-destructive provisioning (idempotent, safe under concurrency) --
+            return
+        match = _find_production_collision(target.host, target.database, target.port, config)
+        if match is not None:
+            pytest.fail(_production_target_message(target, match))
 
     def _ensure_test_db_exists(self, url: str | sa.URL) -> None:
         """Create the target database if it does not already exist.
 
-        Uses admin credentials (non-test-only DB on same host) to create the
-        database and sets the test user as OWNER, granting them full control
-        within the database without needing CREATEDB or SUPERUSER.
-
-        Falls back to the test user's own credentials when no admin DB is
-        found. Safe to call repeatedly, since it is idempotent.
+        Connects as the target connection's own user. 
+        Race-safe under concurrent runs (e.g. ``pytest -n``):
+        Postgres has no ``CREATE DATABASE IF NOT EXISTS``, so this
+        attempts the create directly and catches the "already exists"
+        error, rather than checking existence first and creating second,
+        which leaves a real window for two runs to race.
         """
+        from psycopg.errors import DuplicateDatabase, InsufficientPrivilege
+
         target = sa.engine.make_url(url)
         db_name = target.database
         if db_name is None:
             return
-        admin = self._admin_engine(target)
+        self._guard_against_production_target(target)
+        # CREATE DATABASE needs the maintenance DB, not the not-yet-created target.
+        engine = sa.create_engine(target.set(database="postgres"), isolation_level="AUTOCOMMIT")
         try:
-            with admin.connect() as conn:
-                exists = conn.execute(
-                    sa.text("SELECT 1 FROM pg_database WHERE datname = :n"),
-                    {"n": db_name},
-                ).scalar()
-                if not exists:
-                    owner = target.username or "postgres"
-                    conn.execute(
-                        sa.text(
-                            _pg_ddl(
-                                "CREATE DATABASE {} OWNER {}",
-                                _pg_ident(db_name),
-                                _pg_ident(owner),
-                            )
-                        )
-                    )
+            with engine.connect() as conn:
+                try:
+                    conn.execute(sa.text(_pg_ddl("CREATE DATABASE {}", _pg_ident(db_name))))
+                except sa_exc.ProgrammingError as exc:
+                    if isinstance(exc.orig, DuplicateDatabase):
+                        pass
+                    elif isinstance(exc.orig, InsufficientPrivilege):
+                        pytest.fail(_create_database_permission_message(db_name, target.username))
+                    else:
+                        raise
         finally:
-            admin.dispose()
+            engine.dispose()
 
-    def _ensure_test_user_exists(self, test_url: str | sa.URL) -> None:
-        """Create the test database role if it does not already exist.
-
-        SUPERUSER is granted because orm-loader's bulk FK-bypass path uses
-        ``SET session_replication_role = 'replica'``, which requires
-        SUPERUSER in PostgreSQL (no narrower privilege exists;
-        ``ALTER TABLE ... DISABLE TRIGGER ALL`` has the same requirement for
-        FK constraint triggers). CREATEDB and REPLICATION are not granted,
-        since the admin account is the one that creates databases.
-        """
-        target = sa.engine.make_url(test_url)
-        username = target.username
-        if not username:
-            return
-
-        admin_url = self._find_admin_url(target.host)
-        if admin_url is None:
-            return
-
-        admin = sa.create_engine(admin_url.set(database="postgres"), isolation_level="AUTOCOMMIT")
-        try:
-            with admin.connect() as conn:
-                exists = conn.execute(
-                    sa.text("SELECT 1 FROM pg_roles WHERE rolname = :n"),
-                    {"n": username},
-                ).scalar()
-                if not exists:
-                    conn.execute(
-                        sa.text(
-                            _pg_ddl(
-                                "CREATE USER {} WITH SUPERUSER LOGIN PASSWORD {}",
-                                _pg_ident(username),
-                                _pg_lit(target.password or ""),
-                            )
-                        )
-                    )
-                else:
-                    attrs = conn.execute(
-                        sa.text("SELECT rolsuper, rolcanlogin FROM pg_roles WHERE rolname = :n"),
-                        {"n": username},
-                    ).one_or_none()
-                    if attrs and not (attrs.rolsuper and attrs.rolcanlogin):
-                        conn.execute(
-                            sa.text(_pg_ddl("ALTER USER {} WITH SUPERUSER LOGIN", _pg_ident(username)))
-                        )
-        finally:
-            admin.dispose()
-
-    def _install_extensions(self, url: sa.URL, extensions: Sequence[str]) -> None:
+    def _install_extensions(self, connection: "ResolvedConnection", extensions: Sequence[str]) -> None:
         if not extensions:
             return
-        admin_base = self._find_admin_url(url.host) or url
-        ext_engine = sa.create_engine(
-            admin_base.set(database=url.database), isolation_level="AUTOCOMMIT"
-        )
+        ext_engine = connection.create_engine(isolation_level="AUTOCOMMIT")
         try:
             with ext_engine.connect() as conn:
                 for ext in extensions:
@@ -179,10 +130,9 @@ class PostgresTestStrategy(TestDatabaseStrategy):
         **engine_kwargs: object,
     ) -> Iterator[IsolatedTestDatabase]:
         url = resolved.connection.url
-        self._ensure_test_user_exists(url)
         self._ensure_test_db_exists(url)
         if extensions:
-            self._install_extensions(sa.engine.make_url(url), extensions)
+            self._install_extensions(resolved.connection, extensions)
 
         engine = resolved.create_engine(**engine_kwargs)
         try:
@@ -191,7 +141,7 @@ class PostgresTestStrategy(TestDatabaseStrategy):
             try:
                 session = so.Session(bind=connection, join_transaction_mode="create_savepoint")
                 try:
-                    yield IsolatedTestDatabase(connection=connection, session=session)
+                    yield IsolatedTestDatabase(connection=connection, session=session, resolved=resolved)
                 finally:
                     session.close()
             finally:

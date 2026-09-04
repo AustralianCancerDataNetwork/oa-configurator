@@ -11,7 +11,7 @@ from sqlalchemy.engine import URL, Engine
 import sqlalchemy as sa
 
 from ...refs import RefTo, Secret
-from .sql import Role, reject_reserved_schema
+from .sql import Role, reject_reserved_schema, supports_schemas
 
 if TYPE_CHECKING:
     from ...stack_config import StackConfig
@@ -32,7 +32,7 @@ class ConnectionConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     dialect: str = Field(
-        description="SQLAlchemy dialect string, e.g. 'postgresql+psycopg', 'mssql+pyodbc', 'sqlite'."
+        description="SQLAlchemy dialect string, e.g. 'postgresql+psycopg', 'sqlite'."
     )
     host: str | None = Field(
         default=None,
@@ -248,14 +248,19 @@ class CDMDatabaseConfig(DatabaseConfig):
         reject_reserved_schema(self.schema_name)
         reject_reserved_schema(effective_vocab_schema)
         reject_reserved_schema(effective_results_schema)
-        primary = stack.connections[self.connection].resolve(self.connection)
-        vocab_name = self.vocab_connection or self.connection
-        vocab = stack.connections[vocab_name].resolve(vocab_name)
+        primary_connection_name = self.connection
+        primary_connection = stack.connections[primary_connection_name].resolve(primary_connection_name)
+        vocab_connection_name = self.vocab_connection or primary_connection_name
+        vocab_connection = (
+            primary_connection
+            if vocab_connection_name == primary_connection_name
+            else stack.connections[vocab_connection_name].resolve(vocab_connection_name)
+        )
         return ResolvedCDMDatabase(
             name=name,
-            connection=primary,
+            connection=primary_connection,
             schema_name=self.schema_name,
-            vocab_connection=vocab,
+            vocab_connection=vocab_connection,
             vocab_schema=effective_vocab_schema,
             results_schema=effective_results_schema,
         )
@@ -319,6 +324,13 @@ class ResolvedConnection:
         kwargs.setdefault("pool_pre_ping", True)
         return sa.create_engine(self._engine_url, **kwargs)
 
+    @property
+    def dialect_name(self) -> str:
+        """SQLAlchemy dialect name (e.g. "postgresql", "sqlite"), read off
+        the URL directly.
+        """
+        return self._engine_url.get_backend_name()
+
     def __repr__(self) -> str:
         return f"ResolvedConnection(name={self.name!r}, safe_url={self.safe_url!r})"
 
@@ -342,6 +354,16 @@ class ResolvedDatabase:
     connection: ResolvedConnection
     schema_name: str | None
 
+    def schema_translate_map(self) -> dict[str | None, str | None]:
+        """SQLAlchemy schema translate map for this database.
+
+        Maps ``None`` (the default, unqualified role) to ``schema_name`` --
+        folded to ``None`` instead when ``connection``'s dialect has no real
+        multi-schema concept (e.g. SQLite), rather than applying a literal
+        name it would reject at query time.
+        """
+        return {None: self.schema_name if supports_schemas(self.connection.dialect_name) else None}
+
     def create_engine(
         self,
         role: Role = Role.PRIMARY,
@@ -355,7 +377,7 @@ class ResolvedDatabase:
         ----------
         role : Role, optional
             Which role to create an engine for. Only ``Role.PRIMARY`` is valid
-            here; anything else raises as a ResolvedDatabase has no vocab/results 
+            here; anything else raises as a ResolvedDatabase has no vocab/results
             role-splitting. Defaults to ``Role.PRIMARY``.
         execution_options : dict, optional
             Additional execution options merged into the engine. The
@@ -367,9 +389,7 @@ class ResolvedDatabase:
         Returns
         -------
         sqlalchemy.engine.Engine
-            Engine configured with ``schema_translate_map`` set to
-            ``{None: schema_name}``, a genuine no-op when ``schema_name``
-            is None, deferring to the connection's own default/search_path.
+            Engine configured with :meth:`schema_translate_map`.
 
         Raises
         ------
@@ -382,7 +402,7 @@ class ResolvedDatabase:
         reject_reserved_schema(self.schema_name)
         engine = self.connection_target(role).create_engine(**kwargs)
         merged_opts = dict(execution_options or {})
-        merged_opts.setdefault("schema_translate_map", {None: self.schema_name})
+        merged_opts.setdefault("schema_translate_map", self.schema_translate_map())
         return engine.execution_options(**merged_opts)
 
     def connection_target(self, role: Role = Role.PRIMARY) -> ResolvedConnection:
@@ -492,15 +512,22 @@ class ResolvedCDMDatabase(ResolvedDatabase):
         Maps:
           None      → schema_name  (default / unqualified tables → CDM)
           "vocab"   → vocab_schema (or schema_name as fallback)
-          "results" → results_schema (omitted when not configured)
+          "results" → results_schema (or schema_name as fallback)
+
+        Each key folds to ``None`` instead when the connection backing it
+        has no real multi-schema concept (e.g. SQLite) -- "vocab"/"results"
+        share ``connection``'s dialect with the ``None`` key, since neither
+        role has its own separate connection the way ``vocab_connection``
+        does; only "vocab" can genuinely differ, when ``vocab_connection``
+        is a real, distinct connection.
         """
-        m: dict[str | None, str | None] = {
-            None: self.schema_name,
-            Role.VOCAB.value: self.vocab_schema,
+        primary_supported = supports_schemas(self.connection.dialect_name)
+        vocab_supported = supports_schemas(self.vocab_connection.dialect_name)
+        return {
+            None: self.schema_name if primary_supported else None,
+            Role.VOCAB.value: self.vocab_schema if vocab_supported else None,
+            Role.RESULTS.value: self.results_schema if primary_supported else None,
         }
-        if self.results_schema is not None:
-            m[Role.RESULTS.value] = self.results_schema
-        return m
 
     def create_engine(
         self,
@@ -513,7 +540,7 @@ class ResolvedCDMDatabase(ResolvedDatabase):
 
         The schema translate map routes OMOP ORM models to the correct schemas
         automatically (``None`` -> schema_name, ``"vocab"`` -> vocab_schema,
-        ``"results"`` -> results_schema when configured).
+        ``"results"`` -> results_schema).
 
         Parameters
         ----------
@@ -530,7 +557,7 @@ class ResolvedCDMDatabase(ResolvedDatabase):
         Returns
         -------
         sqlalchemy.engine.Engine
-            Engine configured with ``schema_translate_map`` for OMOP ORM routing.
+            Engine configured with :meth:`schema_translate_map` for OMOP ORM routing.
 
         Raises
         ------
@@ -547,9 +574,8 @@ class ResolvedCDMDatabase(ResolvedDatabase):
         reject_reserved_schema(self.vocab_schema)
         reject_reserved_schema(self.results_schema)
         engine = self.connection_target(role).create_engine(**kwargs)
-        stm = self.schema_translate_map()
         merged_opts = dict(execution_options or {})
-        merged_opts.setdefault("schema_translate_map", stm)
+        merged_opts.setdefault("schema_translate_map", self.schema_translate_map())
         return engine.execution_options(**merged_opts)
 
     def vocab_engine_for(
@@ -566,8 +592,16 @@ class ResolvedCDMDatabase(ResolvedDatabase):
         to the same target. For a caller that builds its own primary engine
         (e.g. one that also registers extra state against it) rather than
         via a plain :meth:`create_engine` call.
+
+        Notes
+        -----
+        Compares by value (``==``), not identity: ``.resolve()`` reuses the
+        same ``ResolvedConnection`` object when no separate vocab connection
+        is configured, but a hand-built ``ResolvedCDMDatabase`` that skips
+        ``.resolve()`` may construct two separately-equal-but-distinct
+        objects instead.
         """
-        if self.connection is self.vocab_connection:
+        if self.connection == self.vocab_connection:
             return primary
         return self.create_engine(
             role=Role.VOCAB, execution_options=execution_options, **kwargs

@@ -48,6 +48,10 @@ class TestResolveConnection:
         with pytest.raises(KeyError, match="Unknown connection"):
             r.resolve_connection("does_not_exist")
 
+    def test_dialect_name_needs_no_engine(self, minimal_stack, pg_stack):
+        assert Resolver(minimal_stack).resolve_connection("db").dialect_name == "sqlite"
+        assert Resolver(pg_stack).resolve_connection("cdm").dialect_name == "postgresql"
+
     def test_sqlite_path_with_reserved_characters_connects_to_the_right_file(
         self, tmp_path
     ):
@@ -408,9 +412,36 @@ class TestResolveVectorStore:
             )
 
 
+@pytest.fixture
+def pg_stack_defaults() -> StackConfig:
+    """PostgreSQL CDM setup with vocab_schema/results_schema left unconfigured.
+
+    Unlike pg_stack, which sets both explicitly (for testing a genuine
+    three-schema split), this fixture is for testing that they fall back
+    to schema_name. Postgres, not SQLite, since schema_translate_map()
+    folds every key to None on a dialect with no real schema support
+    (e.g. SQLite) -- irrelevant to what this fixture tests.
+    """
+    return StackConfig.for_session(
+        connections={
+            "cdm": ConnectionConfig(
+                dialect="postgresql+psycopg",
+                host="localhost",
+                port=5432,
+                user="omop",
+                password="secret",
+                database_name="omop_cdm",
+            )
+        },
+        databases={
+            "default": CDMDatabaseConfig(connection="cdm", schema_name="omop"),
+        },
+    )
+
+
 class TestSchemaTranslateMap:
-    def test_results_schema_defaults_to_cdm(self, minimal_stack):
-        r = Resolver(minimal_stack)
+    def test_results_schema_defaults_to_cdm(self, pg_stack_defaults):
+        r = Resolver(pg_stack_defaults)
         res = r.resolve_database("default")
         assert isinstance(res, ResolvedCDMDatabase)
         stm = res.schema_translate_map()
@@ -426,12 +457,22 @@ class TestSchemaTranslateMap:
         assert stm["vocab"] == "omop_vocab"
         assert stm["results"] == "results"
 
-    def test_vocab_schema_defaults_to_cdm(self, minimal_stack):
-        r = Resolver(minimal_stack)
+    def test_vocab_schema_defaults_to_cdm(self, pg_stack_defaults):
+        r = Resolver(pg_stack_defaults)
         res = r.resolve_database("default")
         assert isinstance(res, ResolvedCDMDatabase)
         stm = res.schema_translate_map()
         assert stm["vocab"] == "omop"
+
+    def test_folds_to_none_on_sqlite(self, minimal_stack):
+        """SQLite has no real multi-schema concept: every key folds to
+        None instead of carrying a literal name it would reject at query
+        time (the bug found and fixed under review comment 10.3)."""
+        r = Resolver(minimal_stack)
+        res = r.resolve_database("default")
+        assert isinstance(res, ResolvedCDMDatabase)
+        stm = res.schema_translate_map()
+        assert stm == {None: None, "vocab": None, "results": None}
 
 
 class TestResolveTool:

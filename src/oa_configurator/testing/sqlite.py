@@ -60,12 +60,21 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
         extensions: Sequence[str] = (),
         **engine_kwargs: object,
     ) -> Iterator[IsolatedTestDatabase]:
-        # resolved is unused: SQLite has nothing to resolve. Kept, defaulted
-        # to None, only so this matches TestDatabaseStrategy's shared
-        # signature for callers going through isolated_test_database().
-        # extensions is a Postgres-only concept (pgvector etc.). Accepted
-        # and silently ignored here so callers don't need dialect-specific
-        # branching just to call isolated_test_database() uniformly.
+        """Yield an isolated SQLite database in a fresh tempfile.
+
+        Parameters
+        ----------
+        resolved : ResolvedDatabase, optional
+            Not used to build the engine below, as SQLite has nothing to
+            resolve against. Exposed unchanged on the yielded
+            IsolatedTestDatabase for callers that want it. Defaulted to
+            None only to match TestDatabaseStrategy's shared signature for
+            a caller invoking the strategy directly.
+        extensions : Sequence[str], optional
+            A Postgres-only concept (pgvector etc.). Accepted and silently
+            ignored here so callers don't need dialect-specific branching
+            just to call isolated_test_database() uniformly.
+        """
         with tempfile.TemporaryDirectory() as tmp_dir:
             db_path = Path(tmp_dir) / "test.db"
             engine = sa.create_engine(f"sqlite:///{db_path}", **engine_kwargs)
@@ -74,7 +83,7 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
                 try:
                     session = so.Session(bind=connection)
                     try:
-                        yield IsolatedTestDatabase(connection=connection, session=session)
+                        yield IsolatedTestDatabase(connection=connection, session=session, resolved=resolved)
                     finally:
                         session.close()
                 finally:

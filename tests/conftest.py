@@ -10,6 +10,7 @@ import uuid
 
 import pytest
 import sqlalchemy as sa
+import typer.rich_utils as _typer_rich_utils
 
 from oa_configurator import (
     StackConfig,
@@ -19,6 +20,14 @@ from oa_configurator import (
 from oa_configurator.config import OAConfiguratorConfig
 from oa_configurator.testing import DIALECT_PARAMS, isolated_test_database
 from oa_configurator.domains.resources.sql import Dialect, Role
+
+# typer forces colorized rich error/output rendering when GITHUB_ACTIONS (or
+# FORCE_COLOR / PY_COLORS) is set -- see typer.rich_utils.FORCE_TERMINAL. Under
+# GitHub Actions that injects ANSI escapes into CLI output, breaking tests that
+# assert on plain-substring message content (e.g. "no such option: --foo"). The
+# force feeds every typer rich Console, so clear it here: tests then see the same
+# uncolored output everywhere; real users still get colour in a real terminal.
+_typer_rich_utils.FORCE_TERMINAL = None
 
 _FIELD_BY_DIALECT = {Dialect.POSTGRESQL: "test_db_pg", Dialect.SQLITE: "test_db_sqlite"}
 

@@ -79,7 +79,13 @@ Every entry declares an explicit `kind`, discriminating which of the fields belo
 
 A `RefTo` naming one kind rejects an entry of the other, at construction time, with a "wrong kind" error distinct from "doesn't exist" (`mismatched_kind_refs`).
 
+`omop-config databases add` is a group with one subcommand per kind. Each subcommand only declares the fields that kind actually has. Every example below pairs the resulting TOML with the CLI command that produces it.
+
 ### Example: a generic database (e.g. a vector store's own tables)
+
+```bash
+omop-config databases add generic emb_db --connection emb
+```
 
 ```toml
 [databases.emb_db]
@@ -89,6 +95,10 @@ connection = "emb"
 
 ### Example: CDM, all in one schema
 
+```bash
+omop-config databases add cdm cdm_db --connection cdm --cdm-schema omop
+```
+
 ```toml
 [databases.cdm_db]
 kind       = "cdm"
@@ -97,6 +107,11 @@ cdm_schema = "omop"
 ```
 
 ### Example: CDM, separate vocab and results schemas
+
+```bash
+omop-config databases add cdm cdm_db --connection cdm \
+  --cdm-schema omop --vocab-schema omop_vocab --results-schema results
+```
 
 ```toml
 [databases.cdm_db]
@@ -108,6 +123,11 @@ results_schema = "results"
 ```
 
 ### Example: CDM, vocabulary on a separate server
+
+```bash
+omop-config databases add cdm cdm_db --connection cdm \
+  --vocab-connection central_vocab --cdm-schema omop
+```
 
 ```toml
 [databases.cdm_db]

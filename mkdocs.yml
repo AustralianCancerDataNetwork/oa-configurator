@@ -68,6 +68,8 @@ plugins:
             merge_init_into_class: true
             separate_signature: true
             show_signature_annotations: true
+            show_root_toc_entry: false
+            heading_level: 3
 
 nav:
   - Home: index.md

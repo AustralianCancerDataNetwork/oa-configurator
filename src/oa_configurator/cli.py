@@ -27,8 +27,14 @@ from rich.table import Table
 from .cli_support import _build_entry_params, _save_stack_config_or_exit
 from .domains.llm.cli import models_app, providers_app
 from .domains.resources.cli import connections_app, databases_app
+from .domains.resources.rectify import drop_orphan_schema_tables
 from .domains.resources.schema import ResolvedCDMDatabase, ResolvedDatabase, Role
-from .domains.resources.sql import SchemaDriftError, guard_schema_provenance, Dialect
+from .domains.resources.sql import (
+    SchemaDriftError,
+    guard_schema_provenance,
+    record_schema_provenance,
+    Dialect,
+)
 from .domains.vector_stores.cli import vector_stores_app
 from .io import save_stack_config, write_env_file
 from .loader import CONFIG_PATH, load_stack_config
@@ -301,6 +307,100 @@ def _verify_schema_provenance(
         return False
     table.add_row(label, role.value, "-", "[green]OK[/green]", "")
     return True
+
+
+@app.command("acknowledge-schema-migration")
+def acknowledge_schema_migration(
+    database: Annotated[str, typer.Option("--database", help="Name of the [databases.*] entry to acknowledge.")],
+    new_schema: Annotated[str, typer.Option("--new-schema", help="Schema to record as the accepted baseline.")],
+    reason: Annotated[
+        str,
+        typer.Option(
+            "--reason",
+            help="Free-text justification for this acknowledgment. Mandatory: there is no --yes shortcut.",
+        ),
+    ],
+    role: Annotated[
+        Role, typer.Option("--role", help="Logical role whose schema is being acknowledged.")
+    ] = Role.PRIMARY,
+) -> None:
+    """Record a schema as the deliberate baseline for a database/role.
+
+    Overwrites any existing provenance row (its prior value moves to
+    previous_schema); does not touch the CDM tables themselves. Generic
+    over any [databases.*] entry, not tied to any particular domain
+    package. This is the one CLI-level remediation path for the schema-drift
+    check every configured database already gets from `verify`.
+    """
+    try:
+        stack = load_stack_config()
+        resolved = Resolver(stack).resolve_database(database)
+        engine = resolved.create_engine(role=role)
+        try:
+            with engine.begin() as connection:
+                record_schema_provenance(
+                    connection, resolved, role=role, new_schema=new_schema, reason=reason
+                )
+        finally:
+            engine.dispose()
+    except FileNotFoundError:
+        err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
+        raise typer.Exit(1)
+    except Exception as exc:
+        err_console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
+    console.print(
+        f"[green]Acknowledged[/green] {database!r} (role {role.value!r}) -> schema {new_schema!r}."
+    )
+
+
+@app.command("drop-orphan-schema-tables")
+def drop_orphan_schema_tables_command(
+    database: Annotated[
+        str, typer.Option("--database", help="Name of the [databases.*] entry providing the connection.")
+    ],
+    schema: Annotated[str, typer.Option("--schema", help="Orphan schema to inspect/drop tables from.")],
+    role: Annotated[
+        Role, typer.Option("--role", help="Logical role providing the connection to use.")
+    ] = Role.PRIMARY,
+    confirm: Annotated[
+        bool, typer.Option("--confirm", help="Actually drop the previewed tables. Omit to preview only.")
+    ] = False,
+) -> None:
+    """Drop tables physically found in an orphaned schema, after a stack-wide safety check.
+
+    Refuses if the named schema is still the current schema target of any
+    configured database/role, not just the one named here. Without
+    --confirm, only previews what would be dropped. Generic over any
+    [databases.*] entry.
+    """
+    try:
+        stack = load_stack_config()
+        resolved = Resolver(stack).resolve_database(database)
+        engine = resolved.create_engine(role=role)
+        try:
+            with engine.begin() as connection:
+                preview = drop_orphan_schema_tables(
+                    connection, stack=stack, orphan_schema=schema, confirm=confirm
+                )
+        finally:
+            engine.dispose()
+    except FileNotFoundError:
+        err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
+        raise typer.Exit(1)
+    except Exception as exc:
+        err_console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
+
+    if not preview:
+        console.print(f"No tables found in schema {schema!r}.")
+        return
+    for item in preview:
+        count = "unknown" if item.row_count is None else str(item.row_count)
+        verb = "Dropped" if confirm else "Would drop"
+        console.print(f"{verb} {schema}.{item.table_name} (~{count} rows)")
+    if not confirm:
+        console.print("[yellow]Preview only. Re-run with --confirm to actually drop these tables.[/yellow]")
 
 
 @app.command("export-env")

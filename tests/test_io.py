@@ -41,7 +41,7 @@ def _make_cdm_stack() -> StackConfig:
             )
         },
         databases={
-            "default": CDMDatabaseConfig(connection="cdm", schema_name="omop"),
+            "default": CDMDatabaseConfig(connection="cdm", cdm_schema="omop"),
         },
     )
 
@@ -105,8 +105,8 @@ class TestWriteEnvFile:
                 ),
             },
             databases={
-                "default": CDMDatabaseConfig(connection="cdm", schema_name="omop"),
-                "omop_emb": CDMDatabaseConfig(connection="emb", schema_name="emb"),
+                "default": CDMDatabaseConfig(connection="cdm", cdm_schema="omop"),
+                "omop_emb": CDMDatabaseConfig(connection="emb", cdm_schema="emb"),
             },
             tools={
                 "omop_emb": {"backend": "pgvector"},
@@ -174,14 +174,14 @@ class TestSaveStackConfig:
                 )
             },
             databases={
-                "default": CDMDatabaseConfig(connection="cdm", schema_name="omop")
+                "default": CDMDatabaseConfig(connection="cdm", cdm_schema="omop")
             },
         )
         out = tmp_path / "config.toml"
         save_stack_config(cfg, out)
         data = tomllib.loads(out.read_text())
         assert data["connections"]["cdm"]["host"] == "localhost"
-        assert data["databases"]["default"]["schema_name"] == "omop"
+        assert data["databases"]["default"]["cdm_schema"] == "omop"
 
     def test_default_logging_not_written(self, tmp_path):
         out = tmp_path / "config.toml"
@@ -551,7 +551,7 @@ class TestSaveStackConfig:
                 )
             },
             databases={
-                "cdm": CDMDatabaseConfig(connection="primary", schema_name="omop"),
+                "cdm": CDMDatabaseConfig(connection="primary", cdm_schema="omop"),
                 "generic": GenericDatabaseConfig(connection="primary"),
             },
             providers={

@@ -14,6 +14,7 @@ import inspect
 import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from enum import StrEnum
 from types import EllipsisType
 from typing import TYPE_CHECKING, Any
@@ -54,12 +55,66 @@ class Dialect(StrEnum):
     SQLITE = "sqlite"
 
 
-DEFAULT_POSTGRES_SCHEMA = "public"
-"""Postgres's own default schema name, not a concept this codebase defines."""
-
 SCHEMA_TRANSLATE_MAP_KEY = "schema_translate_map"
 """The execution_options key SQLAlchemy itself defines for schema translation."""
 
+
+@dataclass(frozen=True)
+class DialectProfile:
+    """Per-dialect facts this codebase needs, none of which vary by behavior.
+
+    A plain data registry rather than a per-dialect class hierarchy: nothing
+    here is a method that differs in *logic* per dialect (that's what
+    OMOP_Alchemy's ``Backend`` split is for), it's three static facts looked
+    up by dialect name.
+
+    Attributes
+    ----------
+    default_schema : str | None
+        This dialect's own default/unqualified schema name (e.g. Postgres's
+        ``"public"``), or ``None`` if the dialect has no such concept.
+    system_schemas : frozenset[str]
+        Schema names this dialect reserves for its own internal catalogs.
+    supports_schemas : bool
+        Whether the dialect has a genuine multi-schema concept at all.
+    """
+
+    default_schema: str | None
+    system_schemas: frozenset[str]
+    supports_schemas: bool
+
+
+_DIALECT_PROFILES: dict[str, DialectProfile] = {
+    Dialect.POSTGRESQL: DialectProfile(
+        default_schema="public",
+        system_schemas=frozenset({"information_schema", "pg_catalog", "pg_toast"}),
+        supports_schemas=True,
+    ),
+    Dialect.SQLITE: DialectProfile(
+        default_schema=None,
+        system_schemas=frozenset(),
+        supports_schemas=False,
+    ),
+}
+
+def _profile_for(dialect_name: str) -> DialectProfile:
+    """DialectProfile for dialect_name.
+
+    Raises
+    ------
+    ValueError
+        If dialect_name isn't registered in _DIALECT_PROFILES. Deliberately
+        not a silent fallback: this codebase only supports the dialects it
+        actually models, and guessing schema behavior for one it doesn't
+        would be worse than failing loudly at the point of use.
+    """
+    try:
+        return _DIALECT_PROFILES[dialect_name]
+    except KeyError:
+        raise ValueError(
+            f"Unsupported dialect {dialect_name!r}. Supported: "
+            f"{sorted(str(d) for d in _DIALECT_PROFILES)}."
+        ) from None
 
 def _as_bind(bindable: Bindable) -> Engine | Connection:
     """Reduce bindable to an Engine/Connection.
@@ -72,18 +127,30 @@ def _as_bind(bindable: Bindable) -> Engine | Connection:
     return bindable
 
 
-def schema_of(bindable: Bindable) -> str | None:
-    """The None-keyed entry of bindable's schema_translate_map, or None if unset."""
+def schema_of(bindable: Bindable, *, role: Role = Role.PRIMARY) -> str | None:
+    """role's entry of bindable's schema_translate_map, or None if unset.
+
+    Parameters
+    ----------
+    bindable : Engine | Connection | Session
+    role : Role, optional
+        Which schema_translate_map key to read. Defaults to Role.PRIMARY,
+        matching every current caller.
+    """
     bind = _as_bind(bindable)
     stm = bind.get_execution_options().get(SCHEMA_TRANSLATE_MAP_KEY)
-    return stm.get(None) if stm else None
+    return stm.get(role.value) if stm else None
 
 
 def qualified(
-    bindable: Bindable, name: str, *, schema: str | None | EllipsisType = ...
+    bindable: Bindable,
+    name: str,
+    *,
+    schema: str | None | EllipsisType = ...,
+    role: Role = Role.PRIMARY,
 ) -> str:
     """Quoted, schema-qualified identifier, for raw SQL that's genuinely unavoidable.
-    
+
     Parameters
     ----------
     bindable : Engine | Connection | Session
@@ -93,10 +160,13 @@ def qualified(
         Unqualified identifier to quote.
     schema : str | None | EllipsisType, optional
         Three distinct states:
-        1. omitted (the default, ``...``) infers the schema from  ``schema_of(bindable)``;
+        1. omitted (the default, ``...``) infers the schema from  ``schema_of(bindable, role=role)``;
         2. ``None`` explicitly forces an unqualified name;
         3. any other string overrides the inferred schema with that exact name.
-    
+    role : Role, optional
+        Which schema_translate_map key to infer from when *schema* is
+        omitted. Defaults to Role.PRIMARY; ignored if *schema* is given.
+
     Returns
     -------
     str
@@ -104,7 +174,7 @@ def qualified(
         is ``None``, e.g. ``"myschema"."mytable"`` or ``"mytable"``.
     """
     bind = _as_bind(bindable)
-    effective_schema = schema_of(bind) if schema is ... else schema
+    effective_schema = schema_of(bind, role=role) if schema is ... else schema
     preparer = bind.dialect.identifier_preparer
     quoted_name = preparer.quote(name)
     if effective_schema is None:
@@ -187,11 +257,14 @@ del _name
 
 
 def schema_inspect(
-    bindable: Bindable, *, schema: str | None | EllipsisType = ...
+    bindable: Bindable,
+    *,
+    schema: str | None | EllipsisType = ...,
+    role: Role = Role.PRIMARY,
 ) -> SchemaBoundInspector:
     """``sa.inspect(bindable)``, wrapped so every ``Inspector`` method taking
-    a ``schema`` parameter defaults it to ``schema_of(bindable)`` instead of
-    silently reflecting the wrong schema.
+    a ``schema`` parameter defaults it to ``schema_of(bindable, role=role)``
+    instead of silently reflecting the wrong schema.
 
     Parameters
     ----------
@@ -200,23 +273,29 @@ def schema_inspect(
         :func:`schema_of`.
     schema : str, None, or ..., optional
         Three distinct states:
-        1. omitted (the default, ``...``) infers the schema from  ``schema_of(bindable)``;
+        1. omitted (the default, ``...``) infers the schema from  ``schema_of(bindable, role=role)``;
         2. ``None`` explicitly forces an unqualified name;
         3. any other string overrides the inferred schema with that exact name.
+    role : Role, optional
+        Which schema_translate_map key to infer from when *schema* is
+        omitted. Defaults to Role.PRIMARY; ignored if *schema* is given.
 
     Returns
     -------
     SchemaBoundInspector
         Wrapper around the real ``Inspector`` that applies the schema default
-        to the four methods above.  
+        to the four methods above.
     """
     bind = _as_bind(bindable)
-    effective_schema = schema_of(bind) if schema is ... else schema
+    effective_schema = schema_of(bind, role=role) if schema is ... else schema
     return SchemaBoundInspector(sa.inspect(bind), effective_schema)
 
 
 def schema_options(
-    bindable: Bindable, *, schema: str | None | EllipsisType = ...
+    bindable: Bindable,
+    *,
+    schema: str | None | EllipsisType = ...,
+    role: Role = Role.PRIMARY,
 ) -> dict[str, Any]:
     """Build a per-statement ``execution_options=...`` override.
 
@@ -226,17 +305,20 @@ def schema_options(
         Source of the inferred schema, unless *schema* is given.
     schema : str, None, or ..., optional
         Three distinct states:
-        1. omitted (the default, ``...``) infers the schema from  ``schema_of(bindable)``;
+        1. omitted (the default, ``...``) infers the schema from  ``bindable``'s own map at *role*'s key;
         2. ``None`` explicitly forces an unqualified name;
         3. any other string overrides the inferred schema with that exact name.
+    role : Role, optional
+        Which schema_translate_map key to read (when *schema* is omitted)
+        and write. Defaults to Role.PRIMARY.
 
     Returns
     -------
     dict
         ``{SCHEMA_TRANSLATE_MAP_KEY: {...}}``, ready to pass as
         ``execution_options=...`` on a single statement/connection.
-        Carries forward any ``vocab``/``results``-keyed entries already on
-        ``bindable``'s own map, overriding only the ``None`` key.
+        Carries forward every other role's entry already on ``bindable``'s
+        own map, overriding only *role*'s key.
         ``execution_options(schema_translate_map=...)`` replaces the whole
         map rather than merging it, so rebuilding from scratch here would
         silently drop those other keys for a caller on a role-split
@@ -244,8 +326,8 @@ def schema_options(
     """
     bind = _as_bind(bindable)
     existing = bind.get_execution_options().get(SCHEMA_TRANSLATE_MAP_KEY) or {}
-    effective_schema = existing.get(None) if schema is ... else schema
-    return {SCHEMA_TRANSLATE_MAP_KEY: {**existing, None: effective_schema}}
+    effective_schema = existing.get(role.value) if schema is ... else schema
+    return {SCHEMA_TRANSLATE_MAP_KEY: {**existing, role.value: effective_schema}}
 
 
 def supports_schemas(bindable: Bindable | str) -> bool:
@@ -266,7 +348,7 @@ def supports_schemas(bindable: Bindable | str) -> bool:
     schema_translate_map resolves both sides to the same connection.
     """
     dialect_name = bindable if isinstance(bindable, str) else _as_bind(bindable).dialect.name
-    return dialect_name != Dialect.SQLITE
+    return _profile_for(dialect_name).supports_schemas
 
 
 def ensure_schema(bindable: Engine | Connection, schema: str | None) -> None:
@@ -277,17 +359,21 @@ def ensure_schema(bindable: Engine | Connection, schema: str | None) -> None:
     so it participates in a caller's already-open transaction. Given an
     Engine, opens its own short-lived transaction.
 
-    No-ops on SQLite, or when schema is None or "public". 
+    No-ops on a dialect with no multi-schema concept (e.g. SQLite), when
+    schema is None, or when schema is that dialect's own default schema
+    (e.g. Postgres's "public").
+
     Notes
     -----
     Unlike the schema primitives above, this parameter is required, not inferred,
     since creating the wrong schema by silent inference would be far worse
     than a missing default.
     """
-    if schema is None or schema == DEFAULT_POSTGRES_SCHEMA:
+    if schema is None:
         return
     bind = _as_bind(bindable)
-    if not supports_schemas(bind):
+    profile = _profile_for(bind.dialect.name)
+    if schema == profile.default_schema or not profile.supports_schemas:
         return
     ddl = sa.schema.CreateSchema(schema, if_not_exists=True)
     if isinstance(bind, Engine):
@@ -402,17 +488,6 @@ class SchemaDriftError(RuntimeError):
     """
 
 
-_SYSTEM_SCHEMAS: dict[str, frozenset[str]] = {
-    Dialect.POSTGRESQL: frozenset({"information_schema", "pg_catalog", "pg_toast"}),
-}
-
-
-def _system_schemas_for(dialect_name: str) -> frozenset[str]:
-    """Schema names dialect_name (e.g. "postgresql") reserves for its own
-    internal catalogs. Empty for a dialect not listed here.
-    """
-    return _SYSTEM_SCHEMAS.get(dialect_name, frozenset())
-
 
 def _provenance_schema_for(bindable: Bindable) -> str | None:
     """SCHEMA_PROVENANCE_SCHEMA on a dialect with real schema support, else None."""
@@ -428,7 +503,7 @@ def find_table_in_other_schemas(
     """
     bind = _as_bind(bindable)
     inspector = sa.inspect(bind)
-    system_schemas = _system_schemas_for(bind.dialect.name)
+    system_schemas = _profile_for(bind.dialect.name).system_schemas
     candidates = [
         schema
         for schema in inspector.get_schema_names()

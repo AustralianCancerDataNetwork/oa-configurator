@@ -30,6 +30,7 @@ import sqlalchemy as sa
 import sqlalchemy.orm as so
 
 from oa_configurator import (
+    SCHEMA_TRANSLATE_MAP_KEY,
     ConnectionConfig,
     ResolvedCDMDatabase,
     ResolvedDatabase,
@@ -53,7 +54,7 @@ from oa_configurator import (
 )
 from oa_configurator.domains.resources.sql import (
     _as_bind,
-    _system_schemas_for,
+    _profile_for,
     reject_reserved_schema,
 )
 
@@ -92,6 +93,18 @@ class TestSchemaOf:
             finally:
                 session.close()
 
+    def test_role_reads_that_roles_key_not_primary(self, engine):
+        multi_role = engine.execution_options(
+            schema_translate_map={
+                Role.PRIMARY.value: "myschema",
+                Role.VOCAB.value: "vocabschema",
+                Role.RESULTS.value: "resultsschema",
+            }
+        )
+        assert schema_of(multi_role, role=Role.VOCAB) == "vocabschema"
+        assert schema_of(multi_role, role=Role.RESULTS) == "resultsschema"
+        assert schema_of(multi_role) == "myschema"
+
 
 class TestQualified:
     def test_defaults_schema_from_bind(self, engine):
@@ -116,14 +129,47 @@ class TestQualified:
     def test_quotes_mixed_case_schema(self, engine):
         assert qualified(engine, "concept", schema="MySchema") == '"MySchema".concept'
 
+    def test_role_infers_from_that_roles_key(self, engine):
+        multi_role = engine.execution_options(
+            schema_translate_map={
+                Role.PRIMARY.value: "myschema",
+                Role.VOCAB.value: "vocabschema",
+            }
+        )
+        prep = engine.dialect.identifier_preparer
+        assert qualified(multi_role, "concept", role=Role.VOCAB) == (
+            f"{prep.quote('vocabschema')}.{prep.quote('concept')}"
+        )
+
 
 class TestSchemaOptions:
     def test_defaults_schema_from_bind(self, engine):
-        assert schema_options(engine) == {"schema_translate_map": {None: "myschema"}}
+        assert schema_options(engine) == {SCHEMA_TRANSLATE_MAP_KEY: {Role.PRIMARY.value: "myschema"}}
 
     def test_explicit_override(self, engine):
         assert schema_options(engine, schema="other") == {
-            "schema_translate_map": {None: "other"}
+            SCHEMA_TRANSLATE_MAP_KEY: {Role.PRIMARY.value: "other"}
+        }
+
+    def test_role_reads_and_writes_that_roles_key(self, engine):
+        multi_role = engine.execution_options(
+            schema_translate_map={
+                Role.PRIMARY.value: "myschema",
+                Role.VOCAB.value: "vocabschema",
+            }
+        )
+        assert schema_options(multi_role, role=Role.VOCAB) == {
+            SCHEMA_TRANSLATE_MAP_KEY: {
+                Role.PRIMARY.value: "myschema",
+                Role.VOCAB.value: "vocabschema",
+            }
+        }
+        assert schema_options(multi_role, role=Role.RESULTS, schema="resultsschema") == {
+            SCHEMA_TRANSLATE_MAP_KEY: {
+                Role.PRIMARY.value: "myschema",
+                Role.VOCAB.value: "vocabschema",
+                Role.RESULTS.value: "resultsschema",
+            }
         }
 
 
@@ -156,6 +202,15 @@ class TestSchemaInspect:
         bound = schema_inspect(conn, schema=schema)
         bound.clear_cache()  # no schema-aware wrapper exists for this, must not raise
 
+    def test_role_infers_from_that_roles_key(self, engine):
+        multi_role = engine.execution_options(
+            schema_translate_map={
+                Role.PRIMARY.value: "myschema",
+                Role.VOCAB.value: "vocabschema",
+            }
+        )
+        assert schema_inspect(multi_role, role=Role.VOCAB)._schema == "vocabschema"
+
 
 class TestSupportsSchemas:
     def test_sqlite_does_not(self):
@@ -177,6 +232,12 @@ class TestSupportsSchemas:
         need to build an engine just to ask this."""
         assert supports_schemas(Dialect.SQLITE) is False
         assert supports_schemas(Dialect.POSTGRESQL) is True
+
+    def test_unregistered_dialect_raises(self):
+        """Only dialects this codebase actually models are supported --
+        an unrecognized one raises rather than silently guessing."""
+        with pytest.raises(ValueError, match="Unsupported dialect 'mysql'"):
+            supports_schemas("mysql")
 
 
 class TestAutocommitConnection:
@@ -302,13 +363,16 @@ class TestReservedSchemas:
 
 class TestSystemSchemasFor:
     def test_postgres_excludes_its_catalogs(self):
-        schemas = _system_schemas_for(Dialect.POSTGRESQL)
+        schemas = _profile_for(Dialect.POSTGRESQL).system_schemas
         assert "information_schema" in schemas
         assert "pg_catalog" in schemas
 
-    def test_unknown_dialect_is_empty(self):
-        assert _system_schemas_for(Dialect.SQLITE) == frozenset()
-        assert _system_schemas_for("not_a_real_dialect") == frozenset()
+    def test_sqlite_has_none(self):
+        assert _profile_for(Dialect.SQLITE).system_schemas == frozenset()
+
+    def test_unregistered_dialect_raises(self):
+        with pytest.raises(ValueError, match="Unsupported dialect 'not_a_real_dialect'"):
+            _profile_for("not_a_real_dialect")
 
 
 class TestFindTableInOtherSchemas:

@@ -19,7 +19,6 @@ from .domains.llm.schema import (
 )
 from .domains.resources.schema import (
     ConnectionConfig,
-    DatabaseConfig,
     DatabaseEntry,
     ResolvedConnection,
     ResolvedDatabase,
@@ -681,7 +680,7 @@ class Resolver:
             "Resolved database %r → connection=%s schema_name=%r",
             name,
             resolved.connection.safe_url,
-            resolved.schema_name,
+            resolved.schema_for_role(),
         )
         return resolved
 
@@ -939,7 +938,7 @@ class Resolver:
         """
         return _get_named(self.config.connections, "connection", name)
 
-    def get_database(self, name: str) -> DatabaseConfig:
+    def get_database(self, name: str) -> DatabaseEntry:
         """Return the raw DatabaseConfig for a database name.
 
         Raises

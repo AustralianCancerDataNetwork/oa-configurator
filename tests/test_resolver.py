@@ -24,7 +24,8 @@ from oa_configurator import (
     StackConfig,
     VectorStoreConfig,
     register_reserved_schema,
-    Dialect
+    Dialect,
+    Role,
 )
 from oa_configurator.resolver import _check_test_collision
 
@@ -447,7 +448,7 @@ def pg_stack_defaults() -> StackConfig:
             )
         },
         databases={
-            "default": CDMDatabaseConfig(connection="cdm", schema_name="omop"),
+            "default": CDMDatabaseConfig(connection="cdm", cdm_schema="omop"),
         },
     )
 
@@ -458,7 +459,7 @@ class TestSchemaTranslateMap:
         res = r.resolve_database("default")
         assert isinstance(res, ResolvedCDMDatabase)
         stm = res.schema_translate_map()
-        assert stm[None] == "omop"
+        assert stm[Role.PRIMARY.value] == "omop"
         assert stm["results"] == "omop"
 
     def test_with_all_schemas(self, pg_stack):
@@ -466,7 +467,7 @@ class TestSchemaTranslateMap:
         res = r.resolve_database("default")
         assert isinstance(res, ResolvedCDMDatabase)
         stm = res.schema_translate_map()
-        assert stm[None] == "omop"
+        assert stm[Role.PRIMARY.value] == "omop"
         assert stm["vocab"] == "omop_vocab"
         assert stm["results"] == "results"
 
@@ -485,7 +486,7 @@ class TestSchemaTranslateMap:
         res = r.resolve_database("default")
         assert isinstance(res, ResolvedCDMDatabase)
         stm = res.schema_translate_map()
-        assert stm == {None: None, "vocab": None, "results": None}
+        assert stm == {Role.PRIMARY.value: None, "vocab": None, "results": None}
 
 
 class TestResolveTool:
@@ -524,7 +525,7 @@ class TestCreateEngine:
 
         with pytest.raises(ValueError, match="must not include resolver-managed key"):
             resolved.create_engine(
-                execution_options={"schema_translate_map": {None: "wrong"}}
+                execution_options={"schema_translate_map": {Role.PRIMARY.value: "wrong"}}
             )
 
     def test_cdm_database_rejects_resolver_schema_override(self, pg_stack):
@@ -561,7 +562,7 @@ class TestReservedSchemaCollision:
         with pytest.raises(ValidationError, match=f"{reserved!r}.*test-owner"):
             StackConfig.for_session(
                 connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
-                databases={"default": CDMDatabaseConfig(connection="c", schema_name=reserved)},
+                databases={"default": CDMDatabaseConfig(connection="c", cdm_schema=reserved)},
             )
 
     def _pg_connection(self) -> ConnectionConfig:
@@ -584,7 +585,7 @@ class TestReservedSchemaCollision:
                 connections={"c": self._pg_connection()},
                 databases={
                     "default": CDMDatabaseConfig(
-                        connection="c", schema_name="omop", vocab_schema=reserved
+                        connection="c", cdm_schema="omop", vocab_schema=reserved
                     )
                 },
             )
@@ -596,7 +597,7 @@ class TestReservedSchemaCollision:
                 connections={"c": self._pg_connection()},
                 databases={
                     "default": CDMDatabaseConfig(
-                        connection="c", schema_name="omop", results_schema=reserved
+                        connection="c", cdm_schema="omop", results_schema=reserved
                     )
                 },
             )
@@ -653,14 +654,14 @@ class TestCdmSchemaDialectValidation:
             )
 
     def test_schema_name_against_sqlite_raises(self):
-        """schema_name is opt-in (default None) exactly like vocab_schema/
+        """cdm_schema is opt-in (default None) exactly like vocab_schema/
         results_schema now, so it gets the same dialect check, no more
         exemption."""
-        with pytest.raises(ValidationError, match="schema_name.*no schema concept"):
+        with pytest.raises(ValidationError, match="cdm_schema.*no schema concept"):
             StackConfig.for_session(
                 connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
                 databases={
-                    "default": CDMDatabaseConfig(connection="c", schema_name="omop")
+                    "default": CDMDatabaseConfig(connection="c", cdm_schema="omop")
                 },
             )
 

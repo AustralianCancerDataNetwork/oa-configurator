@@ -91,10 +91,17 @@ class TestIsolatedTestDatabase:
             with isolated_test_database(DemoTestConfig, "test_cdm_db"):
                 pass
 
-    def test_unregistered_dialect_raises_not_implemented_error(self, monkeypatch):
-        """A dialect with no registered TestDatabaseStrategy (e.g. mssql, in
-        this codebase today) must fail clearly, naming what IS supported.
-        It must not silently pick the wrong strategy or crash obscurely."""
+    def test_unregistered_dialect_raises(self, monkeypatch):
+        """A dialect this codebase doesn't model at all (e.g. mssql, today)
+        must fail clearly, naming what IS supported. It must not silently
+        pick the wrong strategy or crash obscurely.
+
+        Fails at resolve() itself now (ValueError from sql.py's dialect
+        registry), before ever reaching TestDatabaseStrategy dispatch --
+        earlier than a missing TestDatabaseStrategy alone would, since an
+        unsupported dialect can't even resolve to a schema-aware database
+        in the first place.
+        """
         cfg = StackConfig.for_session(
             connections={
                 "test_mssql": ConnectionConfig(
@@ -108,7 +115,7 @@ class TestIsolatedTestDatabase:
         )
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
 
-        with pytest.raises(NotImplementedError, match="mssql"):
+        with pytest.raises(ValueError, match="Unsupported dialect 'mssql'"):
             with isolated_test_database(DemoTestConfig, "test_cdm_db"):
                 pass
 

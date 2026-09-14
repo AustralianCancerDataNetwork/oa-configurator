@@ -71,9 +71,10 @@ Every entry declares an explicit `kind`, discriminating which of the fields belo
 |---|---|---|---|---|
 | `kind` | string | **yes** | both | Discriminator. See [DatabaseKind](api/resources.md#databasekind). |
 | `connection` | string | **yes** | both | Connection name (from `[connections.*]`) used as the primary server |
-| `schema_name` | string | no | both | Schema this database's tables live in. No default on either kind (unset means "use the connection's own default", e.g. Postgres's own `search_path`). Rejected at construction time if set against a connection whose dialect has no real schema concept (e.g. SQLite). |
+| `schema_name` | string | no | Generic only | Schema this database's tables live in. No default (unset means "use the connection's own default", e.g. Postgres's own `search_path`). Rejected at construction time if set against a connection whose dialect has no real schema concept (e.g. SQLite). |
+| `cdm_schema` | string | no | CDM only | Primary/CDM schema this database's clinical tables live in, matching OHDSI's own CDM/VOCAB/RESULTS naming. No default (unset means "use the connection's own default", e.g. Postgres's own `search_path`). Rejected at construction time if set against a connection whose dialect has no real schema concept (e.g. SQLite). |
 | `vocab_connection` | string | no | CDM only | Separate connection if vocabulary lives on a different server. Falls back to `connection`. |
-| `vocab_schema` | string | no | CDM only | Vocabulary schema. Falls back to `schema_name` when not set. |
+| `vocab_schema` | string | no | CDM only | Vocabulary schema. Falls back to `cdm_schema` when not set. |
 | `results_schema` | string | no | CDM only | Achilles / Atlas results schema |
 
 A `RefTo` naming one kind rejects an entry of the other, at construction time, with a "wrong kind" error distinct from "doesn't exist" (`mismatched_kind_refs`).
@@ -90,9 +91,9 @@ connection = "emb"
 
 ```toml
 [databases.cdm_db]
-kind        = "cdm"
-connection  = "cdm"
-schema_name = "omop"
+kind       = "cdm"
+connection = "cdm"
+cdm_schema = "omop"
 ```
 
 ### Example: CDM, separate vocab and results schemas
@@ -101,7 +102,7 @@ schema_name = "omop"
 [databases.cdm_db]
 kind           = "cdm"
 connection     = "cdm"
-schema_name    = "omop"
+cdm_schema     = "omop"
 vocab_schema   = "omop_vocab"
 results_schema = "results"
 ```
@@ -113,7 +114,7 @@ results_schema = "results"
 kind              = "cdm"
 connection        = "cdm"
 vocab_connection  = "central_vocab"
-schema_name       = "omop"
+cdm_schema        = "omop"
 ```
 
 ---

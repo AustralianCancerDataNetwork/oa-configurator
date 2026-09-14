@@ -92,7 +92,7 @@ class TestCDMDatabaseConfig:
 
     def test_schema_name_defaults_to_none(self):
         r = CDMDatabaseConfig(connection="db")
-        assert r.schema_name is None
+        assert r.cdm_schema is None
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(Exception):
@@ -185,7 +185,7 @@ class TestStackConfig:
             StackConfig.for_session(
                 connections={},
                 databases={
-                    "r": CDMDatabaseConfig(connection="missing", schema_name="s")
+                    "r": CDMDatabaseConfig(connection="missing", cdm_schema="s")
                 },
             )
 

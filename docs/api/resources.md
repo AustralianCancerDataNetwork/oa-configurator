@@ -14,7 +14,12 @@ A concrete database endpoint: dialect, host, credentials, target database. Store
 
 ## DatabaseConfig
 
-The shared base: `kind`, `connection`, `schema_name`. Not constructed directly: every `[databases.<name>]` entry is one of the two concrete kinds below, chosen by its own `kind` field. `schema_name` defaults to `None` on both kinds, meaning "no schema override, use the connection's own default" (Postgres's own `search_path` default, typically `public`), not a guarantee this library makes or encodes in code.
+The shared base unifying `kind` and `connection`. Every `[databases.<name>]` entry is one of the two concrete kinds below, chosen by its own `kind` field. Each kind adds its own schema field on top 
+
+- `schema_name` on `GenericDatabaseConfig`, 
+- `cdm_schema` on `CDMDatabaseConfig`.
+
+Both default to `None`, meaning "no schema override, use the connection's own default" (Postgres's own `search_path` default, typically `public`), not a guarantee this library makes or encodes in code.
 
 ::: oa_configurator.domains.resources.schema.DatabaseConfig
 

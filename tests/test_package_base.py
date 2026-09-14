@@ -274,14 +274,15 @@ class TestPlanConfigure:
                         "host": "localhost",
                         "database_name": "cdm",
                     },
-                    "schema_name": "planned_omop",
+                    "cdm_schema": "planned_omop",
                 }
             },
         )
 
         database_name = planned.tools["validated_tool"]["cdm_db"]
         database = planned.databases[database_name]
-        assert database.schema_name == "planned_omop"
+        assert isinstance(database, CDMDatabaseConfig)
+        assert database.cdm_schema == "planned_omop"
         assert database.connection in planned.connections
         assert cfg.connections == {}
         assert cfg.databases == {}
@@ -297,17 +298,22 @@ class TestPlanConfigure:
             databases={"cdm_db": CDMDatabaseConfig(connection="db")},
             tools={"validated_tool": {"cdm_db": "cdm_db"}},
         )
-        cfg.databases["cdm_db"].schema_name = "original_schema"
+        database = cfg.databases["cdm_db"]
+        assert isinstance(database, CDMDatabaseConfig)
+        database.cdm_schema = "original_schema"
 
         planned = plan_configure(
             ValidatedPackageConfig,
             cfg,
-            {"cdm_db": {"name": "cdm_db", "schema_name": "planned_schema"}},
+            {"cdm_db": {"name": "cdm_db", "cdm_schema": "planned_schema"}},
         )
 
-        assert planned.databases["cdm_db"].schema_name == "planned_schema"
+        planned_database = planned.databases["cdm_db"]
+        assert isinstance(planned_database, CDMDatabaseConfig)
+
+        assert planned_database.cdm_schema == "planned_schema"
         assert planned.databases["cdm_db"].connection == "db"
-        assert cfg.databases["cdm_db"].schema_name == "original_schema"
+        assert database.cdm_schema == "original_schema"
 
     def test_stored_package_values_carry_over(self):
         cfg = _validated_stack(

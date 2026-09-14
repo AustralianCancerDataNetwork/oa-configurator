@@ -18,7 +18,7 @@ from oa_configurator import (
 )
 from oa_configurator.config import OAConfiguratorConfig
 from oa_configurator.testing import DIALECT_PARAMS, isolated_test_database
-from oa_configurator.domains.resources.sql import Dialect
+from oa_configurator.domains.resources.sql import Dialect, Role
 
 _FIELD_BY_DIALECT = {Dialect.POSTGRESQL: "test_db_pg", Dialect.SQLITE: "test_db_sqlite"}
 
@@ -51,7 +51,7 @@ def engine(request):
     with isolated_test_database(
         OAConfiguratorConfig, _FIELD_BY_DIALECT[request.param], dialect=request.param, request=request
     ) as db:
-        yield db.connection.engine.execution_options(schema_translate_map={None: "myschema"})
+        yield db.connection.engine.execution_options(schema_translate_map={Role.PRIMARY.value: "myschema"})
 
 
 @pytest.fixture(params=DIALECT_PARAMS)
@@ -120,7 +120,7 @@ def pg_stack() -> StackConfig:
         databases={
             "default": CDMDatabaseConfig(
                 connection="cdm",
-                schema_name="omop",
+                cdm_schema="omop",
                 vocab_schema="omop_vocab",
                 results_schema="results",
             ),

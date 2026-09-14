@@ -48,7 +48,7 @@ def _stack_with_one_cdm_db(pg_db, *, database_name: str, schema: str) -> StackCo
             )
         },
         databases={
-            database_name: CDMDatabaseConfig(connection="verify_conn", schema_name=schema),
+            database_name: CDMDatabaseConfig(connection="verify_conn", cdm_schema=schema),
         },
     )
 

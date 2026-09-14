@@ -217,12 +217,10 @@ def _merged_schema_translate_map(
 ) -> dict[str, Any]:
     """Merge execution_options with the resolver's own schema_translate_map.
 
-    A caller may extend the map with a key the resolver doesn't define, such
-    as a package's own reserved-schema role layered on top of the CDM map.
-    A caller may not supply a key the resolver itself owns (``None``,
-    ``"vocab"``, ``"results"``); silently letting a caller's own value win
-    there would defeat the configured schema routing with no signal that it
-    happened.
+    A caller may add a new key create_engine() doesn't own,  e.g. a
+    package's own reserved-schema role, layered on top of the CDM map. 
+    A caller may NOT set a key it does own.  That's rejected with ``ValueError`` 
+    to prevent silent overrides of the resolver's own schema routing. 
     """
     merged_opts = dict(execution_options or {})
     caller_map = merged_opts.pop(SCHEMA_TRANSLATE_MAP_KEY, None) or {}
@@ -246,14 +244,21 @@ class DatabaseKind(str, Enum):
 
 
 class DatabaseConfig(SecretSafeBaseModel):
-    """Shared interface for every named database: a connection plus a schema
-    to route into.
+    """Shared interface for every named database: a connection, plus each
+    concrete kind's own schema field(s).
 
     Abstract in practice: ``kind`` has no default, so every concrete entry
     must declare it explicitly via one of the subclasses below. Use this
     class (not a subclass) for ``isinstance`` checks and ``RefTo`` targets
     that accept any kind; use :data:`DatabaseEntry` for parsing raw config
     data, which dispatches to the correct subclass based on ``kind``.
+
+    Notes
+    -----
+    schema dispatch is handled in subclasses. See :class:`GenericDatabaseConfig`
+    for `schema_name` and :class:`CDMDatabaseConfig` for `cdm_schema`,
+    `vocab_schema`, and `results_schema`. 
+
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -261,13 +266,6 @@ class DatabaseConfig(SecretSafeBaseModel):
     kind: DatabaseKind = Field(description="Which concrete database shape this entry is.")
     connection: Annotated[str, RefTo(ConnectionConfig)] = Field(
         description="Name of the connection entry (from [connections]) used as the primary server."
-    )
-    schema_name: Annotated[str | None, Role.PRIMARY] = Field(
-        default=None,
-        description=(
-            "Schema this database's tables live in. None means no override, use the "
-            "connection's own default/search_path."
-        ),
     )
 
     def connection_name_for_role(self, role: Role) -> str:
@@ -277,6 +275,23 @@ class DatabaseConfig(SecretSafeBaseModel):
         vocab role may route to a separate connection.
         """
         return self.connection
+
+
+class GenericDatabaseConfig(DatabaseConfig):
+    """A connection plus one optional schema. No CDM role-splitting.
+
+    Used by consumers that need a single database with no vocab/results
+    distinction, e.g. an embedding store or a metadata database.
+    """
+
+    kind: Literal[DatabaseKind.GENERIC] = DatabaseKind.GENERIC  # type: ignore[assignment]
+    schema_name: Annotated[str | None, Role.PRIMARY] = Field(
+        default=None,
+        description=(
+            "Schema this database's tables live in. None means no override, use the "
+            "connection's own default/search_path."
+        ),
+    )
 
     def resolve(self, name: str, stack: StackConfig) -> ResolvedDatabase:
         """Resolve this database to a concrete connection and effective schema.
@@ -295,16 +310,6 @@ class DatabaseConfig(SecretSafeBaseModel):
         return ResolvedDatabase(name=name, connection=primary, schema_name=self.schema_name)
 
 
-class GenericDatabaseConfig(DatabaseConfig):
-    """A connection plus one optional schema. No CDM role-splitting.
-
-    Used by consumers that need a single database with no vocab/results
-    distinction, e.g. an embedding store or a metadata database.
-    """
-
-    kind: Literal[DatabaseKind.GENERIC] = DatabaseKind.GENERIC  # type: ignore[assignment]
-
-
 class CDMDatabaseConfig(DatabaseConfig):
     """Maps the OMOP logical roles (CDM, vocab, results) to named connections and schema names.
 
@@ -315,7 +320,7 @@ class CDMDatabaseConfig(DatabaseConfig):
     """
 
     kind: Literal[DatabaseKind.CDM] = DatabaseKind.CDM  # type: ignore[assignment]
-    schema_name: Annotated[str | None, Role.PRIMARY] = Field(
+    cdm_schema: Annotated[str | None, Role.PRIMARY] = Field(
         default=None,
         description="Schema where CDM clinical tables live. None means no override, use the connection's own default/search_path.",
     )
@@ -325,11 +330,11 @@ class CDMDatabaseConfig(DatabaseConfig):
     )
     vocab_schema: Annotated[str | None, Role.VOCAB] = Field(
         default=None,
-        description="Vocabulary schema. Falls back to schema_name when not set.",
+        description="Vocabulary schema. Falls back to cdm_schema when not set.",
     )
     results_schema: Annotated[str | None, Role.RESULTS] = Field(
         default=None,
-        description="Achilles / Atlas results schema. Falls back to schema_name when not set.",
+        description="Achilles / Atlas results schema. Falls back to cdm_schema when not set.",
     )
 
     def connection_name_for_role(self, role: Role) -> str:
@@ -360,13 +365,13 @@ class CDMDatabaseConfig(DatabaseConfig):
         Raises
         ------
         RuntimeError
-            If ``schema_name``, ``vocab_schema``, or ``results_schema``
+            If ``cdm_schema``, ``vocab_schema``, or ``results_schema``
             collides with a schema reserved for internal bookkeeping (see
             :func:`~.sql.register_reserved_schema`).
         """
         effective_vocab_schema = schema_for_role(self, Role.VOCAB)
         effective_results_schema = schema_for_role(self, Role.RESULTS)
-        reject_reserved_schema(self.schema_name)
+        reject_reserved_schema(self.cdm_schema)
         reject_reserved_schema(effective_vocab_schema)
         reject_reserved_schema(effective_results_schema)
         primary_connection_name = self.connection_name_for_role(Role.PRIMARY)
@@ -384,7 +389,7 @@ class CDMDatabaseConfig(DatabaseConfig):
         return ResolvedCDMDatabase(
             name=name,
             connection=primary_connection,
-            schema_name=self.schema_name,
+            schema_name=self.cdm_schema,
             vocab_connection=vocab_connection,
             vocab_schema=effective_vocab_schema,
             results_schema=effective_results_schema,
@@ -481,13 +486,18 @@ class ResolvedDatabase:
 
     def schema_translate_map(self) -> dict[str | None, str | None]:
         """SQLAlchemy schema translate map for this database.
-
-        Maps ``None`` (the default, unqualified role) to ``schema_name`` --
-        folded to ``None`` instead when ``connection``'s dialect has no real
-        multi-schema concept (e.g. SQLite), rather than applying a literal
-        name it would reject at query time.
+        Routing:
+            - ``"primary"`` → ``schema_name`` (or None if the dialect 
+                has no real multi-schema concept, e.g. SQLite)
+            
+        Notes
+        -----
+        An untagged SQLAlchemy table (``schema=None``) is not redirected here
+        and falls back to the connection's own default/search_path.
         """
-        return {None: self.schema_name if supports_schemas(self.connection.dialect_name) else None}
+        return {
+            Role.PRIMARY.value: self.schema_name if supports_schemas(self.connection.dialect_name) else None,
+        }
 
     def create_engine(
         self,
@@ -507,7 +517,7 @@ class ResolvedDatabase:
         execution_options : dict, optional
             Additional execution options merged into the engine. A
             ``schema_translate_map`` here may add keys the resolver doesn't
-            define, but may not include ``None`` (the resolver's own key):
+            define, but may not include ``"primary"`` (the resolver's own key):
             that key is always set from the resolved config, and overriding
             it here would silently defeat the configured schema routing.
         **kwargs
@@ -599,6 +609,11 @@ class ResolvedCDMDatabase(ResolvedDatabase):
     vocab_schema: str | None
     results_schema: str | None
 
+    @property
+    def cdm_schema(self) -> str | None:
+        """Alias for ``schema_name``, matching OHDSI's own CDM/VOCAB/RESULTS naming."""
+        return self.schema_name
+
     def connection_target(self, role: Role = Role.PRIMARY) -> ResolvedConnection:
         """Return the resolved connection for a given role.
         See ~meth:`CDMDatabaseConfig.resolve` for how vocab/results roles are handled.
@@ -641,22 +656,27 @@ class ResolvedCDMDatabase(ResolvedDatabase):
     def schema_translate_map(self) -> dict[str | None, str | None]:
         """SQLAlchemy schema translate map for OMOP ORM models.
 
-        Maps:
-          None      → schema_name  (default / unqualified tables → CDM)
-          "vocab"   → vocab_schema (or schema_name as fallback)
-          "results" → results_schema (or schema_name as fallback)
+        Routing:
+          "primary" → cdm_schema
+          "vocab"   → vocab_schema, falling back to cdm_schema if unset
+          "results" → results_schema, falling back to cdm_schema if unset
 
-        Each key folds to ``None`` instead when the connection backing it
-        has no real multi-schema concept (e.g. SQLite) -- "vocab"/"results"
-        share ``connection``'s dialect with the ``None`` key, since neither
-        role has its own separate connection the way ``vocab_connection``
-        does; only "vocab" can genuinely differ, when ``vocab_connection``
-        is a real, distinct connection.
+        Notes
+        -----
+        If cdm_schema itself is unset, "primary" falls through to the
+        connection's own default/search_path. A genuinely untagged SQLAlchemy 
+        table (``schema=None``) is never redirected here at all.
+
+        Each key folds to ``None`` on a dialect with no real multi-schema
+        concept (e.g. SQLite). "vocab" checks ``vocab_connection``'s own
+        dialect, since that can genuinely be a separate connection;
+        "primary"/"results" both check ``connection``'s dialect, since
+        neither has a connection of its own.
         """
         primary_supported = supports_schemas(self.connection.dialect_name)
         vocab_supported = supports_schemas(self.vocab_connection.dialect_name)
         return {
-            None: self.schema_name if primary_supported else None,
+            Role.PRIMARY.value: self.schema_name if primary_supported else None,
             Role.VOCAB.value: self.vocab_schema if vocab_supported else None,
             Role.RESULTS.value: self.results_schema if primary_supported else None,
         }
@@ -671,7 +691,7 @@ class ResolvedCDMDatabase(ResolvedDatabase):
         """Create a SQLAlchemy engine with the schema translate map applied.
 
         The schema translate map routes OMOP ORM models to the correct schemas
-        automatically (``None`` -> schema_name, ``"vocab"`` -> vocab_schema,
+        automatically (``"primary"`` -> schema_name, ``"vocab"`` -> vocab_schema,
         ``"results"`` -> results_schema).
 
         Parameters
@@ -699,7 +719,7 @@ class ResolvedCDMDatabase(ResolvedDatabase):
             If ``execution_options['schema_translate_map']`` includes any
             resolver-managed keys.
         RuntimeError
-            If ``schema_name``, ``vocab_schema``, or ``results_schema``
+            If ``cdm_schema``, ``vocab_schema``, or ``results_schema``
             collides with a reserved schema. Normally already caught by
             :meth:`CDMDatabaseConfig.resolve`; repeated here as defense in
             depth for a hand-built ``ResolvedCDMDatabase`` that skipped

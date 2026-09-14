@@ -22,4 +22,4 @@ jobs:
           --set test_db_pg.connection.password=test \
           --set test_db_pg.connection.database_name=oa_configurator_test \
           --set test_db_pg.connection.test_only=true \
-          --set test_db_pg.schema_name=public
+          --set test_db_pg.cdm_schema=public

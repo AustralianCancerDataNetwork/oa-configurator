@@ -138,7 +138,7 @@ from oa_configurator import StackConfig, Resolver
 def test_something(monkeypatch):
     cfg = StackConfig.for_session(
         connections={"db": {"dialect": "sqlite", "database_name": ":memory:"}},
-        databases={"cdm": {"kind": "cdm", "connection": "db", "schema_name": "omop"}},
+        databases={"cdm": {"kind": "cdm", "connection": "db", "cdm_schema": "omop"}},
         tools={"my_package": {"backend": "test_backend"}},
     )
     monkeypatch.setattr("my_package.module.load_stack_config", lambda: cfg)
@@ -202,7 +202,7 @@ omop-config connections add test_cdm \
   --dialect postgresql+psycopg --host localhost --port 5432 \
   --user test --password test --database-name test_db --test-only true
 
-omop-config databases add test_cdm_db_pg --kind cdm --connection test_cdm --schema-name public
+omop-config databases add cdm test_cdm_db_pg --connection test_cdm --cdm-schema <my-schema>
 
 omop-config configure <package> --test-cdm-db-pg test_cdm_db_pg
 ```
@@ -216,7 +216,7 @@ omop-config configure <package> \
   --set test_cdm_db_pg.connection.host=localhost \
   --set test_cdm_db_pg.connection.database_name=test_db \
   --set test_cdm_db_pg.connection.test_only=true \
-  --set test_cdm_db_pg.schema_name=public
+  --set test_cdm_db_pg.cdm_schema=<my-schema>
 ```
 
 === "Local development"
@@ -284,7 +284,7 @@ If a test already gets its Postgres connection through a `pg_db`-named fixture (
 A package's own field just names a database by default (e.g. `cdm_db: Annotated[str, RefTo(CDMDatabaseConfig)] = "cdm_db"`). To point at a second one, for example a production CDM alongside a local development one, create the extra database under its own name and pass the field's own flag:
 
 ```bash
-omop-config databases add cdm_db_prod --kind cdm --connection cdm_prod --schema-name omop
+omop-config databases add cdm cdm_db_prod --connection cdm_prod --cdm-schema omop
 omop-config configure omop_alchemy --cdm-db cdm_db_prod
 ```
 
@@ -357,7 +357,7 @@ services:
           --dialect postgresql+psycopg --host db --port 5432
           --user $$POSTGRES_USER --password $$POSTGRES_PASSWORD
           --database-name $$POSTGRES_DB &&
-        omop-config databases add cdm_db --kind cdm --connection cdm --schema-name omop &&
+        omop-config databases add cdm cdm_db --connection cdm --cdm-schema omop &&
         omop-config configure my_package --cdm-db cdm_db &&
         exec my_app_entrypoint
       "
@@ -376,7 +376,7 @@ command: >
       --dialect postgresql+psycopg --host db --port 5432
       --user $$POSTGRES_USER --password $$POSTGRES_PASSWORD
       --database-name $$POSTGRES_DB &&
-    omop-config databases add cdm_db --kind cdm --connection cdm --schema-name omop &&
+    omop-config databases add cdm cdm_db --connection cdm --cdm-schema omop &&
     omop-config configure omop_alchemy --cdm-db cdm_db &&
     omop-config configure my_package --cdm-db cdm_db &&
     exec my_app_entrypoint
@@ -400,7 +400,7 @@ command: >
       --set cdm_db.connection.user=$$POSTGRES_USER
       --set cdm_db.connection.password=$$POSTGRES_PASSWORD
       --set cdm_db.connection.database_name=$$POSTGRES_DB
-      --set cdm_db.schema_name=omop &&
+      --set cdm_db.cdm_schema=omop &&
     exec my_app_entrypoint
   "
 ```

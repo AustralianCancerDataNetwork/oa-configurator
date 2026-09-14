@@ -52,7 +52,7 @@ def _stack_with_secrets() -> StackConfig:
                 database_name="omop_cdm",
             )
         },
-        databases={"default": CDMDatabaseConfig(connection="cdm", schema_name="omop")},
+        databases={"default": CDMDatabaseConfig(connection="cdm", cdm_schema="omop")},
         providers={
             "azure": ProviderConfig(
                 provider="openai",

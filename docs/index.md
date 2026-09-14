@@ -39,7 +39,7 @@ A shared configuration layer for the OMOP-oriented Python stack.
     config = StackConfig.for_session(
         connections={"local": ConnectionConfig(dialect="postgresql+psycopg", host="localhost",
                                                 database_name="omop", password="omop")},
-        databases={"cdm": CDMDatabaseConfig(connection="local", schema_name="omop")},
+        databases={"cdm": CDMDatabaseConfig(connection="local", cdm_schema="omop")},
     )
     engine = Resolver(config).resolve_database("cdm").create_engine()
     ```
@@ -54,7 +54,7 @@ A shared configuration layer for the OMOP-oriented Python stack.
         Resolver(load_stack_config())
         .with_overrides(
             connections={"local": ConnectionConfig(dialect="sqlite", database_name="/data/local.db")},
-            databases={"cdm": CDMDatabaseConfig(connection="local", schema_name="omop")},
+            databases={"cdm": CDMDatabaseConfig(connection="local", cdm_schema="omop")},
         )
         .resolve_database("cdm")
         .create_engine()

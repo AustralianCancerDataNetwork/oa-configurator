@@ -262,19 +262,20 @@ class TestDatabasesAdd:
             [
                 "databases",
                 "add",
-                "cdm_db",
-                "--kind",
                 "cdm",
+                "cdm_db",
                 "--connection",
                 "cdm",
-                "--schema-name",
+                "--cdm-schema",
                 "omop",
             ],
         )
         assert result.exit_code == 0, result.output
         config = load_stack_config(isolated_config)
-        assert config.databases["cdm_db"].connection == "cdm"
-        assert config.databases["cdm_db"].schema_name == "omop"
+        config_cdm_db = config.databases["cdm_db"]
+        assert isinstance(config_cdm_db, CDMDatabaseConfig)
+        assert config_cdm_db.connection == "cdm"
+        assert config_cdm_db.cdm_schema == "omop"
 
     def test_non_interactive_creates_generic_database(self, isolated_config):
         _seed(
@@ -285,25 +286,14 @@ class TestDatabasesAdd:
         )
         result = runner.invoke(
             cli.app,
-            ["databases", "add", "emb_db", "--kind", "generic", "--connection", "emb"],
+            ["databases", "add", "generic", "emb_db", "--connection", "emb"],
         )
         assert result.exit_code == 0, result.output
         config = load_stack_config(isolated_config)
-        assert config.databases["emb_db"].connection == "emb"
-        assert config.databases["emb_db"].schema_name is None
-
-    def test_missing_kind_with_other_flags_fails(self, isolated_config):
-        _seed(
-            isolated_config,
-            StackConfig.for_session(
-                connections={"cdm": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")}
-            ),
-        )
-        result = runner.invoke(
-            cli.app, ["databases", "add", "cdm_db", "--connection", "cdm"]
-        )
-        assert result.exit_code != 0
-        assert "--kind is required" in result.output
+        config_db = config.databases["emb_db"]
+        assert isinstance(config_db, GenericDatabaseConfig)
+        assert config_db.connection == "emb"
+        assert config_db.schema_name is None
 
     def test_unknown_connection_reference_fails(self, isolated_config):
         _seed(isolated_config, StackConfig.for_session())
@@ -312,9 +302,8 @@ class TestDatabasesAdd:
             [
                 "databases",
                 "add",
-                "cdm_db",
-                "--kind",
                 "generic",
+                "cdm_db",
                 "--connection",
                 "does-not-exist",
             ],
@@ -344,7 +333,7 @@ class TestDatabasesAdd:
         )
         result = runner.invoke(
             cli.app,
-            ["databases", "add", "emb_db", "--kind", "cdm", "--connection", "c"],
+            ["databases", "add", "cdm", "emb_db", "--connection", "c"],
         )
         assert result.exit_code != 0
         config = load_stack_config(isolated_config)
@@ -362,7 +351,7 @@ class TestDatabasesAdd:
         )
         result = runner.invoke(
             cli.app,
-            ["databases", "add", "emb_db", "--kind", "cdm", "--connection", "c"],
+            ["databases", "add", "cdm", "emb_db", "--connection", "c"],
         )
         assert result.exit_code == 0, result.output
         assert "was a GenericDatabaseConfig" in result.output
@@ -372,8 +361,10 @@ class TestDatabasesAdd:
     def test_cdm_only_flag_on_generic_kind_fails_instead_of_silently_dropping(
         self, isolated_config
     ):
-        """--vocab-connection has no meaning on a generic database. Must be
-        rejected, not silently discarded."""
+        """--vocab-connection has no meaning on a generic database. The
+        `add generic` subcommand doesn't declare it at all, so this is now
+        rejected at CLI parse time -- one layer earlier than the old flat
+        command's pydantic-level extra="forbid" rejection, and clearer."""
         _seed(
             isolated_config,
             StackConfig.for_session(
@@ -385,9 +376,8 @@ class TestDatabasesAdd:
             [
                 "databases",
                 "add",
-                "emb_db",
-                "--kind",
                 "generic",
+                "emb_db",
                 "--connection",
                 "emb",
                 "--vocab-connection",
@@ -395,7 +385,8 @@ class TestDatabasesAdd:
             ],
         )
         assert result.exit_code != 0
-        assert "vocab_connection" in result.output
+        assert "no such option" in result.output.lower()
+        assert "--vocab-connection" in result.output
         config = load_stack_config(isolated_config)
         assert "emb_db" not in config.databases
 
@@ -417,7 +408,7 @@ class TestDatabasesList:
                     )
                 },
                 databases={
-                    "cdm_db": CDMDatabaseConfig(connection="cdm", schema_name="omop")
+                    "cdm_db": CDMDatabaseConfig(connection="cdm", cdm_schema="omop")
                 },
             ),
         )
@@ -930,7 +921,7 @@ class TestRunConfigurePackage:
         database = config.databases["cdm_db"]
         assert isinstance(database, CDMDatabaseConfig)
         assert database.connection in config.connections
-        assert database.schema_name is None
+        assert database.cdm_schema is None
         # vocab_connection is optional, so it is never auto-created
         assert database.vocab_connection is None
         # both optional databases were declined, so neither was written
@@ -1097,8 +1088,10 @@ class TestRunConfigurePackage:
         cdm_db_name = config.tools["demo_tool"]["cdm_db"]
         assert cdm_db_name in config.databases
         conn_name = config.databases[cdm_db_name].connection
+        conn_db = config.databases[cdm_db_name]
+        assert isinstance(conn_db, CDMDatabaseConfig)
         assert config.connections[conn_name].dialect == Dialect.SQLITE
-        assert config.databases[cdm_db_name].schema_name is None
+        assert conn_db.cdm_schema is None
 
     def test_non_interactive_one_shot_missing_required_nested_field_fails(
         self, isolated_config
@@ -1107,7 +1100,7 @@ class TestRunConfigurePackage:
 
         with pytest.raises(typer.Exit):
             DemoConfig.run_configure(
-                {"cdm_db": {"schema_name": "omop"}},  # missing connection.dialect etc.
+                {"cdm_db": {"cdm_schema": "omop"}},  # missing connection.dialect etc.
                 interactive=False,
             )
 
@@ -1191,7 +1184,7 @@ class TestConfigureSetFlag:
                 },
                 databases={
                     "cdm_db_prod": CDMDatabaseConfig(
-                        connection="prod", schema_name="prod_omop"
+                        connection="prod", cdm_schema="prod_omop"
                     )
                 },
             ),
@@ -1216,20 +1209,22 @@ class TestConfigureSetFlag:
                 "--cdm-db",
                 "cdm_db_prod",
                 "--set",
-                "cdm_db.schema_name=analytics",
+                "cdm_db.cdm_schema=analytics",
             ],
         )
         assert result.exit_code != 0
         assert "cdm_db" in result.output
         config = load_stack_config(isolated_config)
-        assert config.databases["cdm_db_prod"].schema_name == "prod_omop"
+        config_cdm_db = config.databases["cdm_db_prod"]
+        assert isinstance(config_cdm_db, CDMDatabaseConfig)
+        assert config_cdm_db.cdm_schema == "prod_omop"
         assert "cdm_db" not in config.databases
         assert "demo_tool" not in config.tools
 
     def test_set_flag_typo_in_subfield_fails_instead_of_silent_no_op(
         self, isolated_config, monkeypatch
     ):
-        """cdm_db.shema_name (typo for schema_name) must be rejected, not
+        """cdm_db.cdm_shema (typo for cdm_schema) must be rejected, not
         silently dropped while the rest of the entry still saves."""
 
         class FakeEP:
@@ -1255,11 +1250,11 @@ class TestConfigureSetFlag:
                 "--set",
                 "cdm_db.connection.database_name=:memory:",
                 "--set",
-                "cdm_db.shema_name=omop",
+                "cdm_db.cdm_shema=omop",
             ],
         )
         assert result.exit_code != 0
-        assert "shema_name" in result.output
+        assert "cdm_shema" in result.output
 
 
 class TestModelsList:

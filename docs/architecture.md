@@ -24,7 +24,16 @@ database_name = "omop_cdm"
 
 ### Database
 
-Every `[databases.<name>]` entry declares an explicit `kind` (see [DatabaseKind](api/resources.md#databasekind) for the current members), no default, no inference. The kind decides which concrete fields exist on top of the shared `connection`/`schema_name` base; see [Resources](api/resources.md#genericdatabaseconfig) for the field list each kind adds (only the CDM kind carries the vocab/results role bundle). `schema_name` itself has no default on either kind (unset means "use the connection's own default"), and is rejected at construction time if set against a connection whose dialect has no real schema concept (e.g. SQLite).
+Every `[databases.<name>]` entry declares an explicit `kind` (see [DatabaseKind](api/resources.md#databasekind) for the current members), no default, no inference. The kind decides which concrete fields exist on top of the shared `connection` base (see [Resources](api/resources.md#genericdatabaseconfig) for the field list each kind adds).
+
+  - `kind=GENERIC`
+    - `schema_name`: The schema in which all tables sit
+  - `kind=CDM`
+    - `cdm_schema`: The schema of all CDM tables.
+    - `vocab_schema`: The schema of all vocabulary tables within the CDM.
+    - `results_schema`: The schema of all results tables within the CDM.
+
+Neither has a default on its kind (unset means "use the connection's own default"), and both are rejected at construction time if set against a connection whose dialect has no real schema concept (e.g. SQLite).
 
 ```toml
 [databases.emb_db]
@@ -32,9 +41,9 @@ kind       = "generic"
 connection = "emb"
 
 [databases.cdm_db]
-kind        = "cdm"
-connection  = "cdm"
-schema_name = "omop"
+kind       = "cdm"
+connection = "cdm"
+cdm_schema = "omop"
 ```
 
 This isn't a duplication of `Role` below: `kind` decides which fields an entry has at config-authoring time, `Role` selects among a CDM entry's several connections at resolve time. A generic entry only ever has one connection, so there's nothing for `Role` to select there.
@@ -165,12 +174,18 @@ An application with its own configuration UI uses `plan_configure()` to get the 
 CDM-specific: `ResolvedCDMDatabase.schema_translate_map()` returns the SQLAlchemy-compatible schema translate dict:
 
 ```python
-{None: "omop", "vocab": "omop_vocab", "results": "results"}
+{"primary": "omop", "vocab": "omop_vocab", "results": "results"}
 ```
 
-OMOP ORM models carry `schema=None`, `schema="vocab"` or `schema="results"` on their `__table_args__`. The translate map routes them to the correct schema at runtime without changing model definitions. Its keys correspond to the members of [`Role`](api/resources.md#role), the same enum `ResolvedCDMDatabase.connection_target()`/`create_engine()` accept for their `role` parameter. A generic `ResolvedDatabase` has its own, simpler `create_engine()` with no `role` parameter, since a generic entry only ever has one connection.
+OMOP ORM models carry `schema="primary"`, `schema="vocab"` or `schema="results"` on their `__table_args__`. The translate map routes them to the correct schema at runtime without changing model definitions. Its keys correspond to the members of [`Role`](api/resources.md#role), the same enum `ResolvedCDMDatabase.connection_target()`/`create_engine()` accept for their `role` parameter. 
 
-`create_engine()`'s own `schema_translate_map` is authoritative, not a default: an `execution_options` argument may *extend* the map with a key the resolver doesn't own (e.g. a package's own reserved-schema role, layered on top of the CDM map, see [Vector Stores](api/vector-stores.md) for a real example), but supplying `None`/`"vocab"`/`"results"` there raises `ValueError` rather than silently overriding the configured routing.
+!!! note "Untagged table"
+    A genuinely untagged table (no `schema` set at all in `__table_args__`) is not part of this routing and falls through to the connection's own default/`search_path`
+
+`create_engine()`'s own `schema_translate_map` is authoritative, not a default:
+
+- an `execution_options` argument may *extend* the map with a key the resolver doesn't own (e.g. a package's own reserved-schema role, layered on top of the CDM map, see [Vector Stores](api/vector-stores.md) for a real example), 
+- supplying protected schemas raises `ValueError` rather tahn silently overriding the configured routing.
 
 ---
 

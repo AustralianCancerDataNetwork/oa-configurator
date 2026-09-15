@@ -202,7 +202,12 @@ with guard_schema_provenance(connection, resolved, role=Role.VOCAB):
 
 A resolved schema that disagrees with the recorded one raises `SchemaDriftError` and refuses the DDL. `resolved=None` (a bare-engine caller with no resolved config, e.g. a test) short-circuits to a no-op, as does a `test_only` connection — this only guards genuinely persistent deployments. `find_table_in_other_schemas()` complements it for drift that predates the bookkeeping table entirely, checking the database's actual physical layout rather than a stored claim.
 
-oa-configurator owns the guard and the bookkeeping table; it does not itself expose a way to resolve a genuine migration. That's deliberate — moving real data or accepting a new baseline is a decision each consuming package's own CLI makes explicit, never something this library does automatically.
+oa-configurator owns the guard, the bookkeeping table, and the CLI-level remediation path for a genuine migration, generic over any `[databases.*]` entry rather than tied to any particular domain package:
+
+- `omop-config acknowledge-schema-migration --database <name> --new-schema <schema> --reason <text> [--role <role>]` records a schema as the deliberate new baseline (`--reason` is mandatory; there is no `--yes` shortcut).
+- `omop-config drop-orphan-schema-tables --database <name> --schema <schema> [--role <role>] [--confirm]` drops tables physically found in an orphaned schema, after checking the named schema isn't still the current target of any configured database/role. Previews only, unless `--confirm` is given.
+
+Neither command moves data automatically — resolving a genuine migration is always an explicit, operator-run action with its own reasoning recorded.
 
 ---
 

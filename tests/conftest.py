@@ -30,6 +30,9 @@ from oa_configurator.domains.resources.sql import Dialect, Role
 _typer_rich_utils.FORCE_TERMINAL = None
 
 _FIELD_BY_DIALECT = {Dialect.POSTGRESQL: "test_db_pg", Dialect.SQLITE: "test_db_sqlite"}
+assert set(_FIELD_BY_DIALECT) == {param.values[0] for param in DIALECT_PARAMS}, (
+    "_FIELD_BY_DIALECT is missing an entry for a dialect DIALECT_PARAMS now covers."
+)
 
 
 @pytest.fixture

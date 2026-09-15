@@ -15,7 +15,8 @@ from oa_configurator import (
     ModelConfig,
     ProviderConfig,
     StackConfig,
-    Dialect
+    Dialect,
+    requires_host,
 )
 from oa_configurator.stack_config import mismatched_kind_refs
 
@@ -31,6 +32,26 @@ class TestConnectionConfig:
         restart, with no indication anything was ever in-memory."""
         with pytest.raises(ValueError, match="database_name"):
             ConnectionConfig(dialect=Dialect.SQLITE)
+
+    def test_sqlite_dialect_name_strips_driver_suffix_for_requires_host(self):
+        """dialect may be driver-qualified (e.g. 'sqlite+pysqlite'), not just
+        the bare name. requires_host() given a plain string uses it as-is
+        with no normalization, so it raises on a compound dialect string
+        directly. Showcases that ConnectionConfig.dialect_name strips the 
+        driver suffix for the benefit of requires_host() and other consumers."""
+        db = ConnectionConfig(dialect="sqlite+pysqlite", database_name=":memory:")
+        assert db.dialect_name == "sqlite"
+        assert requires_host(db.dialect_name) is False
+
+        with pytest.raises(ValueError, match="Unsupported dialect 'sqlite\\+pysqlite'"):
+            requires_host("sqlite+pysqlite")
+
+    def test_pg_without_host_raises(self):
+        """No implicit 'localhost' fallback: an unset host for a server-based
+        dialect must fail clearly rather than silently connecting to the
+        wrong (or no) server."""
+        with pytest.raises(ValueError, match="host"):
+            ConnectionConfig(dialect=Dialect.POSTGRESQL, database_name="mydb")
 
     def test_pg_build_url_includes_password(self):
         db = ConnectionConfig(

@@ -14,11 +14,11 @@ import sqlalchemy as sa
 
 from ...refs import RefTo, Secret, SecretSafeBaseModel
 from .sql import (
-    SCHEMA_TRANSLATE_MAP_KEY, 
-    Role, 
-    reject_reserved_schema, 
+    SCHEMA_TRANSLATE_MAP_KEY,
+    Role,
+    reject_reserved_schema,
+    requires_host,
     supports_schemas,
-    Dialect
 )
 
 if TYPE_CHECKING:
@@ -76,22 +76,26 @@ class ConnectionConfig(SecretSafeBaseModel):
     def _check_required_fields(self) -> ConnectionConfig:
         """Enforce host/database_name requiredness at construction time.
 
+        Routed through the same DialectProfile registry every other
+        dialect-varying decision in this codebase uses, rather than a
+        hand-written binary check. A dialect not in the registry raises
+        via _profile_for() rather than being silently misclassified.
         Mirrors _build_url_obj()'s own checks, which stay in place as
         defense-in-depth: neither model_copy(update=...) nor direct
         attribute mutation re-runs this validator on a non-frozen model
         with no validate_assignment.
         """
-        if self.dialect.startswith(Dialect.SQLITE):
-            if not self.database_name:
+        if requires_host(self.dialect_name):
+            if not self.host:
                 raise ValueError(
-                    "ConnectionConfig has no `database_name` set for a sqlite dialect and no"
-                    " longer defaults to ':memory:'. Set `database_name` explicitly, passing"
-                    " ':memory:' if that's actually what you want."
+                    "ConnectionConfig has no `host` set and no longer defaults to 'localhost'."
+                    " Set `host` explicitly in config.toml."
                 )
-        elif not self.host:
+        elif not self.database_name:
             raise ValueError(
-                "ConnectionConfig has no `host` set and no longer defaults to 'localhost'."
-                " Set `host` explicitly in config.toml."
+                f"ConnectionConfig has no `database_name` set for dialect {self.dialect_name!r}"
+                " (a file-based dialect) and no longer defaults to ':memory:'. Set"
+                " `database_name` explicitly, passing ':memory:' if that's actually what you want."
             )
         return self
 
@@ -114,12 +118,12 @@ class ConnectionConfig(SecretSafeBaseModel):
     def _build_url_obj(self) -> URL:
         # Also enforced at construction time by _check_required_fields; kept
         # here as defense-in-depth for a post-construction mutated instance.
-        if self.dialect.startswith(Dialect.SQLITE):
+        if not requires_host(self.dialect_name):
             if not self.database_name:
                 raise ValueError(
-                    "ConnectionConfig has no `database_name` set for a sqlite dialect and no"
-                    " longer defaults to ':memory:'. Set `database_name` explicitly, passing"
-                    " ':memory:' if that's actually what you want."
+                    f"ConnectionConfig has no `database_name` set for dialect {self.dialect_name!r}"
+                    " (a file-based dialect) and no longer defaults to ':memory:'. Set"
+                    " `database_name` explicitly, passing ':memory:' if that's actually what you want."
                 )
             return URL.create(drivername=self.dialect, database=self.database_name)
         if not self.host:

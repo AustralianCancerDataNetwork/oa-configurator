@@ -65,8 +65,8 @@ class DialectProfile:
 
     A plain data registry rather than a per-dialect class hierarchy: nothing
     here is a method that differs in *logic* per dialect (that's what
-    OMOP_Alchemy's ``Backend`` split is for), it's three static facts looked
-    up by dialect name.
+    OMOP_Alchemy's ``Backend`` split is for), it's static facts looked up by
+    dialect name.
 
     Attributes
     ----------
@@ -77,11 +77,18 @@ class DialectProfile:
         Schema names this dialect reserves for its own internal catalogs.
     supports_schemas : bool
         Whether the dialect has a genuine multi-schema concept at all.
+    requires_host : bool
+        Whether this dialect needs a real network host to connect (a
+        server-based RDBMS), as opposed to a local file/embedded database
+        (e.g. SQLite) that connects via a path instead. Defaults to True,
+        since server-based dialects are the common case; a file-based
+        dialect's profile overrides it explicitly.
     """
 
     default_schema: str | None
     system_schemas: frozenset[str]
     supports_schemas: bool
+    requires_host: bool = True
 
 
 _DIALECT_PROFILES: dict[str, DialectProfile] = {
@@ -94,6 +101,7 @@ _DIALECT_PROFILES: dict[str, DialectProfile] = {
         default_schema=None,
         system_schemas=frozenset(),
         supports_schemas=False,
+        requires_host=False,
     ),
 }
 
@@ -349,6 +357,19 @@ def supports_schemas(bindable: Bindable | str) -> bool:
     """
     dialect_name = bindable if isinstance(bindable, str) else _as_bind(bindable).dialect.name
     return _profile_for(dialect_name).supports_schemas
+
+
+def requires_host(bindable: Bindable | str) -> bool:
+    """True if the dialect needs a real network host to connect, rather than
+    a local file/embedded database (e.g. SQLite).
+
+    Parameters
+    ----------
+    bindable : Engine | Connection | Session | str
+        A live bindable, or a bare dialect name directly (e.g. "sqlite").
+    """
+    dialect_name = bindable if isinstance(bindable, str) else _as_bind(bindable).dialect.name
+    return _profile_for(dialect_name).requires_host
 
 
 def ensure_schema(bindable: Engine | Connection, schema: str | None) -> None:

@@ -24,7 +24,7 @@ from sqlalchemy.engine import Connection, Engine, Inspector
 from sqlalchemy.orm import Session
 
 if TYPE_CHECKING:
-    from .schema import ResolvedDatabase
+    from .schema import ResolvedConnection, ResolvedDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -514,6 +514,35 @@ def find_table_in_other_schemas(
     )
 
 
+def _provenance_target(
+    resolved: ResolvedDatabase, role: Role | str
+) -> tuple[ResolvedConnection, str | None, str]:
+    """Resolve (connection, schema, role-value) for a provenance guard/record call.
+
+    A ``Role`` member goes through the normal resolution machinery
+    (``connection_target``/``schema_for_role``), covering primary/vocab/results.
+    A bare string is for a schema this database's Role enum has no slot for
+    (e.g. an extension schema, a package's own reserved schema): it always
+    lives on the primary connection, and the string itself IS the schema, meaning
+    there is nothing to resolve as the caller already knows the physical name.
+
+    Returns
+    -------
+    connection : ResolvedConnection
+        The connection to use for the provenance bookkeeping table and any guarded DDL
+        matching the provided role.
+    schema : str or None
+        The schema to guard against drift, or None if the dialect has no schema concept.
+        For a bare string role, the string itself is used directly as the schema.
+    role_value : str
+        The string value of the role, either a Role member's value or the bare string.
+        For a bare string role, this is the same as the schema returned above.
+    """
+    if isinstance(role, Role):
+        return resolved.connection_target(role), resolved.schema_for_role(role), role.value
+    return resolved.connection_target(Role.PRIMARY), role, role
+
+
 def _schema_provenance_table(bookkeeping_schema: str | None) -> sa.Table:
     """The (unbound) schema-provenance bookkeeping table definition.
 
@@ -546,7 +575,8 @@ def guard_schema_provenance(
     connection: Connection,
     resolved: ResolvedDatabase | None,
     *,
-    role: Role,
+    role: Role | str,
+    shared_as: str | None = None,
 ) -> Iterator[None]:
     """Guard against creating tables under a schema that silently drifted
     from a previously-recorded one.
@@ -577,8 +607,23 @@ def guard_schema_provenance(
         that's test_only=true at the config level should build its own
         resolved with connection.test_only overridden to False, rather
         than relying on a separate override parameter here.
-    role : Role
-        No default: every real call site already knows its role.
+    role : Role or str
+        A ``Role`` member resolves its connection/schema the normal way. 
+        A bare string is for an additional package-specific schema that is 
+        not covered by ``Role`` (e.g. an extension schema, etc.). It's guarded
+        against the primary connection, and the string itself is used directly
+        as the schema being guarded, with no further resolution.
+    shared_as : str, optional
+        Overrides the identity this provenance record is tracked under,
+        replacing ``resolved.name``. Use this when the schema being
+        guarded is a resource shared across multiple database entries on
+        the same connection, such as a model registry, rather than owned
+        by this one database entry. Every caller of that shared resource
+        must pass the same value, so they're tracked as one identity
+        instead of each looking like an unrelated, unexplained occupant
+        of the same schema. None (default) uses ``resolved.name``, which
+        is correct for the normal case where the schema really is this
+        database's own.
 
     Raises
     ------
@@ -592,19 +637,18 @@ def guard_schema_provenance(
     Accepted limitation: a connection repointed to a brand-new, genuinely
     empty server is indistinguishable from real day-one setup.
     """
+    role_value = role.value if isinstance(role, Role) else role
     if resolved is None:
-        logger.debug("guard_schema_provenance(role=%s): no resolved, skipping.", role.value)
+        logger.debug("guard_schema_provenance(role=%s): no resolved, skipping.", role_value)
         yield
         return
-    target_connection = resolved.connection_target(role)
+    target_connection, schema_name, role_value = _provenance_target(resolved, role)
     if target_connection.test_only:
-        logger.debug("guard_schema_provenance(role=%s): test_only, skipping.", role.value)
+        logger.debug("guard_schema_provenance(role=%s): test_only, skipping.", role_value)
         yield
         return
 
-    database_name = resolved.name
-    role_value = str(role.value)
-    schema_name = resolved.schema_for_role(role)
+    database_name = shared_as if shared_as is not None else resolved.name
     connection_safe_url = target_connection.safe_url
 
     bookkeeping_schema = _provenance_schema_for(connection)
@@ -667,9 +711,10 @@ def record_schema_provenance(
     connection: Connection,
     resolved: ResolvedDatabase,
     *,
-    role: Role,
+    role: Role | str,
     new_schema: str | None,
     reason: str,
+    shared_as: str | None = None,
 ) -> None:
     """Overwrite the provenance baseline for resolved's database/role with new_schema.
 
@@ -690,13 +735,20 @@ def record_schema_provenance(
         Supplies database_name and the role-appropriate schema/connection,
         derived internally rather than three independent strings, so a
         caller can't pass a mismatched trio.
-    role : Role
-        Schema role to record a new baseline for.
+    role : Role or str
+        Schema role to record a new baseline for. A bare string is for a
+        schema this database's ``Role`` enum has no slot for 
+        (see ``guard_schema_provenance``'s ``role`` parameter for the same
+        distinction).
     new_schema : str or None
         The new schema to record as the baseline for this database/role.
         None is allowed for a dialect that has no schema concept (e.g. SQLite).
     reason : str
         Human-readable explanation of why this schema change is deliberate.
+    shared_as : str, optional
+        See ``guard_schema_provenance``'s ``shared_as`` parameter: overrides
+        the identity this record is tracked under, for a schema shared
+        across multiple database entries rather than owned by this one.
 
     Raises
     ------
@@ -706,9 +758,9 @@ def record_schema_provenance(
     if not reason.strip():
         raise ValueError("reason must not be blank.")
 
-    database_name = resolved.name
-    role_value = str(role.value)
-    connection_safe_url = resolved.connection_target(role).safe_url
+    database_name = shared_as if shared_as is not None else resolved.name
+    target_connection, _, role_value = _provenance_target(resolved, role)
+    connection_safe_url = target_connection.safe_url
 
     bookkeeping_schema = _provenance_schema_for(connection)
     ensure_schema(connection, bookkeeping_schema)

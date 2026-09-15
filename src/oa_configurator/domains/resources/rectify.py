@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 
-from .sql import qualified, schema_inspect
+from .sql import qualified, schema_inspect, supports_schemas
 
 if TYPE_CHECKING:
     from ...stack_config import StackConfig
@@ -89,10 +89,18 @@ def drop_orphan_schema_tables(
 
     Raises
     ------
+    ValueError
+        If *connection*'s dialect has no real schema concept at all (e.g.
+        SQLite). "Orphan schema" doesn't apply there.
     RuntimeError
         If *orphan_schema* is the current schema target of any configured
         database/role in *stack*.
     """
+    if not supports_schemas(connection):
+        raise ValueError(
+            f"Cannot drop orphan schema tables: {connection.dialect.name!r} has no real schema "
+            "concept, so 'orphan schema' doesn't apply and this operation isn't meaningful here."
+        )
     blocking = schema_is_a_current_target(stack, orphan_schema)
     if blocking is not None:
         raise RuntimeError(
@@ -102,8 +110,10 @@ def drop_orphan_schema_tables(
         )
     preview = preview_orphan_schema_tables(connection, orphan_schema)
     if confirm:
-        for item in preview:
-            connection.execute(
-                sa.text(f"DROP TABLE IF EXISTS {qualified(connection, item.table_name, schema=orphan_schema)} CASCADE")
-            )
+        metadata = sa.MetaData()
+        # Get all non-orphan tables removed from the metadata, so drop_all() only touches the orphan schema.
+        for table in list(metadata.tables.values()):
+            if table.schema != orphan_schema:
+                metadata.remove(table)
+        metadata.drop_all(bind=connection)
     return preview

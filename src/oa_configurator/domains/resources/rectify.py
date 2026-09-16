@@ -111,7 +111,8 @@ def drop_orphan_schema_tables(
     preview = preview_orphan_schema_tables(connection, orphan_schema)
     if confirm:
         metadata = sa.MetaData()
-        # Get all non-orphan tables removed from the metadata, so drop_all() only touches the orphan schema.
+        metadata.reflect(bind=connection, schema=orphan_schema)
+        # Accumulate only tables in the orphan schema
         for table in list(metadata.tables.values()):
             if table.schema != orphan_schema:
                 metadata.remove(table)

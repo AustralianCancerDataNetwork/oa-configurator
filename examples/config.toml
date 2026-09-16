@@ -49,14 +49,14 @@ database_name = "omop_emb"
 # ---------------------------------------------------------------------------
 
 [databases.cdm_db]
-kind        = "cdm"
-connection  = "local_cdm"
-schema_name = "omop"
+kind       = "cdm"
+connection = "local_cdm"
+cdm_schema = "omop"
 
 [databases.test_cdm_db]
-kind        = "cdm"
-connection  = "local_cdm_test"
-schema_name = "public"
+kind       = "cdm"
+connection = "local_cdm_test"
+cdm_schema = "public"
 
 [databases.emb_db]
 kind        = "generic"
@@ -66,7 +66,7 @@ schema_name = "public"
 [databases.prod_cdm_db]
 kind           = "cdm"
 connection     = "prod_cdm"
-schema_name    = "omop"
+cdm_schema     = "omop"
 vocab_schema   = "vocab"
 results_schema = "results"
 

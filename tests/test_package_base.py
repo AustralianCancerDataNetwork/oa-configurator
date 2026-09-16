@@ -17,7 +17,7 @@ from oa_configurator import (
     GenericDatabaseConfig,
     ModelConfig,
     PackageConfigBase,
-    PackageConfigValidationError,
+    PackageConfigInvalidError,
     ProviderConfig,
     RefTo,
     Resolver,
@@ -28,6 +28,7 @@ from oa_configurator import (
     mismatched_kind_refs,
     plan_configure,
     unresolved_refs,
+    Dialect
 )
 
 
@@ -108,7 +109,7 @@ class ValidatedPackageConfig(PackageConfigBase):
 def _validated_stack(tool_values: dict[str, Any]) -> StackConfig:
     return StackConfig.for_session(
         connections={
-            "db": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+            "db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
         },
         databases={"cdm_db": CDMDatabaseConfig(connection="db")},
         tools={"validated_tool": tool_values},
@@ -119,7 +120,7 @@ class TestPackageCandidateValidation:
     def test_scalar_constraint_identifies_package_and_field(self):
         cfg = _validated_stack({"cdm_db": "cdm_db", "port": 999999})
 
-        with pytest.raises(PackageConfigValidationError) as exc_info:
+        with pytest.raises(PackageConfigInvalidError) as exc_info:
             ValidatedPackageConfig.validate_candidate(cfg)
 
         assert exc_info.value.tool_name == "validated_tool"
@@ -129,7 +130,7 @@ class TestPackageCandidateValidation:
     def test_nested_validation_location_is_preserved(self):
         cfg = _validated_stack({"cdm_db": "cdm_db", "limits": {"batch_size": 1000}})
 
-        with pytest.raises(PackageConfigValidationError) as exc_info:
+        with pytest.raises(PackageConfigInvalidError) as exc_info:
             ValidatedPackageConfig.validate_candidate(cfg)
 
         assert exc_info.value.errors()[0]["loc"] == ("limits", "batch_size")
@@ -137,7 +138,7 @@ class TestPackageCandidateValidation:
     def test_cross_field_error_retains_model_location(self):
         cfg = _validated_stack({"cdm_db": "cdm_db", "workers": 8, "max_workers": 4})
 
-        with pytest.raises(PackageConfigValidationError) as exc_info:
+        with pytest.raises(PackageConfigInvalidError) as exc_info:
             ValidatedPackageConfig.validate_candidate(cfg)
 
         assert exc_info.value.errors()[0]["loc"] == ()
@@ -154,7 +155,7 @@ class TestPackageCandidateValidation:
     def test_wrong_reference_kind_identifies_package_field(self):
         cfg = StackConfig.for_session(
             connections={
-                "db": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+                "db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
             },
             databases={"generic": GenericDatabaseConfig(connection="db")},
             tools={"validated_tool": {"cdm_db": "generic"}},
@@ -179,7 +180,7 @@ class TestPackageCandidateValidation:
         canary = "secret-canary-value"
         cfg = StackConfig.for_session(tools={"secret_tool": {"api_key": canary}})
 
-        with pytest.raises(PackageConfigValidationError) as exc_info:
+        with pytest.raises(PackageConfigInvalidError) as exc_info:
             SecretPackageConfig.validate_candidate(cfg)
 
         assert canary not in str(exc_info.value)
@@ -269,35 +270,50 @@ class TestPlanConfigure:
             {
                 "cdm_db": {
                     "connection": {
-                        "dialect": "sqlite",
-                        "database_name": ":memory:",
+                        "dialect": Dialect.POSTGRESQL + "+psycopg",
+                        "host": "localhost",
+                        "database_name": "cdm",
                     },
-                    "schema_name": "planned_omop",
+                    "cdm_schema": "planned_omop",
                 }
             },
         )
 
         database_name = planned.tools["validated_tool"]["cdm_db"]
         database = planned.databases[database_name]
-        assert database.schema_name == "planned_omop"
+        assert isinstance(database, CDMDatabaseConfig)
+        assert database.cdm_schema == "planned_omop"
         assert database.connection in planned.connections
         assert cfg.connections == {}
         assert cfg.databases == {}
         assert cfg.tools == {}
 
     def test_nested_refto_update_carries_over_unmentioned_target_fields(self):
-        cfg = _validated_stack({"cdm_db": "cdm_db"})
-        cfg.databases["cdm_db"].schema_name = "original_schema"
+        cfg = StackConfig.for_session(
+            connections={
+                "db": ConnectionConfig(
+                    dialect=Dialect.POSTGRESQL + "+psycopg", host="localhost", database_name="db"
+                )
+            },
+            databases={"cdm_db": CDMDatabaseConfig(connection="db")},
+            tools={"validated_tool": {"cdm_db": "cdm_db"}},
+        )
+        database = cfg.databases["cdm_db"]
+        assert isinstance(database, CDMDatabaseConfig)
+        database.cdm_schema = "original_schema"
 
         planned = plan_configure(
             ValidatedPackageConfig,
             cfg,
-            {"cdm_db": {"name": "cdm_db", "schema_name": "planned_schema"}},
+            {"cdm_db": {"name": "cdm_db", "cdm_schema": "planned_schema"}},
         )
 
-        assert planned.databases["cdm_db"].schema_name == "planned_schema"
+        planned_database = planned.databases["cdm_db"]
+        assert isinstance(planned_database, CDMDatabaseConfig)
+
+        assert planned_database.cdm_schema == "planned_schema"
         assert planned.databases["cdm_db"].connection == "db"
-        assert cfg.databases["cdm_db"].schema_name == "original_schema"
+        assert database.cdm_schema == "original_schema"
 
     def test_stored_package_values_carry_over(self):
         cfg = _validated_stack(
@@ -319,7 +335,7 @@ class TestPlanConfigure:
         cfg = _validated_stack({"cdm_db": "cdm_db", "port": 8000})
         before = cfg.model_dump(mode="python")
 
-        with pytest.raises(PackageConfigValidationError):
+        with pytest.raises(PackageConfigInvalidError):
             plan_configure(ValidatedPackageConfig, cfg, {"port": 999999})
 
         assert cfg.model_dump(mode="python") == before
@@ -361,7 +377,7 @@ class TestRefToPackageField:
     def test_passes_when_referenced_database_exists(self):
         cfg = StackConfig.for_session(
             connections={
-                "db": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+                "db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
             },
             databases={"cdm_db": CDMDatabaseConfig(connection="db")},
         )
@@ -410,7 +426,7 @@ class TestConventionBasedSharing:
     def test_two_packages_resolve_to_the_same_database(self):
         cfg = StackConfig.for_session(
             connections={
-                "db": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+                "db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
             },
             databases={"cdm_db": CDMDatabaseConfig(connection="db")},
         )
@@ -462,7 +478,7 @@ class TestIsTestOnlyMatchEnforcement:
         cfg = StackConfig.for_session(
             connections={
                 "prod": ConnectionConfig(
-                    dialect="sqlite", database_name=":memory:", test_only=False
+                    dialect=Dialect.SQLITE, database_name=":memory:", test_only=False
                 )
             },
             databases={"test_cdm_db": CDMDatabaseConfig(connection="prod")},
@@ -481,7 +497,7 @@ class TestIsTestOnlyMatchEnforcement:
         cfg = StackConfig.for_session(
             connections={
                 "test_conn": ConnectionConfig(
-                    dialect="sqlite", database_name=":memory:", test_only=True
+                    dialect=Dialect.SQLITE, database_name=":memory:", test_only=True
                 )
             },
             databases={"cdm_db": CDMDatabaseConfig(connection="test_conn")},
@@ -498,7 +514,7 @@ class TestIsTestOnlyMatchEnforcement:
         cfg = StackConfig.for_session(
             connections={
                 "test_conn": ConnectionConfig(
-                    dialect="sqlite", database_name=":memory:", test_only=True
+                    dialect=Dialect.SQLITE, database_name=":memory:", test_only=True
                 )
             },
             databases={"test_cdm_db": CDMDatabaseConfig(connection="test_conn")},
@@ -517,7 +533,7 @@ class TestIsTestOnlyMatchEnforcement:
         cfg = StackConfig.for_session(
             connections={
                 "prod": ConnectionConfig(
-                    dialect="sqlite", database_name=":memory:", test_only=False
+                    dialect=Dialect.SQLITE, database_name=":memory:", test_only=False
                 )
             },
             databases={"cdm_db": CDMDatabaseConfig(connection="prod")},
@@ -539,10 +555,10 @@ class TestIsTestOnlyMatchEnforcement:
         cfg = StackConfig.for_session(
             connections={
                 "prod": ConnectionConfig(
-                    dialect="sqlite", database_name=":memory:", test_only=False
+                    dialect=Dialect.SQLITE, database_name=":memory:", test_only=False
                 ),
                 "test_vocab": ConnectionConfig(
-                    dialect="sqlite", database_name=":memory:", test_only=True
+                    dialect=Dialect.SQLITE, database_name=":memory:", test_only=True
                 ),
             },
             databases={
@@ -575,7 +591,7 @@ class TestIsTestOnlyMatchEnforcement:
         cfg = StackConfig.for_session(
             connections={
                 "test_conn": ConnectionConfig(
-                    dialect="sqlite", database_name=":memory:", test_only=True
+                    dialect=Dialect.SQLITE, database_name=":memory:", test_only=True
                 )
             },
             databases={"emb_db": GenericDatabaseConfig(connection="test_conn")},
@@ -597,7 +613,7 @@ class TestIsTestOnlyMatchEnforcement:
         cfg = StackConfig.for_session(
             connections={
                 "prod_conn": ConnectionConfig(
-                    dialect="sqlite", database_name=":memory:", test_only=False
+                    dialect=Dialect.SQLITE, database_name=":memory:", test_only=False
                 )
             },
             databases={"emb_db": GenericDatabaseConfig(connection="prod_conn")},
@@ -629,7 +645,7 @@ class TestRefToAbstractDatabaseConfigRejected:
 
         cfg = StackConfig.for_session(
             connections={
-                "db": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+                "db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
             },
             databases={"cdm_db": CDMDatabaseConfig(connection="db")},
         )
@@ -722,4 +738,36 @@ class TestResolveFieldsStaleRefFallback:
             },
         )
         extra = MixedFieldConfig.resolve_fields(cfg, set_dict={}, interactive=False)
+        assert extra["backend"] == "custom_value"
+
+
+class TestResolveFieldsUnrecognizedKeys:
+    """A set_dict key with no matching field must raise, not silently
+    produce an incomplete saved section (the pre-fix behavior: an
+    unrecognized key was simply never consumed by the per-field loop)."""
+
+    def test_headless_raises_configuration_error(self):
+        with pytest.raises(ConfigurationError, match="stale_field_name"):
+            MixedFieldConfig.resolve_fields(
+                StackConfig.for_session(),
+                set_dict={"stale_field_name": "value"},
+                interactive=False,
+                headless=True,
+            )
+
+    def test_non_headless_raises_typer_exit(self):
+        with pytest.raises(typer.Exit):
+            MixedFieldConfig.resolve_fields(
+                StackConfig.for_session(),
+                set_dict={"stale_field_name": "value"},
+                interactive=False,
+                headless=False,
+            )
+
+    def test_a_real_field_name_is_unaffected(self):
+        extra = MixedFieldConfig.resolve_fields(
+            StackConfig.for_session(),
+            set_dict={"backend": "custom_value"},
+            interactive=False,
+        )
         assert extra["backend"] == "custom_value"

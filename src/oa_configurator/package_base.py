@@ -56,13 +56,21 @@ class _SanitizedValidationErrorMixin:
     """Shared sanitizing/storage/accessor for exceptions built from a
     pydantic :class:`~pydantic.ValidationError`.
 
-    Both :class:`PackageConfigValidationError` and
-    :class:`StackConfigValidationError` wrap a validation failure whose
+    Both :class:`PackageConfigInvalidError` and
+    :class:`StackConfigInvalidError` wrap a validation failure whose
     ``.errors()`` may be pasted into an issue or a CI log: both need the
     input sanitized via :func:`~oa_configurator.refs.sanitized_errors`
     before it touches ``self`` or the exception message, and both expose it
     back the same way. Centralising the call means neither ``__init__`` can
     accidentally store or format the raw, un-sanitized errors instead.
+
+    Notes
+    -----
+    Neither subclass *is* a :class:`~pydantic.ValidationError` as it is not
+    subclassable for this purpose. Its ``__new__`` is Rust-backed and always
+    requires ``title``/``line_errors``, which a sanitizing constructor has no
+    use for.
+
     """
 
     _errors: tuple[ErrorDetails, ...]
@@ -77,7 +85,7 @@ class _SanitizedValidationErrorMixin:
         return list(self._errors)
 
 
-class PackageConfigValidationError(_SanitizedValidationErrorMixin, ConfigurationError):
+class PackageConfigInvalidError(_SanitizedValidationErrorMixin, ConfigurationError):
     """A package section failed its concrete pydantic schema.
 
     :meth:`errors` exposes sanitized pydantic details so field locations,
@@ -92,10 +100,10 @@ class PackageConfigValidationError(_SanitizedValidationErrorMixin, Configuration
         )
 
 
-class StackConfigValidationError(_SanitizedValidationErrorMixin, ConfigurationError):
+class StackConfigInvalidError(_SanitizedValidationErrorMixin, ConfigurationError):
     """The config file parsed as TOML but failed :class:`StackConfig` validation.
 
-    Sibling of :class:`PackageConfigValidationError`, sharing its sanitising: a
+    Sibling of :class:`PackageConfigInvalidError`, sharing its sanitising: a
     stack config holds every connection password and API key in the deployment,
     so this is the error most likely to be pasted into an issue or a CI log.
     The message names the file and the offending field paths and nothing else.
@@ -189,16 +197,16 @@ class PackageConfigBase(SecretSafeBaseModel):
 
         This is the package-aware apply boundary for the otherwise untyped
         ``StackConfig.tools`` mapping. Field and model-validator failures raise
-        :class:`PackageConfigValidationError`; reference failures raise
+        :class:`PackageConfigInvalidError`; reference failures raise
         :class:`ConfigurationError`. Neither path performs file I/O.
         """
         from .resolver import Resolver
 
-        error: PackageConfigValidationError | None = None
+        error: PackageConfigInvalidError | None = None
         try:
             return Resolver(config).resolve_package_config(cls)
         except ValidationError as exc:
-            error = PackageConfigValidationError(cls.tool_name, exc)
+            error = PackageConfigInvalidError(cls.tool_name, exc)
         assert error is not None
         raise error from None
 
@@ -260,6 +268,7 @@ class PackageConfigBase(SecretSafeBaseModel):
         from .resolver import (
             Resolver,
             _check_missing_required,
+            _check_unrecognized_keys,
             _is_flag_settable,
             _nested_ref,
             _resolve_nested_flag_value,
@@ -268,10 +277,17 @@ class PackageConfigBase(SecretSafeBaseModel):
 
         console = Console()
 
+        _check_unrecognized_keys(
+            f"tool {cls.tool_name!r}",
+            set_dict,
+            cls.model_fields.keys(),
+            headless=headless,
+        )
+
         try:
             current = Resolver(config).resolve_package_config(cls)
             current_dict = current.to_extra_dict()
-        except (ConfigurationError, ValueError):
+        except ValueError:
             current_dict = dict(config.tools.get(cls.tool_name, {}))
 
         extra: dict[str, Any] = {}

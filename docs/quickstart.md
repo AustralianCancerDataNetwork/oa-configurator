@@ -31,7 +31,7 @@ omop-config init
 
 ## 3. Configure an LLM/embedding model (optional)
 
-Packages that call an LLM or embedding model (e.g. `omop-emb`, `omop-spires`) reference one by name via their own package-specific setting. For fields the package marks for this, `omop-config configure <package>` resolves them for you: it offers to reuse an existing `[models.*]` entry, or create one on the spot, recursing into `[providers.*]` the same way if the provider doesn't exist yet either.
+Packages that call an LLM or embedding model reference one by name via their own package-specific setting. For fields the package marks for this, `omop-config configure <package>` resolves them for you: it offers to reuse an existing `[models.*]` entry, or create one on the spot, recursing into `[providers.*]` the same way if the provider doesn't exist yet either.
 
 To manage `[providers.*]`/`[models.*]` entries directly, outside of any specific package's configure flow, use the standalone commands:
 
@@ -40,7 +40,7 @@ omop-config providers add <provider-name>   # e.g. local-ollama
 omop-config models add <model-name>         # e.g. nomic-embed
 ```
 
-`providers add` prompts for the `omop-llm` provider key (`ollama`, `llamacpp`, `vllm`, `openai`, `anthropic`, `gemini`), base URL, and API key. `models add` prompts for which provider it's served through, the model name, `embedding_dim`/`document_prefix`/`query_prefix`, and then for each of the four capability fields — `embeddings`, `tool_use`, `structured_output`, `extended_thinking` — as a yes/no confirm. Capabilities are opt-in and default to `false`: neither any-llm nor `omop-llm` can introspect them per model, so anything you don't declare is treated as unsupported. An embedding model therefore needs `embeddings = true`, and setting `embedding_dim` without it is rejected outright.
+`providers add` prompts for the specific provider key, base URL, and API key. `models add` prompts for which provider it's served through, the model name, `embedding_dim`/`document_prefix`/`query_prefix`, and then for each of the four capability fields — `embeddings`, `tool_use`, `structured_output`, `extended_thinking` — as a yes/no confirm. Capabilities are opt-in and default to `false` as no consuming package can introspect them per model. An embedding model therefore needs `embeddings = true`, and setting `embedding_dim` without it is rejected outright.
 
 Both commands accept flags for non-interactive use, with the capability fields as paired boolean flags:
 
@@ -60,7 +60,7 @@ omop-config providers list
 omop-config models list
 ```
 
-See [Config reference](config-reference.md#providersname) for the full field list, and `omop-llm`'s [Asymmetric Embeddings guide](https://AustralianCancerDataNetwork.github.io/omop-llm/usage/asymmetric-embeddings/) for what `document_prefix`/`query_prefix` are for.
+See [Config reference](config-reference.md#providersname) for the full field list
 
 ## 4. Verify
 

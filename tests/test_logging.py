@@ -290,8 +290,10 @@ class TestRedactingFilter:
             record = logging.LogRecord("t", logging.ERROR, "", 0, "failed", None,
                                        __import__("sys").exc_info())
         RedactingFilter().filter(record)
-        assert "user:pw@" not in record.exc_text
-        assert "user:***@host/db" in record.exc_text
+        exc_text = record.exc_text
+        assert exc_text is not None
+        assert "user:pw@" not in exc_text
+        assert "user:***@host/db" in exc_text
 
 
 class TestRedactingFormatterStillWorks:

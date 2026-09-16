@@ -10,7 +10,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from .package_base import ConfigurationError, StackConfigValidationError
+from .package_base import ConfigurationError, StackConfigInvalidError
 from .stack_config import StackConfig
 
 logger = logging.getLogger(__name__)
@@ -100,23 +100,40 @@ def invalidate_cache() -> None:
     _ConfigCache.clear()
 
 
-def load_stack_config() -> StackConfig:
-    """Load a :class:`StackConfig` from ``CONFIG_PATH``
-    (default ``~/.config/omop/config.toml``, overridable via ``OA_CONFIG_PATH``).
+def load_stack_config(path: str | Path = CONFIG_PATH) -> StackConfig:
+    """Load a :class:`StackConfig` from *path*. Defaults to ``CONFIG_PATH``,
+    which can be overridden by setting the ``OA_CONFIG_PATH`` environment variable.
 
+    Notes
+    -----
     ``OA_CONFIG_PATH`` is resolved when this module is first imported. Set it
-    before starting the process; changing it at runtime does not change
+    before starting the process as changing it at runtime does not change
     ``CONFIG_PATH``.
+
+    Parameters
+    ----------
+    path : str or pathlib.Path, optional
+        Explicit configuration file to load. Omitted uses ``CONFIG_PATH``.
+
+    Returns
+    -------
+    StackConfig
+        Parsed and validated stack configuration.
 
     Raises
     ------
     FileNotFoundError
-        If ``CONFIG_PATH`` does not exist.
+        If the resolved path does not exist.
+    ConfigurationError
+        If the file is not valid TOML. Never echoes the file's contents.
+    StackConfigInvalidError
+        If the file is valid TOML but does not conform to the StackConfig
+        schema. Names the offending fields and never echoes rejected values.
     """
-    return load_stack_config_from_path(CONFIG_PATH)
+    return _load_from_path(path)
 
 
-def load_stack_config_from_path(path: str | Path) -> StackConfig:
+def _load_from_path(path: str | Path) -> StackConfig:
     """Load a :class:`StackConfig` from an explicit path.
 
     For anything that accepts a config path of its own -- a ``--config-path``
@@ -137,12 +154,12 @@ def load_stack_config_from_path(path: str | Path) -> StackConfig:
     Raises
     ------
     FileNotFoundError
-        If *path* does not exist.
+        If the resolved path does not exist.
     ConfigurationError
-        If the file is not valid TOML, or does not validate as a
-        :class:`StackConfig`. Both carry the file path; the validation case
-        is a :class:`~oa_configurator.StackConfigValidationError` naming the
-        offending fields. Neither echoes a rejected value.
+        If the file is not valid TOML. Never echoes the file's contents.
+    StackConfigInvalidError
+        If the file is valid TOML but does not conform to the StackConfig
+        schema. Names the offending fields and never echoes rejected values.
     """
     resolved_path = _normalize_path(path)
 
@@ -172,7 +189,7 @@ def load_stack_config_from_path(path: str | Path) -> StackConfig:
     try:
         config = StackConfig.model_validate(data)
     except ValidationError as exc:
-        raise StackConfigValidationError(resolved_path, exc) from None
+        raise StackConfigInvalidError(resolved_path, exc) from None
     config.bind_loaded_path(resolved_path)
 
     _ConfigCache.put(resolved_path, st, config)

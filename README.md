@@ -38,7 +38,7 @@ from oa_configurator import StackConfig, ConnectionConfig, CDMDatabaseConfig, Re
 config = StackConfig.for_session(
     connections={"local": ConnectionConfig(dialect="postgresql+psycopg", host="localhost",
                                             database_name="omop", password="omop")},
-    databases={"cdm_db": CDMDatabaseConfig(connection="local", schema_name="omop")},
+    databases={"cdm_db": CDMDatabaseConfig(connection="local", cdm_schema="omop")},
 )
 engine = Resolver(config).resolve_database("cdm_db").create_engine()
 ```

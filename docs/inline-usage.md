@@ -44,7 +44,7 @@ config = StackConfig.for_session(
     databases={
         "cdm": CDMDatabaseConfig(
             connection="local",
-            schema_name="omop",
+            cdm_schema="omop",
             vocab_schema="vocab",
         )
     },
@@ -70,7 +70,7 @@ Cross-references are validated at construction time, same as for file-loaded con
 ```python
 StackConfig.for_session(
     connections={"local": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
-    databases={"cdm": CDMDatabaseConfig(connection="typo", schema_name="omop")},  # raises ValueError
+    databases={"cdm": CDMDatabaseConfig(connection="typo", cdm_schema="omop")},  # raises ValueError
 )
 ```
 
@@ -84,7 +84,7 @@ from oa_configurator import StackConfig, Resolver
 def test_something():
     cfg = StackConfig.for_session(
         connections={"db": {"dialect": "sqlite", "database_name": ":memory:"}},
-        databases={"cdm": {"kind": "cdm", "connection": "db", "schema_name": "omop"}},
+        databases={"cdm": {"kind": "cdm", "connection": "db", "cdm_schema": "omop"}},
         tools={"my_package": {"backend": "test_backend"}},
     )
     resolver = Resolver(cfg)
@@ -112,7 +112,7 @@ engine = (
             "local": ConnectionConfig(dialect="sqlite", database_name=":memory:")
         },
         databases={
-            "cdm": CDMDatabaseConfig(connection="local", schema_name="omop")
+            "cdm": CDMDatabaseConfig(connection="local", cdm_schema="omop")
         },
     )
     .resolve_database("cdm")
@@ -141,7 +141,7 @@ Cross-references are checked against the **merged** result. A database override 
 
 ```python
 Resolver(load_stack_config()).with_overrides(
-    databases={"cdm": CDMDatabaseConfig(connection="nonexistent", schema_name="omop")}  # raises
+    databases={"cdm": CDMDatabaseConfig(connection="nonexistent", cdm_schema="omop")}  # raises
 )
 ```
 

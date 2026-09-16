@@ -43,8 +43,13 @@ markdown_extensions:
         - name: mermaid
           class: mermaid
           format: !!python/name:mermaid2.fence_mermaid
+  - attr_list
   - toc:
       permalink: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
 
 extra_javascript:
   - https://unpkg.com/mermaid@10/dist/mermaid.min.js
@@ -63,6 +68,8 @@ plugins:
             merge_init_into_class: true
             separate_signature: true
             show_signature_annotations: true
+            show_root_toc_entry: false
+            heading_level: 3
 
 nav:
   - Home: index.md

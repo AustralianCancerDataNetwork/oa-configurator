@@ -14,7 +14,12 @@ A concrete database endpoint: dialect, host, credentials, target database. Store
 
 ## DatabaseConfig
 
-The shared base: `kind`, `connection`, `schema_name`. Not constructed directly â€” every `[databases.<name>]` entry is one of the two concrete kinds below, chosen by its own `kind` field. `schema_name` defaults differently per kind: unset on `GenericDatabaseConfig` means "no schema override, use the connection's own default"; `CDMDatabaseConfig` defaults it to `"omop"`.
+The shared base unifying `kind` and `connection`. Every `[databases.<name>]` entry is one of the two concrete kinds below, chosen by its own `kind` field. Each kind adds its own schema field on top 
+
+- `schema_name` on `GenericDatabaseConfig`, 
+- `cdm_schema` on `CDMDatabaseConfig`.
+
+Both default to `None`, meaning "no schema override, use the connection's own default" (Postgres's own `search_path` default, typically `public`), not a guarantee this library makes or encodes in code.
 
 ::: oa_configurator.domains.resources.schema.DatabaseConfig
 
@@ -35,6 +40,12 @@ The shared base: `kind`, `connection`, `schema_name`. Not constructed directly â
 Selects among a *CDM* database's several connections at resolve time. Not related to `kind`: `kind` decides which fields an entry has at config-authoring time, `Role` selects among one CDM entry's connections. A generic entry only ever has one connection, so `Role` has nothing to select there.
 
 ::: oa_configurator.domains.resources.schema.Role
+
+## Dialect
+
+The SQLAlchemy backend names (`Engine.dialect.name` / `get_backend_name()`) this codebase recognizes: currently `postgresql` and `sqlite`. Distinct from `ConnectionConfig.dialect`, which stays a free-form string to carry a driver suffix such as `postgresql+psycopg`; `Dialect` is the plain backend-name axis every dialect-keyed dispatch in this codebase branches on. See [Dialect support across the stack](../architecture.md#dialect-support-across-the-stack) for the convention every consuming repo follows to add a new one.
+
+::: oa_configurator.domains.resources.sql.Dialect
 
 ## Resolved types
 

@@ -46,6 +46,7 @@ from oa_configurator import (
     qualified,
     record_schema_provenance,
     register_reserved_schema,
+    role_of_table,
     schema_inspect,
     schema_of,
     schema_options,
@@ -75,6 +76,22 @@ class TestAsBind:
                 assert _as_bind(session) is conn
             finally:
                 session.close()
+
+
+class TestRoleOfTable:
+    def test_resolves_known_role_schema(self):
+        table = sa.Table("t", sa.MetaData(), schema=Role.VOCAB.value)
+        assert role_of_table(table) is Role.VOCAB
+
+    def test_raises_for_no_schema(self):
+        table = sa.Table("t", sa.MetaData(), schema=None)
+        with pytest.raises(ValueError):
+            role_of_table(table)
+
+    def test_raises_for_unrecognized_schema(self):
+        table = sa.Table("t", sa.MetaData(), schema="extension")
+        with pytest.raises(ValueError):
+            role_of_table(table)
 
 
 class TestSchemaOf:

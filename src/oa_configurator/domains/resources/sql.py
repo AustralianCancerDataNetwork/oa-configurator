@@ -135,6 +135,11 @@ def _as_bind(bindable: Bindable) -> Engine | Connection:
     return bindable
 
 
+def role_of_table(table: sa.Table) -> Role:
+    """The table's Role, inferred from its schema. Raises if untagged."""
+    return Role(table.schema)
+
+
 def schema_of(bindable: Bindable, *, role: Role = Role.PRIMARY) -> str | None:
     """role's entry of bindable's schema_translate_map, or None if unset.
 

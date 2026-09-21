@@ -77,21 +77,41 @@ class TestAsBind:
             finally:
                 session.close()
 
+    def test_session_bound_to_an_engine_reduces_to_its_own_live_connection(self, engine):
+        """Session.connection(), not Session.get_bind(): a fresh connection
+        off the engine would be a second, independent connection, which on
+        SQLite's SingletonThreadPool is the same underlying DBAPI connection
+        the session itself is using, so closing it (as sa.inspect() does)
+        would roll back the session's own uncommitted work."""
+        session = so.Session(bind=engine)
+        try:
+            assert _as_bind(session) is session.connection()
+        finally:
+            session.close()
+
 
 class TestRoleOfTable:
     def test_resolves_known_role_schema(self):
         table = sa.Table("t", sa.MetaData(), schema=Role.VOCAB.value)
         assert role_of_table(table) is Role.VOCAB
 
-    def test_raises_for_no_schema(self):
+    def test_none_for_no_schema(self):
+        """Untagged is a legitimate, permanent case, not an error: schema_of()
+        never redirects a None-schema table, it falls back to the connection's
+        own default/search_path."""
         table = sa.Table("t", sa.MetaData(), schema=None)
-        with pytest.raises(ValueError):
-            role_of_table(table)
+        assert role_of_table(table) is None
 
     def test_raises_for_unrecognized_schema(self):
         table = sa.Table("t", sa.MetaData(), schema="extension")
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="extension"):
             role_of_table(table)
+
+    def test_resolves_a_registered_reserved_schema(self):
+        name = f"reserved_{uuid.uuid4().hex[:8]}"
+        register_reserved_schema(name, owner="test-owner")
+        table = sa.Table("t", sa.MetaData(), schema=name)
+        assert role_of_table(table) == name
 
 
 class TestSchemaOf:
@@ -121,6 +141,33 @@ class TestSchemaOf:
         assert schema_of(multi_role, role=Role.VOCAB) == "vocabschema"
         assert schema_of(multi_role, role=Role.RESULTS) == "resultsschema"
         assert schema_of(multi_role) == "myschema"
+
+    def test_none_role_short_circuits_without_consulting_the_map(self, engine):
+        assert schema_of(engine, role=None) is None
+
+    def test_bare_string_role_reads_its_own_mapped_key(self, engine):
+        with_extension = engine.execution_options(
+            schema_translate_map={Role.PRIMARY.value: "myschema", "extension": "ext_schema"}
+        )
+        assert schema_of(with_extension, role="extension") == "ext_schema"
+
+    def test_bare_string_role_falls_back_to_itself_when_unmapped(self, engine):
+        """Matches how SQLAlchemy's own schema_translate_map already treats an
+        unmapped schema: untranslated, used as declared. Unlike a Role member,
+        a bare string is itself a plausible literal schema name."""
+        assert schema_of(engine, role="custom_schema") == "custom_schema"
+
+    def test_bare_string_role_falls_back_to_itself_with_no_map_at_all(self, engine):
+        bare = engine.execution_options(schema_translate_map=None)
+        assert schema_of(bare, role="custom_schema") == "custom_schema"
+
+    def test_role_member_unmapped_returns_none_not_its_own_value(self, engine):
+        """A Role value like "vocab" is only ever a key awaiting translation,
+        never itself a usable schema name, so there's nothing to fall back to."""
+        primary_only = engine.execution_options(
+            schema_translate_map={Role.PRIMARY.value: "myschema"}
+        )
+        assert schema_of(primary_only, role=Role.VOCAB) is None
 
 
 class TestQualified:
@@ -228,6 +275,15 @@ class TestSchemaInspect:
         )
         assert schema_inspect(multi_role, role=Role.VOCAB)._schema == "vocabschema"
 
+    def test_positional_schema_argument_does_not_collide_with_the_default(self, probe_table):
+        """Real Inspector methods accept schema either positionally or by
+        keyword. The wrapper must bind against the real signature first,
+        not unconditionally append its own schema= on top of an already-bound
+        positional argument."""
+        conn, schema, table_name = probe_table
+        bound = schema_inspect(conn, schema="does_not_exist")
+        assert bound.get_columns(table_name, schema) != []
+
 
 class TestSupportsSchemas:
     def test_sqlite_does_not(self):
@@ -277,6 +333,26 @@ class TestAutocommitConnection:
                 result.execute(sa.text("SELECT 1"))
             # isolation_level is restored, not left mutated, once the block exits.
             assert conn.get_isolation_level() == previous_isolation_level
+        finally:
+            conn.close()
+
+    def test_restores_an_explicitly_set_isolation_level_not_just_the_driver_default(self, engine):
+        conn = engine.connect()
+        try:
+            conn = conn.execution_options(isolation_level="SERIALIZABLE")
+            with autocommit_connection(conn) as result:
+                assert result.get_execution_options()["isolation_level"] == "AUTOCOMMIT"
+            assert conn.get_execution_options()["isolation_level"] == "SERIALIZABLE"
+        finally:
+            conn.close()
+
+    def test_refuses_a_connection_already_in_a_transaction(self, engine):
+        conn = engine.connect()
+        try:
+            conn.begin()
+            with pytest.raises(sa.exc.InvalidRequestError, match="active transaction"):
+                with autocommit_connection(conn):
+                    pass
         finally:
             conn.close()
 
@@ -531,6 +607,66 @@ class TestGuardSchemaProvenance:
         # the guard would proceed silently rather than treat it as a stale claim.
         with guard_schema_provenance(conn, resolved, role=Role.PRIMARY):
             pass
+
+
+class TestGuardSchemaProvenanceSqlite:
+    """Regression coverage for the bug this fix targets: on a fresh,
+    non-test_only SQLite database with schema=None, guard_schema_provenance
+    used to create its own bookkeeping table before checking occupancy,
+    then see that same just-created table and raise against its own
+    bootstrap. SQLite's supports_schemas()=False collapses bookkeeping_schema
+    and schema_name into the same flat None namespace, which is exactly
+    what makes this reachable; every other guard_schema_provenance test in
+    this file runs against real Postgres and can't exercise this path.
+    """
+
+    @pytest.fixture
+    def sqlite_engine(self):
+        cfg = StackConfig.for_session(
+            connections={"db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")}
+        )
+        eng = Resolver(cfg).resolve_connection("db").create_engine()
+        try:
+            yield eng
+        finally:
+            eng.dispose()
+
+    def _resolved(self, *, database_name: str) -> ResolvedDatabase:
+        cfg = StackConfig.for_session(
+            connections={"db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")}
+        )
+        connection = Resolver(cfg).resolve_connection("db")
+        assert connection.test_only is False
+        return ResolvedDatabase(name=database_name, connection=connection, schema_name=None)
+
+    def test_fresh_bootstrap_does_not_false_positive_on_itself(self, sqlite_engine):
+        db_name = f"guard_{uuid.uuid4().hex[:8]}"
+        resolved = self._resolved(database_name=db_name)
+        with sqlite_engine.begin() as connection:
+            with guard_schema_provenance(connection, resolved, role=Role.PRIMARY):
+                connection.execute(sa.text("CREATE TABLE t (id int)"))
+
+    def test_genuinely_pre_populated_schema_still_raises(self, sqlite_engine):
+        """The fix must not remove real drift detection, only the false
+        positive against the guard's own bookkeeping table."""
+        db_name = f"guard_{uuid.uuid4().hex[:8]}"
+        resolved = self._resolved(database_name=db_name)
+        with sqlite_engine.begin() as connection:
+            connection.execute(sa.text("CREATE TABLE preexisting (id int)"))
+        with sqlite_engine.begin() as connection:
+            with pytest.raises(SchemaDriftError, match="no schema-provenance record"):
+                with guard_schema_provenance(connection, resolved, role=Role.PRIMARY):
+                    pass
+
+    def test_agreeing_second_call_proceeds(self, sqlite_engine):
+        db_name = f"guard_{uuid.uuid4().hex[:8]}"
+        resolved = self._resolved(database_name=db_name)
+        with sqlite_engine.begin() as connection:
+            with guard_schema_provenance(connection, resolved, role=Role.PRIMARY):
+                connection.execute(sa.text("CREATE TABLE t (id int)"))
+        with sqlite_engine.begin() as connection:
+            with guard_schema_provenance(connection, resolved, role=Role.PRIMARY):
+                pass  # must not raise: same resolved schema as before
 
 
 class TestRecordSchemaProvenance:

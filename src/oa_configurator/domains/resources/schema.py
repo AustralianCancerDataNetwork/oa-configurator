@@ -16,6 +16,7 @@ from ...refs import RefTo, Secret, SecretSafeBaseModel
 from .sql import (
     SCHEMA_TRANSLATE_MAP_KEY,
     Role,
+    _profile_for,
     reject_reserved_schema,
     requires_host,
     supports_schemas,
@@ -580,6 +581,18 @@ class ResolvedDatabase:
             )
         return self.schema_name
 
+    def occupied_schemas(self) -> set[str]:
+        """Physical schema names this database currently claims.
+
+        Unlike schema_translate_map(), an unset schema resolves to the
+        connection's own default schema (e.g. "public"), not None: this
+        reports the real physical schema a table lands in, not a
+        translate-map directive.
+        """
+        default = _profile_for(self.connection.dialect_name).default_schema
+        schema = self.schema_name or default
+        return {schema} if schema is not None else set()
+
     def __repr__(self) -> str:
         return (
             f"ResolvedDatabase(name={self.name!r}, "
@@ -684,6 +697,21 @@ class ResolvedCDMDatabase(ResolvedDatabase):
             Role.VOCAB.value: self.vocab_schema if vocab_supported else None,
             Role.RESULTS.value: self.results_schema if primary_supported else None,
         }
+
+    def occupied_schemas(self) -> set[str]:
+        """Physical schema names this database currently claims, including vocab/results.
+
+        ``vocab`` falls back to ``vocab_connection``'s own default schema,
+        since that can genuinely be a separate connection/dialect; see
+        :meth:`schema_translate_map`.
+        """
+        schemas = super().occupied_schemas()
+        default = _profile_for(self.connection.dialect_name).default_schema
+        vocab_default = _profile_for(self.vocab_connection.dialect_name).default_schema
+        for schema in (self.vocab_schema or vocab_default, self.results_schema or default):
+            if schema is not None:
+                schemas.add(schema)
+        return schemas
 
     def create_engine(
         self,

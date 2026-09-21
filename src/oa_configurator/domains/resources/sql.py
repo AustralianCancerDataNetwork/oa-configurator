@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
 from sqlalchemy.engine import Connection, Engine, Inspector
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.orm import Session
 
 if TYPE_CHECKING:
@@ -127,32 +128,57 @@ def _profile_for(dialect_name: str) -> DialectProfile:
 def _as_bind(bindable: Bindable) -> Engine | Connection:
     """Reduce bindable to an Engine/Connection.
 
-    A bare Session has neither .dialect nor .get_execution_options(), so
-    it's reduced to its bound Engine first.
+    Notes
+    -----
+    On SQLite's SingletonThreadPool, Session.get_bind() can return
+    the same underlying DBAPI connection the session already uses.
+    If the inspector's wrapper around it is closed, it rolls back
+    the session's own uncommitted work. 
+    Solution: Return Session.connection() instead.
     """
     if isinstance(bindable, Session):
-        return bindable.get_bind()
+        return bindable.connection()
     return bindable
 
 
-def role_of_table(table: sa.Table) -> Role:
-    """The table's Role, inferred from its schema. Raises if untagged."""
-    return Role(table.schema)
+def role_of_table(table: sa.Table) -> Role | str | None:
+    """The table's schema tag: a Role member, a registered reserved schema, or None if untagged.
+
+    Raises
+    ------
+    ValueError
+        If the schema is neither a Role value nor a registered reserved schema.
+    """
+    schema = table.schema
+    if schema is None:
+        return None
+    if schema in {member.value for member in Role}:
+        return Role(schema)
+    if schema in _RESERVED_SCHEMAS:
+        return schema
+    raise ValueError(f"{table} has unrecognized schema tag {schema!r}: not a Role and not registered.")
 
 
-def schema_of(bindable: Bindable, *, role: Role = Role.PRIMARY) -> str | None:
+def schema_of(bindable: Bindable, *, role: Role | str | None = Role.PRIMARY) -> str | None:
     """role's entry of bindable's schema_translate_map, or None if unset.
 
     Parameters
     ----------
     bindable : Engine | Connection | Session
-    role : Role, optional
-        Which schema_translate_map key to read. Defaults to Role.PRIMARY,
-        matching every current caller.
+    role : Role, str, or None, optional
+        Looked up by value in bindable's schema_translate_map:
+        - A bare string falls back to itself if unmapped
+        - If there is no map, the string is used as-is.
+        - A Role member is looked up by its value, returning None if unmapped
+        - None returns None, regardless of the map.
     """
+    if role is None:
+        return None
     bind = _as_bind(bindable)
     stm = bind.get_execution_options().get(SCHEMA_TRANSLATE_MAP_KEY)
-    return stm.get(role.value) if stm else None
+    if isinstance(role, Role):
+        return stm.get(role.value) if stm else None
+    return stm.get(role, role) if stm else role
 
 
 def qualified(
@@ -160,7 +186,7 @@ def qualified(
     name: str,
     *,
     schema: str | None | EllipsisType = ...,
-    role: Role = Role.PRIMARY,
+    role: Role | str | None = Role.PRIMARY,
 ) -> str:
     """Quoted, schema-qualified identifier, for raw SQL that's genuinely unavoidable.
 
@@ -176,9 +202,10 @@ def qualified(
         1. omitted (the default, ``...``) infers the schema from  ``schema_of(bindable, role=role)``;
         2. ``None`` explicitly forces an unqualified name;
         3. any other string overrides the inferred schema with that exact name.
-    role : Role, optional
+    role : Role, str, or None, optional
         Which schema_translate_map key to infer from when *schema* is
-        omitted. Defaults to Role.PRIMARY; ignored if *schema* is given.
+        omitted; see :func:`schema_of` for how each type resolves. Defaults
+        to Role.PRIMARY; ignored if *schema* is given.
 
     Returns
     -------
@@ -250,15 +277,21 @@ class SchemaBoundInspector:
 
 
 def _make_schema_wrapper(name: str) -> Any:
-    def wrapper(
-        self: SchemaBoundInspector, *args: Any, schema: str | None | EllipsisType = ..., **kwargs: Any
-    ) -> Any:
-        return getattr(self._inspector, name)(*args, schema=self._resolve(schema), **kwargs)
+    unbound_signature = inspect.signature(getattr(Inspector, name))
+
+    def wrapper(self: SchemaBoundInspector, *args: Any, **kwargs: Any) -> Any:
+        # Bind against the real signature first, so a positional schema
+        # arg (e.g. get_columns("t", "myschema")) isn't also given schema=.
+        bound = unbound_signature.bind_partial(self._inspector, *args, **kwargs)
+        if "schema" not in bound.arguments:
+            kwargs["schema"] = self._resolve(...)
+        return getattr(self._inspector, name)(*args, **kwargs)
 
     wrapper.__name__ = name
     wrapper.__doc__ = (
         f"``Inspector.{name}``, with ``schema=`` defaulted to this wrapper's bound "
-        "schema when omitted. See SchemaBoundInspector."
+        "schema when the caller supplies it neither positionally nor by keyword. "
+        "See SchemaBoundInspector."
     )
     return wrapper
 
@@ -273,7 +306,7 @@ def schema_inspect(
     bindable: Bindable,
     *,
     schema: str | None | EllipsisType = ...,
-    role: Role = Role.PRIMARY,
+    role: Role | str | None = Role.PRIMARY,
 ) -> SchemaBoundInspector:
     """``sa.inspect(bindable)``, wrapped so every ``Inspector`` method taking
     a ``schema`` parameter defaults it to ``schema_of(bindable, role=role)``
@@ -289,9 +322,10 @@ def schema_inspect(
         1. omitted (the default, ``...``) infers the schema from  ``schema_of(bindable, role=role)``;
         2. ``None`` explicitly forces an unqualified name;
         3. any other string overrides the inferred schema with that exact name.
-    role : Role, optional
+    role : Role, str, or None, optional
         Which schema_translate_map key to infer from when *schema* is
-        omitted. Defaults to Role.PRIMARY; ignored if *schema* is given.
+        omitted; see :func:`schema_of` for how each type resolves. Defaults
+        to Role.PRIMARY; ignored if *schema* is given.
 
     Returns
     -------
@@ -409,7 +443,7 @@ def ensure_schema(bindable: Engine | Connection, schema: str | None) -> None:
         bind.execute(ddl)
 
 
-_reserved_schemas: dict[str, str] = {}
+_RESERVED_SCHEMAS: dict[str, str] = {}
 
 
 def register_reserved_schema(name: str, *, owner: str) -> None:
@@ -431,18 +465,18 @@ def register_reserved_schema(name: str, *, owner: str) -> None:
         If *name* is already reserved by a different owner. Re-registering
         the same name by the same owner is a no-op.
     """
-    existing_owner = _reserved_schemas.get(name)
+    existing_owner = _RESERVED_SCHEMAS.get(name)
     if existing_owner is not None and existing_owner != owner:
         raise RuntimeError(
             f"Schema {name!r} is already reserved by {existing_owner!r}; "
             f"cannot also reserve it for {owner!r}."
         )
-    _reserved_schemas[name] = owner
+    _RESERVED_SCHEMAS[name] = owner
 
 
 def _reserved_schema_message(db_schema: str | None) -> str | None:
     """Message describing why db_schema collides with a reserved schema, or None if it doesn't."""
-    owner = _reserved_schemas.get(db_schema)
+    owner = _RESERVED_SCHEMAS.get(db_schema)
     if owner is None:
         return None
     return f"db_schema cannot be {db_schema!r}: reserved for internal use by {owner!r}."
@@ -489,7 +523,15 @@ def autocommit_connection(bindable: Engine | Connection) -> Iterator[Connection]
             connection.close()
         return
 
-    previous_isolation_level = bind.get_isolation_level()
+    if bind.in_transaction():
+        raise InvalidRequestError(
+            "autocommit_connection() was given a Connection that already has an "
+            "active transaction. Isolation level can't change mid-transaction; "
+            "pass a fresh Connection or roll back first."
+        )
+    previous_isolation_level = bind.get_execution_options().get("isolation_level")
+    if previous_isolation_level is None:
+        previous_isolation_level = bind.get_isolation_level()
     bind.execution_options(isolation_level="AUTOCOMMIT")
     try:
         yield bind
@@ -678,17 +720,35 @@ def guard_schema_provenance(
     connection_safe_url = target_connection.safe_url
 
     bookkeeping_schema = _provenance_schema_for(connection)
+    # Check occupancy before creating the bookkeeping table
+    bookkeeping_table_exists = sa.inspect(connection).has_table(
+        "schema_provenance", schema=bookkeeping_schema
+    )
+    existing_row = None
+    if bookkeeping_table_exists:
+        table = _schema_provenance_table(bookkeeping_schema)
+        existing_row = connection.execute(
+            sa.select(table.c.resolved_schema).where(
+                table.c.database_name == database_name,
+                table.c.role == role_value,
+                table.c.connection_safe_url == connection_safe_url,
+            )
+        ).first()
+
+    if existing_row is None:
+        already_populated = bool(
+            schema_inspect(connection, schema=schema_name).get_table_names()
+        )
+        if already_populated:
+            raise SchemaDriftError(
+                f"Schema {schema_name!r} for database {database_name!r} (role {role_value!r}) "
+                "already has tables, but no schema-provenance record exists for it. Run "
+                "`acknowledge-schema-migration` to establish a baseline before proceeding."
+            )
+
     ensure_schema(connection, bookkeeping_schema)
     table = _schema_provenance_table(bookkeeping_schema)
     table.create(bind=connection, checkfirst=True)
-
-    existing_row = connection.execute(
-        sa.select(table.c.resolved_schema).where(
-            table.c.database_name == database_name,
-            table.c.role == role_value,
-            table.c.connection_safe_url == connection_safe_url,
-        )
-    ).first()
 
     if existing_row is not None:
         stored_schema = existing_row.resolved_schema
@@ -698,16 +758,6 @@ def guard_schema_provenance(
                 f"previously resolved to schema {stored_schema!r}, now resolves to "
                 f"{schema_name!r}. Run `acknowledge-schema-migration` once this change is "
                 "confirmed deliberate."
-            )
-    else:
-        already_populated = bool(
-            schema_inspect(connection, schema=schema_name).get_table_names()
-        )
-        if already_populated:
-            raise SchemaDriftError(
-                f"Schema {schema_name!r} for database {database_name!r} (role {role_value!r}) "
-                "already has tables, but no schema-provenance record exists for it. Run "
-                "`acknowledge-schema-migration` to establish a baseline before proceeding."
             )
 
     yield

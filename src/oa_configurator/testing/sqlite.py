@@ -24,7 +24,7 @@ from ..domains.resources.sql import SCHEMA_TRANSLATE_MAP_KEY, Role
 from .base import IsolatedTestDatabase, TestDatabaseStrategy
 
 if TYPE_CHECKING:
-    from ..domains.resources.schema import ResolvedDatabase
+    from ..domains.resources.schema import ResolvedConnection, ResolvedDatabase
 
 
 class SQLiteTestStrategy(TestDatabaseStrategy):
@@ -135,4 +135,15 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
             "only works for the connection that runs it. A second "
             "connection never sees it. Use isolated_test_database() "
             "instead."
+        )
+
+    def drop_test_database(self, connection: "ResolvedConnection") -> bool:
+        """Always raises. Nothing to drop.
+
+        SQLite test databases are disposable tempfiles that clean
+        themselves up when isolated_test_database() exits.
+        """
+        raise NotImplementedError(
+            "SQLite has no leftover test databases to drop; isolated_test_database() "
+            "already cleans up its own tempfile on exit."
         )

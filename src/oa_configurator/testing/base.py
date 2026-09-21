@@ -18,7 +18,7 @@ from sqlalchemy import Connection, Engine
 from sqlalchemy.orm import Session
 
 if TYPE_CHECKING:
-    from ..domains.resources.schema import ResolvedDatabase
+    from ..domains.resources.schema import ResolvedConnection, ResolvedDatabase
     from ..package_base import PackageConfigBase
 
 
@@ -235,5 +235,13 @@ class TestDatabaseStrategy(ABC):
 
         Notes
         -----
-        Not the default path - see ``isolated_database()`` for that. 
+        Not the default path - see ``isolated_database()`` for that.
+        """
+
+    @abstractmethod
+    def drop_test_database(self, connection: "ResolvedConnection") -> bool:
+        """Drop connection's leftover test database, if this dialect has one.
+
+        Only for connections marked ``test_only=true``. Returns True if a
+        database was dropped, False if none existed.
         """

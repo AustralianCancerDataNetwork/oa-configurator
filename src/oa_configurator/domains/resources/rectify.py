@@ -19,6 +19,28 @@ if TYPE_CHECKING:
     from ...stack_config import StackConfig
 
 
+def _refuse_production_collision(target: sa.URL) -> None:
+    """Raise RuntimeError if target's host/database/port matches a non-test_only connection.
+
+    Shared by testing's create-database and drop-database paths, so a
+    connection.toml hand-edited to bypass the connections-add-time check
+    still gets caught here at provisioning time.
+    """
+    from ...loader import load_stack_config
+    from ...resolver import _find_production_collision
+
+    try:
+        config = load_stack_config()
+    except (FileNotFoundError, ValueError):
+        return
+    match = _find_production_collision(target.host, target.database, target.port, config)
+    if match is not None:
+        raise RuntimeError(
+            f"Refusing to target {target.database!r}: matches non-test connection {match!r} "
+            "(same host, database, and port)."
+        )
+
+
 @dataclass(frozen=True)
 class OrphanTablePreview:
     """One table physically present in a candidate orphan schema, with its row count."""
@@ -48,29 +70,31 @@ def preview_orphan_schema_tables(connection: sa.Connection, schema: str) -> list
     return previews
 
 
-def schema_is_a_current_target(stack: "StackConfig", schema: str) -> str | None:
-    """Return the name of a configured database whose current schema (or
-    vocab/results schema) equals schema, or None.
+def schema_is_a_current_target(
+    connection: sa.Connection, 
+    stack: "StackConfig", 
+    schema: str
+) -> str | None:
+    """Name of a configured database matching schema and connection identity, or None.
 
-    Checks every database in the stack, not just the one named on the
-    command line, since two CDM databases can legitimately share one
-    vocabulary schema; dropping tables there would destroy a database a
-    different entry is actively using.
+    Checks every database in the stack and matches connection by
+    host, database and port. Compares the schema against the dialect's
+    default schema if the database entry has no explicit schema configured.
     """
     from ...resolver import Resolver
-    from .schema import ResolvedCDMDatabase
 
     resolver = Resolver(stack)
+    target_url = connection.engine.url
     for name in stack.databases:
-        try:
-            resolved = resolver.resolve_database(name)
-        except Exception:
+        resolved = resolver.resolve_database(name)
+        candidate_url = resolved.connection._engine_url
+        if (
+            candidate_url.host != target_url.host
+            or candidate_url.database != target_url.database
+            or candidate_url.port != target_url.port
+        ):
             continue
-        candidates: set[str | None] = {resolved.schema_name}
-        if isinstance(resolved, ResolvedCDMDatabase):
-            candidates.add(resolved.vocab_schema)
-            candidates.add(resolved.results_schema)
-        if schema in candidates:
+        if schema in resolved.occupied_schemas():
             return name
     return None
 
@@ -101,7 +125,7 @@ def drop_orphan_schema_tables(
             f"Cannot drop orphan schema tables: {connection.dialect.name!r} has no real schema "
             "concept, so 'orphan schema' doesn't apply and this operation isn't meaningful here."
         )
-    blocking = schema_is_a_current_target(stack, orphan_schema)
+    blocking = schema_is_a_current_target(connection, stack, orphan_schema)
     if blocking is not None:
         raise RuntimeError(
             f"Refusing to drop tables in schema {orphan_schema!r}: it is the current schema "

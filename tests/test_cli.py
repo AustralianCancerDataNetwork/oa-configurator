@@ -26,6 +26,7 @@ from oa_configurator.loader import load_stack_config
 from oa_configurator.package_base import PackageConfigBase
 from oa_configurator.resolver import _resolve_ref
 from oa_configurator.domains.resources.sql import Dialect
+from oa_configurator.testing.postgres import PostgresTestStrategy
 
 runner = CliRunner()
 
@@ -1420,7 +1421,9 @@ class TestCleanupTestDatabases:
             ),
         )
         dropped: list[str] = []
-        monkeypatch.setattr(cli, "drop_test_database", lambda target: dropped.append(target.name) or True)
+        monkeypatch.setattr(
+            PostgresTestStrategy, "drop_test_database", lambda self, connection: dropped.append(connection.url) or True
+        )
 
         result = runner.invoke(cli.app, ["cleanup-test-databases"])
 
@@ -1445,10 +1448,13 @@ class TestCleanupTestDatabases:
             ),
         )
         dropped: list[str] = []
-        monkeypatch.setattr(cli, "drop_test_database", lambda target: dropped.append(target.name) or True)
+        monkeypatch.setattr(
+            PostgresTestStrategy, "drop_test_database", lambda self, connection: dropped.append(connection.url) or True
+        )
 
         result = runner.invoke(cli.app, ["cleanup-test-databases", "--confirm"])
 
         assert result.exit_code == 0, result.output
-        assert dropped == ["test"]
+        assert len(dropped) == 1
+        assert "test_db" in dropped[0]
         assert "dropped" in result.output

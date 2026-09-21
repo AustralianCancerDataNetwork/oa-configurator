@@ -42,7 +42,6 @@ from .logging_config import configure_logging
 from .stack_config import StackConfig
 from .package_base import PackageConfigBase
 from .resolver import Resolver
-from .testing.postgres import drop_test_database
 
 app = typer.Typer(name="omop-config", no_args_is_help=True, add_completion=False)
 console = Console()
@@ -312,7 +311,6 @@ def _verify_schema_provenance(
 @app.command("acknowledge-schema-migration")
 def acknowledge_schema_migration(
     database: Annotated[str, typer.Option("--database", help="Name of the [databases.*] entry to acknowledge.")],
-    new_schema: Annotated[str, typer.Option("--new-schema", help="Schema to record as the accepted baseline.")],
     reason: Annotated[
         str,
         typer.Option(
@@ -320,6 +318,14 @@ def acknowledge_schema_migration(
             help="Free-text justification for this acknowledgment. Mandatory: there is no --yes shortcut.",
         ),
     ],
+    new_schema: Annotated[
+        str | None,
+        typer.Option(
+            "--new-schema",
+            help="Schema to record as the accepted baseline. Omit to target the "
+            "default/unqualified schema (e.g. SQLite, or a dialect's own default schema).",
+        ),
+    ] = None,
     role: Annotated[
         Role, typer.Option("--role", help="Logical role whose schema is being acknowledged.")
     ] = Role.PRIMARY,
@@ -431,6 +437,14 @@ def cleanup_test_databases(
     Only connections marked ``test_only=true`` are eligible. Without
     ``--confirm`` this command only previews the selected databases.
     """
+    try:
+        from .testing.postgres import PostgresTestStrategy
+    except ImportError as exc:
+        raise typer.BadParameter(
+            "cleanup-test-databases needs the dev extras (pytest). "
+            "Install with: pip install 'oa-configurator[dev]'."
+        ) from exc
+
     config = load_stack_config()
     selected = set(connection or config.connections)
     unknown = selected - config.connections.keys()
@@ -456,8 +470,9 @@ def cleanup_test_databases(
         console.print("[yellow]Preview only. Re-run with --confirm to drop them.[/yellow]")
         return
 
+    strategy = PostgresTestStrategy()
     for name, target in targets:
-        dropped = drop_test_database(target)
+        dropped = strategy.drop_test_database(target)
         status = "dropped" if dropped else "already absent"
         console.print(f"{name}: {status}")
 

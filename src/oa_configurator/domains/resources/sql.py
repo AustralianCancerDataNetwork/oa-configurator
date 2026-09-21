@@ -398,6 +398,11 @@ def supports_schemas(bindable: Bindable | str) -> bool:
     return _profile_for(dialect_name).supports_schemas
 
 
+def schema_if_supported(schema: str | None, bindable: Bindable | str) -> str | None:
+    """schema if bindable's dialect has a genuine multi-schema concept, else None."""
+    return schema if supports_schemas(bindable) else None
+
+
 def requires_host(bindable: Bindable | str) -> bool:
     """True if the dialect needs a real network host to connect, rather than
     a local file/embedded database (e.g. SQLite).
@@ -559,8 +564,7 @@ class SchemaDriftError(RuntimeError):
 
 def _provenance_schema_for(bindable: Bindable) -> str | None:
     """SCHEMA_PROVENANCE_SCHEMA on a dialect with real schema support, else None."""
-    bind = _as_bind(bindable)
-    return SCHEMA_PROVENANCE_SCHEMA if supports_schemas(bind) else None
+    return schema_if_supported(SCHEMA_PROVENANCE_SCHEMA, _as_bind(bindable))
 
 
 def find_table_in_other_schemas(

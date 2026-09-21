@@ -19,6 +19,7 @@ from .sql import (
     _profile_for,
     reject_reserved_schema,
     requires_host,
+    schema_if_supported,
     supports_schemas,
 )
 
@@ -501,7 +502,7 @@ class ResolvedDatabase:
         and falls back to the connection's own default/search_path.
         """
         return {
-            Role.PRIMARY.value: self.schema_name if supports_schemas(self.connection.dialect_name) else None,
+            Role.PRIMARY.value: schema_if_supported(self.schema_name, self.connection.dialect_name),
         }
 
     def create_engine(
@@ -690,12 +691,10 @@ class ResolvedCDMDatabase(ResolvedDatabase):
         "primary"/"results" both check ``connection``'s dialect, since
         neither has a connection of its own.
         """
-        primary_supported = supports_schemas(self.connection.dialect_name)
-        vocab_supported = supports_schemas(self.vocab_connection.dialect_name)
         return {
-            Role.PRIMARY.value: self.schema_name if primary_supported else None,
-            Role.VOCAB.value: self.vocab_schema if vocab_supported else None,
-            Role.RESULTS.value: self.results_schema if primary_supported else None,
+            Role.PRIMARY.value: schema_if_supported(self.schema_name, self.connection.dialect_name),
+            Role.VOCAB.value: schema_if_supported(self.vocab_schema, self.vocab_connection.dialect_name),
+            Role.RESULTS.value: schema_if_supported(self.results_schema, self.connection.dialect_name),
         }
 
     def occupied_schemas(self) -> set[str]:

@@ -295,7 +295,7 @@ def cleanup_after_test() -> Iterator[Callable[[Callable[[], None]], None]]:
 
         def test_records_a_provenance_row(pg_engine, cleanup_after_test):
             with pg_engine.begin() as conn:
-                record_schema_provenance(conn, resolved, role=Role.PRIMARY, ...)
+                record_schema_provenance(conn, database_name=resolved.name, schema_tag=Role.PRIMARY, ...)
             cleanup_after_test(lambda: _delete_provenance_row(pg_engine, resolved))
 
     Callbacks run in reverse-registration order, even when the test itself

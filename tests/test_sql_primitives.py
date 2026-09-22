@@ -1,18 +1,16 @@
 """Cross-dialect tests for the schema-aware SQL primitives in
-domains/resources/sql.py: _as_bind, schema_of, qualified, schema_inspect,
-schema_options, ensure_schema, autocommit_connection,
-register_reserved_schema, reject_reserved_schema.
+domains/resources/sql.py.
 
 One shared test body runs against both sqlite (fully hermetic) and real
 Postgres (via OA_Configurator's own test_db_pg field, see config.py)
 for everything that's genuinely dialect-agnostic, via the parametrized
-`engine`/`probe_table` fixtures below. Not create_mock_engine:
-MockConnection.schema_for_object ignores schema_translate_map entirely,
-which would make a test pass whether or not translation actually works.
+`engine` fixture below.
 
-Only ensure_schema keeps separate, dialect-conditional test classes.
-Sqlite and Postgres genuinely behave differently there (no-op vs real DDL),
-which is the one place these primitives branch on dialect at all.
+Only ensure_schema and guard_schema_provenance keep separate,
+dialect-conditional test classes as the dialects genuinely behave
+differently there (no-op vs real DDL; SQLite's supports_schemas()=False
+collapses every schema_tag to the same None schema, which can't
+meaningfully distinguish drift from a mere no-op).
 
 Rule: no test reads from ~/.config/omop/ directly (see conftest.py).
 Postgres access goes through isolated_test_database(OAConfiguratorConfig,
@@ -22,21 +20,17 @@ that field isn't configured, whatever database it's been pointed at.
 
 from __future__ import annotations
 
-import dataclasses
 import uuid
 
 import pytest
 import sqlalchemy as sa
 import sqlalchemy.orm as so
+from sqlalchemy.exc import InvalidRequestError
 
 from oa_configurator import (
-    SCHEMA_TRANSLATE_MAP_KEY,
     ConnectionConfig,
-    ResolvedCDMDatabase,
-    ResolvedDatabase,
     Resolver,
     Role,
-    SchemaBoundInspector,
     SchemaDriftError,
     StackConfig,
     autocommit_connection,
@@ -46,19 +40,16 @@ from oa_configurator import (
     qualified,
     record_schema_provenance,
     register_reserved_schema,
-    role_of_table,
-    schema_inspect,
     schema_of,
-    schema_options,
     supports_schemas,
-    Dialect
+    validate_schema_tag,
+    Dialect,
 )
 from oa_configurator.domains.resources.sql import (
     _as_bind,
     _profile_for,
     reject_reserved_schema,
 )
-
 
 
 class TestAsBind:
@@ -90,37 +81,40 @@ class TestAsBind:
             session.close()
 
 
-class TestRoleOfTable:
-    def test_resolves_known_role_schema(self):
-        table = sa.Table("t", sa.MetaData(), schema=Role.VOCAB.value)
-        assert role_of_table(table) is Role.VOCAB
-
-    def test_none_for_no_schema(self):
+class TestValidateSchemaTag:
+    def test_none_schema_returns_none(self):
         """Untagged is a legitimate, permanent case, not an error: schema_of()
         never redirects a None-schema table, it falls back to the connection's
         own default/search_path."""
         table = sa.Table("t", sa.MetaData(), schema=None)
-        assert role_of_table(table) is None
+        assert validate_schema_tag(table) is None
+
+    def test_returns_a_known_role_value(self):
+        table = sa.Table("t", sa.MetaData(), schema=Role.VOCAB.value)
+        assert validate_schema_tag(table) == Role.VOCAB.value
+
+    def test_returns_a_registered_reserved_schema(self):
+        name = f"reserved_{uuid.uuid4().hex[:8]}"
+        register_reserved_schema(name, owner="test-owner")
+        table = sa.Table("t", sa.MetaData(), schema=name)
+        assert validate_schema_tag(table) == name
 
     def test_raises_for_unrecognized_schema(self):
         table = sa.Table("t", sa.MetaData(), schema="extension")
         with pytest.raises(ValueError, match="extension"):
-            role_of_table(table)
-
-    def test_resolves_a_registered_reserved_schema(self):
-        name = f"reserved_{uuid.uuid4().hex[:8]}"
-        register_reserved_schema(name, owner="test-owner")
-        table = sa.Table("t", sa.MetaData(), schema=name)
-        assert role_of_table(table) == name
+            validate_schema_tag(table)
 
 
 class TestSchemaOf:
-    def test_reads_the_none_key(self, engine):
+    def test_reads_the_default_schema_tags_key(self, engine):
         assert schema_of(engine) == "myschema"
 
-    def test_none_when_unset(self, engine):
+    def test_falls_back_to_the_schema_tag_itself_when_no_map_at_all(self, engine):
+        """No schema_translate_map on the bind at all: the schema_tag
+        (Role.PRIMARY by default) is returned as-is, the same treatment a
+        bare string gets."""
         bare = engine.execution_options(schema_translate_map=None)
-        assert schema_of(bare) is None
+        assert schema_of(bare) == Role.PRIMARY
 
     def test_works_through_a_session(self, engine):
         with engine.connect() as conn:
@@ -130,159 +124,68 @@ class TestSchemaOf:
             finally:
                 session.close()
 
-    def test_role_reads_that_roles_key_not_primary(self, engine):
-        multi_role = engine.execution_options(
+    def test_schema_tag_reads_its_own_key_not_primary(self, engine):
+        multi_tag = engine.execution_options(
             schema_translate_map={
                 Role.PRIMARY.value: "myschema",
                 Role.VOCAB.value: "vocabschema",
                 Role.RESULTS.value: "resultsschema",
             }
         )
-        assert schema_of(multi_role, role=Role.VOCAB) == "vocabschema"
-        assert schema_of(multi_role, role=Role.RESULTS) == "resultsschema"
-        assert schema_of(multi_role) == "myschema"
+        assert schema_of(multi_tag, schema_tag=Role.VOCAB) == "vocabschema"
+        assert schema_of(multi_tag, schema_tag=Role.RESULTS) == "resultsschema"
+        assert schema_of(multi_tag) == "myschema"
 
-    def test_none_role_short_circuits_without_consulting_the_map(self, engine):
-        assert schema_of(engine, role=None) is None
+    def test_none_schema_tag_short_circuits_without_consulting_the_map(self, engine):
+        assert schema_of(engine, schema_tag=None) is None
 
-    def test_bare_string_role_reads_its_own_mapped_key(self, engine):
+    def test_bare_string_schema_tag_reads_its_own_mapped_key(self, engine):
         with_extension = engine.execution_options(
             schema_translate_map={Role.PRIMARY.value: "myschema", "extension": "ext_schema"}
         )
-        assert schema_of(with_extension, role="extension") == "ext_schema"
+        assert schema_of(with_extension, schema_tag="extension") == "ext_schema"
 
-    def test_bare_string_role_falls_back_to_itself_when_unmapped(self, engine):
+    def test_bare_string_schema_tag_falls_back_to_itself_when_unmapped(self, engine):
         """Matches how SQLAlchemy's own schema_translate_map already treats an
         unmapped schema: untranslated, used as declared. Unlike a Role member,
         a bare string is itself a plausible literal schema name."""
-        assert schema_of(engine, role="custom_schema") == "custom_schema"
+        assert schema_of(engine, schema_tag="custom_schema") == "custom_schema"
 
-    def test_bare_string_role_falls_back_to_itself_with_no_map_at_all(self, engine):
+    def test_bare_string_schema_tag_falls_back_to_itself_with_no_map_at_all(self, engine):
         bare = engine.execution_options(schema_translate_map=None)
-        assert schema_of(bare, role="custom_schema") == "custom_schema"
+        assert schema_of(bare, schema_tag="custom_schema") == "custom_schema"
 
-    def test_role_member_unmapped_returns_none_not_its_own_value(self, engine):
-        """A Role value like "vocab" is only ever a key awaiting translation,
-        never itself a usable schema name, so there's nothing to fall back to."""
+    def test_role_member_unmapped_falls_back_to_its_own_value(self, engine):
+        """A map is present but has no key for this schema_tag at all: falls
+        back to the schema_tag itself, same as a bare string would (Role is
+        a StrEnum). Unreached by any real ResolvedCDMDatabase-built map,
+        which always writes all three Role keys; this only fires for a
+        caller asking a split of an engine that was never built with one."""
         primary_only = engine.execution_options(
             schema_translate_map={Role.PRIMARY.value: "myschema"}
         )
-        assert schema_of(primary_only, role=Role.VOCAB) is None
+        assert schema_of(primary_only, schema_tag=Role.VOCAB) == Role.VOCAB
 
 
 class TestQualified:
-    def test_defaults_schema_from_bind(self, engine):
+    """Purely formatting: physical_schema must already be resolved by the
+    caller (no default, no inference from a bind's schema_translate_map)."""
+
+    def test_prefixes_with_the_given_physical_schema(self, engine):
         prep = engine.dialect.identifier_preparer
-        assert qualified(engine, "concept") == (
+        assert qualified(engine, "concept", physical_schema="myschema") == (
             f"{prep.quote('myschema')}.{prep.quote('concept')}"
         )
 
-    def test_explicit_none_forces_unqualified(self, engine):
+    def test_none_produces_an_unqualified_name(self, engine):
         prep = engine.dialect.identifier_preparer
-        assert qualified(engine, "concept", schema=None) == prep.quote("concept")
-
-    def test_explicit_schema_overrides_bind_default(self, engine):
-        prep = engine.dialect.identifier_preparer
-        assert qualified(engine, "concept", schema="other") == (
-            f"{prep.quote('other')}.{prep.quote('concept')}"
-        )
+        assert qualified(engine, "concept", physical_schema=None) == prep.quote("concept")
 
     def test_quotes_mixed_case_identifiers(self, engine):
-        assert qualified(engine, "MyTable", schema=None) == '"MyTable"'
+        assert qualified(engine, "MyTable", physical_schema=None) == '"MyTable"'
 
     def test_quotes_mixed_case_schema(self, engine):
-        assert qualified(engine, "concept", schema="MySchema") == '"MySchema".concept'
-
-    def test_role_infers_from_that_roles_key(self, engine):
-        multi_role = engine.execution_options(
-            schema_translate_map={
-                Role.PRIMARY.value: "myschema",
-                Role.VOCAB.value: "vocabschema",
-            }
-        )
-        prep = engine.dialect.identifier_preparer
-        assert qualified(multi_role, "concept", role=Role.VOCAB) == (
-            f"{prep.quote('vocabschema')}.{prep.quote('concept')}"
-        )
-
-
-class TestSchemaOptions:
-    def test_defaults_schema_from_bind(self, engine):
-        assert schema_options(engine) == {SCHEMA_TRANSLATE_MAP_KEY: {Role.PRIMARY.value: "myschema"}}
-
-    def test_explicit_override(self, engine):
-        assert schema_options(engine, schema="other") == {
-            SCHEMA_TRANSLATE_MAP_KEY: {Role.PRIMARY.value: "other"}
-        }
-
-    def test_role_reads_and_writes_that_roles_key(self, engine):
-        multi_role = engine.execution_options(
-            schema_translate_map={
-                Role.PRIMARY.value: "myschema",
-                Role.VOCAB.value: "vocabschema",
-            }
-        )
-        assert schema_options(multi_role, role=Role.VOCAB) == {
-            SCHEMA_TRANSLATE_MAP_KEY: {
-                Role.PRIMARY.value: "myschema",
-                Role.VOCAB.value: "vocabschema",
-            }
-        }
-        assert schema_options(multi_role, role=Role.RESULTS, schema="resultsschema") == {
-            SCHEMA_TRANSLATE_MAP_KEY: {
-                Role.PRIMARY.value: "myschema",
-                Role.VOCAB.value: "vocabschema",
-                Role.RESULTS.value: "resultsschema",
-            }
-        }
-
-
-class TestSchemaInspect:
-    def test_sees_a_table_a_bare_inspector_misses(self, probe_table):
-        """The exact bug this primitive exists to fix: a plain sa.inspect()
-        call with no schema= only sees the connection's default schema,
-        silently missing a table that lives in another one."""
-        conn, schema, table_name = probe_table
-        bare = sa.inspect(conn)
-        assert bare.has_table(table_name) is False
-
-        bound = schema_inspect(conn, schema=schema)
-        assert isinstance(bound, SchemaBoundInspector)
-        assert bound.has_table(table_name) is True
-        columns = bound.get_columns(table_name)
-        assert [c["name"] for c in columns] == ["id"]
-        assert table_name in bound.get_table_names()
-        indexes = bound.get_indexes(table_name)
-        assert [i["name"] for i in indexes] == [f"{table_name}_idx"]
-
-    def test_per_call_override_wins_over_default(self, probe_table):
-        conn, schema, table_name = probe_table
-        bound = schema_inspect(conn, schema="does_not_exist")
-        assert bound.has_table(table_name) is False
-        assert bound.has_table(table_name, schema=schema) is True
-
-    def test_delegates_unwrapped_methods_to_the_real_inspector(self, probe_table):
-        conn, schema, _table_name = probe_table
-        bound = schema_inspect(conn, schema=schema)
-        bound.clear_cache()  # no schema-aware wrapper exists for this, must not raise
-
-    def test_role_infers_from_that_roles_key(self, engine):
-        multi_role = engine.execution_options(
-            schema_translate_map={
-                Role.PRIMARY.value: "myschema",
-                Role.VOCAB.value: "vocabschema",
-            }
-        )
-        assert schema_inspect(multi_role, role=Role.VOCAB)._schema == "vocabschema"
-
-    def test_positional_schema_argument_does_not_collide_with_the_default(self, probe_table):
-        """Real Inspector methods accept schema either positionally or by
-        keyword. The wrapper must bind against the real signature first,
-        not unconditionally append its own schema= on top of an already-bound
-        positional argument."""
-        conn, schema, table_name = probe_table
-        bound = schema_inspect(conn, schema="does_not_exist")
-        assert bound.get_columns(table_name, schema) != []
+        assert qualified(engine, "concept", physical_schema="MySchema") == '"MySchema".concept'
 
 
 class TestSupportsSchemas:
@@ -350,7 +253,7 @@ class TestAutocommitConnection:
         conn = engine.connect()
         try:
             conn.begin()
-            with pytest.raises(sa.exc.InvalidRequestError, match="active transaction"):
+            with pytest.raises(InvalidRequestError, match="active transaction"):
                 with autocommit_connection(conn):
                     pass
         finally:
@@ -360,7 +263,9 @@ class TestAutocommitConnection:
 class TestEnsureSchemaSqlite:
     """sqlite has no schema DDL at all. Every call is a no-op, regardless
     of *why* (arbitrary name, None, or "public"), covering the two distinct
-    early-return branches ensure_schema has."""
+    early-return branches ensure_schema has. The supports_schemas() branch
+    short-circuits before the live default_schema_name lookup, so none of
+    these touch a connection to decide."""
 
     @pytest.fixture
     def sqlite_engine(self):
@@ -418,6 +323,17 @@ class TestEnsureSchemaPostgres:
         schema = f"test_{uuid.uuid4().hex[:8]}"
         ensure_schema(pg_db.connection, schema)
         ensure_schema(pg_db.connection, schema)  # must not raise
+
+    def test_noop_for_the_connections_live_default_schema(self, pg_db):
+        """The no-op check now reads sa.inspect(bind).default_schema_name
+        (live) rather than a static per-dialect guess -- confirm it still
+        correctly no-ops for this connection's own real default ("public"
+        for an unmodified search_path), not just skip the DDL by luck."""
+        conn = pg_db.connection
+        default = sa.inspect(conn).default_schema_name
+        before = sa.inspect(conn).get_schema_names()
+        ensure_schema(conn, default)
+        assert sa.inspect(conn).get_schema_names() == before
 
 
 class TestReservedSchemas:
@@ -503,59 +419,38 @@ class TestFindTableInOtherSchemas:
 
 class TestGuardSchemaProvenance:
     """Guard's core drift semantics, exercised against real Postgres --
-    SQLite's supports_schemas()=False collapses every role to the same
-    None schema, which can't meaningfully distinguish these cases.
+    SQLite's supports_schemas()=False collapses every schema_tag to the
+    same None schema, which can't meaningfully distinguish these cases.
+
+    guard_schema_provenance() takes plain database_name/test_only/
+    schema_tag/physical_schema/tables directly, not a resolved config
+    object -- these tests build no ResolvedDatabase at all.
     """
-
-    def _resolved(self, pg_db, *, database_name: str, schema_name: str) -> ResolvedDatabase:
-        """pg_db.resolved's connection, with test_only forced False so the
-        guard exercises real drift detection rather than no-opping against
-        pg_db's own test-only marking.
-        """
-        return ResolvedDatabase(
-            name=database_name,
-            connection=dataclasses.replace(pg_db.resolved.connection, test_only=False),
-            schema_name=schema_name,
-        )
-
-    def _resolved_cdm(self, pg_db, *, database_name: str, schema_name: str) -> ResolvedCDMDatabase:
-        return dataclasses.replace(
-            pg_db.resolved,
-            name=database_name,
-            schema_name=schema_name,
-            vocab_schema=schema_name,
-            results_schema=schema_name,
-            connection=dataclasses.replace(pg_db.resolved.connection, test_only=False),
-        )
-
-    def test_results_role_uses_the_primary_connection(self, pg_db):
-        """Role.RESULTS has no connection of its own; connection_target()
-        returns the primary connection for it, and the guard must accept
-        that rather than needing special-case handling for the role."""
-        db_name = f"guard_{uuid.uuid4().hex[:8]}"
-        schema = f"test_{uuid.uuid4().hex[:8]}"
-        resolved = self._resolved_cdm(pg_db, database_name=db_name, schema_name=schema)
-        conn = pg_db.connection
-        with guard_schema_provenance(conn, resolved, role=Role.RESULTS):
-            ensure_schema(conn, schema)
 
     def test_fresh_empty_schema_proceeds_and_records(self, pg_db):
         db_name = f"guard_{uuid.uuid4().hex[:8]}"
         schema = f"test_{uuid.uuid4().hex[:8]}"
-        resolved = self._resolved(pg_db, database_name=db_name, schema_name=schema)
         conn = pg_db.connection
-        with guard_schema_provenance(conn, resolved, role=Role.PRIMARY):
+        with guard_schema_provenance(
+            conn, database_name=db_name, test_only=False,
+            schema_tag=Role.PRIMARY, physical_schema=schema, tables=(),
+        ):
             ensure_schema(conn, schema)
             conn.execute(sa.text(f'CREATE TABLE "{schema}".t (id int)'))
 
     def test_agreeing_second_call_proceeds(self, pg_db):
         db_name = f"guard_{uuid.uuid4().hex[:8]}"
         schema = f"test_{uuid.uuid4().hex[:8]}"
-        resolved = self._resolved(pg_db, database_name=db_name, schema_name=schema)
         conn = pg_db.connection
-        with guard_schema_provenance(conn, resolved, role=Role.PRIMARY):
+        with guard_schema_provenance(
+            conn, database_name=db_name, test_only=False,
+            schema_tag=Role.PRIMARY, physical_schema=schema, tables=(),
+        ):
             ensure_schema(conn, schema)
-        with guard_schema_provenance(conn, resolved, role=Role.PRIMARY):
+        with guard_schema_provenance(
+            conn, database_name=db_name, test_only=False,
+            schema_tag=Role.PRIMARY, physical_schema=schema, tables=(),
+        ):
             pass  # must not raise: same resolved schema as before
 
     def test_disagreeing_second_call_raises_schema_drift(self, pg_db):
@@ -563,10 +458,16 @@ class TestGuardSchemaProvenance:
         schema_a = f"test_{uuid.uuid4().hex[:8]}"
         schema_b = f"test_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection
-        with guard_schema_provenance(conn, self._resolved(pg_db, database_name=db_name, schema_name=schema_a), role=Role.PRIMARY):
+        with guard_schema_provenance(
+            conn, database_name=db_name, test_only=False,
+            schema_tag=Role.PRIMARY, physical_schema=schema_a, tables=(),
+        ):
             ensure_schema(conn, schema_a)
         with pytest.raises(SchemaDriftError, match=f"{schema_a!r}.*{schema_b!r}"):
-            with guard_schema_provenance(conn, self._resolved(pg_db, database_name=db_name, schema_name=schema_b), role=Role.PRIMARY):
+            with guard_schema_provenance(
+                conn, database_name=db_name, test_only=False,
+                schema_tag=Role.PRIMARY, physical_schema=schema_b, tables=(),
+            ):
                 ensure_schema(conn, schema_b)
 
     def test_test_only_short_circuits_even_on_drift(self, pg_db):
@@ -574,14 +475,15 @@ class TestGuardSchemaProvenance:
         schema_a = f"test_{uuid.uuid4().hex[:8]}"
         schema_b = f"test_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection
-        with guard_schema_provenance(conn, self._resolved(pg_db, database_name=db_name, schema_name=schema_a), role=Role.PRIMARY):
+        with guard_schema_provenance(
+            conn, database_name=db_name, test_only=False,
+            schema_tag=Role.PRIMARY, physical_schema=schema_a, tables=(),
+        ):
             ensure_schema(conn, schema_a)
-        # pg_db.resolved.connection is test_only=true unmodified here (unlike
-        # _resolved()'s override above), so the guard must no-op on its own.
-        test_only_resolved = ResolvedDatabase(
-            name=db_name, connection=pg_db.resolved.connection, schema_name=schema_b
-        )
-        with guard_schema_provenance(conn, test_only_resolved, role=Role.PRIMARY):
+        with guard_schema_provenance(
+            conn, database_name=db_name, test_only=True,
+            schema_tag=Role.PRIMARY, physical_schema=schema_b, tables=(),
+        ):
             pass  # must not raise despite disagreeing with the recorded schema
 
     def test_no_row_but_schema_already_populated_hard_stops(self, pg_db):
@@ -591,33 +493,81 @@ class TestGuardSchemaProvenance:
         ensure_schema(conn, schema)
         conn.execute(sa.text(f'CREATE TABLE "{schema}".preexisting (id int)'))
         with pytest.raises(SchemaDriftError, match="no schema-provenance record"):
-            with guard_schema_provenance(conn, self._resolved(pg_db, database_name=db_name, schema_name=schema), role=Role.PRIMARY):
+            with guard_schema_provenance(
+                conn, database_name=db_name, test_only=False,
+                schema_tag=Role.PRIMARY, physical_schema=schema, tables=(),
+            ):
                 pass
 
     def test_exception_in_body_does_not_record(self, pg_db):
         db_name = f"guard_{uuid.uuid4().hex[:8]}"
         schema = f"test_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection
-        resolved = self._resolved(pg_db, database_name=db_name, schema_name=schema)
         with pytest.raises(ValueError, match="boom"):
-            with guard_schema_provenance(conn, resolved, role=Role.PRIMARY):
+            with guard_schema_provenance(
+                conn, database_name=db_name, test_only=False,
+                schema_tag=Role.PRIMARY, physical_schema=schema, tables=(),
+            ):
                 ensure_schema(conn, schema)
                 raise ValueError("boom")
         # No record was written, so an empty schema now looks like day one again:
         # the guard would proceed silently rather than treat it as a stale claim.
-        with guard_schema_provenance(conn, resolved, role=Role.PRIMARY):
+        with guard_schema_provenance(
+            conn, database_name=db_name, test_only=False,
+            schema_tag=Role.PRIMARY, physical_schema=schema, tables=(),
+        ):
             pass
+
+    def test_table_present_under_a_different_schema_raises(self, pg_db):
+        """The misconfiguration case: a table the caller is about to guard
+        already physically exists under some other schema than
+        physical_schema resolves to -- e.g. pre-existing vocab tables
+        sitting in "myvocab" while vocab_schema is configured as "vocab".
+        No provenance row exists yet, so the only signal is the table's
+        real location."""
+        db_name = f"guard_{uuid.uuid4().hex[:8]}"
+        configured_schema = f"test_{uuid.uuid4().hex[:8]}"
+        actual_schema = f"test_{uuid.uuid4().hex[:8]}"
+        conn = pg_db.connection
+        ensure_schema(conn, configured_schema)
+        ensure_schema(conn, actual_schema)
+        conn.execute(sa.text(f'CREATE TABLE "{actual_schema}".vocab_table (id int)'))
+        table = sa.Table("vocab_table", sa.MetaData())
+        with pytest.raises(SchemaDriftError, match=f"'vocab_table'.*{actual_schema!r}"):
+            with guard_schema_provenance(
+                conn, database_name=db_name, test_only=False,
+                schema_tag=Role.VOCAB, physical_schema=configured_schema, tables=(table,),
+            ):
+                pass
+
+    def test_table_absent_everywhere_does_not_false_positive(self, pg_db):
+        """A table that doesn't yet exist anywhere on the connection (the
+        common case: it's about to be created) must not be mistaken for a
+        misplaced one. Note the target schema must stay empty here too --
+        any pre-existing table under it, anywhere, trips the separate
+        already_populated occupancy check first."""
+        db_name = f"guard_{uuid.uuid4().hex[:8]}"
+        schema = f"test_{uuid.uuid4().hex[:8]}"
+        conn = pg_db.connection
+        ensure_schema(conn, schema)
+        table = sa.Table("brand_new_table", sa.MetaData())
+        with guard_schema_provenance(
+            conn, database_name=db_name, test_only=False,
+            schema_tag=Role.VOCAB, physical_schema=schema, tables=(table,),
+        ):
+            conn.execute(sa.text(f'CREATE TABLE "{schema}".brand_new_table (id int)'))
 
 
 class TestGuardSchemaProvenanceSqlite:
     """Regression coverage for the bug this fix targets: on a fresh,
-    non-test_only SQLite database with schema=None, guard_schema_provenance
-    used to create its own bookkeeping table before checking occupancy,
-    then see that same just-created table and raise against its own
-    bootstrap. SQLite's supports_schemas()=False collapses bookkeeping_schema
-    and schema_name into the same flat None namespace, which is exactly
-    what makes this reachable; every other guard_schema_provenance test in
-    this file runs against real Postgres and can't exercise this path.
+    non-test_only SQLite database with physical_schema=None,
+    guard_schema_provenance used to create its own bookkeeping table
+    before checking occupancy, then see that same just-created table and
+    raise against its own bootstrap. SQLite's supports_schemas()=False
+    collapses bookkeeping_schema and the guarded schema into the same flat
+    None namespace, which is exactly what makes this reachable; every
+    other guard_schema_provenance test in this file runs against real
+    Postgres and can't exercise this path.
     """
 
     @pytest.fixture
@@ -631,61 +581,53 @@ class TestGuardSchemaProvenanceSqlite:
         finally:
             eng.dispose()
 
-    def _resolved(self, *, database_name: str) -> ResolvedDatabase:
-        cfg = StackConfig.for_session(
-            connections={"db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")}
-        )
-        connection = Resolver(cfg).resolve_connection("db")
-        assert connection.test_only is False
-        return ResolvedDatabase(name=database_name, connection=connection, schema_name=None)
-
     def test_fresh_bootstrap_does_not_false_positive_on_itself(self, sqlite_engine):
         db_name = f"guard_{uuid.uuid4().hex[:8]}"
-        resolved = self._resolved(database_name=db_name)
         with sqlite_engine.begin() as connection:
-            with guard_schema_provenance(connection, resolved, role=Role.PRIMARY):
+            with guard_schema_provenance(
+                connection, database_name=db_name, test_only=False,
+                schema_tag=Role.PRIMARY, physical_schema=None, tables=(),
+            ):
                 connection.execute(sa.text("CREATE TABLE t (id int)"))
 
     def test_genuinely_pre_populated_schema_still_raises(self, sqlite_engine):
         """The fix must not remove real drift detection, only the false
         positive against the guard's own bookkeeping table."""
         db_name = f"guard_{uuid.uuid4().hex[:8]}"
-        resolved = self._resolved(database_name=db_name)
         with sqlite_engine.begin() as connection:
             connection.execute(sa.text("CREATE TABLE preexisting (id int)"))
         with sqlite_engine.begin() as connection:
             with pytest.raises(SchemaDriftError, match="no schema-provenance record"):
-                with guard_schema_provenance(connection, resolved, role=Role.PRIMARY):
+                with guard_schema_provenance(
+                    connection, database_name=db_name, test_only=False,
+                    schema_tag=Role.PRIMARY, physical_schema=None, tables=(),
+                ):
                     pass
 
     def test_agreeing_second_call_proceeds(self, sqlite_engine):
         db_name = f"guard_{uuid.uuid4().hex[:8]}"
-        resolved = self._resolved(database_name=db_name)
         with sqlite_engine.begin() as connection:
-            with guard_schema_provenance(connection, resolved, role=Role.PRIMARY):
+            with guard_schema_provenance(
+                connection, database_name=db_name, test_only=False,
+                schema_tag=Role.PRIMARY, physical_schema=None, tables=(),
+            ):
                 connection.execute(sa.text("CREATE TABLE t (id int)"))
         with sqlite_engine.begin() as connection:
-            with guard_schema_provenance(connection, resolved, role=Role.PRIMARY):
+            with guard_schema_provenance(
+                connection, database_name=db_name, test_only=False,
+                schema_tag=Role.PRIMARY, physical_schema=None, tables=(),
+            ):
                 pass  # must not raise: same resolved schema as before
 
 
 class TestRecordSchemaProvenance:
-    def _resolved(self, pg_db, *, database_name: str, schema_name: str) -> ResolvedDatabase:
-        """pg_db.resolved's connection, with test_only forced False so the
-        guard exercises real drift detection rather than no-opping against
-        pg_db's own test-only marking.
-        """
-        return ResolvedDatabase(
-            name=database_name,
-            connection=dataclasses.replace(pg_db.resolved.connection, test_only=False),
-            schema_name=schema_name,
-        )
-
     def test_blank_reason_raises(self, pg_db):
         db_name = f"ack_{uuid.uuid4().hex[:8]}"
-        resolved = self._resolved(pg_db, database_name=db_name, schema_name="whatever")
         with pytest.raises(ValueError, match="reason"):
-            record_schema_provenance(pg_db.connection, resolved, role=Role.PRIMARY, new_schema="s", reason="  ")
+            record_schema_provenance(
+                pg_db.connection, database_name=db_name, schema_tag=Role.PRIMARY,
+                new_physical_schema="s", reason="  ",
+            )
 
     def test_recording_resolves_prior_drift(self, pg_db):
         """After recording a new baseline, the guard must accept it without raising."""
@@ -693,15 +635,21 @@ class TestRecordSchemaProvenance:
         schema_a = f"test_{uuid.uuid4().hex[:8]}"
         schema_b = f"test_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection
-        with guard_schema_provenance(conn, self._resolved(pg_db, database_name=db_name, schema_name=schema_a), role=Role.PRIMARY):
+        with guard_schema_provenance(
+            conn, database_name=db_name, test_only=False,
+            schema_tag=Role.PRIMARY, physical_schema=schema_a, tables=(),
+        ):
             ensure_schema(conn, schema_a)
 
         record_schema_provenance(
-            conn, self._resolved(pg_db, database_name=db_name, schema_name=schema_b),
-            role=Role.PRIMARY, new_schema=schema_b, reason="deliberate migration in a test",
+            conn, database_name=db_name, schema_tag=Role.PRIMARY,
+            new_physical_schema=schema_b, reason="deliberate migration in a test",
         )
 
-        with guard_schema_provenance(conn, self._resolved(pg_db, database_name=db_name, schema_name=schema_b), role=Role.PRIMARY):
+        with guard_schema_provenance(
+            conn, database_name=db_name, test_only=False,
+            schema_tag=Role.PRIMARY, physical_schema=schema_b, tables=(),
+        ):
             pass  # must not raise: recorded as the new baseline
 
     def test_recording_establishes_a_baseline_with_no_prior_row(self, pg_db):
@@ -711,13 +659,21 @@ class TestRecordSchemaProvenance:
         conn = pg_db.connection
         ensure_schema(conn, schema)
         conn.execute(sa.text(f'CREATE TABLE "{schema}".preexisting (id int)'))
-        resolved = self._resolved(pg_db, database_name=db_name, schema_name=schema)
 
         with pytest.raises(SchemaDriftError):
-            with guard_schema_provenance(conn, resolved, role=Role.PRIMARY):
+            with guard_schema_provenance(
+                conn, database_name=db_name, test_only=False,
+                schema_tag=Role.PRIMARY, physical_schema=schema, tables=(),
+            ):
                 pass
 
-        record_schema_provenance(conn, resolved, role=Role.PRIMARY, new_schema=schema, reason="retrofit baseline")
+        record_schema_provenance(
+            conn, database_name=db_name, schema_tag=Role.PRIMARY,
+            new_physical_schema=schema, reason="retrofit baseline",
+        )
 
-        with guard_schema_provenance(conn, resolved, role=Role.PRIMARY):
+        with guard_schema_provenance(
+            conn, database_name=db_name, test_only=False,
+            schema_tag=Role.PRIMARY, physical_schema=schema, tables=(),
+        ):
             pass  # must not raise now

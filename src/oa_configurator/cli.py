@@ -28,11 +28,14 @@ from .cli_support import _build_entry_params, _save_stack_config_or_exit
 from .domains.llm.cli import models_app, providers_app
 from .domains.resources.cli import connections_app, databases_app
 from .domains.resources.rectify import drop_orphan_schema_tables
-from .domains.resources.schema import ResolvedCDMDatabase, ResolvedDatabase, Role
+from .domains.resources.schema import ResolvedDatabase, Role
 from .domains.resources.sql import (
     SchemaDriftError,
+    find_schema_provenance_claim,
     guard_schema_provenance,
     record_schema_provenance,
+    reject_reserved_schema,
+    schema_of,
     Dialect,
 )
 from .domains.vector_stores.cli import vector_stores_app
@@ -243,7 +246,7 @@ def verify() -> None:
 
     console.print(table)
 
-    schema_table = Table("Database", "Role", "Schema", "Status", "Detail")
+    schema_table = Table("Database", "Schema tag", "Schema", "Status", "Detail")
     schema_ok = True
     for db_name in sorted(config.databases):
         try:
@@ -252,8 +255,8 @@ def verify() -> None:
             schema_table.add_row(db_name, "-", "-", "[red]FAIL[/red]", str(exc)[:60])
             schema_ok = False
             continue
-        for role in _roles_for(resolved):
-            schema_ok &= _verify_schema_provenance(schema_table, resolved, role, label=db_name)
+        for schema_tag in resolved.schema_tags():
+            schema_ok &= _verify_schema_provenance(schema_table, resolved, schema_tag, label=db_name)
 
     for vs_name in sorted(config.vector_stores):
         try:
@@ -273,38 +276,70 @@ def verify() -> None:
         raise typer.Exit(1)
 
 
-def _roles_for(resolved: ResolvedDatabase) -> tuple[Role, ...]:
-    if isinstance(resolved, ResolvedCDMDatabase):
-        return (Role.PRIMARY, Role.VOCAB, Role.RESULTS)
-    return (Role.PRIMARY,)
-
-
 def _verify_schema_provenance(
-    table: Table, resolved: ResolvedDatabase, role: Role, *, label: str
+    table: Table, 
+    resolved: ResolvedDatabase, 
+    schema_tag: str, 
+    *, 
+    label: str
 ) -> bool:
-    """Open guard_schema_provenance() with an empty body: the exact same
-    check the DDL-time gate uses, no DDL run, refreshing last_verified_at
-    on success as a side effect. Adds one row to table (whose columns are
-    the Table("Database", "Role", ...) headers passed by the caller, in
-    that order), returns whether it passed.
+    """Check schema_tag's recorded provenance against its currently-resolved
+    physical schema, appending a status row to table.
+
+    Parameters
+    ----------
+    table : rich.table.Table
+        Row appended in place: label, schema_tag, a placeholder schema
+        marker ("-" on success, "?" on failure), status, and error detail.
+    resolved : ResolvedDatabase
+        Database whose schema_tag is being checked.
+    schema_tag : str
+        Schema tag to verify (a Role value, or "primary" for a vector store).
+    label : str
+        Row label; the configured database or vector-store name.
+
+    Returns
+    -------
+    bool
+        True if the check passed, False on drift or any other failure.
+
+    Notes
+    -----
+    Has to pass tables=() because this generic layer has no Base.metadata to
+    draw a table list from. As a result, only the schema-occupancy check
+    below runs here, never the per-table cross-schema check.
+
+    - schema occupancy check: on first-time setup (no provenance record yet),
+      confirms the resolved schema isn't already unexpectedly populated; once
+      a baseline exists, confirms the currently-resolved schema still matches
+      the one recorded in the provenance table for this database/schema_tag.
+    - per-table cross-schema check: on first-time setup only, for each table
+      about to be created, confirms it isn't already sitting under some other
+      schema. Never runs here since tables=() is empty.
     """
-    target_connection = resolved.connection_target(role)
+    # Physical split between vocab and primary connection
+    connection_role = Role.VOCAB if schema_tag == Role.VOCAB else Role.PRIMARY
     try:
-        engine = target_connection.create_engine()
+        engine = resolved.create_engine(role=connection_role)
         try:
             with engine.begin() as connection, guard_schema_provenance(
-                connection, resolved, role=role
+                connection,
+                database_name=resolved.name,
+                test_only=resolved.connection_for_role(connection_role).test_only,
+                schema_tag=schema_tag,
+                physical_schema=schema_of(connection, schema_tag=schema_tag),
+                tables=(),
             ):
                 pass
         finally:
             engine.dispose()
     except SchemaDriftError as exc:
-        table.add_row(label, role.value, "?", "[red]DRIFT[/red]", str(exc)[:80])
+        table.add_row(label, schema_tag, "?", "[red]DRIFT[/red]", str(exc)[:80])
         return False
     except Exception as exc:
-        table.add_row(label, role.value, "?", "[red]FAIL[/red]", str(exc)[:60])
+        table.add_row(label, schema_tag, "?", "[red]FAIL[/red]", str(exc)[:60])
         return False
-    table.add_row(label, role.value, "-", "[green]OK[/green]", "")
+    table.add_row(label, schema_tag, "-", "[green]OK[/green]", "")
     return True
 
 
@@ -318,7 +353,7 @@ def acknowledge_schema_migration(
             help="Free-text justification for this acknowledgment. Mandatory: there is no --yes shortcut.",
         ),
     ],
-    new_schema: Annotated[
+    new_physical_schema: Annotated[
         str | None,
         typer.Option(
             "--new-schema",
@@ -326,26 +361,44 @@ def acknowledge_schema_migration(
             "default/unqualified schema (e.g. SQLite, or a dialect's own default schema).",
         ),
     ] = None,
-    role: Annotated[
-        Role, typer.Option("--role", help="Logical role whose schema is being acknowledged.")
+    schema_tag: Annotated[
+        Role, typer.Option("--schema-tag", help="Logical schema tag whose baseline is being acknowledged.")
     ] = Role.PRIMARY,
 ) -> None:
-    """Record a schema as the deliberate baseline for a database/role.
+    """Record a schema as the new baseline for a tagged schema of a
+    configured database. Overwrites the existing provenance row for
+    that database/schema_tag. Does not touch the CDM tables themselves.
+    Only CLI-level remediation path for the schema-drift check every
+    configured database already gets from `verify`.
 
-    Overwrites any existing provenance row (its prior value moves to
-    previous_schema); does not touch the CDM tables themselves. Generic
-    over any [databases.*] entry, not tied to any particular domain
-    package. This is the one CLI-level remediation path for the schema-drift
-    check every configured database already gets from `verify`.
     """
     try:
         stack = load_stack_config()
         resolved = Resolver(stack).resolve_database(database)
-        engine = resolved.create_engine(role=role)
+        # Physical split between vocab and primary connection
+        connection_role = Role.VOCAB if schema_tag == Role.VOCAB else Role.PRIMARY
+        engine = resolved.create_engine(role=connection_role)
         try:
             with engine.begin() as connection:
+                if new_physical_schema is not None:
+                    reject_reserved_schema(new_physical_schema)
+                    claimant = find_schema_provenance_claim(
+                        connection,
+                        physical_schema=new_physical_schema,
+                        exclude_database_name=resolved.name,
+                    )
+                    if claimant is not None:
+                        raise SchemaDriftError(
+                            f"Refusing to acknowledge {new_physical_schema!r} as the new "
+                            f"baseline for {database!r} ({schema_tag.value!r}): schema-"
+                            f"provenance already records it as claimed by {claimant!r}."
+                        )
                 record_schema_provenance(
-                    connection, resolved, role=role, new_schema=new_schema, reason=reason
+                    connection,
+                    database_name=resolved.name,
+                    schema_tag=schema_tag,
+                    new_physical_schema=new_physical_schema,
+                    reason=reason,
                 )
         finally:
             engine.dispose()
@@ -356,7 +409,7 @@ def acknowledge_schema_migration(
         err_console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(1)
     console.print(
-        f"[green]Acknowledged[/green] {database!r} (role {role.value!r}) -> schema {new_schema!r}."
+        f"[green]Acknowledged[/green] {database!r} (schema tag {schema_tag.value!r}) -> schema {new_physical_schema!r}."
     )
 
 
@@ -366,8 +419,8 @@ def drop_orphan_schema_tables_command(
         str, typer.Option("--database", help="Name of the [databases.*] entry providing the connection.")
     ],
     schema: Annotated[str, typer.Option("--schema", help="Orphan schema to inspect/drop tables from.")],
-    role: Annotated[
-        Role, typer.Option("--role", help="Logical role providing the connection to use.")
+    connection_role: Annotated[
+        Role, typer.Option("--role", help="Which connection to open: primary or vocab.")
     ] = Role.PRIMARY,
     confirm: Annotated[
         bool, typer.Option("--confirm", help="Actually drop the previewed tables. Omit to preview only.")
@@ -383,7 +436,7 @@ def drop_orphan_schema_tables_command(
     try:
         stack = load_stack_config()
         resolved = Resolver(stack).resolve_database(database)
-        engine = resolved.create_engine(role=role)
+        engine = resolved.create_engine(role=connection_role)
         try:
             with engine.begin() as connection:
                 preview = drop_orphan_schema_tables(

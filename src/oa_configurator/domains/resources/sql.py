@@ -10,22 +10,16 @@ Role lives here rather than in schema.py.
 
 from __future__ import annotations
 
-import inspect
 import logging
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
-from types import EllipsisType
-from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
-from sqlalchemy.engine import Connection, Engine, Inspector
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.orm import Session
-
-if TYPE_CHECKING:
-    from .schema import ResolvedConnection, ResolvedDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +27,18 @@ Bindable = Engine | Connection | Session
 
 
 class Role(StrEnum):
-    """Which physical target a database's logical role maps to.
+    """Pre-determined logical schema tags for consumers.
+    Each tag corresponds to a configurable schema name (depending
+    on the database's type [Database vs. CDMDatabase]):
+    - Role.PRIMARY -> schema or cdm_schema: primary tables
+    - Role.VOCAB -> vocab_schema: vocabulary tables
+    - Role.RESULTS -> results_schema: results tables
 
-    Every ResolvedDatabase picks a connection (.connection_target) and a
-    schema (.schema_for_role) for a role.
+    Also disambiguates which physical connection to use on a CDMDatabase:
+    Role.PRIMARY and Role.VOCAB each select a connection
+    (connection_for_role, create_engine(role=...)); Role.RESULTS has no
+    connection of its own and always resolves through Role.PRIMARY's.
     """
-
     PRIMARY = "primary"
     VOCAB = "vocab"
     RESULTS = "results"
@@ -71,9 +71,6 @@ class DialectProfile:
 
     Attributes
     ----------
-    default_schema : str | None
-        This dialect's own default/unqualified schema name (e.g. Postgres's
-        ``"public"``), or ``None`` if the dialect has no such concept.
     system_schemas : frozenset[str]
         Schema names this dialect reserves for its own internal catalogs.
     supports_schemas : bool
@@ -86,7 +83,6 @@ class DialectProfile:
         dialect's profile overrides it explicitly.
     """
 
-    default_schema: str | None
     system_schemas: frozenset[str]
     supports_schemas: bool
     requires_host: bool = True
@@ -94,12 +90,10 @@ class DialectProfile:
 
 _DIALECT_PROFILES: dict[str, DialectProfile] = {
     Dialect.POSTGRESQL: DialectProfile(
-        default_schema="public",
         system_schemas=frozenset({"information_schema", "pg_catalog", "pg_toast"}),
         supports_schemas=True,
     ),
     Dialect.SQLITE: DialectProfile(
-        default_schema=None,
         system_schemas=frozenset(),
         supports_schemas=False,
         requires_host=False,
@@ -141,8 +135,9 @@ def _as_bind(bindable: Bindable) -> Engine | Connection:
     return bindable
 
 
-def role_of_table(table: sa.Table) -> Role | str | None:
-    """The table's schema tag: a Role member, a registered reserved schema, or None if untagged.
+def validate_schema_tag(table: sa.Table) -> str | None:
+    """Whether the scheam tag of a table is a known Role tag,
+    a registered reserved schema, or None if untagged.
 
     Raises
     ------
@@ -152,229 +147,64 @@ def role_of_table(table: sa.Table) -> Role | str | None:
     schema = table.schema
     if schema is None:
         return None
-    if schema in {member.value for member in Role}:
-        return Role(schema)
-    if schema in _RESERVED_SCHEMAS:
+    if schema in {member.value for member in Role} or schema in _RESERVED_SCHEMAS:
         return schema
     raise ValueError(f"{table} has unrecognized schema tag {schema!r}: not a Role and not registered.")
 
 
-def schema_of(bindable: Bindable, *, role: Role | str | None = Role.PRIMARY) -> str | None:
-    """role's entry of bindable's schema_translate_map, or None if unset.
+def schema_of(bindable: Bindable, *, schema_tag: str | None = Role.PRIMARY) -> str | None:
+    """Look up schema_tag's physical schema in the bindable's schema_translate_map,
+    or return schema_tag unchanged if it has no entry there.
 
     Parameters
     ----------
     bindable : Engine | Connection | Session
-    role : Role, str, or None, optional
-        Looked up by value in bindable's schema_translate_map:
-        - A bare string falls back to itself if unmapped
-        - If there is no map, the string is used as-is.
-        - A Role member is looked up by its value, returning None if unmapped
-        - None returns None, regardless of the map.
+    schema_tag : str or None, optional
+        The schema_translate_map key to look up: a Role value or a
+        registered reserved schema name, the same value a table's own
+        schema attribute would carry. Defaults to Role.PRIMARY.
+
+    Returns
+    -------
+    str or None
+        - None if schema_tag is None
+        - Physical schema if schema_tag is in the schema_translate_map
+        - schema_tag itself if it has no entry in the schema_translate_map
     """
-    if role is None:
+    if schema_tag is None:
         return None
     bind = _as_bind(bindable)
     stm = bind.get_execution_options().get(SCHEMA_TRANSLATE_MAP_KEY)
-    if isinstance(role, Role):
-        return stm.get(role.value) if stm else None
-    return stm.get(role, role) if stm else role
+    return stm.get(schema_tag, schema_tag) if stm else schema_tag
 
 
 def qualified(
     bindable: Bindable,
     name: str,
     *,
-    schema: str | None | EllipsisType = ...,
-    role: Role | str | None = Role.PRIMARY,
+    physical_schema: str | None
 ) -> str:
     """Quoted, schema-qualified identifier, for raw SQL that's genuinely unavoidable.
-
+    Utilises IdentifierPreparer.format_table to quote the name according to the dialect's rules.
     Parameters
     ----------
     bindable : Engine | Connection | Session
-        The SQLAlchemy object whose dialect and schema_translate_map are used
-        to quote and qualify the name.
+        The SQLAlchemy object whose dialect is used to quote the name.
     name : str
         Unqualified identifier to quote.
-    schema : str | None | EllipsisType, optional
-        Three distinct states:
-        1. omitted (the default, ``...``) infers the schema from  ``schema_of(bindable, role=role)``;
-        2. ``None`` explicitly forces an unqualified name;
-        3. any other string overrides the inferred schema with that exact name.
-    role : Role, str, or None, optional
-        Which schema_translate_map key to infer from when *schema* is
-        omitted; see :func:`schema_of` for how each type resolves. Defaults
-        to Role.PRIMARY; ignored if *schema* is given.
+    physical_schema : str or None
+        The already-resolved schema to prefix with, or None for an
+        unqualified name.
 
     Returns
     -------
     str
-        The quoted identifier, schema-prefixed unless the effective schema
-        is ``None``, e.g. ``"myschema"."mytable"`` or ``"mytable"``.
+        The quoted identifier, schema-prefixed unless *physical_schema* is
+        ``None``, e.g. ``"myschema"."mytable"`` or ``"mytable"``.
     """
     bind = _as_bind(bindable)
-    effective_schema = schema_of(bind, role=role) if schema is ... else schema
     preparer = bind.dialect.identifier_preparer
-    quoted_name = preparer.quote(name)
-    if effective_schema is None:
-        return quoted_name
-    return f"{preparer.quote(effective_schema)}.{quoted_name}"
-
-
-def _takes_schema_param(func: Any) -> bool:
-    """True if func has a 'schema' parameter, False for anything unintrospectable."""
-    try:
-        return "schema" in inspect.signature(func).parameters
-    except (TypeError, ValueError):
-        return False
-
-
-class SchemaBoundInspector:
-    """``sa.inspect()`` wrapper defaulting ``schema=`` to the bound engine's
-    own ``schema_translate_map``.
-
-    Every ``Inspector`` method that takes a ``schema`` parameter (found via
-    ``inspect.signature()`` at class-definition time, not a hand-maintained
-    list) is wrapped below to default it to the bound schema when omitted.
-    Every other method delegates straight to the underlying ``Inspector``.
-
-    Parameters
-    ----------
-    inspector : sqlalchemy.engine.reflection.Inspector
-        The real inspector every call delegates to.
-    schema : str or None
-        Default schema applied to every wrapped method whenever its own
-        ``schema=`` argument is omitted.
-    """
-
-    def __init__(self, inspector: Inspector, schema: str | None) -> None:
-        self._inspector = inspector
-        self._schema = schema
-
-    def _resolve(self, schema: str | None | EllipsisType) -> str | None:
-        """
-        Parameters
-        ----------
-        schema : str, None, or ..., optional
-            Three distinct states:
-            1. omitted (the default, ``...``) infers the schema from  ``schema_of(bindable)``;
-            2. ``None`` explicitly forces an unqualified name;
-            3. any other string overrides the inferred schema with that exact name.
-        """
-        return self._schema if schema is ... else schema
-
-    def __getattr__(self, name: str) -> Any:
-        attr = getattr(self._inspector, name)
-        if callable(attr) and _takes_schema_param(getattr(type(self._inspector), name, None)):
-            raise AttributeError(
-                f"{name!r} takes a schema parameter but has no schema-defaulting wrapper on "
-                "SchemaBoundInspector, likely a dialect-specific Inspector subclass method "
-                "invisible to the class-time auto-wrap. Access self._inspector directly with "
-                "an explicit schema=, or extend the auto-wrap to cover it."
-            )
-        return attr
-
-
-def _make_schema_wrapper(name: str) -> Any:
-    unbound_signature = inspect.signature(getattr(Inspector, name))
-
-    def wrapper(self: SchemaBoundInspector, *args: Any, **kwargs: Any) -> Any:
-        # Bind against the real signature first, so a positional schema
-        # arg (e.g. get_columns("t", "myschema")) isn't also given schema=.
-        bound = unbound_signature.bind_partial(self._inspector, *args, **kwargs)
-        if "schema" not in bound.arguments:
-            kwargs["schema"] = self._resolve(...)
-        return getattr(self._inspector, name)(*args, **kwargs)
-
-    wrapper.__name__ = name
-    wrapper.__doc__ = (
-        f"``Inspector.{name}``, with ``schema=`` defaulted to this wrapper's bound "
-        "schema when the caller supplies it neither positionally nor by keyword. "
-        "See SchemaBoundInspector."
-    )
-    return wrapper
-
-
-for _name in dir(Inspector):
-    if not _name.startswith("_") and _takes_schema_param(getattr(Inspector, _name, None)):
-        setattr(SchemaBoundInspector, _name, _make_schema_wrapper(_name))
-del _name
-
-
-def schema_inspect(
-    bindable: Bindable,
-    *,
-    schema: str | None | EllipsisType = ...,
-    role: Role | str | None = Role.PRIMARY,
-) -> SchemaBoundInspector:
-    """``sa.inspect(bindable)``, wrapped so every ``Inspector`` method taking
-    a ``schema`` parameter defaults it to ``schema_of(bindable, role=role)``
-    instead of silently reflecting the wrong schema.
-
-    Parameters
-    ----------
-    bindable : sqlalchemy.engine.Engine or sqlalchemy.engine.Connection or sqlalchemy.orm.Session
-        Passed to both ``sa.inspect()`` and, unless *schema* is given,
-        :func:`schema_of`.
-    schema : str, None, or ..., optional
-        Three distinct states:
-        1. omitted (the default, ``...``) infers the schema from  ``schema_of(bindable, role=role)``;
-        2. ``None`` explicitly forces an unqualified name;
-        3. any other string overrides the inferred schema with that exact name.
-    role : Role, str, or None, optional
-        Which schema_translate_map key to infer from when *schema* is
-        omitted; see :func:`schema_of` for how each type resolves. Defaults
-        to Role.PRIMARY; ignored if *schema* is given.
-
-    Returns
-    -------
-    SchemaBoundInspector
-        Wrapper around the real ``Inspector`` that applies the schema default
-        to the four methods above.
-    """
-    bind = _as_bind(bindable)
-    effective_schema = schema_of(bind, role=role) if schema is ... else schema
-    return SchemaBoundInspector(sa.inspect(bind), effective_schema)
-
-
-def schema_options(
-    bindable: Bindable,
-    *,
-    schema: str | None | EllipsisType = ...,
-    role: Role = Role.PRIMARY,
-) -> dict[str, Any]:
-    """Build a per-statement ``execution_options=...`` override.
-
-    Parameters
-    ----------
-    bindable : sqlalchemy.engine.Engine or sqlalchemy.engine.Connection or sqlalchemy.orm.Session
-        Source of the inferred schema, unless *schema* is given.
-    schema : str, None, or ..., optional
-        Three distinct states:
-        1. omitted (the default, ``...``) infers the schema from  ``bindable``'s own map at *role*'s key;
-        2. ``None`` explicitly forces an unqualified name;
-        3. any other string overrides the inferred schema with that exact name.
-    role : Role, optional
-        Which schema_translate_map key to read (when *schema* is omitted)
-        and write. Defaults to Role.PRIMARY.
-
-    Returns
-    -------
-    dict
-        ``{SCHEMA_TRANSLATE_MAP_KEY: {...}}``, ready to pass as
-        ``execution_options=...`` on a single statement/connection.
-        Carries forward every other role's entry already on ``bindable``'s
-        own map, overriding only *role*'s key.
-        ``execution_options(schema_translate_map=...)`` replaces the whole
-        map rather than merging it, so rebuilding from scratch here would
-        silently drop those other keys for a caller on a role-split
-        ``ResolvedCDMDatabase``.
-    """
-    bind = _as_bind(bindable)
-    existing = bind.get_execution_options().get(SCHEMA_TRANSLATE_MAP_KEY) or {}
-    effective_schema = existing.get(role.value) if schema is ... else schema
-    return {SCHEMA_TRANSLATE_MAP_KEY: {**existing, role.value: effective_schema}}
+    return preparer.format_table(sa.table(name, schema=physical_schema))
 
 
 def supports_schemas(bindable: Bindable | str) -> bool:
@@ -416,7 +246,7 @@ def requires_host(bindable: Bindable | str) -> bool:
     return _profile_for(dialect_name).requires_host
 
 
-def ensure_schema(bindable: Engine | Connection, schema: str | None) -> None:
+def ensure_schema(bindable: Engine | Connection, physical_schema: str | None) -> None:
     """CREATE SCHEMA IF NOT EXISTS, for Postgres and SQLite; not validated
     for other dialects.
 
@@ -425,8 +255,8 @@ def ensure_schema(bindable: Engine | Connection, schema: str | None) -> None:
     Engine, opens its own short-lived transaction.
 
     No-ops on a dialect with no multi-schema concept (e.g. SQLite), when
-    schema is None, or when schema is that dialect's own default schema
-    (e.g. Postgres's "public").
+    physical_schema is None, or when physical_schema is that dialect's own
+    default schema (e.g. Postgres's "public").
 
     Notes
     -----
@@ -434,13 +264,14 @@ def ensure_schema(bindable: Engine | Connection, schema: str | None) -> None:
     since creating the wrong schema by silent inference would be far worse
     than a missing default.
     """
-    if schema is None:
+    if physical_schema is None:
         return
     bind = _as_bind(bindable)
-    profile = _profile_for(bind.dialect.name)
-    if schema == profile.default_schema or not profile.supports_schemas:
+    if not _profile_for(bind.dialect.name).supports_schemas:
         return
-    ddl = sa.schema.CreateSchema(schema, if_not_exists=True)
+    if physical_schema == sa.inspect(bind).default_schema_name:
+        return
+    ddl = sa.schema.CreateSchema(physical_schema, if_not_exists=True)
     if isinstance(bind, Engine):
         with bind.begin() as conn:
             conn.execute(ddl)
@@ -562,11 +393,6 @@ class SchemaDriftError(RuntimeError):
 
 
 
-def _provenance_schema_for(bindable: Bindable) -> str | None:
-    """SCHEMA_PROVENANCE_SCHEMA on a dialect with real schema support, else None."""
-    return schema_if_supported(SCHEMA_PROVENANCE_SCHEMA, _as_bind(bindable))
-
-
 def find_table_in_other_schemas(
     bindable: Bindable, table_name: str, *, expected_schema: str | None
 ) -> tuple[str, ...]:
@@ -586,35 +412,6 @@ def find_table_in_other_schemas(
     )
 
 
-def _provenance_target(
-    resolved: ResolvedDatabase, role: Role | str
-) -> tuple[ResolvedConnection, str | None, str]:
-    """Resolve (connection, schema, role-value) for a provenance guard/record call.
-
-    A ``Role`` member goes through the normal resolution machinery
-    (``connection_target``/``schema_for_role``), covering primary/vocab/results.
-    A bare string is for a schema this database's Role enum has no slot for
-    (e.g. an extension schema, a package's own reserved schema): it always
-    lives on the primary connection, and the string itself IS the schema, meaning
-    there is nothing to resolve as the caller already knows the physical name.
-
-    Returns
-    -------
-    connection : ResolvedConnection
-        The connection to use for the provenance bookkeeping table and any guarded DDL
-        matching the provided role.
-    schema : str or None
-        The schema to guard against drift, or None if the dialect has no schema concept.
-        For a bare string role, the string itself is used directly as the schema.
-    role_value : str
-        The string value of the role, either a Role member's value or the bare string.
-        For a bare string role, this is the same as the schema returned above.
-    """
-    if isinstance(role, Role):
-        return resolved.connection_target(role), resolved.schema_for_role(role), role.value
-    return resolved.connection_target(Role.PRIMARY), role, role
-
-
 def _schema_provenance_table(bookkeeping_schema: str | None) -> sa.Table:
     """The (unbound) schema-provenance bookkeeping table definition.
 
@@ -626,17 +423,17 @@ def _schema_provenance_table(bookkeeping_schema: str | None) -> sa.Table:
         metadata,
         sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
         sa.Column("database_name", sa.String(128), nullable=False),
-        sa.Column("role", sa.String(32), nullable=False),
+        sa.Column("schema_tag", sa.String(32), nullable=False),
         sa.Column("connection_safe_url", sa.String(512), nullable=False),
-        sa.Column("resolved_schema", sa.String(128), nullable=True),
+        sa.Column("physical_schema", sa.String(128), nullable=True),
         sa.Column("first_recorded_at", sa.DateTime, server_default=sa.func.now(), nullable=False),
-        sa.Column("previous_schema", sa.String(128), nullable=True),
+        sa.Column("previous_physical_schema", sa.String(128), nullable=True),
         sa.Column("acknowledged_at", sa.DateTime, nullable=True),
         sa.Column("reason", sa.Text, nullable=True),
         sa.Column("last_verified_at", sa.DateTime, server_default=sa.func.now(), nullable=True),
         sa.UniqueConstraint(
-            "database_name", "role", "connection_safe_url",
-            name="uq_schema_provenance_database_role_connection",
+            "database_name", "schema_tag", "connection_safe_url",
+            name="uq_schema_provenance_database_schema_tag_connection",
         ),
         schema=bookkeeping_schema,
     )
@@ -645,19 +442,25 @@ def _schema_provenance_table(bookkeeping_schema: str | None) -> sa.Table:
 @contextmanager
 def guard_schema_provenance(
     connection: Connection,
-    resolved: ResolvedDatabase | None,
     *,
-    role: Role | str,
-    shared_as: str | None = None,
+    database_name: str,
+    test_only: bool,
+    schema_tag: str,
+    physical_schema: str | None,
+    tables: Iterable[sa.Table],
 ) -> Iterator[None]:
     """Guard against creating tables under a schema that silently drifted
-    from a previously-recorded one.
+    from a previously-recorded one, or that already has a same-named table
+    living under a different, unexpected schema.
 
-    Enter checks; the write (a new provenance row, or a bumped
-    last_verified_at on an existing one) happens only on successful exit,
-    never when the wrapped block raises::
+    Checks on enter, yields to the caller's DDL block, then records the current schema
+    in the bookkeeping table. Write does not happen if the caller's DDL block raises::
 
-        with guard_schema_provenance(connection, resolved, role=Role.VOCAB):
+        with guard_schema_provenance(
+            connection, database_name=resolved.name, test_only=resolved.vocab_connection.test_only,
+            schema_tag=Role.VOCAB, physical_schema=schema_of(connection, schema_tag=Role.VOCAB),
+            tables=vocab_tables,
+        ):
             Base.metadata.create_all(bind=connection, tables=vocab_tables, checkfirst=True)
 
     Parameters
@@ -665,65 +468,54 @@ def guard_schema_provenance(
     connection : sqlalchemy.engine.Connection
         Open connection/transaction the guarded DDL runs on. The
         provenance table is created on it the first time it's needed.
-    resolved : ResolvedDatabase or None
-        Supplies database_name and the role-appropriate schema/connection,
-        derived internally rather than three independent strings, so a
-        caller can't pass a mismatched trio. None short-circuits to a
-        no-op, for a bare-engine caller with no resolved config behind it
-        (e.g. a test or programmatic caller). When not None, a role whose
-        connection_target(role).test_only is True also short-circuits to a
-        no-op, since a test-only database is already documented as
-        disposable and a test that legitimately reconfigures its schema
-        between runs would otherwise trip constant false positives. A test
-        that wants to exercise real drift detection against a connection
-        that's test_only=true at the config level should build its own
-        resolved with connection.test_only overridden to False, rather
-        than relying on a separate override parameter here.
-    role : Role or str
-        A ``Role`` member resolves its connection/schema the normal way. 
-        A bare string is for an additional package-specific schema that is 
-        not covered by ``Role`` (e.g. an extension schema, etc.). It's guarded
-        against the primary connection, and the string itself is used directly
-        as the schema being guarded, with no further resolution.
-    shared_as : str, optional
-        Overrides the identity this provenance record is tracked under,
-        replacing ``resolved.name``. Use this when the schema being
-        guarded is a resource shared across multiple database entries on
-        the same connection, such as a model registry, rather than owned
-        by this one database entry. Every caller of that shared resource
-        must pass the same value, so they're tracked as one identity
-        instead of each looking like an unrelated, unexplained occupant
-        of the same schema. None (default) uses ``resolved.name``, which
-        is correct for the normal case where the schema really is this
-        database's own.
+    database_name : str
+        Identity this provenance record is tracked under. Pass a shared
+        identity (e.g. "model_registry") when the schema being guarded is
+        a resource shared across multiple database entries on the same
+        connection -> resource is tracked as a shared asset. 
+    test_only : bool
+        The resolved connection's own ConnectionConfig.test_only. True
+        skips the check entirely, since a test-only connection's schema is
+        expected to change between runs, leading to constant false positives.
+    schema_tag : str
+        The schema_translate_map key this record is tracked under. Used
+        only as this row's bookkeeping label; carries no connection- or
+        schema-resolution meaning here (see *physical_schema* below).
+    physical_schema : str or None
+        The schema to guard, already resolved by the caller, e.g. via
+        ``schema_of(connection, schema_tag=schema_tag)``.
+    tables : Iterable[sqlalchemy.Table]
+        The tables about to be created under *physical_schema*, on a
+        first-time setup (no provenance record yet). Each is checked
+        against every other schema on the connection, catching a table
+        already living under a different physical schema than
+        *schema_tag* is configured for. Example: pre-existing vocab tables
+        sitting in "myvocab" while vocab_schema is configured as "vocab".
+        Pass an empty iterable when the caller has no specific tables in
+        view (e.g. a read-only provenance check), which skips this
+        specific check, not the whole guard.
 
     Raises
     ------
     SchemaDriftError
-        A previously-recorded schema for this database/role/connection
-        disagrees with the current one, or no record exists yet but the
-        target schema already has tables.
+        - A previously-recorded schema for this database/schema_tag/connection
+        disagrees with the current one,
+        - No record exists yet but the target schema already has tables, or 
+        - One of *tables* already exists under a different schema.
 
     Notes
     -----
     Accepted limitation: a connection repointed to a brand-new, genuinely
     empty server is indistinguishable from real day-one setup.
     """
-    role_value = role.value if isinstance(role, Role) else role
-    if resolved is None:
-        logger.debug("guard_schema_provenance(role=%s): no resolved, skipping.", role_value)
-        yield
-        return
-    target_connection, schema_name, role_value = _provenance_target(resolved, role)
-    if target_connection.test_only:
-        logger.debug("guard_schema_provenance(role=%s): test_only, skipping.", role_value)
+    if test_only:
+        logger.debug("guard_schema_provenance(schema_tag=%s): test_only, skipping.", schema_tag)
         yield
         return
 
-    database_name = shared_as if shared_as is not None else resolved.name
-    connection_safe_url = target_connection.safe_url
+    connection_safe_url = connection.engine.url.render_as_string(hide_password=True)
 
-    bookkeeping_schema = _provenance_schema_for(connection)
+    bookkeeping_schema = schema_if_supported(SCHEMA_PROVENANCE_SCHEMA, connection)
     # Check occupancy before creating the bookkeeping table
     bookkeeping_table_exists = sa.inspect(connection).has_table(
         "schema_provenance", schema=bookkeeping_schema
@@ -732,35 +524,52 @@ def guard_schema_provenance(
     if bookkeeping_table_exists:
         table = _schema_provenance_table(bookkeeping_schema)
         existing_row = connection.execute(
-            sa.select(table.c.resolved_schema).where(
+            sa.select(table.c.physical_schema).where(
                 table.c.database_name == database_name,
-                table.c.role == role_value,
+                table.c.schema_tag == schema_tag,
                 table.c.connection_safe_url == connection_safe_url,
             )
         ).first()
 
     if existing_row is None:
         already_populated = bool(
-            schema_inspect(connection, schema=schema_name).get_table_names()
+            sa.inspect(connection).get_table_names(schema=physical_schema)
         )
         if already_populated:
             raise SchemaDriftError(
-                f"Schema {schema_name!r} for database {database_name!r} (role {role_value!r}) "
+                f"Schema {physical_schema!r} for database {database_name!r} (schema_tag {schema_tag!r}) "
                 "already has tables, but no schema-provenance record exists for it. Run "
                 "`acknowledge-schema-migration` to establish a baseline before proceeding."
             )
+
+        if supports_schemas(connection):
+            default_schema = sa.inspect(connection).default_schema_name
+            expected_schema = physical_schema if physical_schema is not None else default_schema
+            for guarded_table in tables:
+                other_schemas = find_table_in_other_schemas(
+                    connection, guarded_table.name, expected_schema=expected_schema
+                )
+                if other_schemas:
+                    raise SchemaDriftError(
+                        f"Table {guarded_table.name!r} for database {database_name!r} "
+                        f"(schema_tag {schema_tag!r}) already exists under schema(s) "
+                        f"{other_schemas!r}, not the configured schema {physical_schema!r}. "
+                        f"{schema_tag!r} is likely misconfigured against pre-existing data. "
+                        "Verify the correct schema, then run `acknowledge-schema-migration` "
+                        "once confirmed."
+                    )
 
     ensure_schema(connection, bookkeeping_schema)
     table = _schema_provenance_table(bookkeeping_schema)
     table.create(bind=connection, checkfirst=True)
 
     if existing_row is not None:
-        stored_schema = existing_row.resolved_schema
-        if stored_schema != schema_name:
+        stored_schema = existing_row.physical_schema
+        if stored_schema != physical_schema:
             raise SchemaDriftError(
-                f"Schema drift detected for database {database_name!r} (role {role_value!r}): "
+                f"Schema drift detected for database {database_name!r} (schema_tag {schema_tag!r}): "
                 f"previously resolved to schema {stored_schema!r}, now resolves to "
-                f"{schema_name!r}. Run `acknowledge-schema-migration` once this change is "
+                f"{physical_schema!r}. Run `acknowledge-schema-migration` once this change is "
                 "confirmed deliberate."
             )
 
@@ -771,7 +580,7 @@ def guard_schema_provenance(
             table.update()
             .where(
                 table.c.database_name == database_name,
-                table.c.role == role_value,
+                table.c.schema_tag == schema_tag,
                 table.c.connection_safe_url == connection_safe_url,
             )
             .values(last_verified_at=sa.func.now())
@@ -780,55 +589,47 @@ def guard_schema_provenance(
         connection.execute(
             table.insert().values(
                 database_name=database_name,
-                role=role_value,
+                schema_tag=schema_tag,
                 connection_safe_url=connection_safe_url,
-                resolved_schema=schema_name,
+                physical_schema=physical_schema,
             )
         )
 
 
 def record_schema_provenance(
     connection: Connection,
-    resolved: ResolvedDatabase,
     *,
-    role: Role | str,
-    new_schema: str | None,
+    database_name: str,
+    schema_tag: str,
+    new_physical_schema: str | None,
     reason: str,
-    shared_as: str | None = None,
 ) -> None:
-    """Overwrite the provenance baseline for resolved's database/role with new_schema.
+    """Overwrite the provenance baseline for database_name/schema_tag with new_physical_schema.
 
-    Makes new_schema the value guard_schema_provenance() treats as current
-    from now on. Overwrites any existing row for this database/role: its
-    prior resolved_schema moves into previous_schema rather than being
-    discarded, but stops being treated as current, so callers must be sure
-    new_schema is correct. Writes only this bookkeeping row; the CDM tables
-    at either schema are never moved or dropped here (see
-    drop_orphan_schema_tables for that).
+    Makes new_physical_schema the value guard_schema_provenance() treats as
+    current from now on. Overwrites any existing row for this
+    database/schema_tag. Its prior physical_schema moves into
+    previous_physical_schema. 
+
+    Only for bookeeping; the CDM tables at either schema are never moved 
+    or dropped here (see drop_orphan_schema_tables for that).
 
     Parameters
     ----------
     connection : sqlalchemy.engine.Connection
         Open connection/transaction the provenance update runs on. The
         provenance table is created on it the first time it's needed.
-    resolved : ResolvedDatabase
-        Supplies database_name and the role-appropriate schema/connection,
-        derived internally rather than three independent strings, so a
-        caller can't pass a mismatched trio.
-    role : Role or str
-        Schema role to record a new baseline for. A bare string is for a
-        schema this database's ``Role`` enum has no slot for 
-        (see ``guard_schema_provenance``'s ``role`` parameter for the same
-        distinction).
-    new_schema : str or None
-        The new schema to record as the baseline for this database/role.
+    database_name : str
+        Identity this provenance record is tracked under; see
+        ``guard_schema_provenance``'s ``database_name`` parameter.
+    schema_tag : str
+        The schema_translate_map key this record is tracked under; see
+        ``guard_schema_provenance``'s ``schema_tag`` parameter.
+    new_physical_schema : str or None
+        The new schema to record as the baseline for this database/schema_tag.
         None is allowed for a dialect that has no schema concept (e.g. SQLite).
     reason : str
         Human-readable explanation of why this schema change is deliberate.
-    shared_as : str, optional
-        See ``guard_schema_provenance``'s ``shared_as`` parameter: overrides
-        the identity this record is tracked under, for a schema shared
-        across multiple database entries rather than owned by this one.
 
     Raises
     ------
@@ -838,19 +639,17 @@ def record_schema_provenance(
     if not reason.strip():
         raise ValueError("reason must not be blank.")
 
-    database_name = shared_as if shared_as is not None else resolved.name
-    target_connection, _, role_value = _provenance_target(resolved, role)
-    connection_safe_url = target_connection.safe_url
+    connection_safe_url = connection.engine.url.render_as_string(hide_password=True)
 
-    bookkeeping_schema = _provenance_schema_for(connection)
+    bookkeeping_schema = schema_if_supported(SCHEMA_PROVENANCE_SCHEMA, connection)
     ensure_schema(connection, bookkeeping_schema)
     table = _schema_provenance_table(bookkeeping_schema)
     table.create(bind=connection, checkfirst=True)
 
     existing_row = connection.execute(
-        sa.select(table.c.resolved_schema).where(
+        sa.select(table.c.physical_schema).where(
             table.c.database_name == database_name,
-            table.c.role == role_value,
+            table.c.schema_tag == schema_tag,
             table.c.connection_safe_url == connection_safe_url,
         )
     ).first()
@@ -860,12 +659,12 @@ def record_schema_provenance(
             table.update()
             .where(
                 table.c.database_name == database_name,
-                table.c.role == role_value,
+                table.c.schema_tag == schema_tag,
                 table.c.connection_safe_url == connection_safe_url,
             )
             .values(
-                previous_schema=existing_row.resolved_schema,
-                resolved_schema=new_schema,
+                previous_physical_schema=existing_row.physical_schema,
+                physical_schema=new_physical_schema,
                 acknowledged_at=sa.func.now(),
                 reason=reason,
                 last_verified_at=sa.func.now(),
@@ -875,12 +674,60 @@ def record_schema_provenance(
         connection.execute(
             table.insert().values(
                 database_name=database_name,
-                role=role_value,
+                schema_tag=schema_tag,
                 connection_safe_url=connection_safe_url,
-                resolved_schema=new_schema,
-                previous_schema=None,
+                physical_schema=new_physical_schema,
+                previous_physical_schema=None,
                 acknowledged_at=sa.func.now(),
                 reason=reason,
                 last_verified_at=sa.func.now(),
             )
         )
+
+
+def find_schema_provenance_claim(
+    connection: Connection,
+    *,
+    physical_schema: str,
+    exclude_database_name: str | None = None,
+) -> str | None:
+    """database_name of the schema_provenance row currently recording
+    physical_schema as its baseline on this connection, or None.
+
+    Checks only the current physical_schema column, never
+    previous_physical_schema: a schema migrated away from is exactly what
+    drop_orphan_schema_tables exists to clean up, so it must never be
+    reported as still claimed.
+
+    Parameters
+    ----------
+    connection : sqlalchemy.engine.Connection
+        Matched via its own connection_safe_url; only rows for this exact
+        connection are considered.
+    physical_schema : str
+        Physical schema to check for a current claim.
+    exclude_database_name : str, optional
+        Ignore rows for this database_name, regardless of schema_tag. Pass
+        the database being acknowledged: its own primary/vocab/results tags
+        legitimately sharing one physical schema is not a collision with
+        itself.
+
+    Returns
+    -------
+    str or None
+        The claiming row's database_name, or None if nothing else on this
+        connection currently records physical_schema as current.
+    """
+    bookkeeping_schema = schema_if_supported(SCHEMA_PROVENANCE_SCHEMA, connection)
+    if not sa.inspect(connection).has_table("schema_provenance", schema=bookkeeping_schema):
+        return None
+    table = _schema_provenance_table(bookkeeping_schema)
+    connection_safe_url = connection.engine.url.render_as_string(hide_password=True)
+    conditions = [
+        table.c.connection_safe_url == connection_safe_url,
+        table.c.physical_schema == physical_schema,
+    ]
+    if exclude_database_name is not None:
+        conditions.append(table.c.database_name != exclude_database_name)
+    row = connection.execute(sa.select(table.c.database_name).where(*conditions)).first()
+    return row.database_name if row is not None else None

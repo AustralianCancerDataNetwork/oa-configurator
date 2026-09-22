@@ -6,10 +6,8 @@ All tests use StackConfig.for_session() or tmp_path.
 
 from __future__ import annotations
 
-import uuid
 
 import pytest
-import sqlalchemy as sa
 import typer.rich_utils as _typer_rich_utils
 
 from oa_configurator import (
@@ -64,39 +62,6 @@ def engine(request):
         OAConfiguratorConfig, _FIELD_BY_DIALECT[request.param], dialect=request.param, request=request
     ) as db:
         yield db.connection.engine.execution_options(schema_translate_map={Role.PRIMARY.value: "myschema"})
-
-
-@pytest.fixture(params=DIALECT_PARAMS)
-def probe_table(request):
-    """(connection, schema_name, table_name) with a real table + index in a
-    genuinely non-default schema, per dialect. sqlite's ATTACH DATABASE and
-    Postgres's real CREATE SCHEMA are different mechanisms, but the same
-    observable contract: a table schema_inspect() can find and a bare
-    sa.inspect() can't."""
-    table_name = "probe"
-    with isolated_test_database(
-        OAConfiguratorConfig, _FIELD_BY_DIALECT[request.param], dialect=request.param, request=request
-    ) as db:
-        conn = db.connection
-        if request.param == Dialect.SQLITE:
-            other_path = db.connection.engine.url.database
-            conn.execute(sa.text(f"ATTACH DATABASE '{other_path}_other' AS other_schema"))
-            conn.execute(sa.text(f"CREATE TABLE other_schema.{table_name} (id INTEGER)"))
-            conn.execute(
-                sa.text(f"CREATE INDEX other_schema.{table_name}_idx ON {table_name} (id)")
-            )
-            conn.commit()
-            yield conn, "other_schema", table_name
-        elif request.param == Dialect.POSTGRESQL:
-            schema = f"test_{uuid.uuid4().hex[:8]}"
-            conn.execute(sa.text(f'CREATE SCHEMA "{schema}"'))
-            conn.execute(sa.text(f'CREATE TABLE "{schema}"."{table_name}" (id INTEGER)'))
-            conn.execute(
-                sa.text(f'CREATE INDEX "{table_name}_idx" ON "{schema}"."{table_name}" (id)')
-            )
-            yield conn, schema, table_name
-        else:
-            raise ValueError(f"probe_table has no setup for dialect {request.param!r}.")
 
 
 @pytest.fixture

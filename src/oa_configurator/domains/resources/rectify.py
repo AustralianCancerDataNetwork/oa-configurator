@@ -13,7 +13,12 @@ from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 
-from .sql import qualified, schema_inspect, supports_schemas
+from .sql import (
+    find_schema_provenance_claim, 
+    qualified, 
+    reject_reserved_schema, 
+    supports_schemas
+)
 
 if TYPE_CHECKING:
     from ...stack_config import StackConfig
@@ -57,12 +62,12 @@ def preview_orphan_schema_tables(connection: sa.Connection, schema: str) -> list
     table scan here. ``row_count`` is ``None`` only if counting itself fails
     (e.g. a view rather than a real table).
     """
-    table_names = schema_inspect(connection, schema=schema).get_table_names()
+    table_names = sa.inspect(connection).get_table_names(schema=schema)
     previews = []
     for name in table_names:
         try:
             count = connection.execute(
-                sa.text(f"SELECT COUNT(*) FROM {qualified(connection, name, schema=schema)}")
+                sa.text(f"SELECT COUNT(*) FROM {qualified(connection, name, physical_schema=schema)}")
             ).scalar()
         except Exception:
             count = None
@@ -94,7 +99,7 @@ def schema_is_a_current_target(
             or candidate_url.port != target_url.port
         ):
             continue
-        if schema in resolved.occupied_schemas():
+        if schema in resolved.occupied_schemas(connection):
             return name
     return None
 
@@ -117,19 +122,29 @@ def drop_orphan_schema_tables(
         If *connection*'s dialect has no real schema concept at all (e.g.
         SQLite). "Orphan schema" doesn't apply there.
     RuntimeError
-        If *orphan_schema* is the current schema target of any configured
-        database/role in *stack*.
+        If *orphan_schema* is reserved by a registered package, is the
+        current schema target of any configured database/role in *stack*,
+        or is currently claimed by a schema-provenance record (e.g. a
+        shared resource such as a model registry).
     """
     if not supports_schemas(connection):
         raise ValueError(
             f"Cannot drop orphan schema tables: {connection.dialect.name!r} has no real schema "
             "concept, so 'orphan schema' doesn't apply and this operation isn't meaningful here."
         )
+    reject_reserved_schema(orphan_schema)
     blocking = schema_is_a_current_target(connection, stack, orphan_schema)
     if blocking is not None:
         raise RuntimeError(
             f"Refusing to drop tables in schema {orphan_schema!r}: it is the current schema "
             f"target of database {blocking!r}. Reconfigure or drop that database entry first "
+            "if this schema is genuinely meant to be retired."
+        )
+    claimant = find_schema_provenance_claim(connection, physical_schema=orphan_schema)
+    if claimant is not None:
+        raise RuntimeError(
+            f"Refusing to drop tables in schema {orphan_schema!r}: schema-provenance records "
+            f"it as currently claimed by {claimant!r}. Reconfigure or retire that entry first "
             "if this schema is genuinely meant to be retired."
         )
     preview = preview_orphan_schema_tables(connection, orphan_schema)

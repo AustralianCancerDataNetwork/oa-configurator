@@ -71,7 +71,7 @@ def test_acknowledge_schema_migration_clears_drift(pg_db, monkeypatch, cleanup_a
             [
                 "acknowledge-schema-migration",
                 "--database", db_name,
-                "--role", role,
+                "--schema-tag", role,
                 "--new-schema", schema_b,
                 "--reason", "test acknowledgment",
             ],

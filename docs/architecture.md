@@ -177,7 +177,7 @@ CDM-specific: `ResolvedCDMDatabase.schema_translate_map()` returns the SQLAlchem
 {"primary": "omop", "vocab": "omop_vocab", "results": "results"}
 ```
 
-OMOP ORM models carry `schema="primary"`, `schema="vocab"` or `schema="results"` on their `__table_args__`. The translate map routes them to the correct schema at runtime without changing model definitions. Its keys correspond to the members of [`Role`](api/resources.md#role), the same enum `ResolvedCDMDatabase.connection_target()`/`create_engine()` accept for their `role` parameter. 
+OMOP ORM models carry `schema="primary"`, `schema="vocab"` or `schema="results"` on their `__table_args__`. The translate map routes them to the correct schema at runtime without changing model definitions. Its keys correspond to the members of [`Role`](api/resources.md#role), the same enum `ResolvedCDMDatabase.connection_for_role()`/`create_engine()` accept for their `role` parameter. 
 
 !!! note "Untagged table"
     A genuinely untagged table (no `schema` set at all in `__table_args__`) is not part of this routing and falls through to the connection's own default/`search_path`
@@ -193,18 +193,22 @@ OMOP ORM models carry `schema="primary"`, `schema="vocab"` or `schema="results"`
 
 `schema_translate_map()` resolves a table's *current* physical schema correctly, but on its own gives no memory of a table's *previous* one. If a role's configured schema changes between two runs (a typo, an incomplete migration, two configs drifting apart), nothing would otherwise stop `create_all()` from silently creating a second, orphaned copy of the tables under the new schema while the old copy sits there unnoticed.
 
-`guard_schema_provenance(connection, resolved, *, role)` (`sql.py`) closes that gap: a context manager wrapping a `create_all()`-style call, recording which physical schema each `(database, role)` pair last resolved to in a small bookkeeping table (`SCHEMA_PROVENANCE_SCHEMA`, its own reserved schema). Entering checks; the write happens only on successful exit, never on an exception:
+`guard_schema_provenance(connection, *, database_name, test_only, schema_tag, physical_schema, tables)` (`sql.py`) closes that gap: a context manager wrapping a `create_all()`-style call, recording which physical schema each `(database_name, schema_tag)` pair last resolved to in a small bookkeeping table (`SCHEMA_PROVENANCE_SCHEMA`, its own reserved schema). Entering checks; the write happens only on successful exit, never on an exception:
 
 ```python
-with guard_schema_provenance(connection, resolved, role=Role.VOCAB):
+with guard_schema_provenance(
+    connection, database_name=resolved.name, test_only=resolved.vocab_connection.test_only,
+    schema_tag=Role.VOCAB, physical_schema=schema_of(connection, schema_tag=Role.VOCAB),
+    tables=vocab_tables,
+):
     Base.metadata.create_all(bind=connection, tables=vocab_tables, checkfirst=True)
 ```
 
-A resolved schema that disagrees with the recorded one raises `SchemaDriftError` and refuses the DDL. `resolved=None` (a bare-engine caller with no resolved config, e.g. a test) short-circuits to a no-op, as does a `test_only` connection — this only guards genuinely persistent deployments. `find_table_in_other_schemas()` complements it for drift that predates the bookkeeping table entirely, checking the database's actual physical layout rather than a stored claim.
+A resolved schema that disagrees with the recorded one raises `SchemaDriftError` and refuses the DDL. `tables` also drives a first-time-setup check: each table is checked against every other schema on the connection, catching one already living under a different physical schema than `schema_tag` is configured for (e.g. pre-existing vocab tables sitting in `myvocab` while `vocab_schema` is configured as `vocab`) — pass an empty tuple when the caller has no specific tables in view (e.g. a read-only verification), which skips that one check, not the whole guard. `test_only=True` short-circuits to a no-op — this only guards genuinely persistent deployments. `find_table_in_other_schemas()` (which the `tables` check above is itself built on) also complements the guard directly for drift that predates the bookkeeping table entirely, checking the database's actual physical layout rather than a stored claim.
 
 oa-configurator owns the guard, the bookkeeping table, and the CLI-level remediation path for a genuine migration, generic over any `[databases.*]` entry rather than tied to any particular domain package:
 
-- `omop-config acknowledge-schema-migration --database <name> --new-schema <schema> --reason <text> [--role <role>]` records a schema as the deliberate new baseline (`--reason` is mandatory; there is no `--yes` shortcut).
+- `omop-config acknowledge-schema-migration --database <name> --new-schema <schema> --reason <text> [--schema-tag <tag>]` records a schema as the deliberate new baseline (`--reason` is mandatory; there is no `--yes` shortcut).
 - `omop-config drop-orphan-schema-tables --database <name> --schema <schema> [--role <role>] [--confirm]` drops tables physically found in an orphaned schema, after checking the named schema isn't still the current target of any configured database/role. Previews only, unless `--confirm` is given.
 
 Neither command moves data automatically — resolving a genuine migration is always an explicit, operator-run action with its own reasoning recorded.

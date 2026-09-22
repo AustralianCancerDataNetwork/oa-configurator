@@ -16,7 +16,6 @@ from ...refs import RefTo, Secret, SecretSafeBaseModel
 from .sql import (
     SCHEMA_TRANSLATE_MAP_KEY,
     Role,
-    _profile_for,
     reject_reserved_schema,
     requires_host,
     schema_if_supported,
@@ -201,22 +200,6 @@ def _iter_schema_roles(cls: type[BaseModel]) -> Iterator[tuple[str, Role]]:
             yield name, roles[0]
 
 
-def schema_for_role(instance: BaseModel, role: Role) -> str | None:
-    """Effective config-time schema value for role on instance.
-
-    The role's own Role-tagged field if explicitly set, else the field
-    tagged Role.PRIMARY. Operates on a pre-resolve config model (e.g.
-    CDMDatabaseConfig); ResolvedDatabase/ResolvedCDMDatabase have their own
-    schema_for_role method for the equivalent post-resolve lookup.
-    """
-    field_by_role = {r: name for name, r in _iter_schema_roles(type(instance))}
-    if role in field_by_role:
-        value = getattr(instance, field_by_role[role])
-        if value is not None:
-            return value
-    return getattr(instance, field_by_role[Role.PRIMARY])
-
-
 def _merged_schema_translate_map(
     execution_options: dict[str, Any] | None,
     configured_map: dict[str | None, str | None],
@@ -344,15 +327,23 @@ class CDMDatabaseConfig(DatabaseConfig):
     )
 
     def connection_name_for_role(self, role: Role) -> str:
-        """Name of the connection entry to use for role.
-
-        vocab_connection for Role.VOCAB when explicitly configured, else
-        the primary connection -- the same branch Role.RESULTS and an
-        unconfigured Role.VOCAB both take.
+        """Name of the connection entry to use for role: vocab_connection
+        for Role.VOCAB when explicitly configured, else the primary connection.
         """
-        if role is Role.VOCAB and self.vocab_connection is not None:
+        if role == Role.VOCAB and self.vocab_connection is not None:
             return self.vocab_connection
         return self.connection
+
+    def _schema_for_role(self, role: Role) -> str | None:
+        """Effective config-time schema value for role: the role's own
+        Role-tagged field if explicitly set, else the field tagged Role.PRIMARY.
+        """
+        field_by_role = {r: name for name, r in _iter_schema_roles(type(self))}
+        if role in field_by_role:
+            value = getattr(self, field_by_role[role])
+            if value is not None:
+                return value
+        return getattr(self, field_by_role[Role.PRIMARY])
 
     def resolve(self, name: str, stack: StackConfig) -> ResolvedCDMDatabase:
         """Resolve this database to concrete connections and effective schema names.
@@ -375,8 +366,8 @@ class CDMDatabaseConfig(DatabaseConfig):
             collides with a schema reserved for internal bookkeeping (see
             :func:`~.sql.register_reserved_schema`).
         """
-        effective_vocab_schema = schema_for_role(self, Role.VOCAB)
-        effective_results_schema = schema_for_role(self, Role.RESULTS)
+        effective_vocab_schema = self._schema_for_role(Role.VOCAB)
+        effective_results_schema = self._schema_for_role(Role.RESULTS)
         reject_reserved_schema(self.cdm_schema)
         reject_reserved_schema(effective_vocab_schema)
         reject_reserved_schema(effective_results_schema)
@@ -517,9 +508,9 @@ class ResolvedDatabase:
         Parameters
         ----------
         role : Role, optional
-            Which role to create an engine for. Only ``Role.PRIMARY`` is valid
-            here; anything else raises as a ResolvedDatabase has no vocab/results
-            role-splitting. Defaults to ``Role.PRIMARY``.
+            Which connection to create an engine for. Only ``Role.PRIMARY``
+            is valid here; anything else raises as a ResolvedDatabase has no
+            vocab/results connection-splitting. Defaults to ``Role.PRIMARY``.
         execution_options : dict, optional
             Additional execution options merged into the engine. A
             ``schema_translate_map`` here may add keys the resolver doesn't
@@ -546,13 +537,13 @@ class ResolvedDatabase:
             skipped ``.resolve()``.
         """
         reject_reserved_schema(self.schema_name)
-        engine = self.connection_target(role).create_engine(**kwargs)
+        engine = self.connection_for_role(role).create_engine(**kwargs)
         merged_opts = _merged_schema_translate_map(execution_options, self.schema_translate_map())
         return engine.execution_options(**merged_opts)
 
-    def connection_target(self, role: Role = Role.PRIMARY) -> ResolvedConnection:
+    def connection_for_role(self, role: Role = Role.PRIMARY) -> ResolvedConnection:
         """Return the resolved connection for a given role.
-        Only PRIMARY is valid here as ResolvedDatabase has no vocab/results role-splitting.
+        Only Role.PRIMARY is valid here as ResolvedDatabase has no vocab/results connection-splitting.
 
         Raises
         ------
@@ -562,7 +553,7 @@ class ResolvedDatabase:
         if role != Role.PRIMARY:
             raise ValueError(
                 f"Role.{role.name} has no meaning for {type(self).__name__}; "
-                "only ResolvedCDMDatabase has vocab/results roles."
+                "only ResolvedCDMDatabase has vocab/results connections."
             )
         return self.connection
 
@@ -582,16 +573,30 @@ class ResolvedDatabase:
             )
         return self.schema_name
 
-    def occupied_schemas(self) -> set[str]:
+    def schema_tags(self) -> tuple[Role, ...]:
+        """Role tags whose schema provenance is worth tracking for this database."""
+        return (Role.PRIMARY,)
+
+    def occupied_schemas(self, connection: sa.Connection) -> set[str]:
         """Physical schema names this database currently claims.
 
-        Unlike schema_translate_map(), an unset schema resolves to the
-        connection's own default schema (e.g. "public"), not None: this
-        reports the real physical schema a table lands in, not a
-        translate-map directive.
+        Reads schema_translate_map() rather than self.schema_name directly,
+        so the supports_schemas fold it already applies isn't reimplemented
+        here. Unlike schema_translate_map() itself, an unset entry resolves
+        to the connection's own live default schema (e.g. "public"), not
+        None: this reports the real physical schema a table lands in, not
+        a translate-map directive.
+
+        Parameters
+        ----------
+        connection : sqlalchemy.engine.Connection
+            Open connection to this database's own server, used to read its
+            live default schema (search_path-dependent, not a static
+            per-dialect guess). The caller is expected to already have one
+            in scope, not open a fresh one just for this.
         """
-        default = _profile_for(self.connection.dialect_name).default_schema
-        schema = self.schema_name or default
+        default = sa.inspect(connection).default_schema_name
+        schema = self.schema_translate_map()[Role.PRIMARY.value] or default
         return {schema} if schema is not None else set()
 
     def __repr__(self) -> str:
@@ -632,23 +637,23 @@ class ResolvedCDMDatabase(ResolvedDatabase):
         """Alias for ``schema_name``, matching OHDSI's own CDM/VOCAB/RESULTS naming."""
         return self.schema_name
 
-    def connection_target(self, role: Role = Role.PRIMARY) -> ResolvedConnection:
-        """Return the resolved connection for a given role.
-        See ~meth:`CDMDatabaseConfig.resolve` for how vocab/results roles are handled.
+    def connection_for_role(self, role: Role = Role.PRIMARY) -> ResolvedConnection:
+        """Return the resolved connection for a given role: only ``Role.PRIMARY``
+        or ``Role.VOCAB``, the only two physical connections that exist.
 
-        Parameters
-        ----------
-        role : Role, optional
-            Which connection to return. Defaults to ``Role.PRIMARY``.
-
-        Returns
-        -------
-        ResolvedConnection
-            The concrete connection for *role*
+        Raises
+        ------
+        ValueError
+            If *role* is neither ``Role.PRIMARY`` nor ``Role.VOCAB``.
         """
         if role == Role.VOCAB:
             return self.vocab_connection
-        return self.connection
+        if role == Role.PRIMARY:
+            return self.connection
+        raise ValueError(
+            f"Role.{role.name} is not a valid connection role for {type(self).__name__}; "
+            "only Role.PRIMARY and Role.VOCAB select a connection."
+        )
 
     def schema_for_role(self, role: Role = Role.PRIMARY) -> str | None:
         """Return the effective schema for a given role.
@@ -663,13 +668,20 @@ class ResolvedCDMDatabase(ResolvedDatabase):
         -------
         str or None
             ``vocab_schema`` for ``Role.VOCAB``, ``results_schema`` for
-            ``Role.RESULTS``, ``schema_name`` otherwise.
+            ``Role.RESULTS``, ``schema_name`` for ``Role.PRIMARY``.
+
+        Raises
+        ------
+        ValueError
+            If role is not recognised as a Role member. 
         """
         if role == Role.VOCAB:
             return self.vocab_schema
         if role == Role.RESULTS:
             return self.results_schema
-        return self.schema_name
+        if role == Role.PRIMARY:
+            return self.schema_name
+        raise ValueError(f"Role.{role.name} is not handled by {type(self).__name__}.schema_for_role.")
 
     def schema_translate_map(self) -> dict[str | None, str | None]:
         """SQLAlchemy schema translate map for OMOP ORM models.
@@ -697,17 +709,32 @@ class ResolvedCDMDatabase(ResolvedDatabase):
             Role.RESULTS.value: schema_if_supported(self.results_schema, self.connection.dialect_name),
         }
 
-    def occupied_schemas(self) -> set[str]:
-        """Physical schema names this database currently claims, including vocab/results.
+    def schema_tags(self) -> tuple[Role, ...]:
+        """Role tags whose schema provenance is worth tracking: primary, vocab, and results."""
+        return (Role.PRIMARY, Role.VOCAB, Role.RESULTS)
 
-        ``vocab`` falls back to ``vocab_connection``'s own default schema,
-        since that can genuinely be a separate connection/dialect; see
-        :meth:`schema_translate_map`.
+    def occupied_schemas(self, connection: sa.Connection) -> set[str]:
+        """Physical schema names this database currently claims.
+        If the vocab_connection is a genuinely different connection 
+        than connection, opens a short-lived connection to it just to 
+        read its default schema, then disposes it immediately.
         """
-        schemas = super().occupied_schemas()
-        default = _profile_for(self.connection.dialect_name).default_schema
-        vocab_default = _profile_for(self.vocab_connection.dialect_name).default_schema
-        for schema in (self.vocab_schema or vocab_default, self.results_schema or default):
+        schemas = super().occupied_schemas(connection)
+        default = sa.inspect(connection).default_schema_name
+        if self.connection == self.vocab_connection:
+            vocab_default = default
+        else:
+            vocab_engine = self.vocab_connection.create_engine()
+            try:
+                with vocab_engine.connect() as vocab_connection:
+                    vocab_default = sa.inspect(vocab_connection).default_schema_name
+            finally:
+                vocab_engine.dispose()
+        translated = self.schema_translate_map()
+        for schema in (
+            translated[Role.VOCAB.value] or vocab_default,
+            translated[Role.RESULTS.value] or default,
+        ):
             if schema is not None:
                 schemas.add(schema)
         return schemas
@@ -755,15 +782,12 @@ class ResolvedCDMDatabase(ResolvedDatabase):
             :meth:`CDMDatabaseConfig.resolve`; repeated here as defense in
             depth for a hand-built ``ResolvedCDMDatabase`` that skipped
             ``.resolve()``. Does not call ``ResolvedDatabase.create_engine``
-            (this override builds its own engine via ``connection_target``),
+            (this override builds its own engine via ``connection_for_role``),
             so that check doesn't run here for free and needs repeating.
         """
-        reject_reserved_schema(self.schema_name)
         reject_reserved_schema(self.vocab_schema)
         reject_reserved_schema(self.results_schema)
-        engine = self.connection_target(role).create_engine(**kwargs)
-        merged_opts = _merged_schema_translate_map(execution_options, self.schema_translate_map())
-        return engine.execution_options(**merged_opts)
+        return super().create_engine(role=role, execution_options=execution_options, **kwargs)
 
     def vocab_engine_for(
         self,
@@ -776,17 +800,7 @@ class ResolvedCDMDatabase(ResolvedDatabase):
 
         Returns ``primary`` unchanged when ``vocab_connection`` is not a genuinely
         different connection, avoiding a second, redundant connection pool
-        to the same target. For a caller that builds its own primary engine
-        (e.g. one that also registers extra state against it) rather than
-        via a plain :meth:`create_engine` call.
-
-        Notes
-        -----
-        Compares by value (``==``), not identity: ``.resolve()`` reuses the
-        same ``ResolvedConnection`` object when no separate vocab connection
-        is configured, but a hand-built ``ResolvedCDMDatabase`` that skips
-        ``.resolve()`` may construct two separately-equal-but-distinct
-        objects instead.
+        to the same target.
         """
         if self.connection == self.vocab_connection:
             return primary

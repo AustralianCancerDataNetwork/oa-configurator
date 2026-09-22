@@ -20,7 +20,6 @@ from .domains.resources.sql import (
     SCHEMA_PROVENANCE_SCHEMA,
     SCHEMA_TRANSLATE_MAP_KEY,
     Dialect,
-    SchemaBoundInspector,
     SchemaDriftError,
     autocommit_connection,
     ensure_schema,
@@ -30,11 +29,9 @@ from .domains.resources.sql import (
     record_schema_provenance,
     register_reserved_schema,
     requires_host,
-    role_of_table,
-    schema_inspect,
     schema_of,
-    schema_options,
     supports_schemas,
+    validate_schema_tag,
 )
 from .domains.vector_stores.schema import ResolvedVectorStore, VectorStoreConfig
 from .io import ConfigSaveError, FLAT_ENV_PATH, save_stack_config, write_env_file
@@ -102,7 +99,6 @@ __all__ = [
     "Role",
     "SCHEMA_PROVENANCE_SCHEMA",
     "SCHEMA_TRANSLATE_MAP_KEY",
-    "SchemaBoundInspector",
     "SchemaDriftError",
     "Secret",
     "SecretSafeBaseModel",
@@ -127,13 +123,11 @@ __all__ = [
     "record_schema_provenance",
     "register_reserved_schema",
     "requires_host",
-    "role_of_table",
     "safe_endpoint",
     "save_stack_config",
-    "schema_inspect",
     "schema_of",
-    "schema_options",
     "supports_schemas",
     "unresolved_refs",
+    "validate_schema_tag",
     "write_env_file",
 ]

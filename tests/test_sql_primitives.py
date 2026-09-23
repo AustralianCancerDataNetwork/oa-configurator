@@ -37,6 +37,7 @@ from oa_configurator import (
     ensure_schema,
     find_table_in_other_schemas,
     guard_schema_provenance,
+    open_connection,
     qualified,
     record_schema_provenance,
     register_reserved_schema,
@@ -67,6 +68,17 @@ class TestAsBind:
                 assert _as_bind(session) is conn
             finally:
                 session.close()
+
+
+class TestOpenConnection:
+    def test_engine_opens_its_own_transaction(self, engine):
+        with open_connection(engine) as conn:
+            assert conn.in_transaction()
+
+    def test_connection_is_forwarded_as_is(self, engine):
+        with engine.connect() as conn:
+            with open_connection(conn) as opened:
+                assert opened is conn
 
     def test_session_bound_to_an_engine_reduces_to_its_own_live_connection(self, engine):
         """Session.connection(), not Session.get_bind(): a fresh connection
@@ -186,6 +198,14 @@ class TestQualified:
 
     def test_quotes_mixed_case_schema(self, engine):
         assert qualified(engine, "concept", physical_schema="MySchema") == '"MySchema".concept'
+
+    def test_accepts_an_identifier_preparer_directly(self, engine):
+        """A caller with no live bindable (e.g. a dialect-only preparer built
+        ahead of any connection) can pass the preparer itself."""
+        preparer = engine.dialect.identifier_preparer
+        assert qualified(preparer, "concept", physical_schema="myschema") == qualified(
+            engine, "concept", physical_schema="myschema"
+        )
 
 
 class TestSupportsSchemas:

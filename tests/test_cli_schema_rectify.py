@@ -84,6 +84,36 @@ def test_acknowledge_schema_migration_clears_drift(pg_db, monkeypatch, cleanup_a
     assert "DRIFT" not in result.output
 
 
+def test_acknowledge_schema_migration_refuses_a_schema_claimed_by_another_database(
+    pg_db, monkeypatch, cleanup_after_test
+):
+    db_name_a = f"rectify_db_{uuid.uuid4().hex[:8]}"
+    db_name_b = f"rectify_db_{uuid.uuid4().hex[:8]}"
+    schema_a = f"test_{uuid.uuid4().hex[:8]}"
+    _cleanup_provenance_rows(cleanup_after_test, pg_db, db_name_a)
+    _cleanup_provenance_rows(cleanup_after_test, pg_db, db_name_b)
+
+    stack_a = _stack_with_one_cdm_db(pg_db, database_name=db_name_a, schema=schema_a)
+    monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack_a)
+    assert runner.invoke(app, ["verify"]).exit_code == 0
+
+    stack_b = _stack_with_one_cdm_db(pg_db, database_name=db_name_b, schema=f"test_{uuid.uuid4().hex[:8]}")
+    monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack_b)
+    result = runner.invoke(
+        app,
+        [
+            "acknowledge-schema-migration",
+            "--database", db_name_b,
+            "--schema-tag", "primary",
+            "--new-schema", schema_a,
+            "--reason", "test acknowledgment onto a claimed schema",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Refusing to acknowledge" in result.output
+    assert db_name_a in result.output
+
+
 def test_acknowledge_schema_migration_requires_a_reason(pg_db, monkeypatch, cleanup_after_test):
     db_name = f"rectify_db_{uuid.uuid4().hex[:8]}"
     schema = f"test_{uuid.uuid4().hex[:8]}"

@@ -840,12 +840,12 @@ def guard_schema_provenance_for(
     connection: sa.Connection,
     resolved: ResolvedDatabase | None,
     *,
-    role: Role,
+    schema_tag: Role | str,
     tables: Iterable[sa.Table],
     database_name: str | None = None,
 ) -> AbstractContextManager[None]:
-    """guard_schema_provenance() scoped to role's own schema tag, or a
-    no-op when resolved is None (a bare-engine caller with no resolved
+    """guard_schema_provenance() scoped to schema_tag's own physical schema,
+    or a no-op when resolved is None (a bare-engine caller with no resolved
     config behind it).
 
     Parameters
@@ -854,9 +854,9 @@ def guard_schema_provenance_for(
         Connection the guarded DDL runs on.
     resolved : ResolvedDatabase, optional
         Supplies database_name/test_only/physical_schema. None no-ops.
-    role : Role
-        Schema tag being guarded. RESULTS has no connection of its own, so
-        PRIMARY's connection supplies test_only for it.
+    schema_tag : Role or str
+        Schema tag being guarded. Determines the connection role used
+        to read test_only and the physical schema to guard.
     tables : Iterable[sqlalchemy.Table]
         Tables about to be created under this schema; see
         guard_schema_provenance's own tables parameter.
@@ -871,12 +871,13 @@ def guard_schema_provenance_for(
     """
     if resolved is None:
         return nullcontext()
-    connection_role = Role.VOCAB if role == Role.VOCAB else Role.PRIMARY
+    connection_role = Role.VOCAB if schema_tag == Role.VOCAB else Role.PRIMARY
+    schema_tag = schema_tag.value if isinstance(schema_tag, Role) else schema_tag
     return guard_schema_provenance(
         connection,
         database_name=database_name if database_name is not None else resolved.name,
         test_only=resolved.connection_for_role(connection_role).test_only,
-        schema_tag=role.value,
-        physical_schema=schema_of(connection, schema_tag=role),
+        schema_tag=schema_tag,
+        physical_schema=schema_of(connection, schema_tag=schema_tag),
         tables=tables,
     )

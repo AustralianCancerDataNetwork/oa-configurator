@@ -20,6 +20,7 @@ import sqlalchemy as sa
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.compiler import IdentifierPreparer
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,32 @@ def _as_bind(bindable: Bindable) -> Engine | Connection:
     return bindable
 
 
+@contextmanager
+def open_connection(bindable: Engine | Connection) -> Iterator[Connection]:
+    """Opens its own transaction for an Engine, or uses
+    an already-open Connection directly, participating in the caller's own
+    transaction.
+
+    Parameters
+    ----------
+    bindable : sqlalchemy.engine.Engine or sqlalchemy.engine.Connection
+        An Engine opens a new connection and transaction scoped to this
+        context manager, committing on a clean exit. A Connection is
+        forwarded as-is; its transaction is owned by the caller, and
+        passing the same Connection into several calls groups them into
+        one shared transaction.
+
+    Yields
+    ------
+    sqlalchemy.engine.Connection
+    """
+    if isinstance(bindable, Engine):
+        with bindable.begin() as connection:
+            yield connection
+    else:
+        yield bindable
+
+
 def validate_schema_tag(table: sa.Table) -> str | None:
     """Whether the scheam tag of a table is a known Role tag,
     a registered reserved schema, or None if untagged.
@@ -179,7 +206,7 @@ def schema_of(bindable: Bindable, *, schema_tag: str | None = Role.PRIMARY) -> s
 
 
 def qualified(
-    bindable: Bindable,
+    bindable: Bindable | IdentifierPreparer,
     name: str,
     *,
     physical_schema: str | None
@@ -188,8 +215,11 @@ def qualified(
     Utilises IdentifierPreparer.format_table to quote the name according to the dialect's rules.
     Parameters
     ----------
-    bindable : Engine | Connection | Session
-        The SQLAlchemy object whose dialect is used to quote the name.
+    bindable : Engine | Connection | Session | IdentifierPreparer
+        The SQLAlchemy object whose dialect is used to quote the name, or an
+        already-resolved IdentifierPreparer directly, for a caller with no
+        live bindable in hand (e.g. a dialect-only preparer built ahead of
+        any connection).
     name : str
         Unqualified identifier to quote.
     physical_schema : str or None
@@ -202,8 +232,10 @@ def qualified(
         The quoted identifier, schema-prefixed unless *physical_schema* is
         ``None``, e.g. ``"myschema"."mytable"`` or ``"mytable"``.
     """
-    bind = _as_bind(bindable)
-    preparer = bind.dialect.identifier_preparer
+    preparer = (
+        bindable if isinstance(bindable, IdentifierPreparer)
+        else _as_bind(bindable).dialect.identifier_preparer
+    )
     return preparer.format_table(sa.table(name, schema=physical_schema))
 
 

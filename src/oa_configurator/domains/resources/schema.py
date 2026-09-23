@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.engine import URL, Engine
@@ -16,9 +17,11 @@ from ...refs import RefTo, Secret, SecretSafeBaseModel
 from .sql import (
     SCHEMA_TRANSLATE_MAP_KEY,
     Role,
+    guard_schema_provenance,
     reject_reserved_schema,
     requires_host,
     schema_if_supported,
+    schema_of,
     supports_schemas,
 )
 
@@ -831,3 +834,49 @@ class ResolvedCDMDatabase(ResolvedDatabase):
             f"vocab_schema={self.vocab_schema!r}, "
             f"results_schema={self.results_schema!r})"
         )
+
+
+def guard_schema_provenance_for(
+    connection: sa.Connection,
+    resolved: ResolvedDatabase | None,
+    *,
+    role: Role,
+    tables: Iterable[sa.Table],
+    database_name: str | None = None,
+) -> AbstractContextManager[None]:
+    """guard_schema_provenance() scoped to role's own schema tag, or a
+    no-op when resolved is None (a bare-engine caller with no resolved
+    config behind it).
+
+    Parameters
+    ----------
+    connection : sqlalchemy.engine.Connection
+        Connection the guarded DDL runs on.
+    resolved : ResolvedDatabase, optional
+        Supplies database_name/test_only/physical_schema. None no-ops.
+    role : Role
+        Schema tag being guarded. RESULTS has no connection of its own, so
+        PRIMARY's connection supplies test_only for it.
+    tables : Iterable[sqlalchemy.Table]
+        Tables about to be created under this schema; see
+        guard_schema_provenance's own tables parameter.
+    database_name : str, optional
+        Override for a shared resource (e.g. "model_registry") tracked
+        under one identity across multiple database entries. Defaults to
+        resolved.name.
+
+    Returns
+    -------
+    AbstractContextManager[None]
+    """
+    if resolved is None:
+        return nullcontext()
+    connection_role = Role.VOCAB if role == Role.VOCAB else Role.PRIMARY
+    return guard_schema_provenance(
+        connection,
+        database_name=database_name if database_name is not None else resolved.name,
+        test_only=resolved.connection_for_role(connection_role).test_only,
+        schema_tag=role.value,
+        physical_schema=schema_of(connection, schema_tag=role),
+        tables=tables,
+    )

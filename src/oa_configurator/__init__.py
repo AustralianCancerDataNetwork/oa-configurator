@@ -15,6 +15,7 @@ from .domains.resources.schema import (
     ResolvedConnection,
     ResolvedDatabase,
     Role,
+    guard_schema_provenance_for,
 )
 from .domains.resources.sql import (
     SCHEMA_PROVENANCE_SCHEMA,
@@ -115,6 +116,7 @@ __all__ = [
     "find_table_in_other_schemas",
     "get_logger",
     "guard_schema_provenance",
+    "guard_schema_provenance_for",
     "is_sensitive",
     "load_stack_config",
     "mismatched_kind_refs",

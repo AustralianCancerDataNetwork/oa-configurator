@@ -21,7 +21,7 @@ from .sql import (
     reject_reserved_schema,
     requires_host,
     schema_if_supported,
-    schema_of,
+    physical_schema_of,
     supports_schemas,
 )
 
@@ -878,6 +878,6 @@ def guard_schema_provenance_for(
         database_name=database_name if database_name is not None else resolved.name,
         test_only=resolved.connection_for_role(connection_role).test_only,
         schema_tag=schema_tag,
-        physical_schema=schema_of(connection, schema_tag=schema_tag),
+        physical_schema=physical_schema_of(connection, schema_tag=schema_tag),
         tables=tables,
     )

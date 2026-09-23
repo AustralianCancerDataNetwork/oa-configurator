@@ -163,23 +163,23 @@ def open_connection(bindable: Engine | Connection) -> Iterator[Connection]:
 
 
 def validate_schema_tag(table: sa.Table) -> str | None:
-    """Whether the scheam tag of a table is a known Role tag,
-    a registered reserved schema, or None if untagged.
+    """Whether the schema tag of a table is a known Role tag,
+    a registered schema tag, or None if untagged.
 
     Raises
     ------
     ValueError
-        If the schema is neither a Role value nor a registered reserved schema.
+        If the schema is neither a Role value nor a registered schema tag.
     """
     schema = table.schema
     if schema is None:
         return None
-    if schema in {member.value for member in Role} or schema in _RESERVED_SCHEMAS:
+    if schema in {member.value for member in Role} or schema in _RESERVED_SCHEMA_TAGS:
         return schema
     raise ValueError(f"{table} has unrecognized schema tag {schema!r}: not a Role and not registered.")
 
 
-def schema_of(bindable: Bindable, *, schema_tag: str | None = Role.PRIMARY) -> str | None:
+def physical_schema_of(bindable: Bindable, *, schema_tag: str | None = Role.PRIMARY) -> str | None:
     """Look up schema_tag's physical schema in the bindable's schema_translate_map,
     or return schema_tag unchanged if it has no entry there.
 
@@ -188,8 +188,8 @@ def schema_of(bindable: Bindable, *, schema_tag: str | None = Role.PRIMARY) -> s
     bindable : Engine | Connection | Session
     schema_tag : str or None, optional
         The schema_translate_map key to look up: a Role value or a
-        registered reserved schema name, the same value a table's own
-        schema attribute would carry. Defaults to Role.PRIMARY.
+        registered schema tag, the same value a table's own schema
+        attribute would carry. Defaults to Role.PRIMARY.
 
     Returns
     -------
@@ -260,9 +260,9 @@ def supports_schemas(bindable: Bindable | str) -> bool:
     return _profile_for(dialect_name).supports_schemas
 
 
-def schema_if_supported(schema: str | None, bindable: Bindable | str) -> str | None:
-    """schema if bindable's dialect has a genuine multi-schema concept, else None."""
-    return schema if supports_schemas(bindable) else None
+def schema_if_supported(physical_schema: str | None, bindable: Bindable | str) -> str | None:
+    """physical_schema if bindable's dialect has a genuine multi-schema concept, else None."""
+    return physical_schema if supports_schemas(bindable) else None
 
 
 def requires_host(bindable: Bindable | str) -> bool:
@@ -315,12 +315,12 @@ _RESERVED_SCHEMAS: dict[str, str] = {}
 
 
 def register_reserved_schema(name: str, *, owner: str) -> None:
-    """Register *name* as a schema no db_schema config may ever collide with.
+    """Register *name* as a physical schema no db_schema config may ever collide with.
 
     Parameters
     ----------
     name : str
-        Schema name to reserve.
+        Physical schema name to reserve.
     owner : str
         Package reserving it, used in the error message on a later
         collision. Called once at module import time by the owning
@@ -342,17 +342,53 @@ def register_reserved_schema(name: str, *, owner: str) -> None:
     _RESERVED_SCHEMAS[name] = owner
 
 
-def _reserved_schema_message(db_schema: str | None) -> str | None:
-    """Message describing why db_schema collides with a reserved schema, or None if it doesn't."""
-    owner = _RESERVED_SCHEMAS.get(db_schema)
+_RESERVED_SCHEMA_TAGS: dict[str, str] = {}
+
+
+def register_reserved_schema_tag(name: str, *, owner: str) -> None:
+    """Register *name* as a schema_translate_map tag validate_schema_tag() accepts,
+    beyond the built-in Role values.
+
+    Distinct from :func:`register_reserved_schema`: this registers a tag (a
+    schema_translate_map key, never itself a literal schema), not a physical
+    schema name a config value may collide with.
+
+    Parameters
+    ----------
+    name : str
+        Schema tag to register.
+    owner : str
+        Package registering it, used in the error message on a later
+        collision. Called once at module import time by the owning
+        package, so the registration is always in effect by the time any
+        caller could reach :func:`validate_schema_tag`.
+
+    Raises
+    ------
+    RuntimeError
+        If *name* is already registered by a different owner. Re-registering
+        the same name by the same owner is a no-op.
+    """
+    existing_owner = _RESERVED_SCHEMA_TAGS.get(name)
+    if existing_owner is not None and existing_owner != owner:
+        raise RuntimeError(
+            f"Schema tag {name!r} is already registered by {existing_owner!r}; "
+            f"cannot also register it for {owner!r}."
+        )
+    _RESERVED_SCHEMA_TAGS[name] = owner
+
+
+def _reserved_schema_message(physical_schema: str | None) -> str | None:
+    """Message describing why physical_schema collides with a reserved schema, or None if it doesn't."""
+    owner = _RESERVED_SCHEMAS.get(physical_schema)
     if owner is None:
         return None
-    return f"db_schema cannot be {db_schema!r}: reserved for internal use by {owner!r}."
+    return f"db_schema cannot be {physical_schema!r}: reserved for internal use by {owner!r}."
 
 
-def reject_reserved_schema(db_schema: str | None) -> None:
-    """Raise RuntimeError if db_schema collides with a reserved schema, naming the owner."""
-    message = _reserved_schema_message(db_schema)
+def reject_reserved_schema(physical_schema: str | None) -> None:
+    """Raise RuntimeError if physical_schema collides with a reserved schema, naming the owner."""
+    message = _reserved_schema_message(physical_schema)
     if message is not None:
         raise RuntimeError(message)
 
@@ -426,9 +462,9 @@ class SchemaDriftError(RuntimeError):
 
 
 def find_table_in_other_schemas(
-    bindable: Bindable, table_name: str, *, expected_schema: str | None
+    bindable: Bindable, table_name: str, *, physical_schema: str | None
 ) -> tuple[str, ...]:
-    """Schemas, other than expected_schema, that already have a table
+    """Schemas, other than physical_schema, that already have a table
     named table_name. Excludes the dialect's own system schemas.
     """
     bind = _as_bind(bindable)
@@ -437,7 +473,7 @@ def find_table_in_other_schemas(
     candidates = [
         schema
         for schema in inspector.get_schema_names()
-        if schema != expected_schema and schema not in system_schemas
+        if schema != physical_schema and schema not in system_schemas
     ]
     return tuple(
         schema for schema in candidates if inspector.has_table(table_name, schema=schema)
@@ -490,7 +526,7 @@ def guard_schema_provenance(
 
         with guard_schema_provenance(
             connection, database_name=resolved.name, test_only=resolved.vocab_connection.test_only,
-            schema_tag=Role.VOCAB, physical_schema=schema_of(connection, schema_tag=Role.VOCAB),
+            schema_tag=Role.VOCAB, physical_schema=physical_schema_of(connection, schema_tag=Role.VOCAB),
             tables=vocab_tables,
         ):
             Base.metadata.create_all(bind=connection, tables=vocab_tables, checkfirst=True)
@@ -515,7 +551,7 @@ def guard_schema_provenance(
         schema-resolution meaning here (see *physical_schema* below).
     physical_schema : str or None
         The schema to guard, already resolved by the caller, e.g. via
-        ``schema_of(connection, schema_tag=schema_tag)``.
+        ``physical_schema_of(connection, schema_tag=schema_tag)``.
     tables : Iterable[sqlalchemy.Table]
         The tables about to be created under *physical_schema*, on a
         first-time setup (no provenance record yet). Each is checked
@@ -579,7 +615,7 @@ def guard_schema_provenance(
             expected_schema = physical_schema if physical_schema is not None else default_schema
             for guarded_table in tables:
                 other_schemas = find_table_in_other_schemas(
-                    connection, guarded_table.name, expected_schema=expected_schema
+                    connection, guarded_table.name, physical_schema=expected_schema
                 )
                 if other_schemas:
                     raise SchemaDriftError(

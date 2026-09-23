@@ -41,7 +41,8 @@ from oa_configurator import (
     qualified,
     record_schema_provenance,
     register_reserved_schema,
-    schema_of,
+    register_reserved_schema_tag,
+    physical_schema_of,
     supports_schemas,
     validate_schema_tag,
     Dialect,
@@ -95,7 +96,7 @@ class TestOpenConnection:
 
 class TestValidateSchemaTag:
     def test_none_schema_returns_none(self):
-        """Untagged is a legitimate, permanent case, not an error: schema_of()
+        """Untagged is a legitimate, permanent case, not an error: physical_schema_of()
         never redirects a None-schema table, it falls back to the connection's
         own default/search_path."""
         table = sa.Table("t", sa.MetaData(), schema=None)
@@ -105,9 +106,9 @@ class TestValidateSchemaTag:
         table = sa.Table("t", sa.MetaData(), schema=Role.VOCAB.value)
         assert validate_schema_tag(table) == Role.VOCAB.value
 
-    def test_returns_a_registered_reserved_schema(self):
+    def test_returns_a_registered_schema_tag(self):
         name = f"reserved_{uuid.uuid4().hex[:8]}"
-        register_reserved_schema(name, owner="test-owner")
+        register_reserved_schema_tag(name, owner="test-owner")
         table = sa.Table("t", sa.MetaData(), schema=name)
         assert validate_schema_tag(table) == name
 
@@ -117,22 +118,22 @@ class TestValidateSchemaTag:
             validate_schema_tag(table)
 
 
-class TestSchemaOf:
+class TestPhysicalSchemaOf:
     def test_reads_the_default_schema_tags_key(self, engine):
-        assert schema_of(engine) == "myschema"
+        assert physical_schema_of(engine) == "myschema"
 
     def test_falls_back_to_the_schema_tag_itself_when_no_map_at_all(self, engine):
         """No schema_translate_map on the bind at all: the schema_tag
         (Role.PRIMARY by default) is returned as-is, the same treatment a
         bare string gets."""
         bare = engine.execution_options(schema_translate_map=None)
-        assert schema_of(bare) == Role.PRIMARY
+        assert physical_schema_of(bare) == Role.PRIMARY
 
     def test_works_through_a_session(self, engine):
         with engine.connect() as conn:
             session = so.Session(bind=conn)
             try:
-                assert schema_of(session) == "myschema"
+                assert physical_schema_of(session) == "myschema"
             finally:
                 session.close()
 
@@ -144,28 +145,28 @@ class TestSchemaOf:
                 Role.RESULTS.value: "resultsschema",
             }
         )
-        assert schema_of(multi_tag, schema_tag=Role.VOCAB) == "vocabschema"
-        assert schema_of(multi_tag, schema_tag=Role.RESULTS) == "resultsschema"
-        assert schema_of(multi_tag) == "myschema"
+        assert physical_schema_of(multi_tag, schema_tag=Role.VOCAB) == "vocabschema"
+        assert physical_schema_of(multi_tag, schema_tag=Role.RESULTS) == "resultsschema"
+        assert physical_schema_of(multi_tag) == "myschema"
 
     def test_none_schema_tag_short_circuits_without_consulting_the_map(self, engine):
-        assert schema_of(engine, schema_tag=None) is None
+        assert physical_schema_of(engine, schema_tag=None) is None
 
     def test_bare_string_schema_tag_reads_its_own_mapped_key(self, engine):
         with_extension = engine.execution_options(
             schema_translate_map={Role.PRIMARY.value: "myschema", "extension": "ext_schema"}
         )
-        assert schema_of(with_extension, schema_tag="extension") == "ext_schema"
+        assert physical_schema_of(with_extension, schema_tag="extension") == "ext_schema"
 
     def test_bare_string_schema_tag_falls_back_to_itself_when_unmapped(self, engine):
         """Matches how SQLAlchemy's own schema_translate_map already treats an
         unmapped schema: untranslated, used as declared. Unlike a Role member,
         a bare string is itself a plausible literal schema name."""
-        assert schema_of(engine, schema_tag="custom_schema") == "custom_schema"
+        assert physical_schema_of(engine, schema_tag="custom_schema") == "custom_schema"
 
     def test_bare_string_schema_tag_falls_back_to_itself_with_no_map_at_all(self, engine):
         bare = engine.execution_options(schema_translate_map=None)
-        assert schema_of(bare, schema_tag="custom_schema") == "custom_schema"
+        assert physical_schema_of(bare, schema_tag="custom_schema") == "custom_schema"
 
     def test_role_member_unmapped_falls_back_to_its_own_value(self, engine):
         """A map is present but has no key for this schema_tag at all: falls
@@ -176,7 +177,7 @@ class TestSchemaOf:
         primary_only = engine.execution_options(
             schema_translate_map={Role.PRIMARY.value: "myschema"}
         )
-        assert schema_of(primary_only, schema_tag=Role.VOCAB) == Role.VOCAB
+        assert physical_schema_of(primary_only, schema_tag=Role.VOCAB) == Role.VOCAB
 
 
 class TestQualified:
@@ -358,8 +359,11 @@ class TestEnsureSchemaPostgres:
 
 class TestReservedSchemas:
     """register_reserved_schema/reject_reserved_schema share one module-level
-    registry, so every test uses a unique name (uuid-suffixed) to avoid
-    colliding with other tests or with real callers in the same process."""
+    registry of physical schema names, so every test uses a unique name
+    (uuid-suffixed) to avoid colliding with other tests or with real callers
+    in the same process. Distinct from TestReservedSchemaTags's registry:
+    this one guards against a config value colliding with a reserved
+    physical schema, not against an unrecognized schema_tag."""
 
     def _name(self) -> str:
         return f"reserved_{uuid.uuid4().hex[:8]}"
@@ -390,6 +394,35 @@ class TestReservedSchemas:
             register_reserved_schema(name, owner="second-owner")
 
 
+class TestReservedSchemaTags:
+    """register_reserved_schema_tag/validate_schema_tag share their own
+    module-level registry, separate from TestReservedSchemas's: this one
+    guards which schema_translate_map tags validate_schema_tag() accepts
+    (see TestValidateSchemaTag.test_returns_a_registered_schema_tag), not
+    which physical schema names a config value may use."""
+
+    def _name(self) -> str:
+        return f"reserved_tag_{uuid.uuid4().hex[:8]}"
+
+    def test_same_owner_reregistration_is_a_noop(self):
+        name = self._name()
+        register_reserved_schema_tag(name, owner="test-owner")
+        register_reserved_schema_tag(name, owner="test-owner")  # must not raise
+
+    def test_different_owner_registration_raises(self):
+        name = self._name()
+        register_reserved_schema_tag(name, owner="first-owner")
+        with pytest.raises(RuntimeError, match=f"{name!r}.*first-owner.*second-owner"):
+            register_reserved_schema_tag(name, owner="second-owner")
+
+    def test_registering_a_tag_does_not_reserve_it_as_a_physical_schema(self):
+        """The two registries are independent: a registered schema_tag must
+        not also block a config value from using the same literal string."""
+        name = self._name()
+        register_reserved_schema_tag(name, owner="test-owner")
+        reject_reserved_schema(name)  # must not raise
+
+
 class TestSystemSchemasFor:
     def test_postgres_excludes_its_catalogs(self):
         schemas = _profile_for(Dialect.POSTGRESQL).system_schemas
@@ -412,7 +445,7 @@ class TestFindTableInOtherSchemas:
         ensure_schema(conn, expected)
         ensure_schema(conn, actual)
         conn.execute(sa.text(f'CREATE TABLE "{actual}".orphan (id int)'))
-        found = find_table_in_other_schemas(conn, "orphan", expected_schema=expected)
+        found = find_table_in_other_schemas(conn, "orphan", physical_schema=expected)
         assert found == (actual,)
 
     def test_empty_when_table_only_exists_where_expected(self, pg_db):
@@ -420,18 +453,18 @@ class TestFindTableInOtherSchemas:
         expected = f"test_{uuid.uuid4().hex[:8]}"
         ensure_schema(conn, expected)
         conn.execute(sa.text(f'CREATE TABLE "{expected}".present (id int)'))
-        found = find_table_in_other_schemas(conn, "present", expected_schema=expected)
+        found = find_table_in_other_schemas(conn, "present", physical_schema=expected)
         assert found == ()
 
     def test_empty_when_table_does_not_exist_anywhere(self, pg_db):
         found = find_table_in_other_schemas(
-            pg_db.connection, "nonexistent_table_xyz", expected_schema="public"
+            pg_db.connection, "nonexistent_table_xyz", physical_schema="public"
         )
         assert found == ()
 
     def test_excludes_postgres_system_schemas(self, pg_db):
         found = find_table_in_other_schemas(
-            pg_db.connection, "pg_tables", expected_schema="public"
+            pg_db.connection, "pg_tables", physical_schema="public"
         )
         assert "information_schema" not in found
         assert "pg_catalog" not in found

@@ -35,7 +35,7 @@ from .domains.resources.sql import (
     guard_schema_provenance,
     record_schema_provenance,
     reject_reserved_schema,
-    schema_of,
+    physical_schema_of,
     Dialect,
 )
 from .domains.vector_stores.cli import vector_stores_app
@@ -327,7 +327,7 @@ def _verify_schema_provenance(
                 database_name=resolved.name,
                 test_only=resolved.connection_for_role(connection_role).test_only,
                 schema_tag=schema_tag,
-                physical_schema=schema_of(connection, schema_tag=schema_tag),
+                physical_schema=physical_schema_of(connection, schema_tag=schema_tag),
                 tables=(),
             ):
                 pass

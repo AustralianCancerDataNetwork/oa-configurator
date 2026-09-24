@@ -174,7 +174,7 @@ def validate_schema_tag(table: sa.Table) -> str | None:
     schema = table.schema
     if schema is None:
         return None
-    if schema in {member.value for member in Role} or schema in _RESERVED_SCHEMA_TAGS:
+    if schema in registered_schema_tags():
         return schema
     raise ValueError(f"{table} has unrecognized schema tag {schema!r}: not a Role and not registered.")
 
@@ -196,13 +196,17 @@ def physical_schema_of(bindable: Bindable, *, schema_tag: str | None = Role.PRIM
     str or None
         - None if schema_tag is None
         - Physical schema if schema_tag is in the schema_translate_map
-        - schema_tag itself if it has no entry in the schema_translate_map
+        - schema_tag itself if it has no entry there, on a dialect with a
+          real multi-schema concept; None on one without (e.g. SQLite), so
+          a tag some other package registered for its own, unrelated
+          database can never surface as a literal, unresolvable schema here.
     """
     if schema_tag is None:
         return None
     bind = _as_bind(bindable)
     stm = bind.get_execution_options().get(SCHEMA_TRANSLATE_MAP_KEY)
-    return stm.get(schema_tag, schema_tag) if stm else schema_tag
+    resolved = stm.get(schema_tag, schema_tag) if stm else schema_tag
+    return schema_if_supported(resolved, bind)
 
 
 def qualified(
@@ -376,6 +380,11 @@ def register_reserved_schema_tag(name: str, *, owner: str) -> None:
             f"cannot also register it for {owner!r}."
         )
     _RESERVED_SCHEMA_TAGS[name] = owner
+
+
+def registered_schema_tags() -> frozenset[str]:
+    """Every schema tag validate_schema_tag() currently accepts: Role's values plus every registered tag."""
+    return frozenset({member.value for member in Role} | _RESERVED_SCHEMA_TAGS.keys())
 
 
 def _reserved_schema_message(physical_schema: str | None) -> str | None:

@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Iterator
 import sqlalchemy as sa
 import sqlalchemy.orm as so
 
-from ..domains.resources.sql import SCHEMA_TRANSLATE_MAP_KEY, Role
+from ..domains.resources.sql import SCHEMA_TRANSLATE_MAP_KEY, registered_schema_tags
 from .base import IsolatedTestDatabase, TestDatabaseStrategy
 
 if TYPE_CHECKING:
@@ -77,9 +77,10 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
             just to call isolated_test_database() uniformly.
         **engine_kwargs
             Forwarded to ``sa.create_engine()``. If ``execution_options``
-            omits ``schema_translate_map`` entirely, every ``Role`` folds
-            to ``None`` here, since SQLite has no real schema concept. A
-            caller-supplied map is used as-is, not merged with this fold.
+            omits ``schema_translate_map`` entirely, every registered schema
+            tag folds to ``None`` here, since SQLite has no real schema
+            concept. A caller-supplied map is used as-is, not merged with
+            this fold.
         """
         with tempfile.TemporaryDirectory() as tmp_dir:
             db_path = Path(tmp_dir) / "test.db"
@@ -89,7 +90,7 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
                 str(key): value for key, value in existing_execution_options.items()
             }
             execution_options.setdefault(
-                SCHEMA_TRANSLATE_MAP_KEY, {role.value: None for role in Role}
+                SCHEMA_TRANSLATE_MAP_KEY, {tag: None for tag in registered_schema_tags()}
             )
             engine = sa.create_engine(
                 f"sqlite:///{db_path}", execution_options=execution_options, **engine_kwargs

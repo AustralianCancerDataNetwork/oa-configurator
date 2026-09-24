@@ -119,21 +119,32 @@ class TestValidateSchemaTag:
 
 
 class TestPhysicalSchemaOf:
+    """Every fallback/lookup case is also folded through schema_if_supported:
+    on a schema-less dialect (SQLite) the result is always None, regardless
+    of what the map says or falls back to, matching this file's own stated
+    rule for ensure_schema/guard_schema_provenance above -- a literal,
+    unresolvable schema tag (e.g. one some other package registered for its
+    own, unrelated database) must never survive as a real schema name here.
+    """
+
     def test_reads_the_default_schema_tags_key(self, engine):
-        assert physical_schema_of(engine) == "myschema"
+        expected = "myschema" if supports_schemas(engine) else None
+        assert physical_schema_of(engine) == expected
 
     def test_falls_back_to_the_schema_tag_itself_when_no_map_at_all(self, engine):
         """No schema_translate_map on the bind at all: the schema_tag
         (Role.PRIMARY by default) is returned as-is, the same treatment a
-        bare string gets."""
+        bare string gets -- unless the dialect has no schema concept."""
         bare = engine.execution_options(schema_translate_map=None)
-        assert physical_schema_of(bare) == Role.PRIMARY
+        expected = Role.PRIMARY if supports_schemas(bare) else None
+        assert physical_schema_of(bare) == expected
 
     def test_works_through_a_session(self, engine):
+        expected = "myschema" if supports_schemas(engine) else None
         with engine.connect() as conn:
             session = so.Session(bind=conn)
             try:
-                assert physical_schema_of(session) == "myschema"
+                assert physical_schema_of(session) == expected
             finally:
                 session.close()
 
@@ -145,9 +156,14 @@ class TestPhysicalSchemaOf:
                 Role.RESULTS.value: "resultsschema",
             }
         )
-        assert physical_schema_of(multi_tag, schema_tag=Role.VOCAB) == "vocabschema"
-        assert physical_schema_of(multi_tag, schema_tag=Role.RESULTS) == "resultsschema"
-        assert physical_schema_of(multi_tag) == "myschema"
+        if supports_schemas(multi_tag):
+            assert physical_schema_of(multi_tag, schema_tag=Role.VOCAB) == "vocabschema"
+            assert physical_schema_of(multi_tag, schema_tag=Role.RESULTS) == "resultsschema"
+            assert physical_schema_of(multi_tag) == "myschema"
+        else:
+            assert physical_schema_of(multi_tag, schema_tag=Role.VOCAB) is None
+            assert physical_schema_of(multi_tag, schema_tag=Role.RESULTS) is None
+            assert physical_schema_of(multi_tag) is None
 
     def test_none_schema_tag_short_circuits_without_consulting_the_map(self, engine):
         assert physical_schema_of(engine, schema_tag=None) is None
@@ -156,28 +172,34 @@ class TestPhysicalSchemaOf:
         with_extension = engine.execution_options(
             schema_translate_map={Role.PRIMARY.value: "myschema", "extension": "ext_schema"}
         )
-        assert physical_schema_of(with_extension, schema_tag="extension") == "ext_schema"
+        expected = "ext_schema" if supports_schemas(with_extension) else None
+        assert physical_schema_of(with_extension, schema_tag="extension") == expected
 
     def test_bare_string_schema_tag_falls_back_to_itself_when_unmapped(self, engine):
         """Matches how SQLAlchemy's own schema_translate_map already treats an
         unmapped schema: untranslated, used as declared. Unlike a Role member,
-        a bare string is itself a plausible literal schema name."""
-        assert physical_schema_of(engine, schema_tag="custom_schema") == "custom_schema"
+        a bare string is itself a plausible literal schema name -- unless the
+        dialect has no schema concept at all."""
+        expected = "custom_schema" if supports_schemas(engine) else None
+        assert physical_schema_of(engine, schema_tag="custom_schema") == expected
 
     def test_bare_string_schema_tag_falls_back_to_itself_with_no_map_at_all(self, engine):
         bare = engine.execution_options(schema_translate_map=None)
-        assert physical_schema_of(bare, schema_tag="custom_schema") == "custom_schema"
+        expected = "custom_schema" if supports_schemas(bare) else None
+        assert physical_schema_of(bare, schema_tag="custom_schema") == expected
 
     def test_role_member_unmapped_falls_back_to_its_own_value(self, engine):
         """A map is present but has no key for this schema_tag at all: falls
         back to the schema_tag itself, same as a bare string would (Role is
-        a StrEnum). Unreached by any real ResolvedCDMDatabase-built map,
-        which always writes all three Role keys; this only fires for a
-        caller asking a split of an engine that was never built with one."""
+        a StrEnum), or to None on a dialect with no schema concept.
+        Unreached by any real ResolvedCDMDatabase-built map, which always
+        writes all three Role keys; this only fires for a caller asking a
+        split of an engine that was never built with one."""
         primary_only = engine.execution_options(
             schema_translate_map={Role.PRIMARY.value: "myschema"}
         )
-        assert physical_schema_of(primary_only, schema_tag=Role.VOCAB) == Role.VOCAB
+        expected = Role.VOCAB if supports_schemas(primary_only) else None
+        assert physical_schema_of(primary_only, schema_tag=Role.VOCAB) == expected
 
 
 class TestQualified:

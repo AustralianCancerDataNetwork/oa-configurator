@@ -15,26 +15,47 @@ from oa_configurator import (
     ModelConfig,
     ProviderConfig,
     StackConfig,
+    Dialect,
+    requires_host,
 )
 from oa_configurator.stack_config import mismatched_kind_refs
 
 
 class TestConnectionConfig:
     def test_sqlite_build_url(self):
-        db = ConnectionConfig(dialect="sqlite", database_name=":memory:")
+        db = ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
         assert db.build_url() == "sqlite:///:memory:"
 
     def test_sqlite_without_database_name_raises(self):
         """No implicit ':memory:' fallback: an unset database_name for a
         sqlite dialect would otherwise silently discard data on every
         restart, with no indication anything was ever in-memory."""
-        db = ConnectionConfig(dialect="sqlite")
         with pytest.raises(ValueError, match="database_name"):
-            db.build_url()
+            ConnectionConfig(dialect=Dialect.SQLITE)
+
+    def test_sqlite_dialect_name_strips_driver_suffix_for_requires_host(self):
+        """dialect may be driver-qualified (e.g. 'sqlite+pysqlite'), not just
+        the bare name. requires_host() given a plain string uses it as-is
+        with no normalization, so it raises on a compound dialect string
+        directly. Showcases that ConnectionConfig.dialect_name strips the 
+        driver suffix for the benefit of requires_host() and other consumers."""
+        db = ConnectionConfig(dialect="sqlite+pysqlite", database_name=":memory:")
+        assert db.dialect_name == "sqlite"
+        assert requires_host(db.dialect_name) is False
+
+        with pytest.raises(ValueError, match="Unsupported dialect 'sqlite\\+pysqlite'"):
+            requires_host("sqlite+pysqlite")
+
+    def test_pg_without_host_raises(self):
+        """No implicit 'localhost' fallback: an unset host for a server-based
+        dialect must fail clearly rather than silently connecting to the
+        wrong (or no) server."""
+        with pytest.raises(ValueError, match="host"):
+            ConnectionConfig(dialect=Dialect.POSTGRESQL, database_name="mydb")
 
     def test_pg_build_url_includes_password(self):
         db = ConnectionConfig(
-            dialect="postgresql+psycopg",
+            dialect=Dialect.POSTGRESQL + "+psycopg",
             host="localhost",
             port=5432,
             user="admin",
@@ -48,7 +69,7 @@ class TestConnectionConfig:
 
     def test_pg_safe_url_redacts_password(self):
         db = ConnectionConfig(
-            dialect="postgresql+psycopg",
+            dialect=Dialect.POSTGRESQL + "+psycopg",
             host="localhost",
             user="admin",
             password="s3cret",
@@ -64,7 +85,7 @@ class TestConnectionConfig:
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(Exception):
-            ConnectionConfig(dialect="sqlite", unknown_field="x")  # type: ignore
+            ConnectionConfig(dialect=Dialect.SQLITE, unknown_field="x")  # type: ignore
 
 
 class TestGenericDatabaseConfig:
@@ -90,9 +111,9 @@ class TestCDMDatabaseConfig:
         assert r.vocab_schema is None
         assert r.results_schema is None
 
-    def test_schema_name_defaults_to_omop(self):
+    def test_schema_name_defaults_to_none(self):
         r = CDMDatabaseConfig(connection="db")
-        assert r.schema_name == "omop"
+        assert r.cdm_schema is None
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(Exception):
@@ -103,13 +124,13 @@ class TestDatabaseKindDiscrimination:
     def test_missing_kind_rejected(self):
         with pytest.raises(Exception, match="kind"):
             StackConfig.for_session(
-                connections={"c": ConnectionConfig(dialect="sqlite")},
+                connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
                 databases={"r": {"connection": "c"}},  # ty: ignore[invalid-argument-type]
             )
 
     def test_raw_dict_dispatches_by_kind(self):
         cfg = StackConfig.for_session(
-            connections={"c": ConnectionConfig(dialect="sqlite")},
+            connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
             databases=cast(
                 Any,
                 {
@@ -124,7 +145,7 @@ class TestDatabaseKindDiscrimination:
     def test_unknown_kind_rejected(self):
         with pytest.raises(Exception):
             StackConfig.for_session(
-                connections={"c": ConnectionConfig(dialect="sqlite")},
+                connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
                 databases={"r": {"kind": "bogus", "connection": "c"}},  # ty: ignore[invalid-argument-type]
             )
 
@@ -136,7 +157,7 @@ class TestMismatchedKindRefs:
 
     def test_flags_wrong_subtype(self):
         cfg = StackConfig.for_session(
-            connections={"c": ConnectionConfig(dialect="sqlite")},
+            connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
             databases={"g": GenericDatabaseConfig(connection="c")},
         )
         from oa_configurator.domains.vector_stores.schema import VectorStoreConfig
@@ -145,7 +166,7 @@ class TestMismatchedKindRefs:
         assert mismatched_kind_refs(vs, cfg) == []
 
         cfg2 = StackConfig.for_session(
-            connections={"c": ConnectionConfig(dialect="sqlite")},
+            connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
             databases={"d": CDMDatabaseConfig(connection="c")},
         )
         vs2 = VectorStoreConfig(backend_type="pgvector", database="d")
@@ -173,9 +194,9 @@ class TestStackConfig:
         """Raw, TOML-table-shaped dicts (not DatabaseConfig instances) still coerce at validation time."""
         cfg = StackConfig.for_session(
             connections={
-                "c": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+                "c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
             },
-            databases={"r": {"connection": "c", "kind": "cdm", "schema_name": "s"}},  # ty: ignore[invalid-argument-type]
+            databases={"r": {"connection": "c", "kind": "cdm"}},  # ty: ignore[invalid-argument-type]
         )
         assert isinstance(cfg.connections["c"], ConnectionConfig)
         assert isinstance(cfg.databases["r"], DatabaseConfig)
@@ -185,18 +206,16 @@ class TestStackConfig:
             StackConfig.for_session(
                 connections={},
                 databases={
-                    "r": CDMDatabaseConfig(connection="missing", schema_name="s")
+                    "r": CDMDatabaseConfig(connection="missing", cdm_schema="s")
                 },
             )
 
     def test_cross_ref_validation_vocab_connection(self):
         with pytest.raises(ValueError, match="unknown connection"):
             StackConfig.for_session(
-                connections={"c": ConnectionConfig(dialect="sqlite")},
+                connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
                 databases={
-                    "r": CDMDatabaseConfig(
-                        connection="c", vocab_connection="missing", schema_name="s"
-                    )
+                    "r": CDMDatabaseConfig(connection="c", vocab_connection="missing")
                 },
             )
 

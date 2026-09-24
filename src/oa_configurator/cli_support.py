@@ -150,7 +150,8 @@ def _list_entries(target: type[BaseModel], section: str) -> None:
 
     from .loader import load_stack_config
 
-    console = Console()
+    # explicit width to prevent truncation
+    console = Console(width=200)
     err_console = Console(stderr=True)
 
     try:

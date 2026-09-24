@@ -27,6 +27,17 @@ from rich.table import Table
 from .cli_support import _build_entry_params, _save_stack_config_or_exit
 from .domains.llm.cli import models_app, providers_app
 from .domains.resources.cli import connections_app, databases_app
+from .domains.resources.rectify import drop_orphan_schema_tables
+from .domains.resources.schema import ResolvedDatabase, Role
+from .domains.resources.sql import (
+    SchemaDriftError,
+    find_schema_provenance_claim,
+    guard_schema_provenance,
+    record_schema_provenance,
+    reject_reserved_schema,
+    physical_schema_of,
+    Dialect,
+)
 from .domains.vector_stores.cli import vector_stores_app
 from .io import save_stack_config, write_env_file
 from .loader import CONFIG_PATH, load_stack_config
@@ -234,8 +245,221 @@ def verify() -> None:
             all_ok = False
 
     console.print(table)
-    if not all_ok:
+
+    schema_table = Table("Database", "Schema tag", "Schema", "Status", "Detail")
+    schema_ok = True
+    for db_name in sorted(config.databases):
+        try:
+            resolved = resolver.resolve_database(db_name)
+        except Exception as exc:
+            schema_table.add_row(db_name, "-", "-", "[red]FAIL[/red]", str(exc)[:60])
+            schema_ok = False
+            continue
+        for schema_tag in resolved.schema_tags():
+            schema_ok &= _verify_schema_provenance(schema_table, resolved, schema_tag, label=db_name)
+
+    for vs_name in sorted(config.vector_stores):
+        try:
+            resolved_vs = resolver.resolve_vector_store(vs_name)
+        except Exception as exc:
+            schema_table.add_row(vs_name, "-", "-", "[red]FAIL[/red]", str(exc)[:60])
+            schema_ok = False
+            continue
+        schema_ok &= _verify_schema_provenance(
+            schema_table, resolved_vs.database, Role.PRIMARY, label=vs_name
+        )
+
+    if schema_table.row_count:
+        console.print(schema_table)
+
+    if not all_ok or not schema_ok:
         raise typer.Exit(1)
+
+
+def _verify_schema_provenance(
+    table: Table, 
+    resolved: ResolvedDatabase, 
+    schema_tag: str, 
+    *, 
+    label: str
+) -> bool:
+    """Check schema_tag's recorded provenance against its currently-resolved
+    physical schema, appending a status row to table.
+
+    Parameters
+    ----------
+    table : rich.table.Table
+        Row appended in place: label, schema_tag, a placeholder schema
+        marker ("-" on success, "?" on failure), status, and error detail.
+    resolved : ResolvedDatabase
+        Database whose schema_tag is being checked.
+    schema_tag : str
+        Schema tag to verify (a Role value, or "primary" for a vector store).
+    label : str
+        Row label; the configured database or vector-store name.
+
+    Returns
+    -------
+    bool
+        True if the check passed, False on drift or any other failure.
+
+    Notes
+    -----
+    Has to pass tables=() because this generic layer has no Base.metadata to
+    draw a table list from. As a result, only the schema-occupancy check
+    below runs here, never the per-table cross-schema check.
+
+    - schema occupancy check: on first-time setup (no provenance record yet),
+      confirms the resolved schema isn't already unexpectedly populated; once
+      a baseline exists, confirms the currently-resolved schema still matches
+      the one recorded in the provenance table for this database/schema_tag.
+    - per-table cross-schema check: on first-time setup only, for each table
+      about to be created, confirms it isn't already sitting under some other
+      schema. Never runs here since tables=() is empty.
+    """
+    # Physical split between vocab and primary connection
+    connection_role = Role.VOCAB if schema_tag == Role.VOCAB else Role.PRIMARY
+    try:
+        engine = resolved.create_engine(role=connection_role)
+        try:
+            with engine.begin() as connection, guard_schema_provenance(
+                connection,
+                database_name=resolved.name,
+                test_only=resolved.connection_for_role(connection_role).test_only,
+                schema_tag=schema_tag,
+                physical_schema=physical_schema_of(connection, schema_tag=schema_tag),
+                tables=(),
+            ):
+                pass
+        finally:
+            engine.dispose()
+    except SchemaDriftError as exc:
+        table.add_row(label, schema_tag, "?", "[red]DRIFT[/red]", str(exc)[:80])
+        return False
+    except Exception as exc:
+        table.add_row(label, schema_tag, "?", "[red]FAIL[/red]", str(exc)[:60])
+        return False
+    table.add_row(label, schema_tag, "-", "[green]OK[/green]", "")
+    return True
+
+
+@app.command("acknowledge-schema-migration")
+def acknowledge_schema_migration(
+    database: Annotated[str, typer.Option("--database", help="Name of the [databases.*] entry to acknowledge.")],
+    reason: Annotated[
+        str,
+        typer.Option(
+            "--reason",
+            help="Free-text justification for this acknowledgment. Mandatory: there is no --yes shortcut.",
+        ),
+    ],
+    new_physical_schema: Annotated[
+        str | None,
+        typer.Option(
+            "--new-schema",
+            help="Schema to record as the accepted baseline. Omit to target the "
+            "default/unqualified schema (e.g. SQLite, or a dialect's own default schema).",
+        ),
+    ] = None,
+    schema_tag: Annotated[
+        Role, typer.Option("--schema-tag", help="Logical schema tag whose baseline is being acknowledged.")
+    ] = Role.PRIMARY,
+) -> None:
+    """Record a schema as the new baseline for a tagged schema of a
+    configured database. Overwrites the existing provenance row for
+    that database/schema_tag. Does not touch the CDM tables themselves.
+    Only CLI-level remediation path for the schema-drift check every
+    configured database already gets from `verify`.
+
+    """
+    try:
+        stack = load_stack_config()
+        resolved = Resolver(stack).resolve_database(database)
+        # Physical split between vocab and primary connection
+        connection_role = Role.VOCAB if schema_tag == Role.VOCAB else Role.PRIMARY
+        engine = resolved.create_engine(role=connection_role)
+        try:
+            with engine.begin() as connection:
+                if new_physical_schema is not None:
+                    reject_reserved_schema(new_physical_schema)
+                    claimant = find_schema_provenance_claim(
+                        connection,
+                        physical_schema=new_physical_schema,
+                        exclude_database_name=resolved.name,
+                    )
+                    if claimant is not None:
+                        raise SchemaDriftError(
+                            f"Refusing to acknowledge {new_physical_schema!r} as the new "
+                            f"baseline for {database!r} ({schema_tag.value!r}): schema-"
+                            f"provenance already records it as claimed by {claimant!r}."
+                        )
+                record_schema_provenance(
+                    connection,
+                    database_name=resolved.name,
+                    schema_tag=schema_tag,
+                    new_physical_schema=new_physical_schema,
+                    reason=reason,
+                )
+        finally:
+            engine.dispose()
+    except FileNotFoundError:
+        err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
+        raise typer.Exit(1)
+    except Exception as exc:
+        err_console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
+    console.print(
+        f"[green]Acknowledged[/green] {database!r} (schema tag {schema_tag.value!r}) -> schema {new_physical_schema!r}."
+    )
+
+
+@app.command("drop-orphan-schema-tables")
+def drop_orphan_schema_tables_command(
+    database: Annotated[
+        str, typer.Option("--database", help="Name of the [databases.*] entry providing the connection.")
+    ],
+    schema: Annotated[str, typer.Option("--schema", help="Orphan schema to inspect/drop tables from.")],
+    connection_role: Annotated[
+        Role, typer.Option("--role", help="Which connection to open: primary or vocab.")
+    ] = Role.PRIMARY,
+    confirm: Annotated[
+        bool, typer.Option("--confirm", help="Actually drop the previewed tables. Omit to preview only.")
+    ] = False,
+) -> None:
+    """Drop tables physically found in an orphaned schema, after a stack-wide safety check.
+
+    Refuses if the named schema is still the current schema target of any
+    configured database/role, not just the one named here. Without
+    --confirm, only previews what would be dropped. Generic over any
+    [databases.*] entry.
+    """
+    try:
+        stack = load_stack_config()
+        resolved = Resolver(stack).resolve_database(database)
+        engine = resolved.create_engine(role=connection_role)
+        try:
+            with engine.begin() as connection:
+                preview = drop_orphan_schema_tables(
+                    connection, stack=stack, orphan_schema=schema, confirm=confirm
+                )
+        finally:
+            engine.dispose()
+    except FileNotFoundError:
+        err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
+        raise typer.Exit(1)
+    except Exception as exc:
+        err_console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
+
+    if not preview:
+        console.print(f"No tables found in schema {schema!r}.")
+        return
+    for item in preview:
+        count = "unknown" if item.row_count is None else str(item.row_count)
+        verb = "Dropped" if confirm else "Would drop"
+        console.print(f"{verb} {schema}.{item.table_name} (~{count} rows)")
+    if not confirm:
+        console.print("[yellow]Preview only. Re-run with --confirm to actually drop these tables.[/yellow]")
 
 
 @app.command("export-env")
@@ -249,6 +473,61 @@ def export_env() -> None:
 
     env_path = write_env_file(Resolver(config))
     console.print(f"[green]✓[/green] Wrote [dim]{env_path}[/dim]")
+
+@app.command("cleanup-test-databases")
+def cleanup_test_databases(
+    confirm: Annotated[
+        bool,
+        typer.Option("--confirm", help="Actually drop the selected test databases."),
+    ] = False,
+    connection: Annotated[
+        list[str] | None,
+        typer.Option("--connection", help="Test connection to clean; repeatable."),
+    ] = None,
+) -> None:
+    """Preview or drop configured PostgreSQL test databases.
+
+    Only connections marked ``test_only=true`` are eligible. Without
+    ``--confirm`` this command only previews the selected databases.
+    """
+    try:
+        from .testing.postgres import PostgresTestStrategy
+    except ImportError as exc:
+        raise typer.BadParameter(
+            "cleanup-test-databases needs the dev extras (pytest). "
+            "Install with: pip install 'oa-configurator[dev]'."
+        ) from exc
+
+    config = load_stack_config()
+    selected = set(connection or config.connections)
+    unknown = selected - config.connections.keys()
+    if unknown:
+        raise typer.BadParameter(f"Unknown connection(s): {', '.join(sorted(unknown))}")
+
+    targets = []
+    resolver = Resolver(config)
+    for name in sorted(selected):
+        entry = config.connections[name]
+        if not entry.test_only or not entry.dialect.startswith(Dialect.POSTGRESQL):
+            continue
+        targets.append((name, resolver.resolve_connection(name)))
+
+    if not targets:
+        console.print("[yellow]No test-only PostgreSQL connections selected.[/yellow]")
+        return
+
+    console.print("Selected test databases:")
+    for name, target in targets:
+        console.print(f"  {name}: {target.safe_url}")
+    if not confirm:
+        console.print("[yellow]Preview only. Re-run with --confirm to drop them.[/yellow]")
+        return
+
+    strategy = PostgresTestStrategy()
+    for name, target in targets:
+        dropped = strategy.drop_test_database(target)
+        status = "dropped" if dropped else "already absent"
+        console.print(f"{name}: {status}")
 
 
 @app.command(name="configure", cls=_DynamicConfigureGroup)  # ty: ignore[invalid-argument-type]

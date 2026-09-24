@@ -24,14 +24,15 @@ from oa_configurator import (
     VectorStoreConfig,
 )
 from oa_configurator.io import ConfigSaveError, save_stack_config, write_env_file
-from oa_configurator.loader import load_stack_config_from_path
+from oa_configurator.loader import load_stack_config
+from oa_configurator.domains.resources.sql import Dialect
 
 
 def _make_cdm_stack() -> StackConfig:
     return StackConfig.for_session(
         connections={
             "cdm": ConnectionConfig(
-                dialect="postgresql+psycopg",
+                dialect=Dialect.POSTGRESQL + "+psycopg",
                 host="db.example.com",
                 port=5432,
                 user="omop_user",
@@ -40,7 +41,7 @@ def _make_cdm_stack() -> StackConfig:
             )
         },
         databases={
-            "default": CDMDatabaseConfig(connection="cdm", schema_name="omop"),
+            "default": CDMDatabaseConfig(connection="cdm", cdm_schema="omop"),
         },
     )
 
@@ -76,7 +77,7 @@ class TestWriteEnvFile:
         write_env_file(Resolver(_make_cdm_stack()), path=out)
         content = out.read_text()
         assert "DEFAULT_DB_URL=" in content
-        assert "postgresql" in content
+        assert Dialect.POSTGRESQL in content
 
     def test_no_omop_emb_lines_when_database_absent(self, tmp_path):
         out = tmp_path / "config.env"
@@ -87,7 +88,7 @@ class TestWriteEnvFile:
         cfg = StackConfig.for_session(
             connections={
                 "cdm": ConnectionConfig(
-                    dialect="postgresql+psycopg",
+                    dialect=Dialect.POSTGRESQL + "+psycopg",
                     host="cdm.host",
                     port=5432,
                     user="u",
@@ -95,7 +96,7 @@ class TestWriteEnvFile:
                     database_name="cdm",
                 ),
                 "emb": ConnectionConfig(
-                    dialect="postgresql+psycopg",
+                    dialect=Dialect.POSTGRESQL + "+psycopg",
                     host="emb.host",
                     port=5433,
                     user="eu",
@@ -104,8 +105,8 @@ class TestWriteEnvFile:
                 ),
             },
             databases={
-                "default": CDMDatabaseConfig(connection="cdm", schema_name="omop"),
-                "omop_emb": CDMDatabaseConfig(connection="emb", schema_name="emb"),
+                "default": CDMDatabaseConfig(connection="cdm", cdm_schema="omop"),
+                "omop_emb": CDMDatabaseConfig(connection="emb", cdm_schema="emb"),
             },
             tools={
                 "omop_emb": {"backend": "pgvector"},
@@ -120,10 +121,10 @@ class TestWriteEnvFile:
     def test_tool_extra_scalars_exported(self, tmp_path):
         cfg = StackConfig.for_session(
             connections={
-                "db": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+                "db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
             },
             databases={
-                "default": CDMDatabaseConfig(connection="db", schema_name="omop")
+                "default": CDMDatabaseConfig(connection="db")
             },
             tools={"my_pkg": {"foo": "bar", "count": 3}},
         )
@@ -150,10 +151,10 @@ class TestSaveStackConfig:
     def test_creates_file(self, tmp_path):
         cfg = StackConfig.for_session(
             connections={
-                "db": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+                "db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
             },
             databases={
-                "default": CDMDatabaseConfig(connection="db", schema_name="omop")
+                "default": CDMDatabaseConfig(connection="db")
             },
         )
         out = tmp_path / "config.toml"
@@ -164,7 +165,7 @@ class TestSaveStackConfig:
         cfg = StackConfig.for_session(
             connections={
                 "cdm": ConnectionConfig(
-                    dialect="postgresql+psycopg",
+                    dialect=Dialect.POSTGRESQL + "+psycopg",
                     host="localhost",
                     port=5432,
                     user="omop",
@@ -173,14 +174,14 @@ class TestSaveStackConfig:
                 )
             },
             databases={
-                "default": CDMDatabaseConfig(connection="cdm", schema_name="omop")
+                "default": CDMDatabaseConfig(connection="cdm", cdm_schema="omop")
             },
         )
         out = tmp_path / "config.toml"
         save_stack_config(cfg, out)
         data = tomllib.loads(out.read_text())
         assert data["connections"]["cdm"]["host"] == "localhost"
-        assert data["databases"]["default"]["schema_name"] == "omop"
+        assert data["databases"]["default"]["cdm_schema"] == "omop"
 
     def test_default_logging_not_written(self, tmp_path):
         out = tmp_path / "config.toml"
@@ -198,7 +199,7 @@ class TestSaveStackConfig:
         out = tmp_path / "config.toml"
         out.write_text("[tools.empty_tool]\n", encoding="utf-8")
 
-        loaded = load_stack_config_from_path(out)
+        loaded = load_stack_config(out)
         loaded.tools["other_tool"] = {"enabled": True}
 
         save_stack_config(loaded, out)
@@ -209,9 +210,9 @@ class TestSaveStackConfig:
 
     def test_none_values_stripped(self, tmp_path):
         cfg = StackConfig.for_session(
-            connections={"db": ConnectionConfig(dialect="sqlite")},
+            connections={"db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
             databases={
-                "default": CDMDatabaseConfig(connection="db", schema_name="omop")
+                "default": CDMDatabaseConfig(connection="db")
             },
         )
         out = tmp_path / "config.toml"
@@ -542,7 +543,7 @@ class TestSaveStackConfig:
         cfg = StackConfig.for_session(
             connections={
                 "primary": ConnectionConfig(
-                    dialect="postgresql+psycopg",
+                    dialect=Dialect.POSTGRESQL + "+psycopg",
                     host="db.example.com",
                     user="omop",
                     password="connection-secret",
@@ -550,7 +551,7 @@ class TestSaveStackConfig:
                 )
             },
             databases={
-                "cdm": CDMDatabaseConfig(connection="primary", schema_name="omop"),
+                "cdm": CDMDatabaseConfig(connection="primary", cdm_schema="omop"),
                 "generic": GenericDatabaseConfig(connection="primary"),
             },
             providers={

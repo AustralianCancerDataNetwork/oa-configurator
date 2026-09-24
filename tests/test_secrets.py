@@ -31,6 +31,7 @@ from oa_configurator import (
     safe_endpoint,
     save_stack_config,
     write_env_file,
+    DatabaseKind
 )
 from oa_configurator.resolver import Resolver
 
@@ -137,9 +138,9 @@ class TestSafeEndpoint:
         """No key is judged: the operator sees which parameters are set, and
         no value at all. Azure OpenAI's `api-version` is why the query string
         cannot simply be dropped."""
-        assert _query(
-            safe_endpoint("https://host/v1?api-version=2024-02-01&api_key=sk-x")
-        ) == [("api-version", "***"), ("api_key", "***")]
+        endpoint = safe_endpoint("https://host/v1?api-version=2024-02-01&api_key=sk-x")
+        assert endpoint is not None
+        assert _query(endpoint) == [("api-version", "***"), ("api_key", "***")]
 
     def test_innocuous_value_is_masked_too(self):
         assert safe_endpoint("https://host/v1?model=gpt") == "https://host/v1?model=***"
@@ -163,6 +164,7 @@ class TestSafeEndpoint:
 
     def test_userinfo_and_query_together(self):
         redacted = safe_endpoint("https://user:pw@host:8443/v1/chat?api_key=abc&model=gpt")
+        assert redacted is not None
         assert "pw" not in urlsplit(redacted).netloc
         assert "abc" not in redacted
         assert redacted == "https://user:***@host:8443/v1/chat?api_key=***&model=***"
@@ -253,7 +255,7 @@ def _stack() -> StackConfig:
                 password=CANARY, database_name="omop",
             )
         },
-        databases={"cdm": CDMDatabaseConfig(kind="cdm", connection="cdm", vocab_connection="cdm")},
+        databases={"cdm": CDMDatabaseConfig(kind=DatabaseKind.CDM, connection="cdm", vocab_connection="cdm")},
         providers={
             "azure": ProviderConfig(
                 provider="openai", base_url="https://api.example.org/v1", api_key=KEY_CANARY,

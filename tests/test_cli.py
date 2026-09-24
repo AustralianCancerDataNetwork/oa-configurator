@@ -22,9 +22,11 @@ from oa_configurator import (
     assert_no_sensitive_values_leak,
 )
 from oa_configurator.io import save_stack_config as _real_save_stack_config
-from oa_configurator.loader import load_stack_config_from_path
+from oa_configurator.loader import load_stack_config
 from oa_configurator.package_base import PackageConfigBase
 from oa_configurator.resolver import _resolve_ref
+from oa_configurator.domains.resources.sql import Dialect
+from oa_configurator.testing.postgres import PostgresTestStrategy
 
 runner = CliRunner()
 
@@ -47,7 +49,7 @@ def isolated_config(tmp_path, monkeypatch):
     import oa_configurator.loader as loader_mod
 
     config_path = tmp_path / "config.toml"
-    load = lambda: load_stack_config_from_path(config_path)  # noqa: E731
+    load = lambda path=config_path: load_stack_config(path)  # noqa: E731
     save = lambda config: _real_save_stack_config(config, path=config_path)  # noqa: E731
 
     monkeypatch.setattr(cli, "CONFIG_PATH", config_path)
@@ -95,8 +97,8 @@ class TestConnectionsAdd:
             ],
         )
         assert result.exit_code == 0, result.output
-        config = load_stack_config_from_path(isolated_config)
-        assert config.connections["cdm"].dialect == "sqlite"
+        config = load_stack_config(isolated_config)
+        assert config.connections["cdm"].dialect == Dialect.SQLITE
         assert config.connections["cdm"].database_name == ":memory:"
 
     def test_save_failure_is_rendered_without_traceback(
@@ -138,15 +140,15 @@ class TestConnectionsAdd:
         _seed(
             isolated_config,
             StackConfig.for_session(
-                connections={"cdm": ConnectionConfig(dialect="sqlite")}
+                connections={"cdm": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")}
             ),
         )
         result = runner.invoke(
             cli.app, ["connections", "add", "cdm", "--host", "otherhost"]
         )
         assert result.exit_code == 0, result.output
-        config = load_stack_config_from_path(isolated_config)
-        assert config.connections["cdm"].dialect == "sqlite"
+        config = load_stack_config(isolated_config)
+        assert config.connections["cdm"].dialect == Dialect.SQLITE
         assert config.connections["cdm"].host == "otherhost"
 
     def test_test_only_flag_sets_bool_field(self, isolated_config):
@@ -158,21 +160,33 @@ class TestConnectionsAdd:
                 "test_cdm",
                 "--dialect",
                 "sqlite",
+                "--database-name",
+                ":memory:",
                 "--test-only",
                 "true",
             ],
         )
         assert result.exit_code == 0, result.output
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         assert config.connections["test_cdm"].test_only is True
 
     def test_test_only_flag_accepts_false_variants(self, isolated_config):
         result = runner.invoke(
             cli.app,
-            ["connections", "add", "cdm", "--dialect", "sqlite", "--test-only", "no"],
+            [
+                "connections",
+                "add",
+                "cdm",
+                "--dialect",
+                "sqlite",
+                "--database-name",
+                ":memory:",
+                "--test-only",
+                "no",
+            ],
         )
         assert result.exit_code == 0, result.output
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         assert config.connections["cdm"].test_only is False
 
 
@@ -187,20 +201,20 @@ class TestConnectionsList:
         _seed(
             isolated_config,
             StackConfig.for_session(
-                connections={"cdm": ConnectionConfig(dialect="sqlite")}
+                connections={"cdm": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")}
             ),
         )
         result = runner.invoke(cli.app, ["connections", "list"])
         assert result.exit_code == 0
         assert "cdm" in result.output
-        assert "sqlite" in result.output
+        assert Dialect.SQLITE in result.output
 
     def test_password_is_masked(self, isolated_config):
         """A listing shows that a secret is set, never what it is."""
         stack = StackConfig.for_session(
             connections={
                 "cdm": ConnectionConfig(
-                    dialect="postgresql+psycopg",
+                    dialect=Dialect.POSTGRESQL+"+psycopg",
                     host="db.hospital.org",
                     user="omop",
                     password=_CANARY,
@@ -220,7 +234,9 @@ class TestConnectionsList:
             isolated_config,
             StackConfig.for_session(
                 connections={
-                    "test_cdm": ConnectionConfig(dialect="sqlite", test_only=True)
+                    "test_cdm": ConnectionConfig(
+                        dialect=Dialect.SQLITE, database_name=":memory:", test_only=True
+                    )
                 },
             ),
         )
@@ -235,7 +251,11 @@ class TestDatabasesAdd:
         _seed(
             isolated_config,
             StackConfig.for_session(
-                connections={"cdm": ConnectionConfig(dialect="sqlite")}
+                connections={
+                    "cdm": ConnectionConfig(
+                        dialect=Dialect.POSTGRESQL + "+psycopg", host="localhost", database_name="cdm"
+                    )
+                }
             ),
         )
         result = runner.invoke(
@@ -243,48 +263,38 @@ class TestDatabasesAdd:
             [
                 "databases",
                 "add",
-                "cdm_db",
-                "--kind",
                 "cdm",
+                "cdm_db",
                 "--connection",
                 "cdm",
-                "--schema-name",
+                "--cdm-schema",
                 "omop",
             ],
         )
         assert result.exit_code == 0, result.output
-        config = load_stack_config_from_path(isolated_config)
-        assert config.databases["cdm_db"].connection == "cdm"
-        assert config.databases["cdm_db"].schema_name == "omop"
+        config = load_stack_config(isolated_config)
+        config_cdm_db = config.databases["cdm_db"]
+        assert isinstance(config_cdm_db, CDMDatabaseConfig)
+        assert config_cdm_db.connection == "cdm"
+        assert config_cdm_db.cdm_schema == "omop"
 
     def test_non_interactive_creates_generic_database(self, isolated_config):
         _seed(
             isolated_config,
             StackConfig.for_session(
-                connections={"emb": ConnectionConfig(dialect="sqlite")}
+                connections={"emb": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")}
             ),
         )
         result = runner.invoke(
             cli.app,
-            ["databases", "add", "emb_db", "--kind", "generic", "--connection", "emb"],
+            ["databases", "add", "generic", "emb_db", "--connection", "emb"],
         )
         assert result.exit_code == 0, result.output
-        config = load_stack_config_from_path(isolated_config)
-        assert config.databases["emb_db"].connection == "emb"
-        assert config.databases["emb_db"].schema_name is None
-
-    def test_missing_kind_with_other_flags_fails(self, isolated_config):
-        _seed(
-            isolated_config,
-            StackConfig.for_session(
-                connections={"cdm": ConnectionConfig(dialect="sqlite")}
-            ),
-        )
-        result = runner.invoke(
-            cli.app, ["databases", "add", "cdm_db", "--connection", "cdm"]
-        )
-        assert result.exit_code != 0
-        assert "--kind is required" in result.output
+        config = load_stack_config(isolated_config)
+        config_db = config.databases["emb_db"]
+        assert isinstance(config_db, GenericDatabaseConfig)
+        assert config_db.connection == "emb"
+        assert config_db.schema_name is None
 
     def test_unknown_connection_reference_fails(self, isolated_config):
         _seed(isolated_config, StackConfig.for_session())
@@ -293,15 +303,14 @@ class TestDatabasesAdd:
             [
                 "databases",
                 "add",
-                "cdm_db",
-                "--kind",
                 "generic",
+                "cdm_db",
                 "--connection",
                 "does-not-exist",
             ],
         )
         assert result.exit_code != 0
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         assert "cdm_db" not in config.databases
 
     def test_kind_change_refused_when_a_vector_store_depends_on_it(
@@ -315,7 +324,7 @@ class TestDatabasesAdd:
             isolated_config,
             StackConfig.for_session(
                 connections={
-                    "c": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+                    "c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
                 },
                 databases={"emb_db": GenericDatabaseConfig(connection="c")},
                 vector_stores={
@@ -325,10 +334,10 @@ class TestDatabasesAdd:
         )
         result = runner.invoke(
             cli.app,
-            ["databases", "add", "emb_db", "--kind", "cdm", "--connection", "c"],
+            ["databases", "add", "cdm", "emb_db", "--connection", "c"],
         )
         assert result.exit_code != 0
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         assert isinstance(config.databases["emb_db"], GenericDatabaseConfig)
 
     def test_kind_change_warns_when_nothing_depends_on_it(self, isolated_config):
@@ -336,29 +345,31 @@ class TestDatabasesAdd:
             isolated_config,
             StackConfig.for_session(
                 connections={
-                    "c": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+                    "c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
                 },
                 databases={"emb_db": GenericDatabaseConfig(connection="c")},
             ),
         )
         result = runner.invoke(
             cli.app,
-            ["databases", "add", "emb_db", "--kind", "cdm", "--connection", "c"],
+            ["databases", "add", "cdm", "emb_db", "--connection", "c"],
         )
         assert result.exit_code == 0, result.output
         assert "was a GenericDatabaseConfig" in result.output
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         assert isinstance(config.databases["emb_db"], CDMDatabaseConfig)
 
     def test_cdm_only_flag_on_generic_kind_fails_instead_of_silently_dropping(
         self, isolated_config
     ):
-        """--vocab-connection has no meaning on a generic database. Must be
-        rejected, not silently discarded."""
+        """--vocab-connection has no meaning on a generic database. The
+        `add generic` subcommand doesn't declare it at all, so this is now
+        rejected at CLI parse time -- one layer earlier than the old flat
+        command's pydantic-level extra="forbid" rejection, and clearer."""
         _seed(
             isolated_config,
             StackConfig.for_session(
-                connections={"emb": ConnectionConfig(dialect="sqlite")}
+                connections={"emb": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")}
             ),
         )
         result = runner.invoke(
@@ -366,9 +377,8 @@ class TestDatabasesAdd:
             [
                 "databases",
                 "add",
-                "emb_db",
-                "--kind",
                 "generic",
+                "emb_db",
                 "--connection",
                 "emb",
                 "--vocab-connection",
@@ -376,8 +386,9 @@ class TestDatabasesAdd:
             ],
         )
         assert result.exit_code != 0
-        assert "vocab_connection" in result.output
-        config = load_stack_config_from_path(isolated_config)
+        assert "no such option" in result.output.lower()
+        assert "--vocab-connection" in result.output
+        config = load_stack_config(isolated_config)
         assert "emb_db" not in config.databases
 
 
@@ -392,9 +403,13 @@ class TestDatabasesList:
         _seed(
             isolated_config,
             StackConfig.for_session(
-                connections={"cdm": ConnectionConfig(dialect="sqlite")},
+                connections={
+                    "cdm": ConnectionConfig(
+                        dialect=Dialect.POSTGRESQL + "+psycopg", host="localhost", database_name="cdm"
+                    )
+                },
                 databases={
-                    "cdm_db": CDMDatabaseConfig(connection="cdm", schema_name="omop")
+                    "cdm_db": CDMDatabaseConfig(connection="cdm", cdm_schema="omop")
                 },
             ),
         )
@@ -416,14 +431,12 @@ class TestDatabasesList:
             isolated_config,
             StackConfig.for_session(
                 connections={
-                    "cdm": ConnectionConfig(dialect="sqlite"),
-                    "vocab": ConnectionConfig(dialect="sqlite"),
-                    "emb": ConnectionConfig(dialect="sqlite"),
+                    "cdm": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:"),
+                    "vocab": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:"),
+                    "emb": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:"),
                 },
                 databases={
-                    "cdm_db": CDMDatabaseConfig(
-                        connection="cdm", schema_name="omop", vocab_connection="vocab"
-                    ),
+                    "cdm_db": CDMDatabaseConfig(connection="cdm", vocab_connection="vocab"),
                     "emb_db": GenericDatabaseConfig(connection="emb"),
                 },
             ),
@@ -450,7 +463,7 @@ class TestProvidersAdd:
             ],
         )
         assert result.exit_code == 0, result.output
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         assert config.providers["local-ollama"].provider == "ollama"
         assert config.providers["local-ollama"].base_url == "http://localhost:11434"
         assert config.providers["local-ollama"].api_key is None
@@ -478,7 +491,7 @@ class TestProvidersAdd:
             cli.app, ["providers", "add", "p", "--api-key", "sk-test"]
         )
         assert result.exit_code == 0, result.output
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         assert config.providers["p"].provider == "ollama"
         assert config.providers["p"].api_key == "sk-test"
 
@@ -551,7 +564,7 @@ class TestModelsAdd:
             ],
         )
         assert result.exit_code == 0, result.output
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         model = config.models["nomic-embed"]
         assert model.provider == "p"
         assert model.model == "nomic-embed-text:v1.5"
@@ -578,7 +591,7 @@ class TestModelsAdd:
             ],
         )
         assert result.exit_code != 0
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         assert "m" not in config.models
 
     def test_update_preserves_existing_free_form_configuration(self, isolated_config):
@@ -603,7 +616,7 @@ class TestModelsAdd:
             cli.app, ["models", "add", "m", "--embedding-dim", "768"]
         )
         assert result.exit_code == 0, result.output
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         assert config.models["m"].configuration == {"max_tokens": 8000}
         assert config.models["m"].embedding_dim == 768
         assert config.models["m"].embeddings is True
@@ -637,7 +650,7 @@ class TestModelsAdd:
         assert "Invalid ModelConfig" in result.stderr
         assert "embedding_dim requires embeddings=true" in result.stderr
         assert "pydantic.dev" not in result.stderr  # no raw ValidationError rendering
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         assert "chat" not in config.models
 
     def test_field_level_validation_error_names_the_flag(self, isolated_config):
@@ -664,7 +677,7 @@ class TestModelsAdd:
         )
         assert result.exit_code == 1
         assert "--embedding-dim:" in result.stderr
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         assert "m" not in config.models
 
     def test_validation_error_is_reported_interactively_too(
@@ -739,7 +752,7 @@ class TestResolveRef:
         monkeypatch.setattr(cli.typer, "prompt", lambda *a, **k: "prod_db")
         config = StackConfig.for_session(
             connections={
-                "prod": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+                "prod": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
             },
             databases={"prod_db": CDMDatabaseConfig(connection="prod")},
         )
@@ -764,7 +777,7 @@ class TestResolveRef:
         config = StackConfig.for_session(
             connections={
                 "test_conn": ConnectionConfig(
-                    dialect="sqlite", database_name=":memory:", test_only=True
+                    dialect=Dialect.SQLITE, database_name=":memory:", test_only=True
                 )
             },
             databases={"test_db": CDMDatabaseConfig(connection="test_conn")},
@@ -801,13 +814,25 @@ def _echo_default(text, default="", **kwargs):
     return default
 
 
+def _prompt_sqlite_defaults(text, default="", **kwargs):
+    """typer.prompt stand-in: supplies a valid sqlite dialect/database_name
+    for a freshly-created ConnectionConfig's two required-in-combination
+    fields, echoes every other field's offered default.
+    """
+    if text.startswith("SQLAlchemy dialect string"):
+        return "sqlite"
+    if text.startswith("Database name on the server"):
+        return ":memory:"
+    return default
+
+
 class TestRunConfigurePackage:
     def test_non_interactive_uses_given_names(self, isolated_config):
         _seed(
             isolated_config,
             StackConfig.for_session(
                 connections={
-                    "db": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+                    "db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
                 },
                 databases={"cdm_db": CDMDatabaseConfig(connection="db")},
             ),
@@ -815,7 +840,7 @@ class TestRunConfigurePackage:
         DemoConfig.run_configure(
             {"cdm_db": "cdm_db", "backend": "custom"}, interactive=False
         )
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         assert config.tools["demo_tool"]["cdm_db"] == "cdm_db"
         assert config.tools["demo_tool"]["backend"] == "custom"
 
@@ -828,7 +853,7 @@ class TestRunConfigurePackage:
             isolated_config,
             StackConfig.for_session(
                 connections={
-                    "db": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+                    "db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
                 },
                 databases={"cdm_db": CDMDatabaseConfig(connection="db")},
             ),
@@ -876,14 +901,14 @@ class TestRunConfigurePackage:
 
         PortConfig.run_configure({"port": "9000"}, interactive=False)
 
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         assert config.tools["port_tool"]["port"] == 9000
         assert isinstance(config.tools["port_tool"]["port"], int)
 
     def test_interactive_creates_database_and_connection_recursively(
         self, isolated_config, monkeypatch
     ):
-        monkeypatch.setattr(cli.typer, "prompt", _echo_default)
+        monkeypatch.setattr(cli.typer, "prompt", _prompt_sqlite_defaults)
         monkeypatch.setattr(
             cli.typer, "confirm", lambda *a, **k: False
         )  # decline both optional databases
@@ -891,13 +916,13 @@ class TestRunConfigurePackage:
 
         DemoConfig.run_configure({}, interactive=True)
 
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         assert config.tools["demo_tool"]["cdm_db"] == "cdm_db"
         assert "cdm_db" in config.databases
         database = config.databases["cdm_db"]
         assert isinstance(database, CDMDatabaseConfig)
         assert database.connection in config.connections
-        assert database.schema_name == "omop"
+        assert database.cdm_schema is None
         # vocab_connection is optional, so it is never auto-created
         assert database.vocab_connection is None
         # both optional databases were declined, so neither was written
@@ -910,13 +935,13 @@ class TestRunConfigurePackage:
         """A plain Optional RefTo field (is_test=False) gets the same
         'Configure this?' skip prompt as a test field; declining leaves it
         unset rather than resolving/creating an entry."""
-        monkeypatch.setattr(cli.typer, "prompt", _echo_default)
+        monkeypatch.setattr(cli.typer, "prompt", _prompt_sqlite_defaults)
         monkeypatch.setattr(cli.typer, "confirm", lambda *a, **k: False)
         _seed(isolated_config, StackConfig.for_session())
 
         DemoConfig.run_configure({}, interactive=True)
 
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         assert "secondary_db" not in config.tools["demo_tool"]
 
     def test_interactive_opts_into_optional_non_test_database(
@@ -926,7 +951,7 @@ class TestRunConfigurePackage:
         resolves it through the normal RefTo flow, with no test_only
         requirement, unlike the test-database path: it happily reuses
         cdm_db (created earlier in the same run) via the offered default."""
-        monkeypatch.setattr(cli.typer, "prompt", _echo_default)
+        monkeypatch.setattr(cli.typer, "prompt", _prompt_sqlite_defaults)
 
         def confirm(text, *a, **k):
             return text == "Configure secondary_db?"
@@ -936,7 +961,7 @@ class TestRunConfigurePackage:
 
         DemoConfig.run_configure({}, interactive=True)
 
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         assert config.tools["demo_tool"]["secondary_db"] == "cdm_db"
         conn_name = config.databases["cdm_db"].connection
         assert config.connections[conn_name].test_only is False
@@ -952,7 +977,7 @@ class TestRunConfigurePackage:
             seen[text] = seen.get(text, 0) + 1
             if text.startswith("Hostname") and seen[text] == 2:
                 return "test-host"
-            return default
+            return _prompt_sqlite_defaults(text, default, **kwargs)
 
         monkeypatch.setattr(cli.typer, "prompt", prompt)
         # accept the test database, decline the unrelated non-test optional one
@@ -963,7 +988,7 @@ class TestRunConfigurePackage:
 
         DemoConfig.run_configure({}, interactive=True)
 
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         test_name = config.tools["demo_tool"]["test_cdm_db"]
         assert test_name in config.databases
         test_conn_name = config.databases[test_name].connection
@@ -979,7 +1004,7 @@ class TestRunConfigurePackage:
             isolated_config,
             StackConfig.for_session(
                 connections={
-                    "db": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+                    "db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
                 },
                 databases={"cdm_db": CDMDatabaseConfig(connection="db")},
             ),
@@ -1000,7 +1025,7 @@ class TestRunConfigurePackage:
         DemoConfig.run_configure({}, interactive=True)
 
         assert seen_defaults["backend"] == "first_value"
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         assert config.tools["demo_tool"]["backend"] == "second_value"
 
     def test_interactive_reconfigure_reprompts_refto_field_with_stored_default(
@@ -1012,7 +1037,7 @@ class TestRunConfigurePackage:
             isolated_config,
             StackConfig.for_session(
                 connections={
-                    "db": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+                    "db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
                 },
                 databases={"cdm_db": CDMDatabaseConfig(connection="db")},
             ),
@@ -1036,7 +1061,7 @@ class TestRunConfigurePackage:
             seen_defaults["  Point to an existing entry, or 'new' to create one"]
             == "cdm_db"
         )
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         assert config.tools["demo_tool"]["cdm_db"] == "cdm_db"
 
     def test_non_interactive_one_shot_creates_database_and_connection(
@@ -1052,21 +1077,22 @@ class TestRunConfigurePackage:
                 "backend": "custom",
                 "cdm_db": {
                     "connection": {
-                        "dialect": "sqlite",
+                        "dialect": Dialect.SQLITE,
                         "database_name": ":memory:",
                     },
-                    "schema_name": "omop",
                 },
             },
             interactive=False,
         )
 
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         cdm_db_name = config.tools["demo_tool"]["cdm_db"]
         assert cdm_db_name in config.databases
         conn_name = config.databases[cdm_db_name].connection
-        assert config.connections[conn_name].dialect == "sqlite"
-        assert config.databases[cdm_db_name].schema_name == "omop"
+        conn_db = config.databases[cdm_db_name]
+        assert isinstance(conn_db, CDMDatabaseConfig)
+        assert config.connections[conn_name].dialect == Dialect.SQLITE
+        assert conn_db.cdm_schema is None
 
     def test_non_interactive_one_shot_missing_required_nested_field_fails(
         self, isolated_config
@@ -1075,7 +1101,7 @@ class TestRunConfigurePackage:
 
         with pytest.raises(typer.Exit):
             DemoConfig.run_configure(
-                {"cdm_db": {"schema_name": "omop"}},  # missing connection.dialect etc.
+                {"cdm_db": {"cdm_schema": "omop"}},  # missing connection.dialect etc.
                 interactive=False,
             )
 
@@ -1086,12 +1112,12 @@ class TestParseSetFlags:
 
     def test_nested_key(self):
         assert cli._parse_set_flags(("cdm_db.dialect=sqlite", "cdm_db.host=db")) == {
-            "cdm_db": {"dialect": "sqlite", "host": "db"}
+            "cdm_db": {"dialect": Dialect.SQLITE, "host": "db"}
         }
 
     def test_deeply_nested_key(self):
         assert cli._parse_set_flags(("cdm_db.connection.dialect=sqlite",)) == {
-            "cdm_db": {"connection": {"dialect": "sqlite"}}
+            "cdm_db": {"connection": {"dialect": Dialect.SQLITE}}
         }
 
     def test_missing_equals_raises(self):
@@ -1133,17 +1159,15 @@ class TestConfigureSetFlag:
                 "cdm_db.connection.dialect=sqlite",
                 "--set",
                 "cdm_db.connection.database_name=:memory:",
-                "--set",
-                "cdm_db.schema_name=omop",
             ],
         )
         assert result.exit_code == 0, result.output
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         assert config.tools["demo_tool"]["backend"] == "custom"
         cdm_db_name = config.tools["demo_tool"]["cdm_db"]
         assert cdm_db_name in config.databases
         conn_name = config.databases[cdm_db_name].connection
-        assert config.connections[conn_name].dialect == "sqlite"
+        assert config.connections[conn_name].dialect == Dialect.SQLITE
 
     def test_set_flag_clashing_with_same_field_flag_fails(
         self, isolated_config, monkeypatch
@@ -1155,11 +1179,13 @@ class TestConfigureSetFlag:
             isolated_config,
             StackConfig.for_session(
                 connections={
-                    "prod": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+                    "prod": ConnectionConfig(
+                        dialect=Dialect.POSTGRESQL + "+psycopg", host="localhost", database_name="prod"
+                    )
                 },
                 databases={
                     "cdm_db_prod": CDMDatabaseConfig(
-                        connection="prod", schema_name="prod_omop"
+                        connection="prod", cdm_schema="prod_omop"
                     )
                 },
             ),
@@ -1184,20 +1210,22 @@ class TestConfigureSetFlag:
                 "--cdm-db",
                 "cdm_db_prod",
                 "--set",
-                "cdm_db.schema_name=analytics",
+                "cdm_db.cdm_schema=analytics",
             ],
         )
         assert result.exit_code != 0
         assert "cdm_db" in result.output
-        config = load_stack_config_from_path(isolated_config)
-        assert config.databases["cdm_db_prod"].schema_name == "prod_omop"
+        config = load_stack_config(isolated_config)
+        config_cdm_db = config.databases["cdm_db_prod"]
+        assert isinstance(config_cdm_db, CDMDatabaseConfig)
+        assert config_cdm_db.cdm_schema == "prod_omop"
         assert "cdm_db" not in config.databases
         assert "demo_tool" not in config.tools
 
     def test_set_flag_typo_in_subfield_fails_instead_of_silent_no_op(
         self, isolated_config, monkeypatch
     ):
-        """cdm_db.shema_name (typo for schema_name) must be rejected, not
+        """cdm_db.cdm_shema (typo for cdm_schema) must be rejected, not
         silently dropped while the rest of the entry still saves."""
 
         class FakeEP:
@@ -1223,11 +1251,11 @@ class TestConfigureSetFlag:
                 "--set",
                 "cdm_db.connection.database_name=:memory:",
                 "--set",
-                "cdm_db.shema_name=omop",
+                "cdm_db.cdm_shema=omop",
             ],
         )
         assert result.exit_code != 0
-        assert "shema_name" in result.output
+        assert "cdm_shema" in result.output
 
 
 class TestModelsList:
@@ -1268,7 +1296,7 @@ class TestVectorStoresAdd:
             isolated_config,
             StackConfig.for_session(
                 connections={
-                    "emb": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+                    "emb": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
                 },
                 databases={"emb_db": GenericDatabaseConfig(connection="emb")},
             ),
@@ -1286,7 +1314,7 @@ class TestVectorStoresAdd:
             ],
         )
         assert result.exit_code == 0, result.output
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         assert config.vector_stores["vs"].backend_type == "pgvector"
         assert config.vector_stores["vs"].database == "emb_db"
 
@@ -1318,7 +1346,7 @@ class TestVectorStoresAdd:
             isolated_config,
             StackConfig.for_session(
                 connections={
-                    "emb": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+                    "emb": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
                 },
                 databases={"emb_db": GenericDatabaseConfig(connection="emb")},
                 vector_stores={
@@ -1330,7 +1358,7 @@ class TestVectorStoresAdd:
             cli.app, ["vector-stores", "add", "vs", "--backend-type", "pgvector"]
         )
         assert result.exit_code == 0, result.output
-        config = load_stack_config_from_path(isolated_config)
+        config = load_stack_config(isolated_config)
         assert config.vector_stores["vs"].backend_type == "pgvector"
         assert config.vector_stores["vs"].database == "emb_db"
 
@@ -1351,7 +1379,7 @@ class TestVectorStoresList:
             isolated_config,
             StackConfig.for_session(
                 connections={
-                    "emb": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+                    "emb": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
                 },
                 databases={"emb_db": GenericDatabaseConfig(connection="emb")},
                 vector_stores={
@@ -1363,3 +1391,70 @@ class TestVectorStoresList:
         assert result.exit_code == 0
         assert "vs" in result.output
         assert "pgvector" in result.output
+
+
+class TestCleanupTestDatabases:
+    def test_preview_filters_to_test_only_postgres_connections(
+        self, isolated_config, monkeypatch
+    ):
+        _seed(
+            isolated_config,
+            StackConfig.for_session(
+                connections={
+                    "prod": ConnectionConfig(
+                        dialect=Dialect.POSTGRESQL + "+psycopg",
+                        host="db",
+                        database_name="prod",
+                    ),
+                    "test": ConnectionConfig(
+                        dialect=Dialect.POSTGRESQL + "+psycopg",
+                        host="db",
+                        database_name="test_db",
+                        test_only=True,
+                    ),
+                    "sqlite_test": ConnectionConfig(
+                        dialect=Dialect.SQLITE,
+                        database_name=":memory:",
+                        test_only=True,
+                    ),
+                }
+            ),
+        )
+        dropped: list[str] = []
+        monkeypatch.setattr(
+            PostgresTestStrategy, "drop_test_database", lambda self, connection: dropped.append(connection.url) or True
+        )
+
+        result = runner.invoke(cli.app, ["cleanup-test-databases"])
+
+        assert result.exit_code == 0, result.output
+        assert "test_db" in result.output
+        assert "prod" not in result.output
+        assert "Preview only" in result.output
+        assert dropped == []
+
+    def test_confirm_drops_selected_connection(self, isolated_config, monkeypatch):
+        _seed(
+            isolated_config,
+            StackConfig.for_session(
+                connections={
+                    "test": ConnectionConfig(
+                        dialect=Dialect.POSTGRESQL + "+psycopg",
+                        host="db",
+                        database_name="test_db",
+                        test_only=True,
+                    )
+                }
+            ),
+        )
+        dropped: list[str] = []
+        monkeypatch.setattr(
+            PostgresTestStrategy, "drop_test_database", lambda self, connection: dropped.append(connection.url) or True
+        )
+
+        result = runner.invoke(cli.app, ["cleanup-test-databases", "--confirm"])
+
+        assert result.exit_code == 0, result.output
+        assert len(dropped) == 1
+        assert "test_db" in dropped[0]
+        assert "dropped" in result.output

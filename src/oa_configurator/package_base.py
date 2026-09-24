@@ -49,7 +49,19 @@ if TYPE_CHECKING:
 
 
 class ConfigurationError(ValueError):
-    """Raised when a required database or connection is missing from the stack config."""
+    """General-purpose config-error type for this package.
+
+    Raised across many distinct situations, not just a missing database or
+    connection: 
+    - malformed stack-config TOML, 
+    - a missing required CLI field,
+    - an unrecognized ``--set``/flag key, 
+    - a failed entry validation, 
+    -a test/production connection collision, 
+    - an unresolved or kind-mismatched ref, 
+    - an ``is_test``/``test_only`` mismatch, and a headless ``plan_configure`` failure,
+    - ...
+    """
 
 
 class _SanitizedValidationErrorMixin:

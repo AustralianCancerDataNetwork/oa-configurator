@@ -535,9 +535,9 @@ class ResolvedDatabase:
             managed keys.
         RuntimeError
             If ``schema_name`` collides with a reserved schema. Normally
-            already caught by :meth:`DatabaseConfig.resolve`; repeated here
-            as defense in depth for a hand-built ``ResolvedDatabase`` that
-            skipped ``.resolve()``.
+            already caught by :meth:`GenericDatabaseConfig.resolve`; repeated
+            here as defense in depth for a hand-built ``ResolvedDatabase``
+            that skipped ``.resolve()``.
         """
         reject_reserved_schema(self.schema_name)
         engine = self.connection_for_role(role).create_engine(**kwargs)
@@ -660,7 +660,7 @@ class ResolvedCDMDatabase(ResolvedDatabase):
 
     def schema_for_role(self, role: Role = Role.PRIMARY) -> str | None:
         """Return the effective schema for a given role.
-        See ~meth:`CDMDatabaseConfig.resolve` for how vocab/results roles are handled.
+        See :meth:`CDMDatabaseConfig.resolve` for how vocab/results roles are handled.
 
         Parameters
         ----------

@@ -319,7 +319,7 @@ _RESERVED_SCHEMAS: dict[str, str] = {}
 
 
 def register_reserved_schema(name: str, *, owner: str) -> None:
-    """Register *name* as a physical schema no db_schema config may ever collide with.
+    """Register *name* as a physical schema no config's resolved schema may ever collide with.
 
     Parameters
     ----------

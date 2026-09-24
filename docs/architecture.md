@@ -185,7 +185,7 @@ OMOP ORM models carry `schema="primary"`, `schema="vocab"` or `schema="results"`
 `create_engine()`'s own `schema_translate_map` is authoritative, not a default:
 
 - an `execution_options` argument may *extend* the map with a key the resolver doesn't own (e.g. a package's own reserved-schema role, layered on top of the CDM map, see [Vector Stores](api/vector-stores.md) for a real example), 
-- supplying protected schemas raises `ValueError` rather tahn silently overriding the configured routing.
+- supplying protected schemas raises `ValueError` rather than silently overriding the configured routing.
 
 ---
 
@@ -198,7 +198,7 @@ OMOP ORM models carry `schema="primary"`, `schema="vocab"` or `schema="results"`
 ```python
 with guard_schema_provenance(
     connection, database_name=resolved.name, test_only=resolved.vocab_connection.test_only,
-    schema_tag=Role.VOCAB, physical_schema=schema_of(connection, schema_tag=Role.VOCAB),
+    schema_tag=Role.VOCAB, physical_schema=physical_schema_of(connection, schema_tag=Role.VOCAB),
     tables=vocab_tables,
 ):
     Base.metadata.create_all(bind=connection, tables=vocab_tables, checkfirst=True)

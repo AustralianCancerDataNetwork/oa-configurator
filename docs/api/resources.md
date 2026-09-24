@@ -56,3 +56,39 @@ The SQLAlchemy backend names (`Engine.dialect.name` / `get_backend_name()`) this
 ::: oa_configurator.domains.resources.schema.ResolvedDatabase
 
 ::: oa_configurator.domains.resources.schema.ResolvedCDMDatabase
+
+## Schema-aware SQL primitives
+
+Physical-schema/schema-tag-aware helpers. See
+[Schema translate map](../architecture.md#schema-translate-map) for the
+distinction between a schema *tag* (an abstract `schema_translate_map` key)
+and a *physical* schema (an actual, literal database schema name).
+
+::: oa_configurator.domains.resources.sql.qualified
+
+::: oa_configurator.domains.resources.sql.open_connection
+
+::: oa_configurator.domains.resources.sql.autocommit_connection
+
+::: oa_configurator.domains.resources.sql.ensure_schema
+
+::: oa_configurator.domains.resources.sql.validate_schema_tag
+
+::: oa_configurator.domains.resources.sql.register_reserved_schema
+
+::: oa_configurator.domains.resources.sql.register_reserved_schema_tag
+
+::: oa_configurator.domains.resources.sql.registered_schema_tags
+
+## Schema provenance
+
+See [Schema provenance guard](../architecture.md#schema-provenance-guard)
+for the full explanation of what this guards against and when it no-ops.
+
+::: oa_configurator.domains.resources.schema.guard_schema_provenance_for
+
+::: oa_configurator.domains.resources.sql.record_schema_provenance
+
+::: oa_configurator.domains.resources.sql.find_table_in_other_schemas
+
+::: oa_configurator.domains.resources.sql.SchemaDriftError

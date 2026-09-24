@@ -76,7 +76,9 @@ Prints your config as JSON. Validation errors (unknown field, missing cross-refe
 omop-config verify
 ```
 
-Reports OK / FAIL for each configured connection, with latency.
+Reports OK / FAIL for each configured connection, with latency, followed by a
+schema-provenance table (OK / DRIFT / FAIL per database/schema tag) — see
+[Schema provenance guard](architecture.md#schema-provenance-guard).
 
 ## 6. Export for Docker Compose
 

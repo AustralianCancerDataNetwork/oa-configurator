@@ -38,12 +38,6 @@ _CANARY = "canary-8f21c0-do-not-render"
 @pytest.fixture
 def isolated_config(tmp_path, monkeypatch):
     """Redirect the active config path/load/save to an isolated tmp_path file.
-
-    Patches both cli.py's own imported bindings (used by its direct
-    commands, e.g. init/_add_entry/_list_entries) and the source
-    oa_configurator.loader/io module attributes (used by
-    PackageConfigBase.run_configure's lazy, call-time imports), so both
-    paths land on the same isolated file.
     """
     import oa_configurator.io as io_mod
     import oa_configurator.loader as loader_mod
@@ -52,7 +46,6 @@ def isolated_config(tmp_path, monkeypatch):
     load = lambda path=config_path: load_stack_config(path)  # noqa: E731
     save = lambda config: _real_save_stack_config(config, path=config_path)  # noqa: E731
 
-    monkeypatch.setattr(cli, "CONFIG_PATH", config_path)
     monkeypatch.setattr(cli, "load_stack_config", load)
     monkeypatch.setattr(cli, "save_stack_config", save)
     monkeypatch.setattr(loader_mod, "CONFIG_PATH", config_path)

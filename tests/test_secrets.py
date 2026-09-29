@@ -16,23 +16,20 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from oa_configurator import (
-    MASK,
     CDMDatabaseConfig,
     ConnectionConfig,
     PackageConfigBase,
     ProviderConfig,
-    Secret,
-    SecretSafeBaseModel,
     SensitiveValueLeak,
-    Sensitive,
     StackConfig,
     assert_no_sensitive_values_leak,
     is_sensitive,
     safe_endpoint,
     save_stack_config,
-    write_env_file,
-    DatabaseKind
 )
+from oa_configurator.domains.resources.schema import DatabaseKind
+from oa_configurator.io import write_env_file
+from oa_configurator.refs import MASK, Secret, SecretSafeBaseModel, Sensitive
 from oa_configurator.resolver import Resolver
 
 

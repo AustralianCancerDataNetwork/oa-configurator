@@ -11,11 +11,29 @@ import uuid
 
 import pytest
 import sqlalchemy as sa
+from sqlalchemy.engine import make_url
 
-from oa_configurator import StackConfig
-from oa_configurator.domains.resources.rectify import drop_orphan_schema_tables
+from oa_configurator import (
+    CDMDatabaseConfig,
+    ConnectionConfig,
+    Resolver,
+    StackConfig,
+)
+from oa_configurator.domains.resources.rectify import (
+    drop_orphan_schema_tables,
+    schema_is_a_current_target,
+)
 
 _EMPTY_STACK = StackConfig.for_session(connections={}, databases={})
+
+
+def _connection_config(pg_db) -> ConnectionConfig:
+    url = make_url(pg_db.connection.engine.url)
+    return ConnectionConfig(
+        dialect=url.drivername, host=url.host, port=url.port,
+        user=url.username, password=url.password, database_name=url.database,
+        test_only=False,
+    )
 
 
 def test_drop_orphan_schema_tables_refuses_a_dialect_with_no_schema_concept():
@@ -77,3 +95,48 @@ def test_drop_orphan_schema_tables_does_not_touch_a_table_outside_the_orphan_sch
         assert connection.execute(
             sa.text("SELECT to_regclass(:name)"), {"name": f"{orphan_schema}.child"}
         ).scalar() is None
+
+
+@pytest.mark.postgresql
+@pytest.mark.db_dialect
+def test_schema_is_a_current_target_never_leaks_a_role_from_a_different_server(pg_db):
+    """A CDM database's vocab_schema must never be reported as a current
+    target of a connection that is genuinely a different physical server
+    than vocab_connection. 
+    
+    This is a regression test for occupied_schemas()
+    unconditionally including every role's schema regardless of which
+    connection was actually passed in.
+
+    vocab_connection here is a deliberately unreachable host: roles_on_connection()
+    never opens it, only compares URL fields, so this needs no real second server.
+    """
+    vocab_schema_name = f"vocab_{uuid.uuid4().hex[:8]}"
+    cdm_schema_name = f"cdm_{uuid.uuid4().hex[:8]}"
+    stack = StackConfig.for_session(
+        connections={
+            "primary": _connection_config(pg_db),
+            "vocab": ConnectionConfig(
+                dialect="postgresql+psycopg",
+                host="unreachable-vocab-host.invalid",
+                port=5432,
+                user="nobody",
+                password="nothing",
+                database_name="unreachable",
+            ),
+        },
+        databases={
+            "cdm": CDMDatabaseConfig(
+                connection="primary",
+                vocab_connection="vocab",
+                cdm_schema=cdm_schema_name,
+                vocab_schema=vocab_schema_name,
+            ),
+        },
+    )
+    resolved = Resolver(stack).resolve_database("cdm")
+
+    with pg_db.connection.engine.connect() as connection:
+        assert resolved.occupied_schemas(connection) == {cdm_schema_name}
+        assert schema_is_a_current_target(connection, stack, vocab_schema_name) is None
+        assert schema_is_a_current_target(connection, stack, cdm_schema_name) == "cdm"

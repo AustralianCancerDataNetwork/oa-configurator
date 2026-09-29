@@ -14,8 +14,7 @@ import uuid
 import pytest
 import sqlalchemy as sa
 from oa_configurator import CDMDatabaseConfig, ConnectionConfig, StackConfig
-from oa_configurator.domains.resources.sql import SCHEMA_PROVENANCE_SCHEMA, _schema_provenance_table
-from oa_configurator.testing import delete_rows_on_cleanup
+from oa_configurator.testing import cleanup_schema_registry_rows
 from sqlalchemy.engine import make_url
 from typer.testing import CliRunner
 
@@ -44,18 +43,11 @@ def _stack_with_one_cdm_db(pg_db, *, database_name: str, schema: str) -> StackCo
     )
 
 
-def _cleanup_provenance_rows(cleanup_after_test, pg_db, db_name: str) -> None:
-    table = _schema_provenance_table(SCHEMA_PROVENANCE_SCHEMA)
-    delete_rows_on_cleanup(
-        cleanup_after_test, pg_db.connection.engine, table, table.c.database_name == db_name
-    )
-
-
 def test_acknowledge_schema_migration_clears_drift(pg_db, monkeypatch, cleanup_after_test):
     db_name = f"rectify_db_{uuid.uuid4().hex[:8]}"
     schema_a = f"test_{uuid.uuid4().hex[:8]}"
     schema_b = f"test_{uuid.uuid4().hex[:8]}"
-    _cleanup_provenance_rows(cleanup_after_test, pg_db, db_name)
+    cleanup_schema_registry_rows(cleanup_after_test, pg_db.connection.engine, db_name)
 
     stack_a = _stack_with_one_cdm_db(pg_db, database_name=db_name, schema=schema_a)
     monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack_a)
@@ -90,8 +82,8 @@ def test_acknowledge_schema_migration_refuses_a_schema_claimed_by_another_databa
     db_name_a = f"rectify_db_{uuid.uuid4().hex[:8]}"
     db_name_b = f"rectify_db_{uuid.uuid4().hex[:8]}"
     schema_a = f"test_{uuid.uuid4().hex[:8]}"
-    _cleanup_provenance_rows(cleanup_after_test, pg_db, db_name_a)
-    _cleanup_provenance_rows(cleanup_after_test, pg_db, db_name_b)
+    cleanup_schema_registry_rows(cleanup_after_test, pg_db.connection.engine, db_name_a)
+    cleanup_schema_registry_rows(cleanup_after_test, pg_db.connection.engine, db_name_b)
 
     stack_a = _stack_with_one_cdm_db(pg_db, database_name=db_name_a, schema=schema_a)
     monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack_a)
@@ -117,7 +109,7 @@ def test_acknowledge_schema_migration_refuses_a_schema_claimed_by_another_databa
 def test_acknowledge_schema_migration_requires_a_reason(pg_db, monkeypatch, cleanup_after_test):
     db_name = f"rectify_db_{uuid.uuid4().hex[:8]}"
     schema = f"test_{uuid.uuid4().hex[:8]}"
-    _cleanup_provenance_rows(cleanup_after_test, pg_db, db_name)
+    cleanup_schema_registry_rows(cleanup_after_test, pg_db.connection.engine, db_name)
     stack = _stack_with_one_cdm_db(pg_db, database_name=db_name, schema=schema)
     monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack)
 

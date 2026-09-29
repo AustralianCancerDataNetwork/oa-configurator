@@ -29,7 +29,7 @@ from .domains.resources.schema import (
     GenericDatabaseConfig,
     _iter_schema_roles,
 )
-from .domains.resources.sql import _reserved_schema_message, supports_schemas
+from .domains.resources.sql import supports_schemas
 from .domains.vector_stores.schema import VectorStoreConfig
 from .logging_config import LoggingConfig
 from .refs import SecretSafeBaseModel, _iter_refs
@@ -194,7 +194,7 @@ class StackConfig(SecretSafeBaseModel):
         """Ensure every RefTo-marked field points at a configured entry."""
         for name, database in self.databases.items():
             self._check_refs(database, f"databases.{name}")
-            self._check_schema_roles(database, f"databases.{name}")
+            self._check_declared_schemas_supported(database, f"databases.{name}")
         for mname, model in self.models.items():
             self._check_refs(model, f"models.{mname}")
         for vname, vector_store in self.vector_stores.items():
@@ -212,29 +212,39 @@ class StackConfig(SecretSafeBaseModel):
                 f"{value!r} is a {actual.__name__}"
             )
 
-    def _check_schema_roles(self, database: DatabaseConfig, location: str) -> None:
-        """Raise on the first Role-tagged schema field that is explicitly
-        set but either collides with a reserved schema or targets a
-        connection whose dialect has no real multi-schema concept (e.g.
-        SQLite), rather than letting either be silently rectified downstream
-        at resolve/engine-construction time. A field left None is always
-        fine here: it has no override, or falls back to Role.PRIMARY's,
-        which is folded away safely later.
+    def _check_declared_schemas_supported(self, database: DatabaseConfig, location: str) -> None:
+        """Checks each configured connection whether schemas are configured and supported
+        by the dialect.
+
+        Raises
+        ------
+        ValueError
+            If a connection has no schema concept but schemas are configured for it.
+        
+        Notes
+        -----
+        Checks each distinct *connection* once to prevent duplicate checks
+        on connections that are shared across multiple fields.
+
+        Schema collision is checked at ``ResolvedDatabase.create_engine()`` time,
+        since a reservation only matters once a connection actually exists to share it with.
+        This check is connection-free and may run with no reachable database at alll
         """
+        checked_connections: set[str] = set()
         for field_name, role in _iter_schema_roles(type(database)):
             value = getattr(database, field_name)
             if value is None:
                 continue
-            reserved_message = _reserved_schema_message(value)
-            if reserved_message is not None:
-                raise ValueError(f"{location}.{field_name}: {reserved_message}")
             connection_name = database.connection_name_for_role(role)
+            if connection_name in checked_connections:
+                continue
             connection = self.connections.get(connection_name)
             if connection is not None and not supports_schemas(connection.dialect_name):
                 raise ValueError(
                     f"{location}.{field_name}={value!r} is set, but connection "
                     f"{connection_name!r} ({connection.dialect}) has no schema concept."
                 )
+            checked_connections.add(connection_name)
 
     @classmethod
     def for_session(

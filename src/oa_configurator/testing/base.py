@@ -11,14 +11,18 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable, Any
 
 import pytest
 from sqlalchemy import Connection, Engine
 from sqlalchemy.orm import Session
 
 if TYPE_CHECKING:
-    from ..domains.resources.schema import ResolvedConnection, ResolvedDatabase
+    from ..domains.resources.schema import (
+        ResolvedConnection,
+        ResolvedDatabase,
+        SchemaClaim,
+    )
     from ..package_base import PackageConfigBase
 
 
@@ -217,7 +221,8 @@ class TestDatabaseStrategy(ABC):
         resolved: "ResolvedDatabase",
         *,
         extensions: Sequence[str] = (),
-        **engine_kwargs: object,
+        schema_claims: Iterable["SchemaClaim"] = (),
+        execution_options: dict[str, Any] | None = None,
     ) -> AbstractContextManager[IsolatedTestDatabase]:
         """Yield an isolated, dialect-appropriate test database resource."""
 

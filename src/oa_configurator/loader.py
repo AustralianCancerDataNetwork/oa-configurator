@@ -89,6 +89,11 @@ def _resolve_config_path() -> Path:
 CONFIG_PATH: Path = _resolve_config_path()
 
 
+def active_config_path() -> Path:
+    """The resolved active config path."""
+    return CONFIG_PATH
+
+
 def invalidate_cache() -> None:
     """Clear the process-local config cache.
 

@@ -15,16 +15,19 @@ import tempfile
 from collections.abc import Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterator
+from typing import TYPE_CHECKING, Any, Iterator, Iterable
 
 import sqlalchemy as sa
 import sqlalchemy.orm as so
 
-from ..domains.resources.sql import SCHEMA_TRANSLATE_MAP_KEY, registered_schema_tags
 from .base import IsolatedTestDatabase, TestDatabaseStrategy
 
 if TYPE_CHECKING:
-    from ..domains.resources.schema import ResolvedConnection, ResolvedDatabase
+    from ..domains.resources.schema import (
+        ResolvedConnection, 
+        ResolvedDatabase,
+        SchemaClaim,
+    )
 
 
 class SQLiteTestStrategy(TestDatabaseStrategy):
@@ -59,7 +62,8 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
         resolved: "ResolvedDatabase | None" = None,
         *,
         extensions: Sequence[str] = (),
-        **engine_kwargs: object,
+        schema_claims: Iterable["SchemaClaim"] = (),
+        execution_options: dict[str, Any] | None = None
     ) -> Iterator[IsolatedTestDatabase]:
         """Yield an isolated SQLite database in a fresh tempfile.
 
@@ -75,26 +79,28 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
             A Postgres-only concept (pgvector etc.). Accepted and silently
             ignored here so callers don't need dialect-specific branching
             just to call isolated_test_database() uniformly.
+        schema_claims : Iterable[SchemaClaim], optional
+            A list of schema claims to be registered with the isolated database.
+        execution_options : dict[str, Any] | None, optional
+            Options to be passed to the database engine.
         **engine_kwargs
-            Forwarded to ``sa.create_engine()``. If ``execution_options``
-            omits ``schema_translate_map`` entirely, every registered schema
-            tag folds to ``None`` here, since SQLite has no real schema
-            concept. A caller-supplied map is used as-is, not merged with
-            this fold.
+            Forwarded to ``ResolvedDatabase.create_engine()``.
         """
+        from ..domains.resources.schema import ResolvedConnection, ResolvedCDMDatabase
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             db_path = Path(tmp_dir) / "test.db"
-            existing_execution_options = engine_kwargs.pop("execution_options", {})
-            assert isinstance(existing_execution_options, dict)
-            execution_options: dict[str, object] = {
-                str(key): value for key, value in existing_execution_options.items()
-            }
-            execution_options.setdefault(
-                SCHEMA_TRANSLATE_MAP_KEY, {tag: None for tag in registered_schema_tags()}
+            url = f"sqlite:///{db_path}"
+            connection = ResolvedConnection(name="sqlite-isolated", url=url, safe_url=url, _engine_url=sa.engine.make_url(url))
+            fresh = ResolvedCDMDatabase(
+                name="sqlite-isolated",
+                connection=connection,
+                schema_name=None,
+                vocab_connection=connection,
+                vocab_schema=None,
+                results_schema=None,
             )
-            engine = sa.create_engine(
-                f"sqlite:///{db_path}", execution_options=execution_options, **engine_kwargs
-            )
+            engine = fresh.create_engine(schema_claims=schema_claims, execution_options=execution_options)
             try:
                 connection = engine.connect()
                 try:

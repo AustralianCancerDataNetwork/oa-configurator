@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
-
 import pytest
 import typer
 from pydantic import ValidationError
@@ -21,9 +19,9 @@ from oa_configurator import (
     ResolvedModel,
     ResolvedProvider,
     ResolvedVectorStore,
+    SchemaClaim,
     StackConfig,
     VectorStoreConfig,
-    register_reserved_schema,
     Dialect,
     Role,
 )
@@ -458,7 +456,7 @@ class TestSchemaTranslateMap:
         r = Resolver(pg_stack_defaults)
         res = r.resolve_database("default")
         assert isinstance(res, ResolvedCDMDatabase)
-        stm = res.schema_translate_map()
+        stm = res.configured_internal_schema_translate_map()
         assert stm[Role.PRIMARY.value] == "omop"
         assert stm["results"] == "omop"
 
@@ -466,7 +464,7 @@ class TestSchemaTranslateMap:
         r = Resolver(pg_stack)
         res = r.resolve_database("default")
         assert isinstance(res, ResolvedCDMDatabase)
-        stm = res.schema_translate_map()
+        stm = res.configured_internal_schema_translate_map()
         assert stm[Role.PRIMARY.value] == "omop"
         assert stm["vocab"] == "omop_vocab"
         assert stm["results"] == "results"
@@ -475,7 +473,7 @@ class TestSchemaTranslateMap:
         r = Resolver(pg_stack_defaults)
         res = r.resolve_database("default")
         assert isinstance(res, ResolvedCDMDatabase)
-        stm = res.schema_translate_map()
+        stm = res.configured_internal_schema_translate_map()
         assert stm["vocab"] == "omop"
 
     def test_folds_to_none_on_sqlite(self, minimal_stack):
@@ -485,7 +483,7 @@ class TestSchemaTranslateMap:
         r = Resolver(minimal_stack)
         res = r.resolve_database("default")
         assert isinstance(res, ResolvedCDMDatabase)
-        stm = res.schema_translate_map()
+        stm = res.configured_internal_schema_translate_map()
         assert stm == {Role.PRIMARY.value: None, "vocab": None, "results": None}
 
 
@@ -520,114 +518,53 @@ class TestCreateEngine:
         engine = res.create_engine()
         assert engine.dialect.name == Dialect.SQLITE
 
-    def test_generic_database_rejects_resolver_schema_override(self, minimal_stack):
+    def test_execution_options_schema_translate_map_is_rejected_outright(self, minimal_stack):
+        """create_engine() is the one way to add anything
+        to schema_translate_map, so a raw execution_options override is
+        rejected unconditionally."""
         resolved = Resolver(minimal_stack).resolve_database("default")
 
-        with pytest.raises(ValueError, match="must not include resolver-managed key"):
+        with pytest.raises(ValueError, match="Utilise schema_claims instead"):
             resolved.create_engine(
-                execution_options={"schema_translate_map": {Role.PRIMARY.value: "wrong"}}
+                execution_options={"schema_translate_map": {"unrelated_tag": "wrong"}}
             )
 
-    def test_cdm_database_rejects_resolver_schema_override(self, pg_stack):
+    def test_schema_claims_rejects_a_resolver_managed_tag(self, pg_stack):
         resolved = Resolver(pg_stack).resolve_database("default")
 
-        with pytest.raises(ValueError, match="must not include resolver-managed key"):
+        with pytest.raises(ValueError, match="resolver-managed schema_tag"):
             resolved.create_engine(
-                execution_options={"schema_translate_map": {"vocab": "wrong"}}
+                schema_claims=[SchemaClaim(schema_tag="vocab", physical_schema="wrong")]
             )
 
 
-class TestReservedSchemaCollision:
-    """register_reserved_schema/reject_reserved_schema live in
-    domains/resources/sql.py (Phase 2.3); the check itself runs inside
-    resolve()/create_engine(), not as a manual call anywhere downstream.
-    Every test reserves its own uuid-suffixed name to avoid colliding with
-    other tests or real callers sharing the same module-level registry."""
+class TestResolveDoesNotCheckReservations:
+    """Reservation collision is checked at create_engine() time (see
+    test_schema_registry_postgres.py). resolve() is connection-free and may run 
+    with no reachable database at all (e.g. ``omop-config show``), while a 
+    reservation only matters once a connection actually exists to share it with."""
 
-    def _reserved_name(self) -> str:
-        name = f"reserved_{uuid.uuid4().hex[:8]}"
-        register_reserved_schema(name, owner="test-owner")
-        return name
-
-    def test_generic_database_resolve_raises_on_reserved_schema_name(self):
-        reserved = self._reserved_name()
-        with pytest.raises(ValidationError, match=f"{reserved!r}.*test-owner"):
+    def test_resolve_does_not_require_a_connection_or_raise_on_any_schema_name(self):
+        """pydantic validation and resolve() are both connection-free, so this must
+        succeed even though nothing reachable backs "c"."""
+        res = Resolver(
             StackConfig.for_session(
-                connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
-                databases={"default": GenericDatabaseConfig(connection="c", schema_name=reserved)},
-            )
-
-    def test_cdm_database_resolve_raises_on_reserved_schema_name(self):
-        reserved = self._reserved_name()
-        with pytest.raises(ValidationError, match=f"{reserved!r}.*test-owner"):
-            StackConfig.for_session(
-                connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
-                databases={"default": CDMDatabaseConfig(connection="c", cdm_schema=reserved)},
-            )
-
-    def _pg_connection(self) -> ConnectionConfig:
-        return ConnectionConfig(
-            dialect=Dialect.POSTGRESQL + "+psycopg",
-            host="localhost",
-            port=5432,
-            user="omop",
-            password="secret",
-            database_name="omop_cdm",
-        )
-
-    def test_cdm_database_resolve_raises_on_reserved_vocab_schema(self):
-        """Uses a Postgres connection, not SQLite: vocab_schema/results_schema
-        fold to None on a dialect with no schema concept, which would mask
-        the reserved-schema collision this test exists to check."""
-        reserved = self._reserved_name()
-        with pytest.raises(ValidationError, match=f"{reserved!r}.*test-owner"):
-            StackConfig.for_session(
-                connections={"c": self._pg_connection()},
-                databases={
-                    "default": CDMDatabaseConfig(
-                        connection="c", cdm_schema="omop", vocab_schema=reserved
+                connections={
+                    "c": ConnectionConfig(
+                        dialect=Dialect.POSTGRESQL + "+psycopg", host="unreachable-host",
+                        user="u", password="p", database_name="d",
                     )
                 },
-            )
-
-    def test_cdm_database_resolve_raises_on_reserved_results_schema(self):
-        reserved = self._reserved_name()
-        with pytest.raises(ValidationError, match=f"{reserved!r}.*test-owner"):
-            StackConfig.for_session(
-                connections={"c": self._pg_connection()},
                 databases={
-                    "default": CDMDatabaseConfig(
-                        connection="c", cdm_schema="omop", results_schema=reserved
-                    )
+                    "default": GenericDatabaseConfig(connection="c", schema_name="anything_at_all")
                 },
             )
+        ).resolve_database("default")
+        assert res.schema_name == "anything_at_all"
 
     def test_non_reserved_schema_name_resolves_fine(self, minimal_stack):
         res = Resolver(minimal_stack).resolve_database("default")
         assert res.schema_name is None
-
-    def test_hand_built_resolved_database_raises_on_create_engine(self, minimal_stack):
-        """Defense in depth: a ResolvedDatabase built directly (bypassing
-        resolve()) is still caught at create_engine() time."""
-        reserved = self._reserved_name()
-        connection = Resolver(minimal_stack).resolve_connection("db")
-        res = ResolvedDatabase(name="hand-built", connection=connection, schema_name=reserved)
-        with pytest.raises(RuntimeError, match=f"{reserved!r}.*test-owner"):
-            res.create_engine()
-
-    def test_hand_built_resolved_cdm_database_raises_on_create_engine(self, minimal_stack):
-        reserved = self._reserved_name()
-        connection = Resolver(minimal_stack).resolve_connection("db")
-        res = ResolvedCDMDatabase(
-            name="hand-built",
-            connection=connection,
-            schema_name="omop",
-            vocab_connection=connection,
-            vocab_schema=reserved,
-            results_schema="omop",
-        )
-        with pytest.raises(RuntimeError, match=f"{reserved!r}.*test-owner"):
-            res.create_engine()
 
 
 class TestCdmSchemaDialectValidation:

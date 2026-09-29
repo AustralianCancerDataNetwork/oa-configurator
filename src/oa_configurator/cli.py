@@ -29,18 +29,18 @@ from .domains.llm.cli import models_app, providers_app
 from .domains.resources.cli import connections_app, databases_app
 from .domains.resources.rectify import drop_orphan_schema_tables
 from .domains.resources.schema import ResolvedDatabase, Role
-from .domains.resources.sql import (
+from .domains.resources.sql import Dialect
+from .domains.resources.schema_registry import (
     SchemaDriftError,
-    find_schema_provenance_claim,
-    guard_schema_provenance,
-    record_schema_provenance,
-    reject_reserved_schema,
+    _find_schema_provenance_claim,
+    _guard_schema_provenance,
+    _reject_reservation,
     physical_schema_of,
-    Dialect,
+    record_schema_provenance,
 )
 from .domains.vector_stores.cli import vector_stores_app
 from .io import save_stack_config, write_env_file
-from .loader import CONFIG_PATH, load_stack_config
+from .loader import active_config_path, load_stack_config
 from .logging_config import configure_logging
 from .stack_config import StackConfig
 from .package_base import PackageConfigBase
@@ -176,18 +176,19 @@ def init(
     ] = False,
 ) -> None:
     """Create the config file at CONFIG_PATH (default ~/.config/omop/config.toml). Set OA_CONFIG_PATH to write elsewhere. Use 'omop-config configure <pkg>' to populate it."""
-    if CONFIG_PATH.exists() and not force:
+    config_path = active_config_path()
+    if config_path.exists() and not force:
         overwrite = typer.confirm(
-            f"Config already exists at {CONFIG_PATH}. Overwrite?",
+            f"Config already exists at {config_path}. Overwrite?",
             default=False,
         )
         if not overwrite:
             console.print("[yellow]Aborted.[/yellow]")
             raise typer.Exit(0)
 
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
     _save_stack_config_or_exit(StackConfig(), save=save_stack_config)
-    console.print(f"[green]✓[/green] Created [dim]{CONFIG_PATH}[/dim]")
+    console.print(f"[green]✓[/green] Created [dim]{config_path}[/dim]")
 
     eps = entry_points(group=ENTRY_POINT_GROUP)
     if eps:
@@ -203,7 +204,7 @@ def show() -> None:
     try:
         config = load_stack_config()
     except FileNotFoundError:
-        err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
+        err_console.print(f"[red]Config file not found:[/red] {active_config_path()}")
         err_console.print("Run [bold]omop-config init[/bold] to create it.")
         raise typer.Exit(1)
     rich.print_json(config.masked_json(exclude_none=True, indent=2))
@@ -215,7 +216,7 @@ def verify() -> None:
     try:
         config = load_stack_config()
     except FileNotFoundError:
-        err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
+        err_console.print(f"[red]Config file not found:[/red] {active_config_path()}")
         raise typer.Exit(1)
 
     if not config.connections:
@@ -305,30 +306,26 @@ def _verify_schema_provenance(
 
     Notes
     -----
-    Has to pass tables=() because this generic layer has no Base.metadata to
-    draw a table list from. As a result, only the schema-occupancy check
-    below runs here, never the per-table cross-schema check.
-
-    - schema occupancy check: on first-time setup (no provenance record yet),
-      confirms the resolved schema isn't already unexpectedly populated; once
-      a baseline exists, confirms the currently-resolved schema still matches
-      the one recorded in the provenance table for this database/schema_tag.
-    - per-table cross-schema check: on first-time setup only, for each table
-      about to be created, confirms it isn't already sitting under some other
-      schema. Never runs here since tables=() is empty.
+    Schema registration is performed by ``ResolvedDatabase.create_engine()`` itself.
+    This guard only compares the currently-resolved schema against that baseline.
+    A separate per-table cross-schema check (does one of this database's own tables 
+    already exist under some other schema) is separate (see :func:`find_table_in_other_schemas`).
     """
     # Physical split between vocab and primary connection
-    connection_role = Role.VOCAB if schema_tag == Role.VOCAB else Role.PRIMARY
+    connection_role = resolved.route_for_schema_tag(
+        schema_tag, 
+        vocab=Role.VOCAB, 
+        primary=Role.PRIMARY
+    )
     try:
         engine = resolved.create_engine(role=connection_role)
         try:
-            with engine.begin() as connection, guard_schema_provenance(
+            with engine.begin() as connection, _guard_schema_provenance(
                 connection,
                 database_name=resolved.name,
                 test_only=resolved.connection_for_role(connection_role).test_only,
                 schema_tag=schema_tag,
                 physical_schema=physical_schema_of(connection, schema_tag=schema_tag),
-                tables=(),
             ):
                 pass
         finally:
@@ -376,13 +373,17 @@ def acknowledge_schema_migration(
         stack = load_stack_config()
         resolved = Resolver(stack).resolve_database(database)
         # Physical split between vocab and primary connection
-        connection_role = Role.VOCAB if schema_tag == Role.VOCAB else Role.PRIMARY
+        connection_role = resolved.route_for_schema_tag(
+            schema_tag, 
+            vocab=Role.VOCAB, 
+            primary=Role.PRIMARY
+        )
         engine = resolved.create_engine(role=connection_role)
         try:
             with engine.begin() as connection:
                 if new_physical_schema is not None:
-                    reject_reserved_schema(new_physical_schema)
-                    claimant = find_schema_provenance_claim(
+                    _reject_reservation(connection, physical_schema=new_physical_schema)
+                    claimant = _find_schema_provenance_claim(
                         connection,
                         physical_schema=new_physical_schema,
                         exclude_database_name=resolved.name,
@@ -403,7 +404,7 @@ def acknowledge_schema_migration(
         finally:
             engine.dispose()
     except FileNotFoundError:
-        err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
+        err_console.print(f"[red]Config file not found:[/red] {active_config_path()}")
         raise typer.Exit(1)
     except Exception as exc:
         err_console.print(f"[red]Error:[/red] {exc}")
@@ -445,7 +446,7 @@ def drop_orphan_schema_tables_command(
         finally:
             engine.dispose()
     except FileNotFoundError:
-        err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
+        err_console.print(f"[red]Config file not found:[/red] {active_config_path()}")
         raise typer.Exit(1)
     except Exception as exc:
         err_console.print(f"[red]Error:[/red] {exc}")
@@ -468,7 +469,7 @@ def export_env() -> None:
     try:
         config = load_stack_config()
     except FileNotFoundError:
-        err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
+        err_console.print(f"[red]Config file not found:[/red] {active_config_path()}")
         raise typer.Exit(1)
 
     env_path = write_env_file(Resolver(config))

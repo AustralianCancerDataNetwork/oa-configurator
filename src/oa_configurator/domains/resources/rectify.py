@@ -13,11 +13,10 @@ from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 
-from .sql import (
-    find_schema_provenance_claim, 
-    qualified, 
-    reject_reserved_schema, 
-    supports_schemas
+from .sql import qualified, supports_schemas
+from .schema_registry import (
+    _find_schema_provenance_claim, 
+    _reject_reservation
 )
 
 if TYPE_CHECKING:
@@ -76,29 +75,30 @@ def preview_orphan_schema_tables(connection: sa.Connection, schema: str) -> list
 
 
 def schema_is_a_current_target(
-    connection: sa.Connection, 
-    stack: "StackConfig", 
+    connection: sa.Connection,
+    stack: "StackConfig",
     schema: str
 ) -> str | None:
-    """Name of a configured database matching schema and connection identity, or None.
+    """Is this schema still a live target of some configured database's
+    Role-tagged schema?
 
-    Checks every database in the stack and matches connection by
-    host, database and port. Compares the schema against the dialect's
-    default schema if the database entry has no explicit schema configured.
+    occupied_schemas() itself determines whether connection corresponds to
+    any of a database's own roles. A database with no role on this
+    physical server never matches, regardless of whether its own schema
+    names happen to coincide.
+
+    Notes
+    -----
+    A custom, non-Role schema_claims entry (e.g. a package reserving its own
+    schema at create_engine() time) is invisible here, since it has no
+    StackConfig field to read. drop_orphan_schema_tables catches those
+    separately, via the schema_registry table.
     """
     from ...resolver import Resolver
 
     resolver = Resolver(stack)
-    target_url = connection.engine.url
     for name in stack.databases:
         resolved = resolver.resolve_database(name)
-        candidate_url = resolved.connection._engine_url
-        if (
-            candidate_url.host != target_url.host
-            or candidate_url.database != target_url.database
-            or candidate_url.port != target_url.port
-        ):
-            continue
         if schema in resolved.occupied_schemas(connection):
             return name
     return None
@@ -116,6 +116,14 @@ def drop_orphan_schema_tables(
     Preview-only when *confirm* is False: returns what would be dropped
     without touching anything.
 
+    Notes
+    -----
+    Cover the entire verification before dropping any tables:
+    - schema_is_a_current_target() reads *stack*'s static config (Role-tagged schemas 
+    only, whether or not create_engine() has ever run for them)
+    - _reject_reservation()/_find_schema_provenance_claim() read the live schema_registry
+     table (any tag, reserved or not, but only once actually registered by create_engine())
+
     Raises
     ------
     ValueError
@@ -132,7 +140,7 @@ def drop_orphan_schema_tables(
             f"Cannot drop orphan schema tables: {connection.dialect.name!r} has no real schema "
             "concept, so 'orphan schema' doesn't apply and this operation isn't meaningful here."
         )
-    reject_reserved_schema(orphan_schema)
+    _reject_reservation(connection, physical_schema=orphan_schema)
     blocking = schema_is_a_current_target(connection, stack, orphan_schema)
     if blocking is not None:
         raise RuntimeError(
@@ -140,7 +148,7 @@ def drop_orphan_schema_tables(
             f"target of database {blocking!r}. Reconfigure or drop that database entry first "
             "if this schema is genuinely meant to be retired."
         )
-    claimant = find_schema_provenance_claim(connection, physical_schema=orphan_schema)
+    claimant = _find_schema_provenance_claim(connection, physical_schema=orphan_schema)
     if claimant is not None:
         raise RuntimeError(
             f"Refusing to drop tables in schema {orphan_schema!r}: schema-provenance records "

@@ -14,7 +14,6 @@ from oa_configurator import (
     CDMDatabaseConfig,
     ConnectionConfig,
     ProviderConfig,
-    Secret,
     SensitiveValueLeak,
     StackConfig,
     assert_no_sensitive_values_leak,
@@ -22,6 +21,7 @@ from oa_configurator import (
     safe_endpoint,
     Dialect
 )
+from oa_configurator.refs import Secret
 
 CANARY = "canary-8f21c0-do-not-render"
 

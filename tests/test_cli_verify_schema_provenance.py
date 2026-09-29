@@ -1,6 +1,6 @@
 """`omop-config verify`'s schema-provenance section.
 
-Live-Postgres regression. verify() opens guard_schema_provenance() with an
+Live-Postgres regression. verify() opens the schema-provenance guard with an
 empty body per resolved database entry, the same agree/disagree check the
 DDL-time gate uses, unconditional (no --deep-style gate), refreshing
 last_verified_at on success as a side effect.
@@ -17,13 +17,8 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from oa_configurator import CDMDatabaseConfig, ConnectionConfig, Role, StackConfig
-from oa_configurator.domains.resources.sql import (
-    SCHEMA_PROVENANCE_SCHEMA,
-    _schema_provenance_table,
-    record_schema_provenance,
-)
-from oa_configurator.testing import delete_rows_on_cleanup
+from oa_configurator import CDMDatabaseConfig, ConnectionConfig, Role, StackConfig, record_schema_provenance
+from oa_configurator.testing import cleanup_schema_registry_rows
 from sqlalchemy.engine import make_url
 from typer.testing import CliRunner
 
@@ -53,21 +48,10 @@ def _stack_with_one_cdm_db(pg_db, *, database_name: str, schema: str) -> StackCo
     )
 
 
-def _cleanup_provenance_rows(cleanup_after_test, pg_db, db_name: str) -> None:
-    """Delete every schema_provenance row this test's own verify() run wrote,
-    keyed by db_name, once the test ends -- verify() writes through a real,
-    committing engine, so nothing else cleans these up.
-    """
-    table = _schema_provenance_table(SCHEMA_PROVENANCE_SCHEMA)
-    delete_rows_on_cleanup(
-        cleanup_after_test, pg_db.connection.engine, table, table.c.database_name == db_name
-    )
-
-
 def test_verify_reports_ok_for_a_fresh_database(pg_db, monkeypatch, cleanup_after_test):
     db_name = f"verify_db_{uuid.uuid4().hex[:8]}"
     schema = f"test_{uuid.uuid4().hex[:8]}"
-    _cleanup_provenance_rows(cleanup_after_test, pg_db, db_name)
+    cleanup_schema_registry_rows(cleanup_after_test, pg_db.connection.engine, db_name)
     stack = _stack_with_one_cdm_db(pg_db, database_name=db_name, schema=schema)
     monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack)
 
@@ -82,7 +66,7 @@ def test_verify_reports_drift_after_reconfiguring_the_schema(pg_db, monkeypatch,
     db_name = f"verify_db_{uuid.uuid4().hex[:8]}"
     schema_a = f"test_{uuid.uuid4().hex[:8]}"
     schema_b = f"test_{uuid.uuid4().hex[:8]}"
-    _cleanup_provenance_rows(cleanup_after_test, pg_db, db_name)
+    cleanup_schema_registry_rows(cleanup_after_test, pg_db.connection.engine, db_name)
 
     stack_a = _stack_with_one_cdm_db(pg_db, database_name=db_name, schema=schema_a)
     monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack_a)
@@ -100,7 +84,7 @@ def test_verify_clean_after_acknowledging_drift(pg_db, monkeypatch, cleanup_afte
     db_name = f"verify_db_{uuid.uuid4().hex[:8]}"
     schema_a = f"test_{uuid.uuid4().hex[:8]}"
     schema_b = f"test_{uuid.uuid4().hex[:8]}"
-    _cleanup_provenance_rows(cleanup_after_test, pg_db, db_name)
+    cleanup_schema_registry_rows(cleanup_after_test, pg_db.connection.engine, db_name)
 
     stack_a = _stack_with_one_cdm_db(pg_db, database_name=db_name, schema=schema_a)
     monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack_a)

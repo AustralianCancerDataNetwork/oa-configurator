@@ -75,7 +75,7 @@ def is_sensitive(info: Any) -> bool:
 
     What it cannot reach is free text, which has no field to look up. 
     
-    :class:`~oa_configurator.logging_config.RedactingFormatter` is scoped to URLs
+    :class:`~oa_configurator.logging_config.RedactingFilter` is scoped to URLs
     written by other libraries rather than trying to guess.
 
     Parameters

@@ -417,7 +417,7 @@ class PackageConfigBase(SecretSafeBaseModel):
         from rich.console import Console
 
         from .cli_support import _save_stack_config_or_exit
-        from .loader import CONFIG_PATH, load_stack_config
+        from .loader import active_config_path, load_stack_config
         from .stack_config import StackConfig
 
         console = Console()
@@ -425,7 +425,7 @@ class PackageConfigBase(SecretSafeBaseModel):
         try:
             config = load_stack_config()
         except FileNotFoundError:
-            CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            active_config_path().parent.mkdir(parents=True, exist_ok=True)
             config = StackConfig()
 
         tool_name = cls.tool_name
@@ -450,7 +450,7 @@ class PackageConfigBase(SecretSafeBaseModel):
         config.tools[tool_name] = validated.to_extra_dict()
         _save_stack_config_or_exit(config)
         console.print(
-            f"\n[green]✓[/green] Saved \\[tools.{tool_name}] to [dim]{CONFIG_PATH}[/dim]"
+            f"\n[green]✓[/green] Saved \\[tools.{tool_name}] to [dim]{active_config_path()}[/dim]"
         )
 
 

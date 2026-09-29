@@ -57,11 +57,25 @@ def engine(request):
     through the one mechanism: test_db_sqlite is deliberately never
     configured, so that param falls back to SQLiteTestStrategy's disposable
     in-memory database automatically.
+
+    Notes
+    -----
+    - Circumvents creat_engine()'s schema_claims as `primary` is a resolver-managed tag,
+        so create_engine() rejects any schema_claims entry for it outright.
+    - The schema_translate_map is set directly on the built engine instead, since
+        this fixture wants an arbitrary, never-created schema name for testing
+        sql.py's primitives.
+
     """
     with isolated_test_database(
-        OAConfiguratorConfig, _FIELD_BY_DIALECT[request.param], dialect=request.param, request=request
+        OAConfiguratorConfig, _FIELD_BY_DIALECT[request.param],
+        dialect=request.param,
+        request=request,
+        schema_claims=()
     ) as db:
-        yield db.connection.engine.execution_options(schema_translate_map={Role.PRIMARY.value: "myschema"})
+        yield db.connection.engine.execution_options(
+            schema_translate_map={Role.PRIMARY.value: "myschema"},
+        )
 
 
 @pytest.fixture

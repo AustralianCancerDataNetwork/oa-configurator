@@ -102,7 +102,7 @@ def _add_entry(target: type[BaseModel], section: str, name: str, flags: dict[str
     import typer
     from rich.console import Console
 
-    from .loader import CONFIG_PATH, load_stack_config
+    from .loader import active_config_path, load_stack_config
 
     console = Console()
     err_console = Console(stderr=True)
@@ -110,7 +110,7 @@ def _add_entry(target: type[BaseModel], section: str, name: str, flags: dict[str
     try:
         config = load_stack_config()
     except FileNotFoundError:
-        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        active_config_path().parent.mkdir(parents=True, exist_ok=True)
         config = StackConfig()
 
     section_dict = getattr(config, section)
@@ -139,7 +139,7 @@ def _add_entry(target: type[BaseModel], section: str, name: str, flags: dict[str
 
     section_dict[name] = entry
     _save_stack_config_or_exit(config)
-    console.print(f"[green]✓[/green] Saved \\[{section}.{name}] to [dim]{CONFIG_PATH}[/dim]")
+    console.print(f"[green]✓[/green] Saved \\[{section}.{name}] to [dim]{active_config_path()}[/dim]")
 
 
 def _list_entries(target: type[BaseModel], section: str) -> None:
@@ -157,8 +157,8 @@ def _list_entries(target: type[BaseModel], section: str) -> None:
     try:
         config = load_stack_config()
     except FileNotFoundError:
-        from .loader import CONFIG_PATH
-        err_console.print(f"[red]Config file not found:[/red] {CONFIG_PATH}")
+        from .loader import active_config_path
+        err_console.print(f"[red]Config file not found:[/red] {active_config_path()}")
         raise typer.Exit(1)
 
     section_dict: dict[str, Any] = getattr(config, section)

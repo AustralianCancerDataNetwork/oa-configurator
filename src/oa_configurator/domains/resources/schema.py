@@ -2,32 +2,74 @@
 
 from __future__ import annotations
 
+import inspect
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import (
+    TYPE_CHECKING, 
+    Annotated, 
+    Any, 
+    Literal,
+    TypeVar,
+    NamedTuple
+)
 
 from collections.abc import Iterable, Iterator
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy.engine import URL, Engine
+from sqlalchemy.engine import URL, Engine, Connection
+from sqlalchemy.orm import Session
 import sqlalchemy as sa
 
 from ...refs import RefTo, Secret, SecretSafeBaseModel
 from .sql import (
     SCHEMA_TRANSLATE_MAP_KEY,
     Role,
-    guard_schema_provenance,
-    reject_reserved_schema,
     requires_host,
     schema_if_supported,
-    physical_schema_of,
     supports_schemas,
+)
+from .schema_registry import (
+    _SCHEMA_PROVENANCE_SCHEMA,
+    _create_schema_registry_table,
+    _guard_schema_provenance,
+    _register_schema_claim,
+    physical_schema_of,
 )
 
 if TYPE_CHECKING:
     from ...stack_config import StackConfig
 
+# Types for route_for_schema_tag() 
+_T = TypeVar("_T")
+Bindable = Engine | Connection | Session
+
+class SchemaClaim(NamedTuple):
+    """Explicit entry to the schema_translate_map passed to create_engine().
+
+    Attributes
+    ----------
+    schema_tag : str
+        The ``schema_translate_map`` key this claim registers.
+    physical_schema : str or None
+        The physical schema this claim resolves to. ``None`` is folded
+        away entirely for a dialect with no schema concept; see
+        ``create_engine()``.
+    reserved : bool, optional
+        True if *physical_schema* may not be used by any other owner on
+        this connection, regardless of ``schema_tag``.
+    owner : str, optional
+        Explicit owner for this one claim, overriding create_engine()'s
+        own owner (stack-derived or explicit). Only needed for a caller
+        aggregating several packages' claims into one create_engine() call,
+        where the immediate caller isn't the true owner of everything in it.
+    """
+
+    schema_tag: str
+    physical_schema: str | None
+    reserved: bool = False
+    owner: str | None = None
 
 class ConnectionConfig(SecretSafeBaseModel):
     """Complete specification of one physical database connection: server
@@ -203,29 +245,84 @@ def _iter_schema_roles(cls: type[BaseModel]) -> Iterator[tuple[str, Role]]:
             yield name, roles[0]
 
 
-def _merged_schema_translate_map(
-    execution_options: dict[str, Any] | None,
-    configured_map: dict[str | None, str | None],
-) -> dict[str, Any]:
-    """Merge execution_options with the resolver's own schema_translate_map.
+def _derive_owner() -> str | None:
+    """Top-level package name of the first call-stack frame outside oa_configurator.
+    To be used in combination with create_engine()."""
 
-    A caller may add a new key create_engine() doesn't own,  e.g. a
-    package's own reserved-schema role, layered on top of the CDM map. 
-    A caller may NOT set a key it does own.  That's rejected with ``ValueError`` 
-    to prevent silent overrides of the resolver's own schema routing. 
+    # Disregard the current frame, which is guaranteed to be oa_configurator itself.
+    for frame_info in inspect.stack()[1:]:
+        module_name = frame_info.frame.f_globals.get("__name__", "")
+        if not module_name or module_name.startswith("oa_configurator"):
+            continue
+        return module_name.split(".")[0]
+    return None
+
+
+def _connection_matches(candidate: URL, target: URL) -> bool:
+    """True if *candidate* and *target* address the same physical server
+    (host, database, and port), regardless of dialect/driver string or
+    credentials.
     """
-    merged_opts = dict(execution_options or {})
-    caller_map = merged_opts.pop(SCHEMA_TRANSLATE_MAP_KEY, None) or {}
-    owned_conflicts = sorted(str(key) for key in caller_map if key in configured_map)
-    if owned_conflicts:
-        raise ValueError(
-            f"execution_options[{SCHEMA_TRANSLATE_MAP_KEY!r}] must not include "
-            f"resolver-managed key(s) {owned_conflicts}: create_engine() "
-            "sets those from the resolved config. Extend with additional "
-            "keys instead, such as a package's own reserved schema role."
-        )
-    merged_opts[SCHEMA_TRANSLATE_MAP_KEY] = {**caller_map, **configured_map}
-    return merged_opts
+    return (
+        candidate.host == target.host
+        and candidate.database == target.database
+        and candidate.port == target.port
+    )
+
+
+def _process_schema_claims(
+    engine: Engine,
+    claims: list[SchemaClaim],
+    *,
+    database_name: str,
+    default_owner: str | None,
+) -> dict[str, str | None]:
+    """Fold, register, and translate every claim in one pass.
+    No-op on a dialect with no real multi-schema concept.
+
+    ``physical_schema=None`` on a claim for a dialect with schema 
+    support resolves to the connection's own real default schema 
+    via a single shared connection.
+
+    Notes
+    -----
+    - An own-built engine and a SQLite engine end up in the same, unchecked
+    state deliberately, since neither has anything real to protect.
+    - A dialect without real multi-schema support (e.g. SQLite) automatically 
+    folds every schema_tag to None.
+
+    Returns
+    -------
+    dict[str, str | None]
+        The dict to set as ``execution_options[schema_translate_map]``.
+    """
+    if not supports_schemas(engine):
+        return {claim.schema_tag: None for claim in claims}
+
+    translate_map: dict[str, str | None] = {}
+    role_members = frozenset(member.value for member in Role)
+    with engine.begin() as connection:
+        for claim in claims:
+            physical_schema = (
+                claim.physical_schema
+                if claim.physical_schema is not None
+                else sa.inspect(connection).default_schema_name
+            )
+            claim_owner = (
+                claim.owner if claim.owner is not None
+                else None if claim.schema_tag in role_members
+                else default_owner
+            )
+            _register_schema_claim(
+                connection,
+                database_name=database_name,
+                schema_tag=claim.schema_tag,
+                physical_schema=physical_schema,
+                owner=claim_owner,
+                reserved=claim.reserved,
+            )
+            translate_map[claim.schema_tag] = physical_schema
+    return translate_map
 
 
 class DatabaseKind(str, Enum):
@@ -290,14 +387,7 @@ class GenericDatabaseConfig(DatabaseConfig):
 
         *stack* must already have passed :meth:`StackConfig.validate_references`,
         so ``self.connection`` is guaranteed to exist in ``stack.connections``.
-
-        Raises
-        ------
-        RuntimeError
-            If ``schema_name`` collides with a schema reserved for internal
-            bookkeeping (see :func:`~.sql.register_reserved_schema`).
         """
-        reject_reserved_schema(self.schema_name)
         primary = stack.connections[self.connection].resolve(self.connection)
         return ResolvedDatabase(name=name, connection=primary, schema_name=self.schema_name)
 
@@ -361,19 +451,9 @@ class CDMDatabaseConfig(DatabaseConfig):
         :meth:`StackConfig.validate_references`, so ``self.connection``/
         ``self.vocab_connection`` are guaranteed to exist in
         ``stack.connections``.
-
-        Raises
-        ------
-        RuntimeError
-            If ``cdm_schema``, ``vocab_schema``, or ``results_schema``
-            collides with a schema reserved for internal bookkeeping (see
-            :func:`~.sql.register_reserved_schema`).
         """
         effective_vocab_schema = self._schema_for_role(Role.VOCAB)
         effective_results_schema = self._schema_for_role(Role.RESULTS)
-        reject_reserved_schema(self.cdm_schema)
-        reject_reserved_schema(effective_vocab_schema)
-        reject_reserved_schema(effective_results_schema)
         primary_connection_name = self.connection_name_for_role(Role.PRIMARY)
         primary_connection = stack.connections[primary_connection_name].resolve(primary_connection_name)
         vocab_connection_name = self.connection_name_for_role(Role.VOCAB)
@@ -484,16 +564,17 @@ class ResolvedDatabase:
     connection: ResolvedConnection
     schema_name: str | None
 
-    def schema_translate_map(self) -> dict[str | None, str | None]:
-        """SQLAlchemy schema translate map for this database.
+    def configured_internal_schema_translate_map(self) -> dict[str, str | None]:
+        """Schema translate map for this database.
         Routing:
             - ``"primary"`` → ``schema_name`` (or None if the dialect 
                 has no real multi-schema concept, e.g. SQLite)
             
         Notes
         -----
-        An untagged SQLAlchemy table (``schema=None``) is not redirected here
-        and falls back to the connection's own default/search_path.
+        This is NOT the full schema_translate_map for an engine!
+        See :meth:`create_engine` for the full map, which merges the resolver's own 
+        config-derived claims with any additional claims passed in by the caller.
         """
         return {
             Role.PRIMARY.value: schema_if_supported(self.schema_name, self.connection.dialect_name),
@@ -503,46 +584,101 @@ class ResolvedDatabase:
         self,
         role: Role = Role.PRIMARY,
         *,
+        schema_claims: Iterable[SchemaClaim] = (),
         execution_options: dict[str, Any] | None = None,
+        owner: str | None = None,
         **kwargs: Any,
     ) -> Engine:
         """Create a SQLAlchemy engine with the schema translate map applied.
 
+        Notes
+        -----
+        Checks schema_translate_map construction. The resolver's own config-derived 
+        claims are always injected and merged with the *schema_claims* passed here.
+
         Parameters
         ----------
         role : Role, optional
-            Which connection to create an engine for. Only ``Role.PRIMARY``
-            is valid here; anything else raises as a ResolvedDatabase has no
-            vocab/results connection-splitting. Defaults to ``Role.PRIMARY``.
+            Which connection to create an engine for.
+        schema_claims : Iterable[SchemaClaim], optional
+            Additional schema claims to register and fold into the schema_translate_map.
+            May not use a resolver-managed schema_tag.
         execution_options : dict, optional
-            Additional execution options merged into the engine. A
-            ``schema_translate_map`` here may add keys the resolver doesn't
-            define, but may not include ``"primary"`` (the resolver's own key):
-            that key is always set from the resolved config, and overriding
-            it here would silently defeat the configured schema routing.
+            Additional, non-schema execution options merged into the
+            engine (e.g. ``isolation_level``). May not include
+            ``schema_translate_map`` -> pass *schema_claims* instead.
+        owner : str, optional
+            Name of the package registering the schema claims.
+            If omitted, derived automatically from the caller's own module.
+            Useful if the immediate caller isn't the true owner of everything
+            it's registering (e.g. aggregating several packages' tags into one call).
         **kwargs
             Forwarded to ``sqlalchemy.create_engine``.
 
         Returns
         -------
         sqlalchemy.engine.Engine
-            Engine configured with :meth:`schema_translate_map`.
+            Engine configured with the merged schema_translate_map.
 
         Raises
         ------
         ValueError
-            If ``execution_options['schema_translate_map']`` includes any resolver-
-            managed keys.
-        RuntimeError
-            If ``schema_name`` collides with a reserved schema. Normally
-            already caught by :meth:`GenericDatabaseConfig.resolve`; repeated
-            here as defense in depth for a hand-built ``ResolvedDatabase``
-            that skipped ``.resolve()``.
+            If ``execution_options`` includes ``schema_translate_map``, or
+            *schema_claims* reuses a resolver-managed schema_tag.
+        oa_configurator.domains.resources.sql.SchemaOwnershipError
+            If a different owner already claims one of these schema tags, or
+            already reserves one of these physical schemas, on this connection.
+        oa_configurator.domains.resources.sql.SchemaDriftError
+            If any claim's physical schema already has tables in it with no
+            existing baseline.
         """
-        reject_reserved_schema(self.schema_name)
-        engine = self.connection_for_role(role).create_engine(**kwargs)
-        merged_opts = _merged_schema_translate_map(execution_options, self.schema_translate_map())
-        return engine.execution_options(**merged_opts)
+        if execution_options and SCHEMA_TRANSLATE_MAP_KEY in execution_options:
+            raise ValueError(
+                f"execution_options must not include {SCHEMA_TRANSLATE_MAP_KEY!r}. "
+                "Utilise schema_claims instead to pass your additional schema_translate_map entries."
+            )
+
+        # Resolver-managed tags are known purely from self and the caller's own
+        # schema_claims argument -- checked before anything touches a real
+        # connection, so a caller error is reported without needing a live database.
+        owned_tags = {_SCHEMA_PROVENANCE_SCHEMA, *self.configured_internal_schema_translate_map()}
+        caller_claims = list(schema_claims)
+        conflicts = sorted(
+            claim.schema_tag for claim in caller_claims if claim.schema_tag in owned_tags
+        )
+        if conflicts:
+            raise ValueError(
+                f"schema_claims must not include resolver-managed schema_tag(s) {conflicts}: "
+                "create_engine() derives those from the resolved config."
+            )
+
+        engine = self.connection_for_role(role).create_engine(
+            execution_options=execution_options, **kwargs
+        )
+
+        with engine.begin() as connection:
+            _create_schema_registry_table(connection)
+
+        schema_provenance_claim = SchemaClaim(
+            schema_tag=_SCHEMA_PROVENANCE_SCHEMA,
+            physical_schema=schema_if_supported(_SCHEMA_PROVENANCE_SCHEMA, engine),
+            reserved=True,
+            owner="oa_configurator",
+        )
+        resolver_claims = [
+            SchemaClaim(schema_tag=tag, physical_schema=physical_schema)
+            for tag, physical_schema in self.configured_internal_schema_translate_map().items()
+        ]
+        internal_claims = (schema_provenance_claim, *resolver_claims)
+
+        translate_map = _process_schema_claims(
+            engine, [*internal_claims, *caller_claims],
+            database_name=self.name,
+            # Needs to be called here to derive the owner from the caller's module
+            # (1 level up in the call stack)
+            default_owner=owner if owner is not None else _derive_owner(),
+        )
+        return engine.execution_options(**{SCHEMA_TRANSLATE_MAP_KEY: translate_map})
 
     def connection_for_role(self, role: Role = Role.PRIMARY) -> ResolvedConnection:
         """Return the resolved connection for a given role.
@@ -576,31 +712,95 @@ class ResolvedDatabase:
             )
         return self.schema_name
 
+    def _verify_route_for_schema_tag(self, vocab: Any, primary: Any) -> None:
+        """ Verifies that vocab and primary are the same type, or both are Bindable. 
+
+        Raises
+        ------
+        TypeError
+            If vocab and primary are not the same type, and aren't both
+            members of Bindable.
+        """
+        if (
+            not (isinstance(vocab, Bindable) and isinstance(primary, Bindable))
+            and type(vocab) is not type(primary)
+        ):
+            raise TypeError(
+                f"vocab ({type(vocab).__name__}) and primary ({type(primary).__name__}) "
+                "must be the same type."
+            )
+
+    def route_for_schema_tag(
+        self,
+        schema_tag: Role | str, 
+        *,
+        vocab: _T,
+        primary: _T
+    ) -> _T:
+        """Determines the right connection, engine, or session to use 
+        for a given schema_tag in a split-connection database.
+
+        Notes
+        -----
+        Only Role.PRIMARY and any string are valid here, since ResolvedDatabase
+        has no vocab/results connection-splitting.
+
+        Raises
+        ------
+        TypeError
+            If vocab and primary are not the same type, and aren't both
+            members of Bindable.
+        ValueError
+            If schema_tag is a Role other than Role.PRIMARY, which has no
+            meaning for this database.
+        """
+        self._verify_route_for_schema_tag(vocab=vocab, primary=primary)
+        if isinstance(schema_tag, Role) and schema_tag != Role.PRIMARY:
+            raise ValueError(
+                f"Role.{schema_tag.name} has no meaning for {type(self).__name__}; "
+                "only ResolvedCDMDatabase has vocab/results roles."
+            )
+        return primary
+
     def schema_tags(self) -> tuple[Role, ...]:
         """Role tags whose schema provenance is worth tracking for this database."""
         return (Role.PRIMARY,)
 
-    def occupied_schemas(self, connection: sa.Connection) -> set[str]:
-        """Physical schema names this database currently claims.
+    def roles_on_connection(self, connection: sa.Connection) -> tuple[Role, ...]:
+        """Role(s) this database entry has on *connection*'s own physical
+        server (host, database, port), or ``()`` if none.
 
-        Reads schema_translate_map() rather than self.schema_name directly,
-        so the supports_schemas fold it already applies isn't reimplemented
-        here. Unlike schema_translate_map() itself, an unset entry resolves
-        to the connection's own live default schema (e.g. "public"), not
-        None: this reports the real physical schema a table lands in, not
-        a translate-map directive.
+        Only ``Role.PRIMARY`` is possible here, since ``ResolvedDatabase``
+        has no vocab/results connection-splitting.
+        """
+        if _connection_matches(self.connection._engine_url, connection.engine.url):
+            return (Role.PRIMARY,)
+        return ()
+
+    def occupied_schemas(self, connection: sa.Connection) -> set[str]:
+        """Physical schema names this database currently claims that live
+        on *connection*'s own physical server.
+
 
         Parameters
         ----------
         connection : sqlalchemy.engine.Connection
-            Open connection to this database's own server, used to read its
-            live default schema (search_path-dependent, not a static
-            per-dialect guess). The caller is expected to already have one
-            in scope, not open a fresh one just for this.
+            Open connection, used both to match this database's own roles
+            against it and to read its live default schema
+            (search_path-dependent, not a static per-dialect guess). The
+            caller is expected to already have one in scope, not open a
+            fresh one just for this.
         """
+        roles = self.roles_on_connection(connection)
+        if not roles:
+            return set()
         default = sa.inspect(connection).default_schema_name
-        schema = self.schema_translate_map()[Role.PRIMARY.value] or default
-        return {schema} if schema is not None else set()
+        translated = self.configured_internal_schema_translate_map()
+        return {
+            resolved
+            for role in roles
+            if (resolved := translated[role.value] or default) is not None
+        }
 
     def __repr__(self) -> str:
         return (
@@ -658,6 +858,29 @@ class ResolvedCDMDatabase(ResolvedDatabase):
             "only Role.PRIMARY and Role.VOCAB select a connection."
         )
 
+    def route_for_schema_tag(
+        self,
+        schema_tag: Role | str, 
+        *,
+        vocab: _T,
+        primary: _T
+    ) -> _T:
+        """Determines the right connection, engine, or session to use
+        for a given schema_tag in a split-connection database.
+
+        Role.VOCAB routes to *vocab*; Role.PRIMARY, Role.RESULTS, and any
+        other string tag route to *primary* (Role.RESULTS has no
+        connection of its own; it always resolves through Role.PRIMARY's).
+
+        Raises
+        ------
+        TypeError
+            If vocab and primary are not the same type, and aren't both
+            members of Bindable.
+        """
+        self._verify_route_for_schema_tag(vocab=vocab, primary=primary)
+        return vocab if schema_tag == Role.VOCAB else primary
+
     def schema_for_role(self, role: Role = Role.PRIMARY) -> str | None:
         """Return the effective schema for a given role.
         See :meth:`CDMDatabaseConfig.resolve` for how vocab/results roles are handled.
@@ -686,7 +909,7 @@ class ResolvedCDMDatabase(ResolvedDatabase):
             return self.schema_name
         raise ValueError(f"Role.{role.name} is not handled by {type(self).__name__}.schema_for_role.")
 
-    def schema_translate_map(self) -> dict[str | None, str | None]:
+    def configured_internal_schema_translate_map(self) -> dict[str, str | None]:
         """SQLAlchemy schema translate map for OMOP ORM models.
 
         Routing:
@@ -696,15 +919,9 @@ class ResolvedCDMDatabase(ResolvedDatabase):
 
         Notes
         -----
-        If cdm_schema itself is unset, "primary" falls through to the
-        connection's own default/search_path. A genuinely untagged SQLAlchemy 
-        table (``schema=None``) is never redirected here at all.
-
-        Each key folds to ``None`` on a dialect with no real multi-schema
-        concept (e.g. SQLite). "vocab" checks ``vocab_connection``'s own
-        dialect, since that can genuinely be a separate connection;
-        "primary"/"results" both check ``connection``'s dialect, since
-        neither has a connection of its own.
+        This is NOT the full schema_translate_map for an engine!
+        See :meth:`create_engine` for the full map, which merges the resolver's own 
+        config-derived claims with any additional claims passed in by the caller.
         """
         return {
             Role.PRIMARY.value: schema_if_supported(self.schema_name, self.connection.dialect_name),
@@ -716,81 +933,44 @@ class ResolvedCDMDatabase(ResolvedDatabase):
         """Role tags whose schema provenance is worth tracking: primary, vocab, and results."""
         return (Role.PRIMARY, Role.VOCAB, Role.RESULTS)
 
+    def roles_on_connection(self, connection: sa.Connection) -> tuple[Role, ...]:
+        """Role(s) this database entry has on *connection*'s own physical
+        server (host, database, port), or ``()`` if none.
+
+        ``Role.RESULTS`` is included whenever ``Role.PRIMARY`` is, since it
+        has no connection of its own and always resolves through
+        ``Role.PRIMARY``'s. When primary and vocab share one physical
+        server, all three roles are returned.
+        """
+        target = connection.engine.url
+        roles: list[Role] = []
+        if _connection_matches(self.connection._engine_url, target):
+            roles.extend((Role.PRIMARY, Role.RESULTS))
+        if _connection_matches(self.vocab_connection._engine_url, target):
+            roles.append(Role.VOCAB)
+        return tuple(roles)
+
     def occupied_schemas(self, connection: sa.Connection) -> set[str]:
-        """Physical schema names this database currently claims.
-        If the vocab_connection is a genuinely different connection 
-        than connection, opens a short-lived connection to it just to 
-        read its default schema, then disposes it immediately.
+        """Physical schema names this database currently claims that live
+        on *connection*'s own physical server.
+
+        Scoped by :meth:`roles_on_connection`, so a schema belonging to a
+        role hosted on a genuinely different physical server (e.g. vocab
+        on its own connection) is never reported just because its name
+        happens to coincide -- unlike checking every role unconditionally,
+        this never needs to open a second engine to a different server.
         """
-        schemas = super().occupied_schemas(connection)
+        roles = self.roles_on_connection(connection)
+        if not roles:
+            return set()
         default = sa.inspect(connection).default_schema_name
-        if self.connection == self.vocab_connection:
-            vocab_default = default
-        else:
-            vocab_engine = self.vocab_connection.create_engine()
-            try:
-                with vocab_engine.connect() as vocab_connection:
-                    vocab_default = sa.inspect(vocab_connection).default_schema_name
-            finally:
-                vocab_engine.dispose()
-        translated = self.schema_translate_map()
-        for schema in (
-            translated[Role.VOCAB.value] or vocab_default,
-            translated[Role.RESULTS.value] or default,
-        ):
-            if schema is not None:
-                schemas.add(schema)
-        return schemas
+        translated = self.configured_internal_schema_translate_map()
+        return {
+            resolved
+            for role in roles
+            if (resolved := translated[role.value] or default) is not None
+        }
 
-    def create_engine(
-        self,
-        role: Role = Role.PRIMARY,
-        *,
-        execution_options: dict[str, Any] | None = None,
-        **kwargs: Any,
-    ) -> Engine:
-        """Create a SQLAlchemy engine with the schema translate map applied.
-
-        The schema translate map routes OMOP ORM models to the correct schemas
-        automatically (``"primary"`` -> schema_name, ``"vocab"`` -> vocab_schema,
-        ``"results"`` -> results_schema).
-
-        Parameters
-        ----------
-        role : Role, optional
-            Which connection to create an engine for. Defaults to
-            ``Role.PRIMARY``.
-        execution_options : dict, optional
-            Additional execution options merged into the engine.
-            Additional execution options merged into the engine. A
-            ``schema_translate_map`` here may add keys the resolver doesn't
-            define, but may not include resolver-managed keys to prevent
-            silent overwrites.
-        **kwargs
-            Forwarded to ``sqlalchemy.create_engine``.
-
-        Returns
-        -------
-        sqlalchemy.engine.Engine
-            Engine configured with :meth:`schema_translate_map` for OMOP ORM routing.
-
-        Raises
-        ------
-        ValueError
-            If ``execution_options['schema_translate_map']`` includes any
-            resolver-managed keys.
-        RuntimeError
-            If ``cdm_schema``, ``vocab_schema``, or ``results_schema``
-            collides with a reserved schema. Normally already caught by
-            :meth:`CDMDatabaseConfig.resolve`; repeated here as defense in
-            depth for a hand-built ``ResolvedCDMDatabase`` that skipped
-            ``.resolve()``. Does not call ``ResolvedDatabase.create_engine``
-            (this override builds its own engine via ``connection_for_role``),
-            so that check doesn't run here for free and needs repeating.
-        """
-        reject_reserved_schema(self.vocab_schema)
-        reject_reserved_schema(self.results_schema)
-        return super().create_engine(role=role, execution_options=execution_options, **kwargs)
 
     def vocab_engine_for(
         self,
@@ -841,10 +1021,9 @@ def guard_schema_provenance_for(
     resolved: ResolvedDatabase | None,
     *,
     schema_tag: Role | str,
-    tables: Iterable[sa.Table],
     database_name: str | None = None,
 ) -> AbstractContextManager[None]:
-    """guard_schema_provenance() scoped to schema_tag's own physical schema,
+    """The schema-provenance guard scoped to schema_tag's own physical schema,
     or a no-op when resolved is None (a bare-engine caller with no resolved
     config behind it).
 
@@ -857,9 +1036,6 @@ def guard_schema_provenance_for(
     schema_tag : Role or str
         Schema tag being guarded. Determines the connection role used
         to read test_only and the physical schema to guard.
-    tables : Iterable[sqlalchemy.Table]
-        Tables about to be created under this schema; see
-        guard_schema_provenance's own tables parameter.
     database_name : str, optional
         Override for a shared resource (e.g. "model_registry") tracked
         under one identity across multiple database entries. Defaults to
@@ -871,13 +1047,16 @@ def guard_schema_provenance_for(
     """
     if resolved is None:
         return nullcontext()
-    connection_role = Role.VOCAB if schema_tag == Role.VOCAB else Role.PRIMARY
+    connection_role = resolved.route_for_schema_tag(
+        schema_tag, 
+        vocab=Role.VOCAB, 
+        primary=Role.PRIMARY
+    )
     schema_tag = schema_tag.value if isinstance(schema_tag, Role) else schema_tag
-    return guard_schema_provenance(
+    return _guard_schema_provenance(
         connection,
         database_name=database_name if database_name is not None else resolved.name,
         test_only=resolved.connection_for_role(connection_role).test_only,
         schema_tag=schema_tag,
         physical_schema=physical_schema_of(connection, schema_tag=schema_tag),
-        tables=tables,
     )

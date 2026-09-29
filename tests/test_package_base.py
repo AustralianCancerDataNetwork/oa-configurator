@@ -13,7 +13,6 @@ from oa_configurator import (
     CDMDatabaseConfig,
     ConfigurationError,
     ConnectionConfig,
-    DatabaseConfig,
     GenericDatabaseConfig,
     ModelConfig,
     PackageConfigBase,
@@ -21,7 +20,6 @@ from oa_configurator import (
     ProviderConfig,
     RefTo,
     Resolver,
-    Sensitive,
     StackConfig,
     UnknownRefTarget,
     VectorStoreConfig,
@@ -30,6 +28,8 @@ from oa_configurator import (
     unresolved_refs,
     Dialect
 )
+from oa_configurator.domains.resources.schema import DatabaseConfig
+from oa_configurator.refs import Sensitive
 
 
 class SampleConfig(PackageConfigBase):

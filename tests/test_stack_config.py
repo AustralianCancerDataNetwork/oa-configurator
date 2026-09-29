@@ -9,8 +9,6 @@ import pytest
 from oa_configurator import (
     CDMDatabaseConfig,
     ConnectionConfig,
-    DatabaseConfig,
-    DatabaseKind,
     GenericDatabaseConfig,
     ModelConfig,
     ProviderConfig,
@@ -18,6 +16,7 @@ from oa_configurator import (
     Dialect,
     requires_host,
 )
+from oa_configurator.domains.resources.schema import DatabaseConfig, DatabaseKind
 from oa_configurator.stack_config import mismatched_kind_refs
 
 

@@ -32,28 +32,21 @@ transaction, so register cleanup with ``cleanup_after_test``::
     def pg_engine(pg_db):
         return pg_db.committing_engine
 
-Registers one pytest marker per supported dialect (``sqlite``,
-``postgresql``, ...), and additionally marks each one ``db_dialect`` if
-(and only if) it's capable of causing the corruption described below. A
-consuming repo's ``addopts = "-m 'not db_dialect'"`` then excludes exactly
-those tests by default, without hardcoding which dialect that is or
-enumerating dialects by name. A future dialect gets the right treatment
-automatically, whichever way its own capability actually falls.
-``pytest -m <dialect>`` runs just that one dialect. A fixture
-parametrized across dialects should use ``DIALECT_PARAMS`` with
-``dialect=request.param`` rather than a hand-rolled params list, since
-each param already carries the right marks (see ``pytest_configure``
-below for why mixing dialects in one process is unsafe at all). Also
-auto-applies ``postgresql`` + ``db_dialect`` to any test whose fixture
+Every supported dialect gets its own pytest marker, plus ``db_dialect`` on
+whichever ones are capable of corrupting shared ORM metadata across
+dialects in one process (see ``_can_corrupt_shared_metadata`` for the
+mechanism). A consuming repo's ``addopts = "-m 'not db_dialect'"`` excludes
+those by default; ``pytest -m <dialect>`` runs just one. Parametrize a
+fixture across dialects with ``DIALECT_PARAMS`` since each param already 
+carries the right marks. It also auto-applies to any test whose fixture 
 closure includes ``pg_db``.
 
-That auto-detection is static and name-based, so it can miss a fixture
-that doesn't follow the ``pg_db`` convention -- silently, with no error.
-Pass this function your fixture's own ``request`` (``isolated_test_database(
-..., request=request)``) to close that gap: it raises at fixture-setup
-time, before any DDL runs, if the resolved dialect can corrupt shared
-metadata but the test isn't marked ``db_dialect``. Recommended for every
-fixture not already covered by ``DIALECT_PARAMS``.
+That auto-detection is static and name-based, so it silently misses a
+fixture that doesn't follow the ``pg_db`` convention. Pass your fixture's
+own ``request`` (``isolated_test_database(..., request=request)``) to
+close that gap: it raises at fixture-setup time, before any DDL runs, if
+the resolved dialect needs ``db_dialect`` but the test isn't marked.
+Recommended for every fixture not already covered by ``DIALECT_PARAMS``.
 
 A test that must hold a real, committing ``Engine``/``Connection`` gets no
 automatic cleanup from ``isolated_test_database()``, since rollback only
@@ -66,7 +59,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterable, cast
 
 import pytest
 import sqlalchemy as sa
@@ -83,28 +76,21 @@ from .postgres import PostgresTestStrategy
 from .sqlite import SQLiteTestStrategy
 
 if TYPE_CHECKING:
-    from ..domains.resources.schema import ResolvedDatabase
+    from ..domains.resources.schema import ResolvedDatabase, SchemaClaim
     from ..package_base import PackageConfigBase
 
 __all__ = [
     "DIALECT_PARAMS",
     "IsolatedTestDatabase",
     "cleanup_after_test",
+    "cleanup_schema_registry_rows",
     "delete_rows_on_cleanup",
     "isolated_test_database",
     "isolated_test_schema",
 ]
 
 def pytest_configure(config: pytest.Config) -> None:
-    # SQLAlchemy's AddConstraint permanently mutates a ForeignKeyConstraint 
-    # object the first time it defers a circular-dependency FK on an 
-    # ALTER-capable dialect, which  corrupts later create_all() calls 
-    # against the same shared Base.metadata on any other dialect 
-    # in the same process. A dialect that can't ALTER (e.g. SQLite) 
-    # can never trigger this itself, so it doesn't need excluding. 
-    # A consuming repo's `addopts = "-m 'not db_dialect'"` keeps every 
-    # dialect capable of the corruption out of the default run.
-    # `pytest -m <dialect>` is the explicit way to run a single dialect.
+    # See _can_corrupt_shared_metadata() for what "corrupting" means here.
     for dialect in _STRATEGIES:
         config.addinivalue_line("markers", f"{dialect}: exercises the {dialect} dialect")
     config.addinivalue_line(
@@ -127,12 +113,9 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
     ``db_dialect`` is derived from ``_can_corrupt_shared_metadata`` rather
     than applied unconditionally, so this stays the same source of truth
-    ``DIALECT_PARAMS`` uses instead of a second, independent guess. Since
-    this static, name-based detection can miss a renamed or unconventional
-    fixture entirely (with no error, just silent under-marking),
-    ``isolated_test_database``'s own ``request=`` guard is the real backstop:
-    it raises at fixture-setup time, before any DDL runs, if a
-    corruption-capable dialect resolves without this mark present.
+    ``DIALECT_PARAMS`` uses instead of a second, independent guess. This
+    detection can still miss a renamed or unconventional fixture silently
+    -- see ``_require_db_dialect_mark`` for the actual backstop.
     """
     for item in items:
         if "pg_db" in getattr(item, "fixturenames", ()):
@@ -150,6 +133,12 @@ _STRATEGIES: dict[Dialect, type[TestDatabaseStrategy]] = {
 def _can_corrupt_shared_metadata(dialect: str) -> bool:
     """Whether *dialect*'s create_all() can defer a constraint via ALTER,
     the one mechanism that mutates shared metadata state process-wide.
+
+    SQLAlchemy's AddConstraint permanently mutates a ForeignKeyConstraint
+    object the first time it defers a circular-dependency FK on an
+    ALTER-capable dialect, corrupting later create_all() calls against the
+    same shared Base.metadata on any other dialect in the same process. A
+    dialect that can't ALTER (e.g. SQLite) can never trigger this itself.
 
     Loads the dialect class through SQLAlchemy's own plugin registry
     rather than ``create_engine()``, so this needs no driver installed and
@@ -216,7 +205,8 @@ def isolated_test_database(
     dialect: Dialect | str | None = None,
     extensions: Sequence[str] = (),
     request: pytest.FixtureRequest | None = None,
-    **engine_kwargs: object,
+    schema_claims: Iterable["SchemaClaim"] = (),
+    execution_options: dict[str, Any] | None = None,
 ) -> Iterator[IsolatedTestDatabase]:
     """Resolve *field_name* off *config_cls* and yield an isolated test database.
 
@@ -264,7 +254,12 @@ def isolated_test_database(
         _require_db_dialect_mark(request, field_name, resolved_dialect_name)
 
     strategy = _strategy_for(resolved_dialect_name)
-    with strategy.isolated_database(resolved, extensions=extensions, **engine_kwargs) as db:
+    with strategy.isolated_database(
+        resolved, 
+        extensions=extensions, 
+        schema_claims=schema_claims, 
+        execution_options=execution_options
+    ) as db:
         yield db
 
 
@@ -352,3 +347,35 @@ def delete_rows_on_cleanup(
             conn.execute(table.delete().where(whereclause))
 
     cleanup_after_test(_cleanup)
+
+
+def cleanup_schema_registry_rows(
+    cleanup_after_test: Callable[[Callable[[], None]], None],
+    engine: sa.Engine,
+    database_name: str,
+) -> None:
+    """Register cleanup of every schema_registry row a test wrote under database_name.
+
+    Equivalent to calling :func:`delete_rows_on_cleanup` against
+    ``domains.resources.schema_registry``'s bookkeeping table, filtered by
+    ``database_name`` -- the pattern several Postgres regression files
+    duplicated by hand before this existed. Nothing here creates or drops
+    the ``schema_registry`` table itself; deletion of an unbuilt table is a
+    no-op at teardown, not an error.
+
+    Parameters
+    ----------
+    cleanup_after_test : Callable[[Callable[[], None]], None]
+        The registration function yielded by the ``cleanup_after_test`` fixture.
+    engine : sqlalchemy.engine.Engine
+        Opened fresh at teardown time to run the delete.
+    database_name : str
+        The ``database_name`` value every row this test wrote was recorded under.
+    """
+    from ..domains.resources.schema_registry import SchemaRegistry
+
+    delete_rows_on_cleanup(
+        cleanup_after_test, engine,
+        cast(sa.Table, SchemaRegistry.__table__),
+        SchemaRegistry.database_name == database_name,
+    )

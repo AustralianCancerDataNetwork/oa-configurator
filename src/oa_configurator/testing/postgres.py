@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Iterator
+from typing import TYPE_CHECKING, Iterator, Iterable, Any
 
 import pytest
 import sqlalchemy as sa
@@ -16,7 +16,11 @@ from ..domains.resources.rectify import _refuse_production_collision
 from .base import IsolatedTestDatabase, TestDatabaseStrategy
 
 if TYPE_CHECKING:
-    from ..domains.resources.schema import ResolvedConnection
+    from ..domains.resources.schema import (
+        ResolvedConnection, 
+        ResolvedDatabase,
+        SchemaClaim,
+    )
 
 
 def _pg_ident(name: str) -> object:
@@ -92,17 +96,18 @@ class PostgresTestStrategy(TestDatabaseStrategy):
     @contextmanager
     def isolated_database(
         self,
-        resolved,
+        resolved: "ResolvedDatabase",
         *,
         extensions: Sequence[str] = (),
-        **engine_kwargs: object,
+        schema_claims: Iterable["SchemaClaim"] = (),
+        execution_options: dict[str, Any] | None = None
     ) -> Iterator[IsolatedTestDatabase]:
         url = resolved.connection.url
         self._ensure_test_db_exists(url)
         if extensions:
             self._install_extensions(resolved.connection, extensions)
 
-        engine = resolved.create_engine(**engine_kwargs)
+        engine = resolved.create_engine(schema_claims=schema_claims, execution_options=execution_options)
         try:
             connection = engine.connect()
             trans = connection.begin()

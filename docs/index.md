@@ -24,7 +24,7 @@ A shared configuration layer for the OMOP-oriented Python stack.
     ```python
     from oa_configurator import load_stack_config, Resolver
 
-    config = load_stack_config()                        # reads CONFIG_PATH (default ~/.config/omop/config.toml)
+    config = load_stack_config()                        # reads the active config path (default ~/.config/omop/config.toml)
     resolver = Resolver(config)
 
     database = resolver.resolve_database("cdm")

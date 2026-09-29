@@ -4,7 +4,7 @@ Which storage backend an embedding-capable package should use. A third instance 
 
 ## VectorStoreConfig
 
-Stored in `[vector_stores.<name>]`. `backend_type` is a plain string (e.g. `"sqlitevec"`, `"pgvector"`) validated by the owning package, not by `oa-configurator` — the same discipline `ProviderConfig.provider` uses. `database` must reference a `GenericDatabaseConfig` entry, never a `CDMDatabaseConfig` one: a vector store's tables have no CDM vocab/results roles, so a `[databases.*]` entry with `kind = "generic"` is required.
+Stored in `[vector_stores.<name>]`. `backend_type` is a plain string (e.g. `"sqlitevec"`, `"pgvector"`) validated by the owning package, not by `oa-configurator`, the same discipline `ProviderConfig.provider` uses. `database` must reference a `GenericDatabaseConfig` entry, never a `CDMDatabaseConfig` one: a vector store's tables have no CDM vocab/results roles, so a `[databases.*]` entry with `kind = "generic"` is required.
 
 ::: oa_configurator.domains.vector_stores.schema.VectorStoreConfig
 

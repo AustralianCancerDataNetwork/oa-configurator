@@ -4,10 +4,10 @@ Everything the stack knows about which values are secret comes from the `Sensiti
 
 ## Declaring a secret
 
-Use `Secret` for the ordinary case — an optional string that holds a credential:
+Use `Secret` for the ordinary case: an optional string that holds a credential:
 
 ```python
-from oa_configurator import Secret
+from oa_configurator.refs import Secret
 from pydantic import BaseModel, Field
 
 class MyToolConfig(BaseModel):
@@ -19,7 +19,7 @@ class MyToolConfig(BaseModel):
 
 ::: oa_configurator.refs.Sensitive
 
-Spell out `Annotated[..., Sensitive()]` directly where the field is not an optional string — a required secret, or one that is not a `str`.
+Spell out `Annotated[..., Sensitive()]` directly where the field is not an optional string: a required secret, or one that is not a `str`.
 
 ## Reading the declaration
 
@@ -67,7 +67,7 @@ safe_endpoint("https://api.example.org/v1#access_token=sk-x")
 
 ::: oa_configurator.conformance.SensitiveValueLeak
 
-Point it at a config object and whatever your package renders from it. Give the secrets a distinctive canary value first — the check is a substring search, so a password of `"x"` matches almost any output:
+Point it at a config object and whatever your package renders from it. Give the secrets a distinctive canary value first, since the check is a substring search and a password of `"x"` matches almost any output:
 
 ```python
 from oa_configurator import ConnectionConfig, StackConfig, assert_no_sensitive_values_leak
@@ -81,4 +81,4 @@ def test_snapshot_redacts_secrets():
     assert_no_sensitive_values_leak(stack, my_package.snapshot(stack))
 ```
 
-Run it over every surface that renders configuration — a TUI snapshot, a `--describe` payload, an MCP tool response, a CLI listing. It walks nested models and models held in lists and dicts, so a whole `StackConfig` can be passed in one call.
+Run it over every surface that renders configuration: a TUI snapshot, a `--describe` payload, an MCP tool response, a CLI listing. It walks nested models and models held in lists and dicts, so a whole `StackConfig` can be passed in one call.

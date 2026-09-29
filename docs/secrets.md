@@ -11,9 +11,9 @@ chmod 600 ~/.config/omop/config.toml
 
 ## What counts as a secret
 
-Two fields in `config.toml` hold credentials: `password` on a `[connections.*]` entry, and `api_key` on a `[providers.*]` entry. Both are *declared* secret in the schema, and every path that **renders your configuration** — the `omop-config` listings, an operator console, a package's `--describe` output — keys off that declaration rather than guessing from a field's name.
+Two fields in `config.toml` hold credentials: `password` on a `[connections.*]` entry, and `api_key` on a `[providers.*]` entry. Both are *declared* secret in the schema, and every path that **renders your configuration** (the `omop-config` listings, an operator console, a package's `--describe` output) keys off that declaration rather than guessing from a field's name.
 
-Packages that add their own configuration declare their own secrets the same way — see the [Secrets API](api/secrets.md) if you maintain one.
+Packages that add their own configuration declare their own secrets the same way; see the [Secrets API](api/secrets.md) if you maintain one.
 
 ## What is redacted where
 
@@ -55,11 +55,11 @@ logger.debug("password=%s", connection.password)   # this is considered the resp
 
 One gap worth knowing: with `console=`, Rich renders tracebacks from the exception object rather than from the formatted record, so a credential inside an *exception message* is scrubbed on the plain path but not in a Rich traceback.
 
-oa-configurator never logs a credential itself — its own resolver logs connections through `safe_url`.
+oa-configurator never logs a credential itself; its own resolver logs connections through `safe_url`.
 
 ## Credentials do not belong in `base_url`
 
-A provider's `base_url` is rejected if it carries userinfo — the `user:password@` part before the host:
+A provider's `base_url` is rejected if it carries userinfo, the `user:password@` part before the host:
 
 ```toml
 [providers.vendor]
@@ -76,7 +76,7 @@ base_url = "https://api.vendor.com/v1"
 api_key  = "hunter2"
 ```
 
-A credential passed as a query parameter (`?api_key=...`) is accepted, since rejecting it would mean guessing at parameter names — but it is stored in plaintext in `config.toml` like any other part of the URL, and only ever *displayed* masked. Prefer `api_key`.
+A credential passed as a query parameter (`?api_key=...`) is accepted, since rejecting it would mean guessing at parameter names, but it is stored in plaintext in `config.toml` like any other part of the URL, and only ever *displayed* masked. Prefer `api_key`.
 
 ## Backup copies
 

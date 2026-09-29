@@ -45,6 +45,25 @@ def pg_db(request):
         yield db
 
 
+@pytest.fixture
+def sqlite_db(request):
+    """Isolated, disposable SQLite database, for a test that needs a real
+    SQLite engine/connection with no Postgres counterpart (unlike the
+    dialect-parametrized ``engine`` fixture below). ``test_db_sqlite`` is
+    deliberately never configured, so this always falls back to
+    ``SQLiteTestStrategy``'s own disposable database, a fresh tempfile with
+    no rollback wrapping needed (SQLite isolation is free per-call).
+
+    Use ``sqlite_db.connection`` where a ``Connection`` is needed,
+    ``sqlite_db.committing_engine`` where a real ``Engine`` is needed (e.g.
+    to open more than one connection/transaction in the same test).
+    """
+    with isolated_test_database(
+        OAConfiguratorConfig, "test_db_sqlite", dialect=Dialect.SQLITE, request=request
+    ) as db:
+        yield db
+
+
 @pytest.fixture(params=DIALECT_PARAMS)
 def engine(request):
     """A real engine per dialect, execution_options carrying an arbitrary

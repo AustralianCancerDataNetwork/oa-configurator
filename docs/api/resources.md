@@ -72,14 +72,6 @@ and a *physical* schema (an actual, literal database schema name).
 
 ::: oa_configurator.domains.resources.sql.ensure_schema
 
-::: oa_configurator.domains.resources.sql.validate_schema_tag
-
-::: oa_configurator.domains.resources.sql.register_reserved_schema
-
-::: oa_configurator.domains.resources.sql.register_reserved_schema_tag
-
-::: oa_configurator.domains.resources.sql.registered_schema_tags
-
 ## Schema provenance
 
 See [Schema provenance guard](../architecture.md#schema-provenance-guard)
@@ -87,8 +79,14 @@ for the full explanation of what this guards against and when it no-ops.
 
 ::: oa_configurator.domains.resources.schema.guard_schema_provenance_for
 
-::: oa_configurator.domains.resources.sql.record_schema_provenance
+::: oa_configurator.domains.resources.schema_registry.physical_schema_of
 
-::: oa_configurator.domains.resources.sql.find_table_in_other_schemas
+::: oa_configurator.domains.resources.schema_registry.record_schema_provenance
 
-::: oa_configurator.domains.resources.sql.SchemaDriftError
+::: oa_configurator.domains.resources.schema_registry.find_table_in_other_schemas
+
+::: oa_configurator.domains.resources.schema_registry.SchemaDriftError
+
+::: oa_configurator.domains.resources.schema_registry.SchemaOwnershipError
+
+::: oa_configurator.domains.resources.schema_registry.UnregisteredSchemaTagError

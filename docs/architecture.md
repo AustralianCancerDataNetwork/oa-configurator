@@ -107,7 +107,7 @@ embedding_model_name: Annotated[str, RefTo(ModelConfig)] = "embed-default"
 
 `omop-config configure` resolves a `RefTo`-marked field interactively: reuse an existing entry in the target section, or create one on the spot, recursing into any `RefTo` fields the new entry itself has (e.g. a newly-created database recursing into resolving or creating its connection). At load time, `StackConfig` validates that every `RefTo`-marked field resolves to a configured entry, raising a clear error naming the missing section and value otherwise. There is no separate "required"/"owned" declaration list: the field's own type is the declaration, and two packages share an entry simply by both fields resolving to the same name.
 
-Two packages point their own `RefTo`-marked field at the same entry non-interactively by naming it directly, e.g. `omop-config configure <package> --set cdm_db=<existing-name>` — no need to reconfigure the connection or schema a second time.
+Two packages point their own `RefTo`-marked field at the same entry non-interactively by naming it directly, e.g. `omop-config configure <package> --set cdm_db=<existing-name>`; no need to reconfigure the connection or schema a second time.
 
 ---
 
@@ -171,7 +171,7 @@ An application with its own configuration UI uses `plan_configure()` to get the 
 
 ## Schema translate map
 
-CDM-specific: `ResolvedCDMDatabase.schema_translate_map()` returns the SQLAlchemy-compatible schema translate dict:
+CDM-specific: `ResolvedCDMDatabase.configured_internal_schema_translate_map()` returns the SQLAlchemy-compatible schema translate dict:
 
 ```python
 {"primary": "omop", "vocab": "omop_vocab", "results": "results"}
@@ -193,25 +193,21 @@ OMOP ORM models carry `schema="primary"`, `schema="vocab"` or `schema="results"`
 
 `schema_translate_map()` resolves a table's *current* physical schema correctly, but on its own gives no memory of a table's *previous* one. If a role's configured schema changes between two runs (a typo, an incomplete migration, two configs drifting apart), nothing would otherwise stop `create_all()` from silently creating a second, orphaned copy of the tables under the new schema while the old copy sits there unnoticed.
 
-`guard_schema_provenance(connection, *, database_name, test_only, schema_tag, physical_schema, tables)` (`sql.py`) closes that gap: a context manager wrapping a `create_all()`-style call, recording which physical schema each `(database_name, schema_tag)` pair last resolved to in a small bookkeeping table (`SCHEMA_PROVENANCE_SCHEMA`, its own reserved schema). Entering checks; the write happens only on successful exit, never on an exception:
+`create_engine()` closes that gap automatically. Every claim it registers, the schema-registry table's own reservation plus each configured `Role`'s schema, is recorded as a baseline row in a small bookkeeping table (`schema_registry`, its own reserved schema). `guard_schema_provenance_for(connection, resolved, *, schema_tag)` (`schema.py`) wraps a `create_all()`-style call against that baseline: entering compares the currently-resolved physical schema to the recorded one, and the write that refreshes the row's `last_verified_at` happens only on successful exit, never on an exception:
 
 ```python
-with guard_schema_provenance(
-    connection, database_name=resolved.name, test_only=resolved.vocab_connection.test_only,
-    schema_tag=Role.VOCAB, physical_schema=physical_schema_of(connection, schema_tag=Role.VOCAB),
-    tables=vocab_tables,
-):
+with guard_schema_provenance_for(connection, resolved, schema_tag=Role.VOCAB):
     Base.metadata.create_all(bind=connection, tables=vocab_tables, checkfirst=True)
 ```
 
-A resolved schema that disagrees with the recorded one raises `SchemaDriftError` and refuses the DDL. `tables` also drives a first-time-setup check: each table is checked against every other schema on the connection, catching one already living under a different physical schema than `schema_tag` is configured for (e.g. pre-existing vocab tables sitting in `myvocab` while `vocab_schema` is configured as `vocab`) — pass an empty tuple when the caller has no specific tables in view (e.g. a read-only verification), which skips that one check, not the whole guard. `test_only=True` short-circuits to a no-op — this only guards genuinely persistent deployments. `find_table_in_other_schemas()` (which the `tables` check above is itself built on) also complements the guard directly for drift that predates the bookkeeping table entirely, checking the database's actual physical layout rather than a stored claim.
+A resolved schema that disagrees with the recorded baseline raises `SchemaDriftError` and refuses the DDL, as does a `schema_tag` with no baseline at all (`create_engine()` was never called with this claim). `test_only=True` short-circuits to a no-op; this only guards genuinely persistent deployments. On a claim's first-ever registration, `create_engine()` itself also raises `SchemaDriftError` if the target schema already has tables in it, so a baseline is never established silently against pre-existing data. `find_table_in_other_schemas()` complements the guard directly for drift that predates the bookkeeping table entirely, checking the database's actual physical layout rather than a stored claim.
 
 oa-configurator owns the guard, the bookkeeping table, and the CLI-level remediation path for a genuine migration, generic over any `[databases.*]` entry rather than tied to any particular domain package:
 
 - `omop-config acknowledge-schema-migration --database <name> --new-schema <schema> --reason <text> [--schema-tag <tag>]` records a schema as the deliberate new baseline (`--reason` is mandatory; there is no `--yes` shortcut).
 - `omop-config drop-orphan-schema-tables --database <name> --schema <schema> [--role <role>] [--confirm]` drops tables physically found in an orphaned schema, after checking the named schema isn't still the current target of any configured database/role. Previews only, unless `--confirm` is given.
 
-Neither command moves data automatically — resolving a genuine migration is always an explicit, operator-run action with its own reasoning recorded.
+Neither command moves data automatically; resolving a genuine migration is always an explicit, operator-run action with its own reasoning recorded.
 
 ---
 
@@ -235,7 +231,7 @@ chmod 600 ~/.config/omop/config.toml
 
 `ResolvedConnection.safe_url` and `ResolvedConnection.url` are distinct: `safe_url` has the password replaced with `***` and is used for all logging and display. The `.url` value (with plaintext password) is used only for engine creation and never logged by the library.
 
-`RedactingFormatter` (applied by all non-library log presets) scrubs both `key=value` patterns and `://user:password@host` URL patterns from log output.
+`RedactingFilter` (installed by `configure_logging()`) scrubs both `key=value` patterns and `://user:password@host` URL patterns from log output.
 
 `save_stack_config()` validates and serializes before changing the destination, protects candidate and backup files before writing credentials, and verifies the result after an atomic replacement. See [Saving configuration safely](api/persistence.md) for recovery behaviour. Atomic replacement protects file integrity but does not coordinate concurrent writers, which remain last-writer-wins in this release.
 
@@ -245,7 +241,7 @@ chmod 600 ~/.config/omop/config.toml
 
 ## Config path
 
-Default: `~/.config/omop/config.toml`. Override with `OA_CONFIG_PATH=<path/to/config.toml>` (must end in `.toml`; `~` is expanded). Resolved once at module load time and stored as `CONFIG_PATH`.
+Default: `~/.config/omop/config.toml`. Override with `OA_CONFIG_PATH=<path/to/config.toml>` (must end in `.toml`; `~` is expanded). Resolved once, at module load time. Call `active_config_path()` to read it; the raw `CONFIG_PATH` module attribute is internal to `loader.py`.
 
 ---
 

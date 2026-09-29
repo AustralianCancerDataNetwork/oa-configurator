@@ -40,7 +40,7 @@ omop-config providers add <provider-name>   # e.g. local-ollama
 omop-config models add <model-name>         # e.g. nomic-embed
 ```
 
-`providers add` prompts for the specific provider key, base URL, and API key. `models add` prompts for which provider it's served through, the model name, `embedding_dim`/`document_prefix`/`query_prefix`, and then for each of the four capability fields — `embeddings`, `tool_use`, `structured_output`, `extended_thinking` — as a yes/no confirm. Capabilities are opt-in and default to `false` as no consuming package can introspect them per model. An embedding model therefore needs `embeddings = true`, and setting `embedding_dim` without it is rejected outright.
+`providers add` prompts for the specific provider key, base URL, and API key. `models add` prompts for which provider it's served through, the model name, `embedding_dim`/`document_prefix`/`query_prefix`, and then for each of the four capability fields (`embeddings`, `tool_use`, `structured_output`, `extended_thinking`) as a yes/no confirm. Capabilities are opt-in and default to `false` as no consuming package can introspect them per model. An embedding model therefore needs `embeddings = true`, and setting `embedding_dim` without it is rejected outright.
 
 Both commands accept flags for non-interactive use, with the capability fields as paired boolean flags:
 
@@ -77,7 +77,7 @@ omop-config verify
 ```
 
 Reports OK / FAIL for each configured connection, with latency, followed by a
-schema-provenance table (OK / DRIFT / FAIL per database/schema tag) — see
+schema-provenance table (OK / DRIFT / FAIL per database/schema tag), see
 [Schema provenance guard](architecture.md#schema-provenance-guard).
 
 ## 6. Export for Docker Compose

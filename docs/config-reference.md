@@ -4,7 +4,7 @@
     Configuration lives at `~/.config/omop/config.toml` by default. Override the path by setting
     `OA_CONFIG_PATH` to any `.toml` file (e.g. `OA_CONFIG_PATH=~/projects/omop.toml`).
     The path is resolved when `oa_configurator` is first imported, so set the variable before
-    starting the process. Changing it within a running process does not change `CONFIG_PATH`.
+    starting the process. Changing it within a running process does not change the resolved path.
 
 ---
 
@@ -167,7 +167,7 @@ A concrete LLM/embedding provider connection. Referenced by `[models.*].provider
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `provider` | string | **yes** | Provider key, e.g. `ollama`, `llamacpp`, `vllm`, `openai`, `anthropic`, `gemini` |
-| `base_url` | string | no | Base URL for this deployment (a local server, a cloud vendor endpoint, and so on). Must not contain userinfo — see below |
+| `base_url` | string | no | Base URL for this deployment (a local server, a cloud vendor endpoint, and so on). Must not contain userinfo, see below |
 | `api_key` | string | no | Plaintext API key *(see security note above)* |
 
 !!! warning "No credentials in `base_url`"

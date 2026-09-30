@@ -12,6 +12,7 @@ cleanup_after_test removes each test's own schema_registry rows.
 from __future__ import annotations
 
 import uuid
+from typing import cast
 
 import pytest
 from oa_configurator import (
@@ -23,12 +24,10 @@ from oa_configurator import (
     SchemaOwnershipError,
     StackConfig,
 )
-from oa_configurator.domains.resources.schema_registry import (
-    _SCHEMA_PROVENANCE_SCHEMA,
-    _schema_registry_table,
-)
+from oa_configurator.domains.resources.schema_registry import SchemaRegistry
 from oa_configurator.testing import delete_rows_on_cleanup
 from sqlalchemy.engine import make_url
+from sqlalchemy import Table
 
 pytestmark = [pytest.mark.postgresql, pytest.mark.db_dialect]
 
@@ -43,7 +42,7 @@ def _connection_config(pg_db) -> ConnectionConfig:
 
 
 def _cleanup_registry_rows(cleanup_after_test, pg_db, *schema_names: str) -> None:
-    table = _schema_registry_table(_SCHEMA_PROVENANCE_SCHEMA)
+    table = cast(Table, SchemaRegistry.__table__)
     delete_rows_on_cleanup(
         cleanup_after_test, pg_db.connection.engine, table,
         table.c.physical_schema.in_(schema_names),
@@ -75,7 +74,7 @@ def test_create_engine_derives_owner_from_the_caller_without_being_told(pg_db, c
     )
     engine.dispose()
 
-    table = _schema_registry_table(_SCHEMA_PROVENANCE_SCHEMA)
+    table = cast(Table, SchemaRegistry.__table__)
     with pg_db.connection.engine.connect() as connection:
         rows = {
             row.schema_tag: row

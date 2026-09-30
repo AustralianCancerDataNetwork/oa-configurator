@@ -89,10 +89,10 @@ class SchemaRegistry(_SchemaRegistryBase):
     One row shape serves three checks: drift, ownership conflicts, and
     reservation conflicts, all scoped to one connection.
 
-    Declared with a fixed schema (``_SCHEMA_PROVENANCE_SCHEMA``) as its
-    structural definition only. Every function in this module queries a
-    copy of this table bound to the connection's own resolved schema via
-    :func:`_schema_registry_table`, never these columns directly.
+    Declared with a fixed schema (``_SCHEMA_PROVENANCE_SCHEMA``) as a
+    schema_translate_map token. :func:`_with_provenance_translate_map`
+    ensures the connection's own schema_translate_map maps that token
+    to the real physical schema.
     """
 
     __tablename__ = SCHEMA_REGISTRY_TABLE_NAME
@@ -128,17 +128,6 @@ class SchemaRegistry(_SchemaRegistryBase):
     last_verified_at: Mapped[datetime.datetime | None] = mapped_column(server_default=sa.func.now())
 
 
-def _schema_registry_table(schema: str | None) -> sa.Table:
-    """A standalone Table for schema_registry, bound to *schema*.
-
-    Parameters
-    ----------
-    schema : str or None
-        Physical schema to bind the table to, resolved by the caller via
-        ``schema_if_supported(_SCHEMA_PROVENANCE_SCHEMA, connection)``.
-    """
-    return cast(sa.Table, SchemaRegistry.__table__).to_metadata(sa.MetaData(), schema=schema)  # ty: ignore[invalid-argument-type]
-
 
 def _connection_safe_url(connection: Connection) -> str:
     """This connection's own URL, credentials redacted; every row in this
@@ -146,19 +135,33 @@ def _connection_safe_url(connection: Connection) -> str:
     return connection.engine.url.render_as_string(hide_password=True)
 
 
-def _create_schema_registry_table(connection: Connection) -> sa.Table:
+def _with_provenance_translate_map(connection: Connection, *, physical_schema: str | None) -> Connection:
+    """*connection*, guaranteed to map ``_SCHEMA_PROVENANCE_SCHEMA`` to
+    *physical_schema* in its own ``schema_translate_map`` execution option,
+    merged with whatever entries it already carries.
+
+    Every statement against ``SchemaRegistry`` must run through a 
+    connection returned by this function.
+    """
+    existing = connection.get_execution_options().get(SCHEMA_TRANSLATE_MAP_KEY) or {}
+    return connection.execution_options(
+        **{SCHEMA_TRANSLATE_MAP_KEY: {**existing, _SCHEMA_PROVENANCE_SCHEMA: physical_schema}}
+    )
+
+def _ensure_schema_registry_table(connection: Connection) -> Connection:
     """Create the schema_registry table on this connection if it doesn't
-    exist yet, and return the Table bound to wherever it physically lives.
+    exist yet. Returns the connection to use for every subsequent
+    statement against ``SchemaRegistry.__table__``, carrying the
+    schema_translate_map entry that DDL/DML compiled against it needs.
     """
     physical_schema = schema_if_supported(_SCHEMA_PROVENANCE_SCHEMA, connection)
     ensure_schema(connection, physical_schema)
-    table = _schema_registry_table(physical_schema)
-    table.create(bind=connection, checkfirst=True)
-    return table
+    connection = _with_provenance_translate_map(connection, physical_schema=physical_schema)
+    cast(sa.Table, SchemaRegistry.__table__).create(bind=connection, checkfirst=True)
+    return connection
 
 def _reject_ownership_conflict(
     connection: Connection,
-    table: sa.Table,
     *,
     connection_safe_url: str,
     schema_tag: str,
@@ -168,12 +171,12 @@ def _reject_ownership_conflict(
     """Raise SchemaOwnershipError if a different owner already claims schema_tag
     on this connection with a different physical_schema."""
     conflict = connection.execute(
-        sa.select(table.c.owner, table.c.physical_schema).where(
-            table.c.connection_safe_url == connection_safe_url,
-            table.c.schema_tag == schema_tag,
-            table.c.owner.is_not(None),
-            table.c.owner != owner,
-            table.c.physical_schema != physical_schema,
+        sa.select(SchemaRegistry.owner, SchemaRegistry.physical_schema).where(
+            SchemaRegistry.connection_safe_url == connection_safe_url,
+            SchemaRegistry.schema_tag == schema_tag,
+            SchemaRegistry.owner.is_not(None),
+            SchemaRegistry.owner != owner,
+            SchemaRegistry.physical_schema != physical_schema,
         )
     ).first()
     if conflict is not None:
@@ -186,7 +189,6 @@ def _reject_ownership_conflict(
 
 def _reject_reservation_conflict(
     connection: Connection,
-    table: sa.Table,
     *,
     connection_safe_url: str,
     physical_schema: str | None,
@@ -195,12 +197,12 @@ def _reject_reservation_conflict(
     """Raise SchemaOwnershipError if a different owner already reserves
     physical_schema on this connection, regardless of schema_tag."""
     conflict = connection.execute(
-        sa.select(table.c.owner, table.c.database_name).where(
-            table.c.connection_safe_url == connection_safe_url,
-            table.c.physical_schema == physical_schema,
-            table.c.reserved.is_(True),
-            table.c.owner.is_not(None),
-            table.c.owner != owner,
+        sa.select(SchemaRegistry.owner, SchemaRegistry.database_name).where(
+            SchemaRegistry.connection_safe_url == connection_safe_url,
+            SchemaRegistry.physical_schema == physical_schema,
+            SchemaRegistry.reserved.is_(True),
+            SchemaRegistry.owner.is_not(None),
+            SchemaRegistry.owner != owner,
         )
     ).first()
     if conflict is not None:
@@ -265,17 +267,17 @@ def _register_schema_claim(
         sa.inspect(connection).get_table_names(schema=physical_schema)
     )
 
-    table = _create_schema_registry_table(connection)
+    connection = _ensure_schema_registry_table(connection)
 
     _reject_ownership_conflict(
-        connection, table,
+        connection,
         connection_safe_url=connection_safe_url,
         schema_tag=schema_tag,
         physical_schema=physical_schema,
         owner=owner,
     )
     _reject_reservation_conflict(
-        connection, table,
+        connection,
         connection_safe_url=connection_safe_url,
         physical_schema=physical_schema,
         owner=owner,
@@ -283,18 +285,18 @@ def _register_schema_claim(
 
     if reserved:
         row_conditions = [
-            table.c.connection_safe_url == connection_safe_url,
-            table.c.physical_schema == physical_schema,
-            table.c.reserved.is_(True),
+            SchemaRegistry.connection_safe_url == connection_safe_url,
+            SchemaRegistry.physical_schema == physical_schema,
+            SchemaRegistry.reserved.is_(True),
         ]
     else:
         row_conditions = [
-            table.c.database_name == database_name,
-            table.c.schema_tag == schema_tag,
-            table.c.connection_safe_url == connection_safe_url,
+            SchemaRegistry.database_name == database_name,
+            SchemaRegistry.schema_tag == schema_tag,
+            SchemaRegistry.connection_safe_url == connection_safe_url,
         ]
     existing_row = connection.execute(
-        sa.select(table.c.physical_schema).where(*row_conditions)
+        sa.select(SchemaRegistry.physical_schema).where(*row_conditions)
     ).first()
 
     if existing_row is None:
@@ -306,7 +308,7 @@ def _register_schema_claim(
                 "proceeding."
             )
         connection.execute(
-            sa.insert(table).values(
+            sa.insert(SchemaRegistry).values(
                 database_name=database_name,
                 schema_tag=schema_tag,
                 connection_safe_url=connection_safe_url,
@@ -320,7 +322,7 @@ def _register_schema_claim(
         # different physical_schema for the same key is drift, left for
         # _guard_schema_provenance() to catch, not resolved here.
         connection.execute(
-            sa.update(table).where(*row_conditions).values(owner=owner, last_verified_at=sa.func.now())
+            sa.update(SchemaRegistry).where(*row_conditions).values(owner=owner, last_verified_at=sa.func.now())
         )
 
 
@@ -375,14 +377,14 @@ def _guard_schema_provenance(
 
     connection_safe_url = _connection_safe_url(connection)
     bookkeeping_schema = schema_if_supported(_SCHEMA_PROVENANCE_SCHEMA, connection)
-    table = _schema_registry_table(bookkeeping_schema)
     existing_row = None
     if sa.inspect(connection).has_table(SCHEMA_REGISTRY_TABLE_NAME, schema=bookkeeping_schema):
+        connection = _with_provenance_translate_map(connection, physical_schema=bookkeeping_schema)
         existing_row = connection.execute(
-            sa.select(table.c.physical_schema).where(
-                table.c.database_name == database_name,
-                table.c.schema_tag == schema_tag,
-                table.c.connection_safe_url == connection_safe_url,
+            sa.select(SchemaRegistry.physical_schema).where(
+                SchemaRegistry.database_name == database_name,
+                SchemaRegistry.schema_tag == schema_tag,
+                SchemaRegistry.connection_safe_url == connection_safe_url,
             )
         ).first()
 
@@ -405,11 +407,11 @@ def _guard_schema_provenance(
     yield
 
     connection.execute(
-        sa.update(table)
+        sa.update(SchemaRegistry)
         .where(
-            table.c.database_name == database_name,
-            table.c.schema_tag == schema_tag,
-            table.c.connection_safe_url == connection_safe_url,
+            SchemaRegistry.database_name == database_name,
+            SchemaRegistry.schema_tag == schema_tag,
+            SchemaRegistry.connection_safe_url == connection_safe_url,
         )
         .values(last_verified_at=sa.func.now())
     )
@@ -457,13 +459,13 @@ def record_schema_provenance(
         raise ValueError("reason must not be blank.")
 
     connection_safe_url = _connection_safe_url(connection)
-    table = _create_schema_registry_table(connection)
+    connection = _ensure_schema_registry_table(connection)
 
     existing_row = connection.execute(
-        sa.select(table.c.physical_schema, table.c.reserved).where(
-            table.c.database_name == database_name,
-            table.c.schema_tag == schema_tag,
-            table.c.connection_safe_url == connection_safe_url,
+        sa.select(SchemaRegistry.physical_schema, SchemaRegistry.reserved).where(
+            SchemaRegistry.database_name == database_name,
+            SchemaRegistry.schema_tag == schema_tag,
+            SchemaRegistry.connection_safe_url == connection_safe_url,
         )
     ).first()
 
@@ -476,11 +478,11 @@ def record_schema_provenance(
                 database_name, schema_tag, reserved, existing_row.reserved,
             )
         connection.execute(
-            sa.update(table)
+            sa.update(SchemaRegistry)
             .where(
-                table.c.database_name == database_name,
-                table.c.schema_tag == schema_tag,
-                table.c.connection_safe_url == connection_safe_url,
+                SchemaRegistry.database_name == database_name,
+                SchemaRegistry.schema_tag == schema_tag,
+                SchemaRegistry.connection_safe_url == connection_safe_url,
             )
             .values(
                 previous_physical_schema=existing_row.physical_schema,
@@ -492,7 +494,7 @@ def record_schema_provenance(
         )
     else:
         connection.execute(
-            sa.insert(table).values(
+            sa.insert(SchemaRegistry).values(
                 database_name=database_name,
                 schema_tag=schema_tag,
                 connection_safe_url=connection_safe_url,
@@ -537,14 +539,16 @@ def _find_schema_provenance_claim(
     if not _has_schema_registry_table(connection):
         return None
     connection_safe_url = _connection_safe_url(connection)
-    table = _schema_registry_table(schema_if_supported(_SCHEMA_PROVENANCE_SCHEMA, connection))
+    connection = _with_provenance_translate_map(
+        connection, physical_schema=schema_if_supported(_SCHEMA_PROVENANCE_SCHEMA, connection)
+    )
     conditions = [
-        table.c.connection_safe_url == connection_safe_url,
-        table.c.physical_schema == physical_schema,
+        SchemaRegistry.connection_safe_url == connection_safe_url,
+        SchemaRegistry.physical_schema == physical_schema,
     ]
     if exclude_database_name is not None:
-        conditions.append(table.c.database_name != exclude_database_name)
-    row = connection.execute(sa.select(table.c.database_name).where(*conditions)).first()
+        conditions.append(SchemaRegistry.database_name != exclude_database_name)
+    row = connection.execute(sa.select(SchemaRegistry.database_name).where(*conditions)).first()
     return row.database_name if row is not None else None
 
 
@@ -558,12 +562,14 @@ def _find_reservation_claim(connection: Connection, *, physical_schema: str) -> 
     if not _has_schema_registry_table(connection):
         return None
     connection_safe_url = _connection_safe_url(connection)
-    table = _schema_registry_table(schema_if_supported(_SCHEMA_PROVENANCE_SCHEMA, connection))
+    connection = _with_provenance_translate_map(
+        connection, physical_schema=schema_if_supported(_SCHEMA_PROVENANCE_SCHEMA, connection)
+    )
     row = connection.execute(
-        sa.select(table.c.owner).where(
-            table.c.connection_safe_url == connection_safe_url,
-            table.c.physical_schema == physical_schema,
-            table.c.reserved.is_(True),
+        sa.select(SchemaRegistry.owner).where(
+            SchemaRegistry.connection_safe_url == connection_safe_url,
+            SchemaRegistry.physical_schema == physical_schema,
+            SchemaRegistry.reserved.is_(True),
         )
     ).first()
     return row.owner if row is not None else None
@@ -615,15 +621,15 @@ def physical_schema_of(bindable: Bindable, *, schema_tag: str | None = Role.PRIM
         with open_connection(bind) as connection:
             connection_safe_url = _connection_safe_url(connection)
             bookkeeping_schema = schema_if_supported(_SCHEMA_PROVENANCE_SCHEMA, connection)
-            table = _schema_registry_table(bookkeeping_schema)
-            found = sa.inspect(connection).has_table(
-                SCHEMA_REGISTRY_TABLE_NAME, schema=bookkeeping_schema
-            ) and connection.execute(
-                sa.select(table.c.physical_schema).where(
-                    table.c.connection_safe_url == connection_safe_url,
-                    table.c.physical_schema == schema_tag,
-                )
-            ).first() is not None
+            found = False
+            if sa.inspect(connection).has_table(SCHEMA_REGISTRY_TABLE_NAME, schema=bookkeeping_schema):
+                connection = _with_provenance_translate_map(connection, physical_schema=bookkeeping_schema)
+                found = connection.execute(
+                    sa.select(SchemaRegistry.physical_schema).where(
+                        SchemaRegistry.connection_safe_url == connection_safe_url,
+                        SchemaRegistry.physical_schema == schema_tag,
+                    )
+                ).first() is not None
         if not found:
             raise UnregisteredSchemaTagError(
                 f"Schema tag {schema_tag!r} was never registered via create_engine() "

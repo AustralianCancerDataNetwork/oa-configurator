@@ -32,7 +32,6 @@ from .sql import (
 )
 from .schema_registry import (
     _SCHEMA_PROVENANCE_SCHEMA,
-    _create_schema_registry_table,
     _guard_schema_provenance,
     _register_schema_claim,
     physical_schema_of,
@@ -593,8 +592,12 @@ class ResolvedDatabase:
 
         Notes
         -----
-        Checks schema_translate_map construction. The resolver's own config-derived 
+        Checks schema_translate_map construction. The resolver's own config-derived
         claims are always injected and merged with the *schema_claims* passed here.
+
+        The schema_registry table itself is never created here directly;
+        each claim is dispatched to _register_schema_claim(), which checks
+        and creates/updates the schema_registry table as needed.
 
         Parameters
         ----------
@@ -655,9 +658,6 @@ class ResolvedDatabase:
         engine = self.connection_for_role(role).create_engine(
             execution_options=execution_options, **kwargs
         )
-
-        with engine.begin() as connection:
-            _create_schema_registry_table(connection)
 
         schema_provenance_claim = SchemaClaim(
             schema_tag=_SCHEMA_PROVENANCE_SCHEMA,

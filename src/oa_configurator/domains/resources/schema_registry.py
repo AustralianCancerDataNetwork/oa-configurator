@@ -7,8 +7,8 @@ reservation collisions.
 
 ``create_engine()`` in ``domains/resources/schema.py`` is the sole entry
 point: every primitive in this module is private. The public surface is
-``create_engine()``, ``guard_schema_provenance_for()``, and
-``physical_schema_of()``.
+``create_engine()``, ``guard_schema_provenance_for()``,
+``physical_schema_of()``, and ``claimed_schema_tags()``.
 """
 
 from __future__ import annotations
@@ -620,6 +620,25 @@ def physical_schema_of(bindable: Bindable, *, schema_tag: str | None = Role.PRIM
     else:
         resolved = schema_tag
     return schema_if_supported(resolved, bind)
+
+
+def claimed_schema_tags(bindable: Bindable) -> set[str]:
+    """Every schema tag bindable's own schema_translate_map execution
+    option currently routes.
+
+    Parameters
+    ----------
+    bindable : Engine | Connection | Session
+
+    Returns
+    -------
+    set[str]
+        Keys of the schema_translate_map execution option, or an empty
+        set if none is set.
+    """
+    bind = _as_bind(bindable)
+    stm = bind.get_execution_options().get(SCHEMA_TRANSLATE_MAP_KEY)
+    return set(stm) if stm else set()
 
 
 def _has_schema_registry_table(connection: Connection) -> bool:

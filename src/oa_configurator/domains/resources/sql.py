@@ -10,7 +10,7 @@ Role lives here rather than in schema.py.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
@@ -216,6 +216,22 @@ def supports_schemas(bindable: Bindable | str) -> bool:
 def schema_if_supported(physical_schema: str | None, bindable: Bindable | str) -> str | None:
     """physical_schema if bindable's dialect has a genuine multi-schema concept, else None."""
     return physical_schema if supports_schemas(bindable) else None
+
+
+def declared_schema_tags(tables: Iterable[sa.Table]) -> set[str]:
+    """Every schema tag tables declare (Table.schema), skipping untagged tables.
+
+    Parameters
+    ----------
+    tables : Iterable[sqlalchemy.Table]
+        Tables to scan, e.g. ``metadata.tables.values()`` or any subset of it.
+
+    Returns
+    -------
+    set[str]
+        Every distinct non-None Table.schema value among tables.
+    """
+    return {table.schema for table in tables if table.schema is not None}
 
 
 def requires_host(bindable: Bindable | str) -> bool:

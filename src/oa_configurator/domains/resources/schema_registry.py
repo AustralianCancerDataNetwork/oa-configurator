@@ -422,6 +422,7 @@ def record_schema_provenance(
     schema_tag: str,
     new_physical_schema: str | None,
     reason: str,
+    reserved: bool = False,
 ) -> None:
     """Overwrite the provenance baseline for database_name/schema_tag.
 
@@ -442,6 +443,10 @@ def record_schema_provenance(
         schema concept.
     reason : str
         Human-readable explanation for the change.
+    reserved : bool, optional
+        Only used when inserting a fresh row. Existing rows are left untouched, 
+        since changing physical_schema doesn't change what a claim reserves.
+        Logged as a warning if it disagrees with an existing row's own stored reserved flag.
 
     Raises
     ------
@@ -455,7 +460,7 @@ def record_schema_provenance(
     table = _create_schema_registry_table(connection)
 
     existing_row = connection.execute(
-        sa.select(table.c.physical_schema).where(
+        sa.select(table.c.physical_schema, table.c.reserved).where(
             table.c.database_name == database_name,
             table.c.schema_tag == schema_tag,
             table.c.connection_safe_url == connection_safe_url,
@@ -463,6 +468,13 @@ def record_schema_provenance(
     ).first()
 
     if existing_row is not None:
+        if existing_row.reserved != reserved:
+            logger.warning(
+                "record_schema_provenance(database_name=%s, schema_tag=%s): reserved=%s "
+                "was passed but ignored; an existing row's reserved flag (%s) is never "
+                "changed by an update.",
+                database_name, schema_tag, reserved, existing_row.reserved,
+            )
         connection.execute(
             sa.update(table)
             .where(
@@ -489,6 +501,7 @@ def record_schema_provenance(
                 acknowledged_at=sa.func.now(),
                 reason=reason,
                 last_verified_at=sa.func.now(),
+                reserved=reserved,
             )
         )
 

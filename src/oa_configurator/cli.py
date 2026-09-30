@@ -359,8 +359,23 @@ def acknowledge_schema_migration(
         ),
     ] = None,
     schema_tag: Annotated[
-        Role, typer.Option("--schema-tag", help="Logical schema tag whose baseline is being acknowledged.")
-    ] = Role.PRIMARY,
+        str,
+        typer.Option(
+            "--schema-tag",
+            help="Schema tag whose baseline is being acknowledged. A Role value "
+            "(primary/vocab/results) for a CDM database's own tags, or any other "
+            "string for a custom SchemaClaim tag (e.g. oa_configurator_provenance).",
+        ),
+    ] = Role.PRIMARY.value,
+    reserved: Annotated[
+        bool,
+        typer.Option(
+            "--reserved",
+            help="Mark this claim reserved (no other owner may use its physical "
+            "schema). Only meaningful for a fresh baseline; ignored if a row for "
+            "this database/schema_tag already exists.",
+        ),
+    ] = False,
 ) -> None:
     """Record a schema as the new baseline for a tagged schema of a
     configured database. Overwrites the existing provenance row for
@@ -374,8 +389,8 @@ def acknowledge_schema_migration(
         resolved = Resolver(stack).resolve_database(database)
         # Physical split between vocab and primary connection
         connection_role = resolved.route_for_schema_tag(
-            schema_tag, 
-            vocab=Role.VOCAB, 
+            schema_tag,
+            vocab=Role.VOCAB,
             primary=Role.PRIMARY
         )
         engine = resolved.create_engine(role=connection_role)
@@ -391,7 +406,7 @@ def acknowledge_schema_migration(
                     if claimant is not None:
                         raise SchemaDriftError(
                             f"Refusing to acknowledge {new_physical_schema!r} as the new "
-                            f"baseline for {database!r} ({schema_tag.value!r}): schema-"
+                            f"baseline for {database!r} ({schema_tag!r}): schema-"
                             f"provenance already records it as claimed by {claimant!r}."
                         )
                 record_schema_provenance(
@@ -400,6 +415,7 @@ def acknowledge_schema_migration(
                     schema_tag=schema_tag,
                     new_physical_schema=new_physical_schema,
                     reason=reason,
+                    reserved=reserved,
                 )
         finally:
             engine.dispose()
@@ -410,7 +426,7 @@ def acknowledge_schema_migration(
         err_console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(1)
     console.print(
-        f"[green]Acknowledged[/green] {database!r} (schema tag {schema_tag.value!r}) -> schema {new_physical_schema!r}."
+        f"[green]Acknowledged[/green] {database!r} (schema tag {schema_tag!r}) -> schema {new_physical_schema!r}."
     )
 
 

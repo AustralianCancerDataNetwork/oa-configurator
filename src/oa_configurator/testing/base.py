@@ -8,7 +8,6 @@ table. No other code changes are needed.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Iterable, Any
@@ -220,7 +219,6 @@ class TestDatabaseStrategy(ABC):
         self,
         resolved: "ResolvedDatabase",
         *,
-        extensions: Sequence[str] = (),
         schema_claims: Iterable["SchemaClaim"] = (),
         execution_options: dict[str, Any] | None = None,
         **engine_kwargs: Any,
@@ -231,7 +229,11 @@ class TestDatabaseStrategy(ABC):
             Forwarded to ``resolved.create_engine()``, e.g. ``poolclass`` or
             ``connect_args`` for a caller that needs to tune the underlying
             engine (a session-scoped SQLite engine sharing one real
-            connection via ``poolclass=StaticPool``, for example).
+            connection via ``poolclass=StaticPool``, for example), or
+            ``extensions`` for a connect-event callable the engine needs on
+            every physical connection (see ``ResolvedDatabase.create_engine``;
+            ``install_postgres_extension()`` builds one for a named Postgres
+            extension).
         """
 
     @abstractmethod

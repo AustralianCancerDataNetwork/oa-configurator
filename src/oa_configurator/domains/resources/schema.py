@@ -7,17 +7,18 @@ from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import (
-    TYPE_CHECKING, 
-    Annotated, 
-    Any, 
+    TYPE_CHECKING,
+    Annotated,
+    Any,
     Literal,
     TypeVar,
     NamedTuple
 )
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from sqlalchemy import event
 from sqlalchemy.engine import URL, Engine, Connection
 from sqlalchemy.orm import Session
 import sqlalchemy as sa
@@ -584,6 +585,7 @@ class ResolvedDatabase:
         role: Role = Role.PRIMARY,
         *,
         schema_claims: Iterable[SchemaClaim] = (),
+        extensions: Sequence[Callable[[Any, Any], None]] = (),
         execution_options: dict[str, Any] | None = None,
         owner: str | None = None,
         **kwargs: Any,
@@ -606,6 +608,16 @@ class ResolvedDatabase:
         schema_claims : Iterable[SchemaClaim], optional
             Additional schema claims to register and fold into the schema_translate_map.
             May not use a resolver-managed schema_tag.
+        extensions : Sequence[Callable[[Any, Any], None]], optional
+            Callables matching SQLAlchemy's ``"connect"`` event signature,
+            ``(dbapi_connection, connection_record) -> None``, each attached to the
+            engine before any connection is opened . Use this to load a database extension a
+            backend needs on every physical connection, e.g. loading a SQLite
+            extension or running ``CREATE EXTENSION IF NOT EXISTS`` on Postgres.
+
+            Each callable runs on every new connection this engine's pool ever
+            creates for the engine's entire lifetime. It must therefore be
+            idempotent and cheap enough to repeat indefinitely.
         execution_options : dict, optional
             Additional, non-schema execution options merged into the
             engine (e.g. ``isolation_level``). May not include
@@ -658,6 +670,9 @@ class ResolvedDatabase:
         engine = self.connection_for_role(role).create_engine(
             execution_options=execution_options, **kwargs
         )
+
+        for extension in extensions:
+            event.listens_for(engine, "connect")(extension)
 
         schema_provenance_claim = SchemaClaim(
             schema_tag=_SCHEMA_PROVENANCE_SCHEMA,

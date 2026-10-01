@@ -57,7 +57,7 @@ teardown.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Iterable, cast
 
@@ -72,7 +72,7 @@ from .base import (
     TestDatabaseStrategy,
     _skip_message,
 )
-from .postgres import PostgresTestStrategy
+from .postgres import PostgresTestStrategy, install_postgres_extension
 from .sqlite import SQLiteTestStrategy
 
 if TYPE_CHECKING:
@@ -85,6 +85,7 @@ __all__ = [
     "cleanup_after_test",
     "cleanup_schema_registry_rows",
     "delete_rows_on_cleanup",
+    "install_postgres_extension",
     "isolated_test_database",
     "isolated_test_schema",
 ]
@@ -203,7 +204,6 @@ def isolated_test_database(
     field_name: str,
     *,
     dialect: Dialect | str | None = None,
-    extensions: Sequence[str] = (),
     request: pytest.FixtureRequest | None = None,
     schema_claims: Iterable["SchemaClaim"] = (),
     execution_options: dict[str, Any] | None = None,
@@ -234,7 +234,10 @@ def isolated_test_database(
         Forwarded to the underlying ``ResolvedDatabase.create_engine()``
         call, e.g. ``poolclass``/``connect_args`` for a caller that needs
         to tune the engine (a session-scoped SQLite engine that must share
-        one real connection via ``poolclass=StaticPool``, for example).
+        one real connection via ``poolclass=StaticPool``, for example), or
+        ``extensions`` for a connect-event callable the engine needs on
+        every physical connection (``install_postgres_extension()`` builds
+        one for a named Postgres extension).
     """
     if dialect is not None and dialect not in _STRATEGIES:
         raise ValueError(f"Unknown dialect {dialect!r}. Registered: {sorted(d.value for d in _STRATEGIES)}.")
@@ -262,7 +265,6 @@ def isolated_test_database(
     strategy = _strategy_for(resolved_dialect_name)
     with strategy.isolated_database(
         resolved,
-        extensions=extensions,
         schema_claims=schema_claims,
         execution_options=execution_options,
         **engine_kwargs,

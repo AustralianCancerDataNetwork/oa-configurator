@@ -30,7 +30,7 @@ from oa_configurator import (
 )
 from oa_configurator.config import OAConfiguratorConfig
 from oa_configurator.testing.base import TestDatabaseNotConfigured
-from oa_configurator.testing import isolated_test_database, isolated_test_schema
+from oa_configurator.testing import install_postgres_extension, isolated_test_database, isolated_test_schema
 from oa_configurator.testing.base import TestDatabaseStrategy
 
 
@@ -144,6 +144,65 @@ class TestIsolatedTestDatabaseDialect:
         ):
             with isolated_test_database(DemoTestConfig, "test_cdm_db", dialect=Dialect.POSTGRESQL):
                 pass
+
+
+class TestIsolatedTestDatabaseExtensions:
+    """``extensions`` isn't a named parameter of isolated_test_database() /
+    isolated_database() -- it reaches create_engine() through **engine_kwargs,
+    the one mechanism both dialects use (see install_postgres_extension() for
+    the Postgres-specific "install this named extension" callable builder).
+    """
+
+    def test_extensions_callable_reaches_create_engine_through_engine_kwargs(self, monkeypatch):
+        cfg = StackConfig.for_session()
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+        calls = []
+
+        with isolated_test_database(
+            DemoTestConfig, "test_cdm_db", dialect=Dialect.SQLITE,
+            extensions=[lambda conn, record: calls.append(1)],
+        ) as db:
+            assert db.connection.execute(pytest.importorskip("sqlalchemy").text("SELECT 1")).scalar() == 1
+
+        assert len(calls) == 1
+
+
+class TestInstallPostgresExtension:
+    """install_postgres_extension() builds the extensions-callable that
+    replaced the old Postgres-only, string-based pre-install mechanism."""
+
+    def test_callable_runs_quoted_create_extension_and_commits(self):
+        class FakeCursor:
+            def __init__(self):
+                self.executed = []
+
+            def execute(self, query):
+                self.executed.append(query.as_string(None))
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_exc_info):
+                return False
+
+        class FakeConnection:
+            def __init__(self):
+                self.cursor_obj = FakeCursor()
+                self.committed = False
+
+            def cursor(self):
+                return self.cursor_obj
+
+            def commit(self):
+                self.committed = True
+
+        callback = install_postgres_extension("vector")
+        connection = FakeConnection()
+
+        callback(connection, None)
+
+        assert connection.cursor_obj.executed == ['CREATE EXTENSION IF NOT EXISTS "vector"']
+        assert connection.committed is True
 
 
 class TestIsolatedTestSchema:

@@ -537,6 +537,37 @@ class TestCreateEngine:
                 schema_claims=[SchemaClaim(schema_tag="vocab", physical_schema="wrong")]
             )
 
+    def test_extensions_callable_fires_on_the_first_connection(self, minimal_stack):
+        """Attached before anything else touches the engine, so it covers even the
+        very first connection opened after create_engine() returns -- the exact
+        timing gap a connect-event listener attached afterwards would miss."""
+        resolved = Resolver(minimal_stack).resolve_database("default")
+        calls = []
+        engine = resolved.create_engine(extensions=[lambda conn, record: calls.append(1)])
+
+        with engine.connect():
+            pass
+
+        assert len(calls) == 1
+
+    def test_extensions_callable_fires_on_every_new_physical_connection(self, tmp_path):
+        """Not a one-shot setup hook: it must fire again for every later
+        connection the engine's pool opens, for as long as the engine lives."""
+        stack = StackConfig.for_session(
+            connections={
+                "db": ConnectionConfig(
+                    dialect=Dialect.SQLITE, database_name=str(tmp_path / "ext.db")
+                )
+            },
+            databases={"default": CDMDatabaseConfig(connection="db")},
+        )
+        resolved = Resolver(stack).resolve_database("default")
+        calls = []
+        engine = resolved.create_engine(extensions=[lambda conn, record: calls.append(1)])
+
+        with engine.connect(), engine.connect():
+            assert len(calls) == 2
+
 
 class TestResolveDoesNotCheckReservations:
     """Reservation collision is checked at create_engine() time (see

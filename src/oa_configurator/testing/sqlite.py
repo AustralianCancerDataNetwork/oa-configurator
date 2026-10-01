@@ -12,7 +12,6 @@ since each one gets whatever's actually cheapest and most natural for it.
 from __future__ import annotations
 
 import tempfile
-from collections.abc import Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator, Iterable
@@ -61,7 +60,6 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
         self,
         resolved: "ResolvedDatabase | None" = None,
         *,
-        extensions: Sequence[str] = (),
         schema_claims: Iterable["SchemaClaim"] = (),
         execution_options: dict[str, Any] | None = None,
         **engine_kwargs: Any,
@@ -76,16 +74,14 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
             IsolatedTestDatabase for callers that want it. Defaulted to
             None only to match TestDatabaseStrategy's shared signature for
             a caller invoking the strategy directly.
-        extensions : Sequence[str], optional
-            A Postgres-only concept (pgvector etc.). Accepted and silently
-            ignored here so callers don't need dialect-specific branching
-            just to call isolated_test_database() uniformly.
         schema_claims : Iterable[SchemaClaim], optional
             A list of schema claims to be registered with the isolated database.
         execution_options : dict[str, Any] | None, optional
             Options to be passed to the database engine.
         **engine_kwargs
-            Forwarded to ``ResolvedDatabase.create_engine()``.
+            Forwarded to ``ResolvedDatabase.create_engine()``, e.g.
+            ``extensions`` for a connect-event callable (such as sqlite-vec's
+            extension loader) the engine needs on every physical connection.
         """
         from ..domains.resources.schema import ResolvedConnection, ResolvedCDMDatabase
 

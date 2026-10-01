@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Iterator, Iterable, Any
+from typing import TYPE_CHECKING, Callable, Iterator, Iterable, Any
 
 import pytest
 import sqlalchemy as sa
@@ -34,6 +33,34 @@ def _pg_ddl(template: str, *parts: object) -> str:
     from psycopg.sql import SQL
 
     return SQL(template).format(*parts).as_string(None)  # ty: ignore[invalid-argument-type]
+
+
+def install_postgres_extension(name: str) -> Callable[[Any, Any], None]:
+    """Build an ``extensions`` connect-event callable (see
+    ``ResolvedDatabase.create_engine``) that runs
+    ``CREATE EXTENSION IF NOT EXISTS`` for *name* on every physical connection.
+
+    Parameters
+    ----------
+    name : str
+        PostgreSQL extension name, e.g. ``"vector"``.
+
+    Returns
+    -------
+    Callable[[Any, Any], None]
+        A ``(dbapi_connection, connection_record) -> None`` callable, passed
+        straight to ``create_engine(extensions=[...])`` or
+        ``isolated_test_database(..., extensions=[...])``.
+    """
+
+    def _install(dbapi_connection: Any, _connection_record: Any) -> None:
+        from psycopg.sql import SQL, Identifier
+
+        with dbapi_connection.cursor() as cursor:
+            cursor.execute(SQL("CREATE EXTENSION IF NOT EXISTS {}").format(Identifier(name)))
+        dbapi_connection.commit()
+
+    return _install
 
 
 class PostgresTestStrategy(TestDatabaseStrategy):
@@ -80,17 +107,6 @@ class PostgresTestStrategy(TestDatabaseStrategy):
         finally:
             engine.dispose()
 
-    def _install_extensions(self, connection: "ResolvedConnection", extensions: Sequence[str]) -> None:
-        if not extensions:
-            return
-        ext_engine = connection.create_engine(isolation_level="AUTOCOMMIT")
-        try:
-            with ext_engine.connect() as conn:
-                for ext in extensions:
-                    conn.execute(sa.text(_pg_ddl("CREATE EXTENSION IF NOT EXISTS {}", _pg_ident(ext))))
-        finally:
-            ext_engine.dispose()
-
     # -- TestDatabaseStrategy interface --------------------------------------
 
     @contextmanager
@@ -98,15 +114,12 @@ class PostgresTestStrategy(TestDatabaseStrategy):
         self,
         resolved: "ResolvedDatabase",
         *,
-        extensions: Sequence[str] = (),
         schema_claims: Iterable["SchemaClaim"] = (),
         execution_options: dict[str, Any] | None = None,
         **engine_kwargs: Any,
     ) -> Iterator[IsolatedTestDatabase]:
         url = resolved.connection.url
         self._ensure_test_db_exists(url)
-        if extensions:
-            self._install_extensions(resolved.connection, extensions)
 
         engine = resolved.create_engine(
             schema_claims=schema_claims, execution_options=execution_options, **engine_kwargs

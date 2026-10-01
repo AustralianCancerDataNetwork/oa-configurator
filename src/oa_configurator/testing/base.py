@@ -223,8 +223,16 @@ class TestDatabaseStrategy(ABC):
         extensions: Sequence[str] = (),
         schema_claims: Iterable["SchemaClaim"] = (),
         execution_options: dict[str, Any] | None = None,
+        **engine_kwargs: Any,
     ) -> AbstractContextManager[IsolatedTestDatabase]:
-        """Yield an isolated, dialect-appropriate test database resource."""
+        """Yield an isolated, dialect-appropriate test database resource.
+
+        engine_kwargs
+            Forwarded to ``resolved.create_engine()``, e.g. ``poolclass`` or
+            ``connect_args`` for a caller that needs to tune the underlying
+            engine (a session-scoped SQLite engine sharing one real
+            connection via ``poolclass=StaticPool``, for example).
+        """
 
     @abstractmethod
     def temporary_schema(

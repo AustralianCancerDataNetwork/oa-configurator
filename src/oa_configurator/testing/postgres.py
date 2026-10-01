@@ -100,14 +100,17 @@ class PostgresTestStrategy(TestDatabaseStrategy):
         *,
         extensions: Sequence[str] = (),
         schema_claims: Iterable["SchemaClaim"] = (),
-        execution_options: dict[str, Any] | None = None
+        execution_options: dict[str, Any] | None = None,
+        **engine_kwargs: Any,
     ) -> Iterator[IsolatedTestDatabase]:
         url = resolved.connection.url
         self._ensure_test_db_exists(url)
         if extensions:
             self._install_extensions(resolved.connection, extensions)
 
-        engine = resolved.create_engine(schema_claims=schema_claims, execution_options=execution_options)
+        engine = resolved.create_engine(
+            schema_claims=schema_claims, execution_options=execution_options, **engine_kwargs
+        )
         try:
             connection = engine.connect()
             trans = connection.begin()

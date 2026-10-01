@@ -218,6 +218,25 @@ def schema_if_supported(physical_schema: str | None, bindable: Bindable | str) -
     return physical_schema if supports_schemas(bindable) else None
 
 
+def is_ephemeral_url(safe_url: str) -> bool:
+    """True if *safe_url* names a database that cannot be shared across
+    independently-built engines.
+
+    Only SQLite ``:memory:`` (plain or shared-cache ``mode=memory`` URI)
+    databases are ephemeral this way: a second engine pointed at the same
+    URL gets its own, disconnected, empty database rather than reconnecting
+    to the first one's data. A caller that needs two engines to see the
+    same ephemeral database must instead share one already-built engine or
+    connection between them.
+    """
+    lowered = safe_url.lower()
+    if not lowered.startswith("sqlite"):
+        return False
+    _, _, target = lowered.partition("://")
+    target = target.lstrip("/")
+    return target in ("", ":memory:") or "mode=memory" in lowered
+
+
 def declared_schema_tags(tables: Iterable[sa.Table]) -> set[str]:
     """Every schema tag tables declare (Table.schema), skipping untagged tables.
 

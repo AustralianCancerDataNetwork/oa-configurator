@@ -63,7 +63,8 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
         *,
         extensions: Sequence[str] = (),
         schema_claims: Iterable["SchemaClaim"] = (),
-        execution_options: dict[str, Any] | None = None
+        execution_options: dict[str, Any] | None = None,
+        **engine_kwargs: Any,
     ) -> Iterator[IsolatedTestDatabase]:
         """Yield an isolated SQLite database in a fresh tempfile.
 
@@ -100,7 +101,9 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
                 vocab_schema=None,
                 results_schema=None,
             )
-            engine = fresh.create_engine(schema_claims=schema_claims, execution_options=execution_options)
+            engine = fresh.create_engine(
+                schema_claims=schema_claims, execution_options=execution_options, **engine_kwargs
+            )
             try:
                 connection = engine.connect()
                 try:

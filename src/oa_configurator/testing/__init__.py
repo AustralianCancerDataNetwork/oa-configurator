@@ -207,6 +207,7 @@ def isolated_test_database(
     request: pytest.FixtureRequest | None = None,
     schema_claims: Iterable["SchemaClaim"] = (),
     execution_options: dict[str, Any] | None = None,
+    **engine_kwargs: Any,
 ) -> Iterator[IsolatedTestDatabase]:
     """Resolve *field_name* off *config_cls* and yield an isolated test database.
 
@@ -229,6 +230,11 @@ def isolated_test_database(
         run unmarked in the default suite. Strongly recommended for any
         fixture not already covered by ``DIALECT_PARAMS`` (whose marks are
         always correct by construction).
+    engine_kwargs
+        Forwarded to the underlying ``ResolvedDatabase.create_engine()``
+        call, e.g. ``poolclass``/``connect_args`` for a caller that needs
+        to tune the engine (a session-scoped SQLite engine that must share
+        one real connection via ``poolclass=StaticPool``, for example).
     """
     if dialect is not None and dialect not in _STRATEGIES:
         raise ValueError(f"Unknown dialect {dialect!r}. Registered: {sorted(d.value for d in _STRATEGIES)}.")
@@ -255,10 +261,11 @@ def isolated_test_database(
 
     strategy = _strategy_for(resolved_dialect_name)
     with strategy.isolated_database(
-        resolved, 
-        extensions=extensions, 
-        schema_claims=schema_claims, 
-        execution_options=execution_options
+        resolved,
+        extensions=extensions,
+        schema_claims=schema_claims,
+        execution_options=execution_options,
+        **engine_kwargs,
     ) as db:
         yield db
 

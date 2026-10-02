@@ -30,7 +30,12 @@ from oa_configurator import (
 )
 from oa_configurator.config import OAConfiguratorConfig
 from oa_configurator.testing.base import TestDatabaseNotConfigured
-from oa_configurator.testing import install_postgres_extension, isolated_test_database, isolated_test_schema
+from oa_configurator.testing import (
+    install_postgres_extension,
+    isolated_test_database,
+    isolated_test_schema,
+    scoped_test_schema,
+)
 from oa_configurator.testing.base import TestDatabaseStrategy
 
 
@@ -393,3 +398,185 @@ class TestResolveAndCheck:
     def test_unknown_field_name_raises(self):
         with pytest.raises(ValueError, match="test_typo"):
             TestDatabaseStrategy._resolve_and_check(DemoTestConfig, "test_typo")
+
+
+@pytest.mark.postgresql
+@pytest.mark.db_dialect
+class TestResolveWithRoleSchemas:
+    """resolve_with_role_schemas() overrides the config entry in memory and resolves it again."""
+
+    def test_unlisted_roles_follow_the_regular_fallback(self, pg_db):
+        from oa_configurator import Role
+        from oa_configurator.testing import resolve_with_role_schemas
+
+        resolved = resolve_with_role_schemas(pg_db.resolved, {Role.PRIMARY: "ttest_fallback"})
+        assert resolved.name == pg_db.resolved.name
+        assert {resolved.schema_for_role(role) for role in Role} == {"ttest_fallback"}
+
+    def test_role_without_a_schema_field_raises(self, pg_db):
+        from oa_configurator import Role
+        from oa_configurator.resolver import Resolver
+        from oa_configurator.domains.resources.schema import GenericDatabaseConfig
+        from oa_configurator.testing import resolve_with_role_schemas
+
+        name = f"{pg_db.resolved.name}_generic"
+        resolver = Resolver.from_active_config().with_overrides(
+            databases={name: GenericDatabaseConfig(connection=pg_db.resolved.connection.name)}
+        )
+        with pytest.raises(ValueError, match="VOCAB"):
+            resolve_with_role_schemas(resolver.resolve_database(name), {Role.VOCAB: "x"}, resolver=resolver)
+
+
+@pytest.mark.postgresql
+@pytest.mark.db_dialect
+class TestGuardedResolver:
+    def test_resolves_the_same_entry_without_test_only(self, pg_db):
+        from oa_configurator import Role
+        from oa_configurator.testing import guarded_resolver
+
+        resolved = guarded_resolver(pg_db.resolved).resolve_database(pg_db.resolved.name)
+        assert resolved.schema_name == pg_db.resolved.schema_name
+        assert resolved.connection_for_role(Role.PRIMARY).test_only is False
+        assert resolved.connection_for_role(Role.VOCAB).test_only is False
+
+
+@pytest.mark.postgresql
+@pytest.mark.db_dialect
+class TestScopedTestSchema:
+    """scoped_test_schema() re-points a resolved database at fresh committed
+    schemas and builds its engine through create_engine()."""
+
+    @staticmethod
+    def _schema_exists(engine, schema: str) -> bool:
+        import sqlalchemy as sa
+
+        with engine.connect() as conn:
+            return schema in sa.inspect(conn).get_schema_names()
+
+    @staticmethod
+    def _registry_rows(engine, schema_tags) -> list:
+        import sqlalchemy as sa
+
+        from oa_configurator.domains.resources.schema_registry import (
+            SchemaRegistry,
+            _with_provenance_translate_map,
+        )
+        from oa_configurator.domains.resources.sql import connection_key
+
+        with engine.connect() as conn:
+            conn = _with_provenance_translate_map(conn, physical_schema="oa_configurator_provenance")
+            return conn.execute(
+                sa.select(
+                    SchemaRegistry.schema_tag,
+                    SchemaRegistry.physical_schema,
+                    SchemaRegistry.database_config_name,
+                    SchemaRegistry.owner,
+                )
+                .where(
+                    SchemaRegistry.connection_key == connection_key(engine.url),
+                    SchemaRegistry.schema_tag.in_(list(schema_tags)),
+                )
+                .order_by(SchemaRegistry.schema_tag)
+            ).all()
+
+    def test_roles_share_one_schema_that_is_dropped_on_exit(self, pg_db):
+        from oa_configurator import Role
+
+        with scoped_test_schema(pg_db.resolved, prefix="ttest_shared") as scoped:
+            assert set(scoped.schemas) == {Role.PRIMARY, Role.VOCAB, Role.RESULTS}
+            schema = scoped.schemas[Role.PRIMARY]
+            assert set(scoped.schemas.values()) == {schema}
+            assert scoped.resolved.schema_for_role(Role.VOCAB) == schema
+            translate_map = scoped.engine.get_execution_options()["schema_translate_map"]
+            assert translate_map[Role.PRIMARY.value] == schema
+            assert self._schema_exists(pg_db.committing_engine, schema)
+        assert not self._schema_exists(pg_db.committing_engine, schema)
+
+    def test_split_role_gets_its_own_schema(self, pg_db):
+        from oa_configurator import Role
+
+        with scoped_test_schema(pg_db.resolved, prefix="ttest_split", split_roles=[Role.VOCAB]) as scoped:
+            assert scoped.schemas[Role.VOCAB] != scoped.schemas[Role.PRIMARY]
+            assert scoped.schemas[Role.RESULTS] == scoped.schemas[Role.PRIMARY]
+            translate_map = scoped.engine.get_execution_options()["schema_translate_map"]
+            assert translate_map[Role.VOCAB.value] == scoped.schemas[Role.VOCAB]
+
+    def test_separate_vocab_connection_gets_its_own_schema(self, pg_db):
+        from oa_configurator import Role
+        from oa_configurator.resolver import Resolver
+
+        resolver = Resolver.from_active_config()
+        name = pg_db.resolved.name
+        resolver = resolver.with_overrides(
+            connections={"ttest_vocab_connection": resolver.config.connections[pg_db.resolved.connection.name]},
+            databases={
+                name: resolver.config.databases[name].model_copy(update={"vocab_connection": "ttest_vocab_connection"})
+            },
+        )
+        with scoped_test_schema(resolver.resolve_database(name), prefix="ttest_conn", resolver=resolver) as scoped:
+            assert scoped.resolved.connection_for_role(Role.VOCAB).name == "ttest_vocab_connection"
+            assert scoped.schemas[Role.VOCAB] != scoped.schemas[Role.PRIMARY]
+            primary, vocab = scoped.resolved.create_engines()
+            try:
+                assert vocab is not primary
+            finally:
+                primary.dispose()
+                vocab.dispose()
+
+    def test_generic_database_scopes_only_primary(self, pg_db):
+        from oa_configurator import Role
+        from oa_configurator.resolver import Resolver
+        from oa_configurator.domains.resources.schema import GenericDatabaseConfig
+
+        name = f"{pg_db.resolved.name}_generic"
+        resolver = Resolver.from_active_config().with_overrides(
+            databases={name: GenericDatabaseConfig(connection=pg_db.resolved.connection.name)}
+        )
+        with scoped_test_schema(resolver.resolve_database(name), prefix="ttest_generic", resolver=resolver) as scoped:
+            assert list(scoped.schemas) == [Role.PRIMARY]
+            assert scoped.resolved.schema_name == scoped.schemas[Role.PRIMARY]
+
+    def test_leaves_existing_role_rows_untouched(self, pg_db):
+        from oa_configurator import Role
+
+        pg_db.resolved.create_engine().dispose()
+        tags = [role.value for role in Role]
+        before = self._registry_rows(pg_db.committing_engine, tags)
+        with scoped_test_schema(pg_db.resolved, prefix="ttest_rows"):
+            pass
+        assert self._registry_rows(pg_db.committing_engine, tags) == before
+
+    def test_caller_claim_is_owned_by_the_calling_package(self, pg_db, cleanup_after_test):
+        import uuid
+
+        from oa_configurator import SchemaClaim
+        from oa_configurator.testing import reset_schema_registry_rows
+
+        tag = f"ttest_extra_{uuid.uuid4().hex[:8]}"
+        reset_schema_registry_rows(cleanup_after_test, pg_db.committing_engine, [tag])
+        claim = SchemaClaim(schema_tag=tag, physical_schema=f"{tag}_schema")
+        with scoped_test_schema(pg_db.resolved, prefix="ttest_owner", schema_claims=[claim]):
+            pass
+        [row] = self._registry_rows(pg_db.committing_engine, [tag])
+        assert (row.owner, row.database_config_name) == ("test_testing", pg_db.resolved.name)
+
+    def test_reset_registry_rows_restores_them_after_the_test(self, pg_db, cleanup_after_test):
+        import uuid
+
+        from oa_configurator.domains.resources.schema_registry import _record_schema_provenance
+        from oa_configurator.testing import reset_schema_registry_rows
+
+        tag = f"ttest_reset_{uuid.uuid4().hex[:8]}"
+        reset_schema_registry_rows(cleanup_after_test, pg_db.committing_engine, [tag])
+        with pg_db.committing_engine.begin() as connection:
+            _record_schema_provenance(
+                connection, database_config_name="ttest", schema_tag=tag,
+                new_physical_schema="ttest_schema", reason="reset test",
+            )
+        before = self._registry_rows(pg_db.committing_engine, [tag])
+
+        teardown = []
+        reset_schema_registry_rows(teardown.append, pg_db.committing_engine, [tag])
+        assert self._registry_rows(pg_db.committing_engine, [tag]) == []
+        teardown[0]()
+        assert self._registry_rows(pg_db.committing_engine, [tag]) == before

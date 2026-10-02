@@ -32,11 +32,11 @@ from .domains.resources.sql import (
 from .domains.resources.schema_registry import (
     SchemaDriftError,
     SchemaOwnershipError,
+    SchemaRegistryOutdatedError,
     UnregisteredSchemaTagError,
     claimed_schema_tags,
     find_table_in_other_schemas,
     physical_schema_of,
-    record_schema_provenance,
 )
 from .domains.vector_stores.schema import ResolvedVectorStore, VectorStoreConfig
 from .io import ConfigSaveError, save_stack_config
@@ -97,6 +97,7 @@ __all__ = [
     "SchemaClaim",
     "SchemaDriftError",
     "SchemaOwnershipError",
+    "SchemaRegistryOutdatedError",
     "SensitiveValueLeak",
     "StackConfig",
     "StackConfigInvalidError",
@@ -120,7 +121,6 @@ __all__ = [
     "open_connection",
     "plan_configure",
     "qualified",
-    "record_schema_provenance",
     "requires_host",
     "safe_endpoint",
     "save_stack_config",

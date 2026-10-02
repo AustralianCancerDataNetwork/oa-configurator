@@ -32,11 +32,9 @@ from .domains.resources.schema import ResolvedDatabase, Role
 from .domains.resources.sql import Dialect
 from .domains.resources.schema_registry import (
     SchemaDriftError,
-    _find_schema_provenance_claim,
     _guard_schema_provenance,
-    _reject_reservation,
+    _record_schema_provenance,
     physical_schema_of,
-    record_schema_provenance,
 )
 from .domains.vector_stores.cli import vector_stores_app
 from .io import save_stack_config, write_env_file
@@ -318,11 +316,11 @@ def _verify_schema_provenance(
         primary=Role.PRIMARY
     )
     try:
-        engine = resolved.create_engine(role=connection_role)
+        engine = resolved.create_engine(role=connection_role, register_claims=False)
         try:
             with engine.begin() as connection, _guard_schema_provenance(
                 connection,
-                database_name=resolved.name,
+                database_config_name=resolved.name,
                 test_only=resolved.connection_for_role(connection_role).test_only,
                 schema_tag=schema_tag,
                 physical_schema=physical_schema_of(connection, schema_tag=schema_tag),
@@ -367,19 +365,11 @@ def acknowledge_schema_migration(
             "string for a custom SchemaClaim tag (e.g. oa_configurator_provenance).",
         ),
     ] = Role.PRIMARY.value,
-    reserved: Annotated[
-        bool,
-        typer.Option(
-            "--reserved",
-            help="Mark this claim reserved (no other owner may use its physical "
-            "schema). Only meaningful for a fresh baseline; ignored if a row for "
-            "this database/schema_tag already exists.",
-        ),
-    ] = False,
 ) -> None:
     """Record a schema as the new baseline for a tagged schema of a
-    configured database. Overwrites the existing provenance row for
-    that database/schema_tag. Does not touch the CDM tables themselves.
+    configured database. Overwrites the existing provenance row for that
+    schema_tag on the physical database and records --database as the entry
+    owning the mapping. Does not touch the CDM tables themselves.
     Only CLI-level remediation path for the schema-drift check every
     configured database already gets from `verify`.
 
@@ -393,29 +383,16 @@ def acknowledge_schema_migration(
             vocab=Role.VOCAB,
             primary=Role.PRIMARY
         )
-        engine = resolved.create_engine(role=connection_role)
+        engine = resolved.create_engine(role=connection_role, register_claims=False)
         try:
             with engine.begin() as connection:
-                if new_physical_schema is not None:
-                    _reject_reservation(connection, physical_schema=new_physical_schema)
-                    claimant = _find_schema_provenance_claim(
-                        connection,
-                        physical_schema=new_physical_schema,
-                        exclude_database_name=resolved.name,
-                    )
-                    if claimant is not None:
-                        raise SchemaDriftError(
-                            f"Refusing to acknowledge {new_physical_schema!r} as the new "
-                            f"baseline for {database!r} ({schema_tag!r}): schema-"
-                            f"provenance already records it as claimed by {claimant!r}."
-                        )
-                record_schema_provenance(
+                _record_schema_provenance(
                     connection,
-                    database_name=resolved.name,
+                    database_config_name=resolved.name,
                     schema_tag=schema_tag,
                     new_physical_schema=new_physical_schema,
                     reason=reason,
-                    reserved=reserved,
+                    exclude_schema_tags=resolved.schema_tags(),
                 )
         finally:
             engine.dispose()

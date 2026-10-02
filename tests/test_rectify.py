@@ -11,7 +11,6 @@ import uuid
 
 import pytest
 import sqlalchemy as sa
-from sqlalchemy.engine import make_url
 
 from oa_configurator import (
     CDMDatabaseConfig,
@@ -25,15 +24,6 @@ from oa_configurator.domains.resources.rectify import (
 )
 
 _EMPTY_STACK = StackConfig.for_session(connections={}, databases={})
-
-
-def _connection_config(pg_db) -> ConnectionConfig:
-    url = make_url(pg_db.connection.engine.url)
-    return ConnectionConfig(
-        dialect=url.drivername, host=url.host, port=url.port,
-        user=url.username, password=url.password, database_name=url.database,
-        test_only=False,
-    )
 
 
 def test_drop_orphan_schema_tables_refuses_a_dialect_with_no_schema_concept():
@@ -99,7 +89,7 @@ def test_drop_orphan_schema_tables_does_not_touch_a_table_outside_the_orphan_sch
 
 @pytest.mark.postgresql
 @pytest.mark.db_dialect
-def test_schema_is_a_current_target_never_leaks_a_role_from_a_different_server(pg_db):
+def test_schema_is_a_current_target_never_leaks_a_role_from_a_different_server(pg_db, pg_connection_config):
     """A CDM database's vocab_schema must never be reported as a current
     target of a connection that is genuinely a different physical server
     than vocab_connection. 
@@ -115,7 +105,7 @@ def test_schema_is_a_current_target_never_leaks_a_role_from_a_different_server(p
     cdm_schema_name = f"cdm_{uuid.uuid4().hex[:8]}"
     stack = StackConfig.for_session(
         connections={
-            "primary": _connection_config(pg_db),
+            "primary": pg_connection_config,
             "vocab": ConnectionConfig(
                 dialect="postgresql+psycopg",
                 host="unreachable-vocab-host.invalid",

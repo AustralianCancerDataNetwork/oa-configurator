@@ -15,8 +15,8 @@ import sqlalchemy as sa
 
 from .sql import qualified, supports_schemas
 from .schema_registry import (
-    _find_schema_provenance_claim, 
-    _reject_reservation
+    _find_schema_provenance_claim,
+    _reject_reservation_conflict,
 )
 
 if TYPE_CHECKING:
@@ -121,7 +121,7 @@ def drop_orphan_schema_tables(
     Cover the entire verification before dropping any tables:
     - schema_is_a_current_target() reads *stack*'s static config (Role-tagged schemas 
     only, whether or not create_engine() has ever run for them)
-    - _reject_reservation()/_find_schema_provenance_claim() read the live schema_registry
+    - _reject_reservation_conflict()/_find_schema_provenance_claim() read the live schema_registry
      table (any tag, reserved or not, but only once actually registered by create_engine())
 
     Raises
@@ -140,7 +140,7 @@ def drop_orphan_schema_tables(
             f"Cannot drop orphan schema tables: {connection.dialect.name!r} has no real schema "
             "concept, so 'orphan schema' doesn't apply and this operation isn't meaningful here."
         )
-    _reject_reservation(connection, physical_schema=orphan_schema)
+    _reject_reservation_conflict(connection, physical_schema=orphan_schema)
     blocking = schema_is_a_current_target(connection, stack, orphan_schema)
     if blocking is not None:
         raise RuntimeError(

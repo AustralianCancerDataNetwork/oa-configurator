@@ -56,9 +56,8 @@ class IsolatedTestDatabase:
     Pick whichever fits (Core vs. ORM) for a given test, never mix a
     different one in alongside them.
 
-    ``resolved`` is the ``ResolvedDatabase`` this database was resolved
-    from (real config, or a strategy's ``resolve_without_config()``
-    fallback). Use ``dataclasses.replace(db.resolved, ...)`` rather than
+    ``resolved`` is the ``ResolvedDatabase`` describing this database
+    (SQLite: the one built for its own tempfile). Use ``dataclasses.replace(db.resolved, ...)`` rather than
     hand-building a ``ResolvedConnection``/``ResolvedDatabase`` from scratch
     when a test needs one with a field or two overridden.
     """

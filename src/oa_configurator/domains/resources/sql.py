@@ -218,6 +218,24 @@ def schema_if_supported(physical_schema: str | None, bindable: Bindable | str) -
     return physical_schema if supports_schemas(bindable) else None
 
 
+def connection_key(url: sa.URL) -> str:
+    """Physical identity of the database *url* addresses: host, port, and database name.
+
+    Dialect, driver, and credentials are ignored, so the same database reached
+    through another driver or as another user yields the same key.
+
+    Parameters
+    ----------
+    url : sqlalchemy.URL
+
+    Returns
+    -------
+    str
+        ``"<host>:<port>/<database>"``, empty parts left blank.
+    """
+    return f"{url.host or ''}:{url.port or ''}/{url.database or ''}"
+
+
 def is_ephemeral_url(safe_url: str) -> bool:
     """True if *safe_url* names a database that cannot be shared across
     independently-built engines.

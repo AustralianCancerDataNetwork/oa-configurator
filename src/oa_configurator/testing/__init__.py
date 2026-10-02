@@ -57,15 +57,15 @@ teardown.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Iterable, cast
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import ExitStack, contextmanager
+from typing import TYPE_CHECKING, Any, Iterable, NamedTuple, cast
 
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.dialects import registry
 
-from ..domains.resources.sql import Dialect
+from ..domains.resources.sql import Dialect, Role
 from .base import (
     IsolatedTestDatabase,
     TestDatabaseNotConfigured,
@@ -78,16 +78,21 @@ from .sqlite import SQLiteTestStrategy
 if TYPE_CHECKING:
     from ..domains.resources.schema import ResolvedDatabase, SchemaClaim
     from ..package_base import PackageConfigBase
+    from ..resolver import Resolver
 
 __all__ = [
     "DIALECT_PARAMS",
     "IsolatedTestDatabase",
+    "ScopedTestSchema",
     "cleanup_after_test",
-    "cleanup_schema_registry_rows",
     "delete_rows_on_cleanup",
+    "guarded_resolver",
     "install_postgres_extension",
     "isolated_test_database",
     "isolated_test_schema",
+    "reset_schema_registry_rows",
+    "resolve_with_role_schemas",
+    "scoped_test_schema",
 ]
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -285,6 +290,164 @@ def isolated_test_schema(engine: sa.Engine, *, prefix: str = "test") -> Iterator
         yield schema
 
 
+class ScopedTestSchema(NamedTuple):
+    """A resolved database re-pointed at fresh test schemas, with its engine.
+
+    Attributes
+    ----------
+    resolved : ResolvedDatabase
+        Copy of the input resolved with every role pointed at its test schema.
+    engine : sqlalchemy.engine.Engine
+        ``resolved.create_engine()`` for the primary role.
+    schemas : dict[Role, str]
+        Physical test schema per role.
+    """
+
+    resolved: ResolvedDatabase
+    engine: sa.Engine
+    schemas: dict[Role, str]
+
+
+def guarded_resolver(resolved: ResolvedDatabase, *, resolver: Resolver | None = None) -> Resolver:
+    """Resolver in which every connection of *resolved* has ``test_only=False``, so the provenance guard runs.
+
+    The connections are overridden in memory under their own names, so
+    ``resolver.resolve_database(resolved.name)`` resolves the same entry.
+
+    Parameters
+    ----------
+    resolved : ResolvedDatabase
+        Database whose connections are overridden.
+    resolver : Resolver, optional
+        Resolver holding the entry. Defaults to ``Resolver.from_active_config()``.
+
+    Returns
+    -------
+    Resolver
+    """
+    from ..resolver import Resolver
+
+    resolver = resolver if resolver is not None else Resolver.from_active_config()
+    names = {
+        resolved.connection_for_role(resolved.route_for_schema_tag(tag, vocab=Role.VOCAB, primary=Role.PRIMARY)).name
+        for tag in resolved.schema_tags()
+    }
+    return resolver.with_overrides(
+        connections={name: resolver.config.connections[name].model_copy(update={"test_only": False}) for name in names}
+    )
+
+
+def resolve_with_role_schemas(
+    resolved: ResolvedDatabase,
+    schemas: Mapping[Role, str | None],
+    *,
+    resolver: Resolver | None = None,
+) -> ResolvedDatabase:
+    """Resolve *resolved*'s config entry again with each role in *schemas* pointed at its given schema.
+
+    The entry is overridden in memory through ``Resolver.with_overrides()``, so
+    the regular resolution applies, including role fallbacks.
+
+    Parameters
+    ----------
+    resolved : ResolvedDatabase
+        Database whose ``[databases.*]`` entry is overridden.
+    schemas : Mapping[Role, str or None]
+        Schema per role. Unlisted roles keep their configured value.
+    resolver : Resolver, optional
+        Resolver holding the entry. Defaults to ``Resolver.from_active_config()``.
+
+    Returns
+    -------
+    ResolvedDatabase
+
+    Raises
+    ------
+    ValueError
+        If *schemas* names a role the entry has no schema field for.
+    """
+    from ..domains.resources.schema import _iter_schema_roles
+    from ..resolver import Resolver
+
+    resolver = resolver if resolver is not None else Resolver.from_active_config()
+    entry = resolver.config.databases[resolved.name]
+    field_by_role = {role: name for name, role in _iter_schema_roles(type(entry))}
+    unknown = sorted(role.name for role in schemas if role not in field_by_role)
+    if unknown:
+        raise ValueError(f"Role(s) {unknown} have no schema field on {type(entry).__name__}.")
+    overridden = type(entry).model_validate(
+        {**entry.model_dump(), **{field_by_role[role]: schema for role, schema in schemas.items()}}
+    )
+    return resolver.with_overrides(databases={resolved.name: overridden}).resolve_database(resolved.name)
+
+
+@contextmanager
+def scoped_test_schema(
+    resolved: ResolvedDatabase,
+    *,
+    prefix: str = "test",
+    split_roles: Iterable[Role] = (),
+    resolver: Resolver | None = None,
+    schema_claims: Iterable[SchemaClaim] = (),
+    extensions: Sequence[Callable[[Any, Any], None]] = (),
+    owner: str | None = None,
+    **engine_kwargs: Any,
+) -> Iterator[ScopedTestSchema]:
+    """Point every role of *resolved* at fresh committed schemas and yield it with its engine.
+
+    Roles sharing a connection share one schema, except roles in
+    *split_roles*, which each get their own. Schemas are created on the
+    role's own connection and dropped on exit. The config entry name is
+    kept. Postgres only.
+
+    Parameters
+    ----------
+    resolved : ResolvedDatabase
+        Database to scope. Its connections must be ``test_only``.
+    prefix : str, optional
+        Prefix for the generated schema names.
+    split_roles : Iterable[Role], optional
+        Roles that get a schema of their own.
+    resolver : Resolver, optional
+        Resolver holding *resolved*'s entry. Defaults to ``Resolver.from_active_config()``.
+    schema_claims, extensions, owner, **engine_kwargs
+        Forwarded to ``ResolvedDatabase.create_engine()``.
+
+    Yields
+    ------
+    ScopedTestSchema
+    """
+    split = set(split_roles)
+    with ExitStack() as stack:
+        ddl_engines: dict[str, sa.Engine] = {}
+        shared_schemas: dict[str, str] = {}
+        schemas: dict[Role, str] = {}
+        for role in resolved.schema_tags():
+            connection_role = resolved.route_for_schema_tag(role, vocab=Role.VOCAB, primary=Role.PRIMARY)
+            connection = resolved.connection_for_role(connection_role)
+            if connection.name not in ddl_engines:
+                ddl_engines[connection.name] = connection.create_engine()
+                stack.callback(ddl_engines[connection.name].dispose)
+            ddl_engine = ddl_engines[connection.name]
+            if role in split:
+                schemas[role] = stack.enter_context(
+                    isolated_test_schema(ddl_engine, prefix=f"{prefix}_{role.value}")
+                )
+                continue
+            if connection.name not in shared_schemas:
+                shared_schemas[connection.name] = stack.enter_context(
+                    isolated_test_schema(ddl_engine, prefix=prefix)
+                )
+            schemas[role] = shared_schemas[connection.name]
+
+        scoped = resolve_with_role_schemas(resolved, schemas, resolver=resolver)
+        engine = scoped.create_engine(
+            schema_claims=schema_claims, extensions=extensions, owner=owner, **engine_kwargs
+        )
+        stack.callback(engine.dispose)
+        yield ScopedTestSchema(resolved=scoped, engine=engine, schemas=schemas)
+
+
 @pytest.fixture
 def cleanup_after_test() -> Iterator[Callable[[Callable[[], None]], None]]:
     """Register teardown work to run unconditionally after this test.
@@ -297,10 +460,10 @@ def cleanup_after_test() -> Iterator[Callable[[Callable[[], None]], None]]:
     ``resolved.create_engine()``, ``target_connection.create_engine()``).
     Register whatever undoes what the test actually committed::
 
-        def test_records_a_provenance_row(pg_engine, cleanup_after_test):
+        def test_writes_a_row(pg_engine, cleanup_after_test):
             with pg_engine.begin() as conn:
-                record_schema_provenance(conn, database_name=resolved.name, schema_tag=Role.PRIMARY, ...)
-            cleanup_after_test(lambda: _delete_provenance_row(pg_engine, resolved))
+                conn.execute(my_table.insert().values(id=1))
+            cleanup_after_test(lambda: _delete_row(pg_engine, 1))
 
     Callbacks run in reverse-registration order, even when the test itself
     raises. One callback raising doesn't stop the rest from running; every
@@ -358,33 +521,52 @@ def delete_rows_on_cleanup(
     cleanup_after_test(_cleanup)
 
 
-def cleanup_schema_registry_rows(
+def reset_schema_registry_rows(
     cleanup_after_test: Callable[[Callable[[], None]], None],
     engine: sa.Engine,
-    database_name: str,
+    schema_tags: Iterable[str] = tuple(role.value for role in Role),
 ) -> None:
-    """Register cleanup of every schema_registry row a test wrote under database_name.
+    """Remove the schema_registry rows for *schema_tags* on *engine*'s database for this test and restore them afterwards.
 
-    Equivalent to calling :func:`delete_rows_on_cleanup` against
-    ``domains.resources.schema_registry``'s bookkeeping table, filtered by
-    ``database_name`` -- the pattern several Postgres regression files
-    duplicated by hand before this existed. Nothing here creates or drops
-    the ``schema_registry`` table itself; deletion of an unbuilt table is a
-    no-op at teardown, not an error.
+    For tests that build non-``test_only`` engines on a shared test database
+    and need those tags without a baseline, while leaving the database's own
+    baselines intact for later tests.
 
     Parameters
     ----------
     cleanup_after_test : Callable[[Callable[[], None]], None]
         The registration function yielded by the ``cleanup_after_test`` fixture.
     engine : sqlalchemy.engine.Engine
-        Opened fresh at teardown time to run the delete.
-    database_name : str
-        The ``database_name`` value every row this test wrote was recorded under.
+        Its URL selects the physical database.
+    schema_tags : Iterable[str], optional
+        Tags whose rows are removed and restored. Defaults to the Role tags.
     """
-    from ..domains.resources.schema_registry import SchemaRegistry
+    from ..domains.resources.schema_registry import SchemaRegistry, _registry_connection
+    from ..domains.resources.sql import connection_key
 
-    delete_rows_on_cleanup(
-        cleanup_after_test, engine,
-        cast(sa.Table, SchemaRegistry.__table__),
-        SchemaRegistry.database_name == database_name,
+    table = cast(sa.Table, SchemaRegistry.__table__)
+    condition = sa.and_(
+        table.c.connection_key == connection_key(engine.url),
+        table.c.schema_tag.in_(list(schema_tags)),
     )
+
+    with engine.begin() as connection:
+        registry_connection = _registry_connection(connection)
+        saved = []
+        if registry_connection is not None:
+            saved = [
+                {key: value for key, value in row._mapping.items() if key != "id"}
+                for row in registry_connection.execute(sa.select(table).where(condition))
+            ]
+            registry_connection.execute(table.delete().where(condition))
+
+    def _restore() -> None:
+        with engine.begin() as connection:
+            registry_connection = _registry_connection(connection)
+            if registry_connection is None:
+                return
+            registry_connection.execute(table.delete().where(condition))
+            if saved:
+                registry_connection.execute(sa.insert(table), saved)
+
+    cleanup_after_test(_restore)

@@ -81,12 +81,12 @@ for the full explanation of what this guards against and when it no-ops.
 
 ::: oa_configurator.domains.resources.schema_registry.physical_schema_of
 
-::: oa_configurator.domains.resources.schema_registry.record_schema_provenance
-
 ::: oa_configurator.domains.resources.schema_registry.find_table_in_other_schemas
 
 ::: oa_configurator.domains.resources.schema_registry.SchemaDriftError
 
 ::: oa_configurator.domains.resources.schema_registry.SchemaOwnershipError
+
+::: oa_configurator.domains.resources.schema_registry.SchemaRegistryOutdatedError
 
 ::: oa_configurator.domains.resources.schema_registry.UnregisteredSchemaTagError

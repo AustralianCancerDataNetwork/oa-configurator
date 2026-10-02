@@ -1,7 +1,7 @@
 """Schema registry: ownership, reservation, and drift detection.
 
-Tracks which physical schema each database entry's schema_translate_map
-tag currently resolves to, in a live connection-backed table
+Tracks which physical schema each schema_translate_map tag resolves to
+on each physical database, in a live connection-backed table
 (``schema_registry``). Detects drift, ownership conflicts, and
 reservation collisions.
 
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import datetime
 import logging
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from typing import cast
 
@@ -30,6 +30,7 @@ from .sql import (
     _as_bind,
     _profile_for,
     ensure_schema,
+    connection_key,
     open_connection,
     schema_if_supported,
     supports_schemas,
@@ -50,6 +51,10 @@ class SchemaOwnershipError(RuntimeError):
     """A schema tag or a reserved physical schema is already claimed by a
     different owner on the same connection.
     """
+
+
+class SchemaRegistryOutdatedError(RuntimeError):
+    """The schema_registry table on a connection predates its current layout."""
 
 
 class UnregisteredSchemaTagError(RuntimeError):
@@ -83,11 +88,17 @@ class _SchemaRegistryBase(DeclarativeBase):
 SCHEMA_REGISTRY_TABLE_NAME = "schema_registry"
 
 class SchemaRegistry(_SchemaRegistryBase):
-    """One schema-registry row: schema_tag's claimed, reserved, or drifted
-    physical schema for one database entry on one connection.
+    """One schema-registry row: the physical schema schema_tag resolves to
+    on one physical database.
 
-    One row shape serves three checks: drift, ownership conflicts, and
-    reservation conflicts, all scoped to one connection.
+    Keyed by (connection_key, schema_tag). One row shape serves three
+    checks: drift (compare physical_schema), ownership conflicts (owner),
+    and reservation conflicts (rows with reserved set).
+
+    owner is the package claiming the tag and drives the conflict checks.
+    database_config_name is the ``[databases.*]`` entry that established the
+    mapping and is informational only: it is written on insert and on
+    acknowledgment, never on a re-asserted claim, and is shown in drift errors.
 
     Declared with a fixed schema (``_SCHEMA_PROVENANCE_SCHEMA``) as a
     schema_translate_map token. :func:`_with_provenance_translate_map`
@@ -98,14 +109,13 @@ class SchemaRegistry(_SchemaRegistryBase):
     __tablename__ = SCHEMA_REGISTRY_TABLE_NAME
     __table_args__ = (
         sa.UniqueConstraint(
-            "database_name",
+            "connection_key",
             "schema_tag",
-            "connection_safe_url",
-            name="uq_schema_registry_database_schema_tag_connection",
+            name="uq_schema_registry_connection_schema_tag",
         ),
         sa.Index(
             "uq_schema_registry_reserved_connection_schema",
-            "connection_safe_url",
+            "connection_key",
             "physical_schema",
             unique=True,
             postgresql_where=sa.text("reserved IS TRUE"),
@@ -115,9 +125,9 @@ class SchemaRegistry(_SchemaRegistryBase):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    database_name: Mapped[str] = mapped_column(sa.String(128))
+    connection_key: Mapped[str] = mapped_column(sa.String(512))
     schema_tag: Mapped[str] = mapped_column(sa.String(32))
-    connection_safe_url: Mapped[str] = mapped_column(sa.String(512))
+    database_config_name: Mapped[str] = mapped_column(sa.String(128))
     physical_schema: Mapped[str | None] = mapped_column(sa.String(128))
     owner: Mapped[str | None] = mapped_column(sa.String(128))
     reserved: Mapped[bool] = mapped_column(sa.Boolean, server_default=sa.false())
@@ -129,10 +139,9 @@ class SchemaRegistry(_SchemaRegistryBase):
 
 
 
-def _connection_safe_url(connection: Connection) -> str:
-    """This connection's own URL, credentials redacted; every row in this
-    table is scoped by it."""
-    return connection.engine.url.render_as_string(hide_password=True)
+def _connection_key(connection: Connection) -> str:
+    """Physical identity of *connection*'s database; every row in this table is scoped by it."""
+    return connection_key(connection.engine.url)
 
 
 def _with_provenance_translate_map(connection: Connection, *, physical_schema: str | None) -> Connection:
@@ -148,6 +157,17 @@ def _with_provenance_translate_map(connection: Connection, *, physical_schema: s
         **{SCHEMA_TRANSLATE_MAP_KEY: {**existing, _SCHEMA_PROVENANCE_SCHEMA: physical_schema}}
     )
 
+def _registry_connection(connection: Connection) -> Connection | None:
+    """*connection* with the provenance translate map applied, or None if
+    the schema_registry table doesn't exist on it yet.
+    """
+    if not _has_schema_registry_table(connection):
+        return None
+    return _with_provenance_translate_map(
+        connection, physical_schema=schema_if_supported(_SCHEMA_PROVENANCE_SCHEMA, connection)
+    )
+
+
 def _ensure_schema_registry_table(connection: Connection) -> Connection:
     """Create the schema_registry table on this connection if it doesn't
     exist yet. Returns the connection to use for every subsequent
@@ -157,13 +177,14 @@ def _ensure_schema_registry_table(connection: Connection) -> Connection:
     physical_schema = schema_if_supported(_SCHEMA_PROVENANCE_SCHEMA, connection)
     ensure_schema(connection, physical_schema)
     connection = _with_provenance_translate_map(connection, physical_schema=physical_schema)
-    cast(sa.Table, SchemaRegistry.__table__).create(bind=connection, checkfirst=True)
+    if not _has_schema_registry_table(connection):
+        cast(sa.Table, SchemaRegistry.__table__).create(bind=connection)
     return connection
 
 def _reject_ownership_conflict(
     connection: Connection,
     *,
-    connection_safe_url: str,
+    connection_key: str,
     schema_tag: str,
     physical_schema: str | None,
     owner: str | None,
@@ -172,7 +193,7 @@ def _reject_ownership_conflict(
     on this connection with a different physical_schema."""
     conflict = connection.execute(
         sa.select(SchemaRegistry.owner, SchemaRegistry.physical_schema).where(
-            SchemaRegistry.connection_safe_url == connection_safe_url,
+            SchemaRegistry.connection_key == connection_key,
             SchemaRegistry.schema_tag == schema_tag,
             SchemaRegistry.owner.is_not(None),
             SchemaRegistry.owner != owner,
@@ -190,111 +211,188 @@ def _reject_ownership_conflict(
 def _reject_reservation_conflict(
     connection: Connection,
     *,
-    connection_safe_url: str,
     physical_schema: str | None,
-    owner: str | None,
+    schema_tag: str | None = None,
+    owner: str | None = None,
+    reserved: bool = False,
 ) -> None:
-    """Raise SchemaOwnershipError if a different owner already reserves
-    physical_schema on this connection, regardless of schema_tag."""
-    conflict = connection.execute(
-        sa.select(SchemaRegistry.owner, SchemaRegistry.database_name).where(
-            SchemaRegistry.connection_safe_url == connection_safe_url,
-            SchemaRegistry.physical_schema == physical_schema,
-            SchemaRegistry.reserved.is_(True),
-            SchemaRegistry.owner.is_not(None),
-            SchemaRegistry.owner != owner,
-        )
+    """Raise SchemaOwnershipError if using physical_schema conflicts with a
+    reservation on this connection.
+
+    Any reserved row for physical_schema conflicts; with reserved True, any
+    row for it does. The claimant's own rows are excluded: every row of its
+    owner, or, without an owner, its schema_tag's ownerless row. No-op when
+    physical_schema is None or the schema_registry table doesn't exist yet.
+
+    Parameters
+    ----------
+    connection : sqlalchemy.engine.Connection
+        Open connection the registry is read through.
+    physical_schema : str or None
+        The physical schema being used.
+    schema_tag : str, optional
+        The claimant's schema_tag.
+    owner : str, optional
+        The claimant's owner.
+    reserved : bool, optional
+        True if the claimant reserves physical_schema itself.
+
+    Raises
+    ------
+    SchemaOwnershipError
+        On a conflicting row.
+    """
+    registry = _registry_connection(connection)
+    if physical_schema is None or registry is None:
+        return
+    conditions = [
+        SchemaRegistry.connection_key == _connection_key(connection),
+        SchemaRegistry.physical_schema == physical_schema,
+    ]
+    if not reserved:
+        conditions.append(SchemaRegistry.reserved.is_(True))
+    if owner is not None:
+        conditions.append(SchemaRegistry.owner.is_distinct_from(owner))
+    elif schema_tag is not None:
+        conditions.append(sa.or_(SchemaRegistry.schema_tag != schema_tag, SchemaRegistry.owner.is_not(None)))
+    conflict = registry.execute(
+        sa.select(
+            SchemaRegistry.owner,
+            SchemaRegistry.schema_tag,
+            SchemaRegistry.database_config_name,
+            SchemaRegistry.reserved,
+        ).where(*conditions)
     ).first()
-    if conflict is not None:
+    if conflict is None:
+        return
+    holder = (
+        f"schema tag {conflict.schema_tag!r} (owner {conflict.owner!r}, established by "
+        f"{conflict.database_config_name!r})"
+    )
+    if conflict.reserved:
         raise SchemaOwnershipError(
-            f"Physical schema {physical_schema!r} on this connection is already reserved "
-            f"by {conflict.owner!r} (for database {conflict.database_name!r}); "
-            f"{owner!r} cannot also use it."
+            f"Physical schema {physical_schema!r} on this connection is already reserved by {holder}."
         )
+    raise SchemaOwnershipError(
+        f"Physical schema {physical_schema!r} on this connection is already used by {holder}, "
+        "so it cannot be reserved."
+    )
 
 
-def _register_schema_claim(
+def _check_schema_claim(
     connection: Connection,
     *,
-    database_name: str,
     schema_tag: str,
     physical_schema: str | None,
     owner: str | None = None,
     reserved: bool = False,
 ) -> None:
-    """Claim schema_tag/physical_schema on this connection for owner, checked
-    against every other claim sharing the connection.
+    """Run the ownership and reservation conflict checks for one claim without writing.
 
-    Called only from create_engine().
+    No-op when physical_schema is None or the schema_registry table doesn't exist yet.
 
     Parameters
     ----------
     connection : sqlalchemy.engine.Connection
-        Open connection/transaction the claim is checked and recorded
-        against. Ownership and reservation conflicts are scoped to this
-        connection's own URL.
-    database_name : str
-        Identity this row's drift baseline is tracked under.
+        Open connection the registry is read through.
     schema_tag : str
-        The schema_translate_map key being claimed. A reservation-only
-        claim uses physical_schema as its own tag.
+        The schema_translate_map key being claimed.
     physical_schema : str or None
-        The physical schema schema_tag resolves to. None is a no-op.
+        The physical schema schema_tag resolves to.
     owner : str, optional
-        The claiming package. None for the resolver's own Role entries.
+        The claiming package.
     reserved : bool, optional
-        True if physical_schema may not be used by any other owner on
-        this connection, regardless of schema_tag.
+        True if the claim reserves physical_schema.
 
     Raises
     ------
     SchemaOwnershipError
         If a different owner already claims schema_tag with a different
-        physical_schema, or already reserves this physical_schema.
-    SchemaDriftError
-        On first registration, if physical_schema already has tables in
-        it with no existing baseline. Run `acknowledge-schema-migration`
-        to confirm the change deliberately.
+        physical_schema, or the claim conflicts with a reservation.
     """
-    if physical_schema is None:
+    registry = _registry_connection(connection)
+    if physical_schema is None or registry is None:
         return
-
-    connection_safe_url = _connection_safe_url(connection)
-    # Snapshotted before the registry table is created, so registering
-    # _SCHEMA_PROVENANCE_SCHEMA itself for the first time doesn't see its
-    # own just-created table and mistake that for pre-existing data.
-    already_populated = supports_schemas(connection) and bool(
-        sa.inspect(connection).get_table_names(schema=physical_schema)
-    )
-
-    connection = _ensure_schema_registry_table(connection)
-
     _reject_ownership_conflict(
-        connection,
-        connection_safe_url=connection_safe_url,
+        registry,
+        connection_key=_connection_key(connection),
         schema_tag=schema_tag,
         physical_schema=physical_schema,
         owner=owner,
     )
     _reject_reservation_conflict(
         connection,
-        connection_safe_url=connection_safe_url,
         physical_schema=physical_schema,
+        schema_tag=schema_tag,
         owner=owner,
+        reserved=reserved,
     )
 
-    if reserved:
-        row_conditions = [
-            SchemaRegistry.connection_safe_url == connection_safe_url,
-            SchemaRegistry.physical_schema == physical_schema,
-            SchemaRegistry.reserved.is_(True),
-        ]
-    else:
-        row_conditions = [
-            SchemaRegistry.database_name == database_name,
-            SchemaRegistry.schema_tag == schema_tag,
-            SchemaRegistry.connection_safe_url == connection_safe_url,
-        ]
+
+def _register_schema_claim(
+    connection: Connection,
+    *,
+    database_config_name: str,
+    schema_tag: str,
+    physical_schema: str | None,
+    owner: str | None = None,
+    reserved: bool = False,
+) -> None:
+    """Claim schema_tag/physical_schema on this physical database for owner,
+    checked against every other claim on it.
+
+    Inserts the row on first claim, refreshes owner, reserved and
+    last_verified_at when the same physical_schema is re-asserted, and leaves a differing row for
+    the guard to report as drift. Called only from create_engine().
+
+    Parameters
+    ----------
+    connection : sqlalchemy.engine.Connection
+        Open connection/transaction the claim is checked and recorded against.
+    database_config_name : str
+        The ``[databases.*]`` entry making the claim. Recorded only when the
+        row is inserted.
+    schema_tag : str
+        The schema_translate_map key being claimed.
+    physical_schema : str or None
+        The physical schema schema_tag resolves to. None is a no-op.
+    owner : str, optional
+        The claiming package. None for the resolver's own Role entries.
+    reserved : bool, optional
+        True if physical_schema may not be used by any other owner on this
+        physical database, regardless of schema_tag.
+
+    Raises
+    ------
+    SchemaOwnershipError
+        If a different owner already claims schema_tag with a different
+        physical_schema, or the claim conflicts with a reservation.
+    SchemaDriftError
+        On first registration, if physical_schema already has tables in
+        it. Run `acknowledge-schema-migration` to establish the baseline.
+    """
+    if physical_schema is None:
+        return
+
+    connection_key = _connection_key(connection)
+    existing_tables = (
+        set(sa.inspect(connection).get_table_names(schema=physical_schema))
+        if supports_schemas(connection) else set()
+    )
+    # The registry's own table is bookkeeping, not pre-existing data.
+    if physical_schema == _SCHEMA_PROVENANCE_SCHEMA:
+        existing_tables.discard(SCHEMA_REGISTRY_TABLE_NAME)
+    already_populated = bool(existing_tables)
+
+    connection = _ensure_schema_registry_table(connection)
+    _check_schema_claim(
+        connection, schema_tag=schema_tag, physical_schema=physical_schema, owner=owner, reserved=reserved
+    )
+
+    row_conditions = (
+        SchemaRegistry.connection_key == connection_key,
+        SchemaRegistry.schema_tag == schema_tag,
+    )
     existing_row = connection.execute(
         sa.select(SchemaRegistry.physical_schema).where(*row_conditions)
     ).first()
@@ -302,27 +400,26 @@ def _register_schema_claim(
     if existing_row is None:
         if already_populated:
             raise SchemaDriftError(
-                f"Schema {physical_schema!r} for database {database_name!r} (schema_tag "
+                f"Schema {physical_schema!r} for {database_config_name!r} (schema_tag "
                 f"{schema_tag!r}) already has tables, but no schema-registry record exists "
                 "for it. Run `acknowledge-schema-migration` to establish a baseline before "
                 "proceeding."
             )
         connection.execute(
             sa.insert(SchemaRegistry).values(
-                database_name=database_name,
+                connection_key=connection_key,
                 schema_tag=schema_tag,
-                connection_safe_url=connection_safe_url,
+                database_config_name=database_config_name,
                 physical_schema=physical_schema,
                 owner=owner,
                 reserved=reserved,
             )
         )
     elif existing_row.physical_schema == physical_schema:
-        # Same claim re-asserted: refresh owner/last_verified_at. A
-        # different physical_schema for the same key is drift, left for
-        # _guard_schema_provenance() to catch, not resolved here.
         connection.execute(
-            sa.update(SchemaRegistry).where(*row_conditions).values(owner=owner, last_verified_at=sa.func.now())
+            sa.update(SchemaRegistry)
+            .where(*row_conditions)
+            .values(owner=owner, reserved=reserved, last_verified_at=sa.func.now())
         )
 
 
@@ -330,40 +427,39 @@ def _register_schema_claim(
 def _guard_schema_provenance(
     connection: Connection,
     *,
-    database_name: str,
+    database_config_name: str,
     test_only: bool,
     schema_tag: str,
     physical_schema: str | None,
 ) -> Iterator[None]:
     """Guard against running DDL under a schema that drifted from the
-    baseline _register_schema_claim() recorded.
+    baseline _register_schema_claim() recorded for schema_tag on this
+    physical database.
 
     Read-then-compare: the baseline row must already exist. Checks on
     enter, yields to the caller's DDL block, then refreshes
     last_verified_at (skipped if the block raises). Called only from
-    ``guard_schema_provenance_for()``.
+    ``guard_schema_provenance_for()`` and the ``verify`` CLI.
 
     Parameters
     ----------
     connection : sqlalchemy.engine.Connection
         Open connection/transaction the guarded DDL runs on.
-    database_name : str
-        Identity this provenance record is tracked under. Pass a shared
-        identity (e.g. "model_registry") for a schema shared across
-        multiple database entries on the same connection.
+    database_config_name : str
+        The ``[databases.*]`` entry running the DDL. Used in error messages only.
     test_only : bool
         True skips the check entirely, since a test-only connection's
         schema is expected to change between runs.
     schema_tag : str
-        Bookkeeping label this record is tracked under.
+        The schema_translate_map key being guarded.
     physical_schema : str or None
         The schema to guard, already resolved by the caller.
 
     Raises
     ------
     SchemaDriftError
-        If no baseline row exists for this database_name/schema_tag/
-        connection, or the baseline disagrees with *physical_schema*.
+        If no baseline row exists for schema_tag on this physical database,
+        or the baseline disagrees with *physical_schema*.
     """
     if test_only:
         logger.debug("_guard_schema_provenance(schema_tag=%s): test_only, skipping.", schema_tag)
@@ -375,116 +471,128 @@ def _guard_schema_provenance(
         yield
         return
 
-    connection_safe_url = _connection_safe_url(connection)
-    bookkeeping_schema = schema_if_supported(_SCHEMA_PROVENANCE_SCHEMA, connection)
-    existing_row = None
-    if sa.inspect(connection).has_table(SCHEMA_REGISTRY_TABLE_NAME, schema=bookkeeping_schema):
-        connection = _with_provenance_translate_map(connection, physical_schema=bookkeeping_schema)
-        existing_row = connection.execute(
-            sa.select(SchemaRegistry.physical_schema).where(
-                SchemaRegistry.database_name == database_name,
-                SchemaRegistry.schema_tag == schema_tag,
-                SchemaRegistry.connection_safe_url == connection_safe_url,
-            )
-        ).first()
-
-    if existing_row is None:
-        raise SchemaDriftError(
-            f"No schema-registry baseline for database {database_name!r} (schema_tag "
-            f"{schema_tag!r}) on this connection. _register_schema_claim()/create_engine() "
-            "must run with this claim before it can be guarded."
+    connection_key = _connection_key(connection)
+    row_conditions = (
+        SchemaRegistry.connection_key == connection_key,
+        SchemaRegistry.schema_tag == schema_tag,
+    )
+    no_baseline = SchemaDriftError(
+        f"No schema-registry baseline for schema_tag {schema_tag!r} on this database "
+        f"({database_config_name!r}). create_engine() must register this claim before "
+        "it can be guarded."
+    )
+    registry = _registry_connection(connection)
+    if registry is None:
+        raise no_baseline
+    existing_row = registry.execute(
+        sa.select(SchemaRegistry.physical_schema, SchemaRegistry.database_config_name).where(
+            *row_conditions
         )
+    ).first()
+    if existing_row is None:
+        raise no_baseline
 
-    stored_schema = existing_row.physical_schema
-    if stored_schema != physical_schema:
+    if existing_row.physical_schema != physical_schema:
         raise SchemaDriftError(
-            f"Schema drift detected for database {database_name!r} (schema_tag {schema_tag!r}): "
-            f"previously resolved to schema {stored_schema!r}, now resolves to "
-            f"{physical_schema!r}. Run `acknowledge-schema-migration` once this change is "
-            "confirmed deliberate."
+            f"Schema drift detected for schema_tag {schema_tag!r}: {database_config_name!r} "
+            f"resolves it to {physical_schema!r}, but {existing_row.database_config_name!r} "
+            f"established it as {existing_row.physical_schema!r}. Run "
+            "`acknowledge-schema-migration` once this change is confirmed deliberate."
         )
 
     yield
 
-    connection.execute(
-        sa.update(SchemaRegistry)
-        .where(
-            SchemaRegistry.database_name == database_name,
-            SchemaRegistry.schema_tag == schema_tag,
-            SchemaRegistry.connection_safe_url == connection_safe_url,
-        )
-        .values(last_verified_at=sa.func.now())
+    registry.execute(
+        sa.update(SchemaRegistry).where(*row_conditions).values(last_verified_at=sa.func.now())
     )
 
 
-def record_schema_provenance(
+def _record_schema_provenance(
     connection: Connection,
     *,
-    database_name: str,
+    database_config_name: str,
     schema_tag: str,
     new_physical_schema: str | None,
     reason: str,
-    reserved: bool = False,
+    exclude_schema_tags: Iterable[str] = (),
 ) -> None:
-    """Overwrite the provenance baseline for database_name/schema_tag.
+    """Overwrite the provenance baseline for schema_tag on this physical database.
 
     Bookkeeping only; no table is moved or dropped here (see
-    drop_orphan_schema_tables for that). Overwrites any existing row; its
-    prior physical_schema moves into previous_physical_schema.
+    drop_orphan_schema_tables for that). The existing row's physical_schema
+    moves into previous_physical_schema, database_config_name takes
+    ownership of the mapping. reserved is left to create_engine(): an
+    existing row keeps it, a new row starts unreserved. Called only from
+    the ``acknowledge-schema-migration`` CLI.
 
     Parameters
     ----------
     connection : sqlalchemy.engine.Connection
         Open connection/transaction the update runs on.
-    database_name : str
-        Identity this provenance record is tracked under.
+    database_config_name : str
+        The ``[databases.*]`` entry taking ownership of the mapping.
     schema_tag : str
-        Bookkeeping label this record is tracked under.
+        The schema_translate_map key being acknowledged.
     new_physical_schema : str or None
         The new baseline schema. None is allowed for a dialect with no
         schema concept.
     reason : str
         Human-readable explanation for the change.
-    reserved : bool, optional
-        Only used when inserting a fresh row. Existing rows are left untouched, 
-        since changing physical_schema doesn't change what a claim reserves.
-        Logged as a warning if it disagrees with an existing row's own stored reserved flag.
+    exclude_schema_tags : Iterable[str], optional
+        Tags other than schema_tag whose rows may already record
+        new_physical_schema, e.g. the acknowledged database's own Role tags.
 
     Raises
     ------
     ValueError
         If reason is blank.
+    SchemaOwnershipError
+        If new_physical_schema conflicts with a reservation.
+    SchemaDriftError
+        If another row already records new_physical_schema as its baseline.
     """
     if not reason.strip():
         raise ValueError("reason must not be blank.")
 
-    connection_safe_url = _connection_safe_url(connection)
+    connection_key = _connection_key(connection)
     connection = _ensure_schema_registry_table(connection)
+    row_conditions = (
+        SchemaRegistry.connection_key == connection_key,
+        SchemaRegistry.schema_tag == schema_tag,
+    )
 
     existing_row = connection.execute(
-        sa.select(SchemaRegistry.physical_schema, SchemaRegistry.reserved).where(
-            SchemaRegistry.database_name == database_name,
-            SchemaRegistry.schema_tag == schema_tag,
-            SchemaRegistry.connection_safe_url == connection_safe_url,
+        sa.select(SchemaRegistry.physical_schema, SchemaRegistry.owner, SchemaRegistry.reserved).where(
+            *row_conditions
         )
     ).first()
 
-    if existing_row is not None:
-        if existing_row.reserved != reserved:
-            logger.warning(
-                "record_schema_provenance(database_name=%s, schema_tag=%s): reserved=%s "
-                "was passed but ignored; an existing row's reserved flag (%s) is never "
-                "changed by an update.",
-                database_name, schema_tag, reserved, existing_row.reserved,
+    if new_physical_schema is not None:
+        _reject_reservation_conflict(
+            connection,
+            physical_schema=new_physical_schema,
+            schema_tag=schema_tag,
+            owner=existing_row.owner if existing_row is not None else None,
+            reserved=existing_row is not None and existing_row.reserved,
+        )
+        claimant = _find_schema_provenance_claim(
+            connection,
+            physical_schema=new_physical_schema,
+            exclude_schema_tags={*exclude_schema_tags, schema_tag},
+        )
+        if claimant is not None:
+            raise SchemaDriftError(
+                f"Refusing to acknowledge {new_physical_schema!r} as the new baseline for "
+                f"{database_config_name!r} ({schema_tag!r}): schema-provenance already "
+                f"records it as claimed by {claimant!r}."
             )
+
+    if existing_row is not None:
         connection.execute(
             sa.update(SchemaRegistry)
-            .where(
-                SchemaRegistry.database_name == database_name,
-                SchemaRegistry.schema_tag == schema_tag,
-                SchemaRegistry.connection_safe_url == connection_safe_url,
-            )
+            .where(*row_conditions)
             .values(
+                database_config_name=database_config_name,
                 previous_physical_schema=existing_row.physical_schema,
                 physical_schema=new_physical_schema,
                 acknowledged_at=sa.func.now(),
@@ -495,15 +603,14 @@ def record_schema_provenance(
     else:
         connection.execute(
             sa.insert(SchemaRegistry).values(
-                database_name=database_name,
+                connection_key=connection_key,
                 schema_tag=schema_tag,
-                connection_safe_url=connection_safe_url,
+                database_config_name=database_config_name,
                 physical_schema=new_physical_schema,
                 previous_physical_schema=None,
                 acknowledged_at=sa.func.now(),
                 reason=reason,
                 last_verified_at=sa.func.now(),
-                reserved=reserved,
             )
         )
 
@@ -512,10 +619,10 @@ def _find_schema_provenance_claim(
     connection: Connection,
     *,
     physical_schema: str,
-    exclude_database_name: str | None = None,
+    exclude_schema_tags: Iterable[str] = (),
 ) -> str | None:
-    """database_name of the row currently recording physical_schema as its
-    baseline on this connection, or None.
+    """Describe the row currently recording physical_schema as its baseline
+    on this physical database, or return None.
 
     Checks only physical_schema, never previous_physical_schema: a schema
     migrated away from must not be reported as still claimed.
@@ -523,67 +630,29 @@ def _find_schema_provenance_claim(
     Parameters
     ----------
     connection : sqlalchemy.engine.Connection
-        Only rows for this connection's own URL are considered.
+        Only rows for this connection's physical database are considered.
     physical_schema : str
         Physical schema to check for a current claim.
-    exclude_database_name : str, optional
-        Ignore rows for this database_name. Pass the database being
-        acknowledged, since its own primary/vocab/results tags sharing
-        one physical schema is not a collision with itself.
+    exclude_schema_tags : Iterable[str], optional
+        Ignore rows for these tags, e.g. the tags of the database being
+        acknowledged, whose primary/vocab/results may share one schema.
 
     Returns
     -------
     str or None
-        The claiming row's database_name, or None.
+        ``"<database_config_name> (<schema_tag>)"`` of the claiming row, or None.
     """
-    if not _has_schema_registry_table(connection):
+    registry = _registry_connection(connection)
+    if registry is None:
         return None
-    connection_safe_url = _connection_safe_url(connection)
-    connection = _with_provenance_translate_map(
-        connection, physical_schema=schema_if_supported(_SCHEMA_PROVENANCE_SCHEMA, connection)
-    )
-    conditions = [
-        SchemaRegistry.connection_safe_url == connection_safe_url,
-        SchemaRegistry.physical_schema == physical_schema,
-    ]
-    if exclude_database_name is not None:
-        conditions.append(SchemaRegistry.database_name != exclude_database_name)
-    row = connection.execute(sa.select(SchemaRegistry.database_name).where(*conditions)).first()
-    return row.database_name if row is not None else None
-
-
-def _find_reservation_claim(connection: Connection, *, physical_schema: str) -> str | None:
-    """Owner reserving physical_schema on this connection, or None.
-
-    Only rows with reserved = True match; a normal schema_tag claim
-    sharing this physical schema (e.g. results_schema falling back to
-    cdm_schema) is not a reservation.
-    """
-    if not _has_schema_registry_table(connection):
-        return None
-    connection_safe_url = _connection_safe_url(connection)
-    connection = _with_provenance_translate_map(
-        connection, physical_schema=schema_if_supported(_SCHEMA_PROVENANCE_SCHEMA, connection)
-    )
-    row = connection.execute(
-        sa.select(SchemaRegistry.owner).where(
-            SchemaRegistry.connection_safe_url == connection_safe_url,
+    row = registry.execute(
+        sa.select(SchemaRegistry.database_config_name, SchemaRegistry.schema_tag).where(
+            SchemaRegistry.connection_key == _connection_key(connection),
             SchemaRegistry.physical_schema == physical_schema,
-            SchemaRegistry.reserved.is_(True),
+            SchemaRegistry.schema_tag.not_in(list(exclude_schema_tags)),
         )
     ).first()
-    return row.owner if row is not None else None
-
-
-def _reject_reservation(connection: Connection, *, physical_schema: str | None) -> None:
-    """Raise SchemaOwnershipError if physical_schema is reserved by someone on this connection."""
-    if physical_schema is None:
-        return
-    owner = _find_reservation_claim(connection, physical_schema=physical_schema)
-    if owner is not None:
-        raise SchemaOwnershipError(
-            f"Schema {physical_schema!r} is reserved for internal use by {owner!r}."
-        )
+    return f"{row.database_config_name} ({row.schema_tag})" if row is not None else None
 
 
 def physical_schema_of(bindable: Bindable, *, schema_tag: str | None = Role.PRIMARY) -> str | None:
@@ -619,17 +688,14 @@ def physical_schema_of(bindable: Bindable, *, schema_tag: str | None = Role.PRIM
         resolved = stm[schema_tag]
     elif supports_schemas(bind):
         with open_connection(bind) as connection:
-            connection_safe_url = _connection_safe_url(connection)
-            bookkeeping_schema = schema_if_supported(_SCHEMA_PROVENANCE_SCHEMA, connection)
-            found = False
-            if sa.inspect(connection).has_table(SCHEMA_REGISTRY_TABLE_NAME, schema=bookkeeping_schema):
-                connection = _with_provenance_translate_map(connection, physical_schema=bookkeeping_schema)
-                found = connection.execute(
-                    sa.select(SchemaRegistry.physical_schema).where(
-                        SchemaRegistry.connection_safe_url == connection_safe_url,
-                        SchemaRegistry.physical_schema == schema_tag,
-                    )
-                ).first() is not None
+            connection_key = _connection_key(connection)
+            registry = _registry_connection(connection)
+            found = registry is not None and registry.execute(
+                sa.select(SchemaRegistry.physical_schema).where(
+                    SchemaRegistry.connection_key == connection_key,
+                    SchemaRegistry.physical_schema == schema_tag,
+                )
+            ).first() is not None
         if not found:
             raise UnregisteredSchemaTagError(
                 f"Schema tag {schema_tag!r} was never registered via create_engine() "
@@ -661,6 +727,21 @@ def claimed_schema_tags(bindable: Bindable) -> set[str]:
 
 
 def _has_schema_registry_table(connection: Connection) -> bool:
-    """True if the schema_registry table already exists on this connection."""
+    """True if the schema_registry table already exists on this connection.
+
+    Raises
+    ------
+    SchemaRegistryOutdatedError
+        If the existing table is not keyed by ``connection_key``.
+    """
     bookkeeping_schema = schema_if_supported(_SCHEMA_PROVENANCE_SCHEMA, connection)
-    return sa.inspect(connection).has_table(SCHEMA_REGISTRY_TABLE_NAME, schema=bookkeeping_schema)
+    inspector = sa.inspect(connection)
+    if not inspector.has_table(SCHEMA_REGISTRY_TABLE_NAME, schema=bookkeeping_schema):
+        return False
+    columns = {column["name"] for column in inspector.get_columns(SCHEMA_REGISTRY_TABLE_NAME, schema=bookkeeping_schema)}
+    if "connection_key" not in columns:
+        table = f"{bookkeeping_schema}.{SCHEMA_REGISTRY_TABLE_NAME}" if bookkeeping_schema else SCHEMA_REGISTRY_TABLE_NAME
+        raise SchemaRegistryOutdatedError(
+            f"{table} has an outdated layout. Drop it; create_engine() registers every claim again."
+        )
+    return True

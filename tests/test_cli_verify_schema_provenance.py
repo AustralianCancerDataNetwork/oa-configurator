@@ -2,14 +2,12 @@
 
 Live-Postgres regression. verify() opens the schema-provenance guard with an
 empty body per resolved database entry, the same agree/disagree check the
-DDL-time gate uses, unconditional (no --deep-style gate), refreshing
-last_verified_at on success as a side effect.
+DDL-time gate uses. It registers no claims itself; tests establish the
+baseline through create_engine() first.
 
-verify() always builds its own fresh, real engines internally (never the
-rollback-protected pg_db.connection), so every provenance row it writes is
-a genuine commit. cleanup_after_test cleans up each test's own
-schema_provenance rows -- the pattern this file was the original motivating
-case for (see Phase 10.12 in the plan).
+verify() builds its own fresh, real engines internally (never the
+rollback-protected pg_db.connection), so every write is a genuine commit.
+fresh_role_registry_rows restores the Role-tag rows around each test.
 """
 
 from __future__ import annotations
@@ -17,42 +15,39 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from oa_configurator import CDMDatabaseConfig, ConnectionConfig, Role, StackConfig, record_schema_provenance
-from oa_configurator.testing import cleanup_schema_registry_rows
-from sqlalchemy.engine import make_url
+from oa_configurator import CDMDatabaseConfig, ConnectionConfig, Role, StackConfig
+from oa_configurator.domains.resources.schema_registry import _record_schema_provenance
 from typer.testing import CliRunner
 
 from oa_configurator.cli import app
 from oa_configurator.resolver import Resolver
 
-pytestmark = [pytest.mark.postgresql, pytest.mark.db_dialect]
+pytestmark = [pytest.mark.postgresql, pytest.mark.db_dialect, pytest.mark.usefixtures("fresh_role_registry_rows")]
 
 runner = CliRunner()
 
 
-def _stack_with_one_cdm_db(pg_db, *, database_name: str, schema: str) -> StackConfig:
-    # deliberate test_only=False to ensure the test exercises the real Postgres connection,
-    # not the rollback-protected pg_db.connection.
-    url = make_url(pg_db.connection.engine.url)
+def _stack_with_one_cdm_db(
+    connection_config: ConnectionConfig, *, database_config_name: str, schema: str
+) -> StackConfig:
     return StackConfig.for_session(
-        connections={
-            "verify_conn": ConnectionConfig(
-                dialect=url.drivername, host=url.host, port=url.port,
-                user=url.username, password=url.password, database_name=url.database,
-                test_only=False,
-            )
-        },
+        connections={"verify_conn": connection_config},
         databases={
-            database_name: CDMDatabaseConfig(connection="verify_conn", cdm_schema=schema),
+            database_config_name: CDMDatabaseConfig(connection="verify_conn", cdm_schema=schema),
         },
     )
 
 
-def test_verify_reports_ok_for_a_fresh_database(pg_db, monkeypatch, cleanup_after_test):
+def _register(stack: StackConfig, database_config_name: str) -> None:
+    """Register the database's Role claims, as its first create_engine() does."""
+    Resolver(stack).resolve_database(database_config_name).create_engine().dispose()
+
+
+def test_verify_reports_ok_for_a_registered_database(pg_connection_config, monkeypatch):
     db_name = f"verify_db_{uuid.uuid4().hex[:8]}"
     schema = f"test_{uuid.uuid4().hex[:8]}"
-    cleanup_schema_registry_rows(cleanup_after_test, pg_db.connection.engine, db_name)
-    stack = _stack_with_one_cdm_db(pg_db, database_name=db_name, schema=schema)
+    stack = _stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=schema)
+    _register(stack, db_name)
     monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack)
 
     result = runner.invoke(app, ["verify"])
@@ -62,43 +57,47 @@ def test_verify_reports_ok_for_a_fresh_database(pg_db, monkeypatch, cleanup_afte
     assert "FAIL" not in result.output
 
 
-def test_verify_reports_drift_after_reconfiguring_the_schema(pg_db, monkeypatch, cleanup_after_test):
+def test_verify_registers_no_baseline(pg_connection_config, monkeypatch):
+    db_name = f"verify_db_{uuid.uuid4().hex[:8]}"
+    schema = f"test_{uuid.uuid4().hex[:8]}"
+    stack = _stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=schema)
+    monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack)
+
+    for _ in range(2):
+        result = runner.invoke(app, ["verify"])
+        assert result.exit_code == 1
+        assert "DRIFT" in result.output
+
+
+def test_verify_reports_drift_after_reconfiguring_the_schema(pg_connection_config, monkeypatch):
     db_name = f"verify_db_{uuid.uuid4().hex[:8]}"
     schema_a = f"test_{uuid.uuid4().hex[:8]}"
     schema_b = f"test_{uuid.uuid4().hex[:8]}"
-    cleanup_schema_registry_rows(cleanup_after_test, pg_db.connection.engine, db_name)
+    _register(_stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=schema_a), db_name)
 
-    stack_a = _stack_with_one_cdm_db(pg_db, database_name=db_name, schema=schema_a)
-    monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack_a)
-    first = runner.invoke(app, ["verify"])
-    assert first.exit_code == 0, first.output
-
-    stack_b = _stack_with_one_cdm_db(pg_db, database_name=db_name, schema=schema_b)
+    stack_b = _stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=schema_b)
     monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack_b)
-    second = runner.invoke(app, ["verify"])
-    assert second.exit_code == 1
-    assert "DRIFT" in second.output
+    result = runner.invoke(app, ["verify"])
+    assert result.exit_code == 1
+    assert "DRIFT" in result.output
 
 
-def test_verify_clean_after_acknowledging_drift(pg_db, monkeypatch, cleanup_after_test):
+def test_verify_clean_after_acknowledging_drift(pg_db, pg_connection_config, monkeypatch):
     db_name = f"verify_db_{uuid.uuid4().hex[:8]}"
     schema_a = f"test_{uuid.uuid4().hex[:8]}"
     schema_b = f"test_{uuid.uuid4().hex[:8]}"
-    cleanup_schema_registry_rows(cleanup_after_test, pg_db.connection.engine, db_name)
-
-    stack_a = _stack_with_one_cdm_db(pg_db, database_name=db_name, schema=schema_a)
-    monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack_a)
-    runner.invoke(app, ["verify"])
+    _register(_stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=schema_a), db_name)
 
     # vocab/results fall back to schema_name (unconfigured), so verify()
     # checks all three roles for a CDM database, and all three drifted.
-    stack_b = _stack_with_one_cdm_db(pg_db, database_name=db_name, schema=schema_b)
+    stack_b = _stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=schema_b)
     resolved = Resolver(stack_b).resolve_database(db_name)
-    with pg_db.connection.engine.begin() as connection:
+    with pg_db.committing_engine.begin() as connection:
         for role in (Role.PRIMARY, Role.VOCAB, Role.RESULTS):
-            record_schema_provenance(
-                connection, database_name=resolved.name, schema_tag=role,
+            _record_schema_provenance(
+                connection, database_config_name=resolved.name, schema_tag=role,
                 new_physical_schema=schema_b, reason="test acknowledgment",
+                exclude_schema_tags=resolved.schema_tags(),
             )
 
     monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack_b)

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 import typer.rich_utils as _typer_rich_utils
+from sqlalchemy.engine import make_url
 
 from oa_configurator import (
     StackConfig,
@@ -16,7 +17,7 @@ from oa_configurator import (
     CDMDatabaseConfig,
 )
 from oa_configurator.config import OAConfiguratorConfig
-from oa_configurator.testing import DIALECT_PARAMS, isolated_test_database
+from oa_configurator.testing import DIALECT_PARAMS, isolated_test_database, reset_schema_registry_rows
 from oa_configurator.domains.resources.sql import Dialect, Role
 
 # typer forces colorized rich error/output rendering when GITHUB_ACTIONS (or
@@ -43,6 +44,28 @@ def pg_db(request):
     """
     with isolated_test_database(OAConfiguratorConfig, "test_db_pg", request=request) as db:
         yield db
+
+
+@pytest.fixture
+def fresh_role_registry_rows(pg_db, cleanup_after_test):
+    """Delete the Role-tag schema_registry rows on pg_db's database before and after the test.
+
+    For tests that build non-test-only engines on the shared test database and
+    need Role tags without a pre-existing baseline.
+    """
+    reset_schema_registry_rows(cleanup_after_test, pg_db.committing_engine)
+
+
+@pytest.fixture
+def pg_connection_config(pg_db) -> ConnectionConfig:
+    """pg_db's database as a non-test_only ConnectionConfig, so engines built
+    from it commit their registry writes and its guards fire.
+    """
+    url = make_url(pg_db.connection.engine.url)
+    return ConnectionConfig(
+        dialect=url.drivername, host=url.host, port=url.port,
+        user=url.username, password=url.password, database_name=url.database,
+    )
 
 
 @pytest.fixture

@@ -69,11 +69,9 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
         Parameters
         ----------
         resolved : ResolvedDatabase, optional
-            Not used to build the engine below, as SQLite has nothing to
-            resolve against. Exposed unchanged on the yielded
-            IsolatedTestDatabase for callers that want it. Defaulted to
-            None only to match TestDatabaseStrategy's shared signature for
-            a caller invoking the strategy directly.
+            Unused: the yielded IsolatedTestDatabase carries the
+            ResolvedCDMDatabase built for the tempfile instead. Kept to
+            match TestDatabaseStrategy's shared signature.
         schema_claims : Iterable[SchemaClaim], optional
             A list of schema claims to be registered with the isolated database.
         execution_options : dict[str, Any] | None, optional
@@ -88,7 +86,9 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
         with tempfile.TemporaryDirectory() as tmp_dir:
             db_path = Path(tmp_dir) / "test.db"
             url = f"sqlite:///{db_path}"
-            connection = ResolvedConnection(name="sqlite-isolated", url=url, safe_url=url, _engine_url=sa.engine.make_url(url))
+            connection = ResolvedConnection(
+                name="sqlite-isolated", url=url, safe_url=url, _engine_url=sa.engine.make_url(url), test_only=True
+            )
             fresh = ResolvedCDMDatabase(
                 name="sqlite-isolated",
                 connection=connection,
@@ -105,7 +105,7 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
                 try:
                     session = so.Session(bind=connection)
                     try:
-                        yield IsolatedTestDatabase(connection=connection, session=session, resolved=resolved)
+                        yield IsolatedTestDatabase(connection=connection, session=session, resolved=fresh)
                     finally:
                         session.close()
                 finally:

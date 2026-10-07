@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import datetime
 import logging
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any, NamedTuple, cast
 
@@ -571,7 +571,7 @@ def _guard_schema_provenance(
     test_only: bool,
     schema_tag: str,
     physical_schema: str | None,
-) -> Iterator[None]:
+) -> Generator[None, None, None]:
     """Guard against running DDL under a schema that drifted from the
     baseline _register_schema_claim() recorded for schema_tag on this
     physical database.

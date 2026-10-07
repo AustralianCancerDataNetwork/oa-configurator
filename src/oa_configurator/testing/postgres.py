@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Callable, Iterator, Iterable, Any
+from typing import TYPE_CHECKING, Callable, Generator, Iterable, Any
 
 import pytest
 import sqlalchemy as sa
@@ -137,7 +137,7 @@ class PostgresTestStrategy(TestDatabaseStrategy):
         schema_claims: Iterable["SchemaClaim"] = (),
         execution_options: dict[str, Any] | None = None,
         **engine_kwargs: Any,
-    ) -> Iterator[IsolatedTestDatabase]:
+    ) -> Generator[IsolatedTestDatabase, None, None]:
         url = resolved.connection.url
         self._ensure_test_db_exists(url)
 
@@ -160,7 +160,7 @@ class PostgresTestStrategy(TestDatabaseStrategy):
             engine.dispose()
 
     @contextmanager
-    def temporary_schema(self, engine: sa.Engine, *, prefix: str = "test") -> Iterator[str]:
+    def temporary_schema(self, engine: sa.Engine, *, prefix: str = "test") -> Generator[str, None, None]:
         self._require_test_only_engine(engine)
         schema = f"{prefix}_{uuid.uuid4().hex[:12]}"
         with engine.begin() as conn:

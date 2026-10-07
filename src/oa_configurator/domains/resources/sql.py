@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import functools
 import socket
-from collections.abc import Iterable, Iterator
+from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
@@ -156,7 +156,7 @@ def _as_bind(bindable: Bindable) -> Engine | Connection:
 
 
 @contextmanager
-def open_connection(bindable: Bindable) -> Iterator[Connection]:
+def open_connection(bindable: Bindable) -> Generator[Connection, None, None]:
     """Opens its own transaction for an Engine, or uses an already-open
     Connection or Session directly, participating in the caller's own
     transaction.
@@ -382,7 +382,7 @@ def ensure_schema(bindable: Engine | Connection, physical_schema: str | None) ->
 
 
 @contextmanager
-def autocommit_connection(bindable: Engine | Connection) -> Iterator[Connection]:
+def autocommit_connection(bindable: Engine | Connection) -> Generator[Connection, None, None]:
     """Yield a ``Connection`` in ``AUTOCOMMIT`` isolation mode.
 
     Parameters

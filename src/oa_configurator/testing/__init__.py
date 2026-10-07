@@ -57,7 +57,7 @@ teardown.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from typing import TYPE_CHECKING, Any, Iterable, NamedTuple, cast
 
@@ -215,7 +215,7 @@ def isolated_test_database(
     schema_claims: Iterable["SchemaClaim"] = (),
     execution_options: dict[str, Any] | None = None,
     **engine_kwargs: Any,
-) -> Iterator[IsolatedTestDatabase]:
+) -> Generator[IsolatedTestDatabase, None, None]:
     """Resolve *field_name* off *config_cls* and yield an isolated test database.
 
     The one thing every repo's ``conftest.py`` should call. ``test_only``-checked,
@@ -285,7 +285,7 @@ def isolated_test_database(
 
 
 @contextmanager
-def isolated_test_schema(engine: sa.Engine, *, prefix: str = "test") -> Iterator[str]:
+def isolated_test_schema(engine: sa.Engine, *, prefix: str = "test") -> Generator[str, None, None]:
     """Yield a uniquely-named, genuinely-committed schema, dropped on exit.
 
     The narrow exception path for code that constructs its own engine and
@@ -399,7 +399,7 @@ def scoped_test_schema(
     extensions: Sequence[Callable[[Any, Any], None]] = (),
     owner: str | None = None,
     **engine_kwargs: Any,
-) -> Iterator[ScopedTestSchema]:
+) -> Generator[ScopedTestSchema, None, None]:
     """Point every role of *resolved* at fresh committed schemas and yield it with its engine.
 
     Roles sharing a connection share one schema, except roles in

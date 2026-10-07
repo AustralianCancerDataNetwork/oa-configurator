@@ -14,7 +14,7 @@ from __future__ import annotations
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterator, Iterable
+from typing import TYPE_CHECKING, Any, Generator, Iterable
 
 import sqlalchemy as sa
 import sqlalchemy.orm as so
@@ -63,7 +63,7 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
         schema_claims: Iterable["SchemaClaim"] = (),
         execution_options: dict[str, Any] | None = None,
         **engine_kwargs: Any,
-    ) -> Iterator[IsolatedTestDatabase]:
+    ) -> Generator[IsolatedTestDatabase, None, None]:
         """Yield an isolated SQLite database in a fresh tempfile.
 
         Parameters

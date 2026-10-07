@@ -37,25 +37,13 @@ from oa_configurator import (
 )
 from oa_configurator.domains.resources.sql import _as_bind, _profile_for, connection_key
 from oa_configurator.domains.resources.schema_registry import (
-    SchemaRegistry,
     SchemaRegistryOutdatedError,
     _guard_schema_provenance,
     _record_schema_provenance,
     _register_schema_claim,
     _reject_reservation_conflict,
-    _with_provenance_translate_map,
 )
-
-
-def _registry_row(conn: sa.Connection, tag: str) -> sa.Row:
-    """The schema_registry row for *tag* on *conn*'s database."""
-    conn = _with_provenance_translate_map(conn, physical_schema="oa_configurator_provenance")
-    return conn.execute(
-        sa.select(SchemaRegistry).where(
-            SchemaRegistry.connection_key == connection_key(conn.engine.url),
-            SchemaRegistry.schema_tag == tag,
-        )
-    ).one()
+from conftest import registry_row as _registry_row
 
 
 class TestConnectionKey:
@@ -418,8 +406,8 @@ class TestRegisterSchemaClaim:
     def test_different_owner_same_tag_same_schema_raises(self, sqlite_db):
         """A second owner must not silently inherit ownership of a tag just
         because its physical schema happens to coincide with the first
-        owner's -- that would be an implicit, undetected ownership
-        transfer. Ownership transfer must go through release-schema-claim."""
+        owner's: that would be an implicit, undetected ownership transfer.
+        Ownership transfer must go through release-schema-claim."""
         tag, schema = self._name(), self._name()
         _register_schema_claim(
             sqlite_db.connection, database_config_name="db1", schema_tag=tag,

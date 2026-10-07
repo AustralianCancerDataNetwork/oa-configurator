@@ -18,7 +18,14 @@ from oa_configurator import (
 )
 from oa_configurator.config import OAConfiguratorConfig
 from oa_configurator.testing import DIALECT_PARAMS, isolated_test_database, reset_schema_registry_rows
-from oa_configurator.domains.resources.sql import Dialect, Role
+from oa_configurator.domains.resources.sql import Dialect, Role, connection_key
+from oa_configurator.domains.resources.schema_registry import (
+    _ROLE_TAG_VALUES,
+    SchemaRegistry,
+    _row_conditions,
+    _with_provenance_translate_map,
+)
+import sqlalchemy as sa
 
 # typer forces colorized rich error/output rendering when GITHUB_ACTIONS (or
 # FORCE_COLOR / PY_COLORS) is set -- see typer.rich_utils.FORCE_TERMINAL. Under
@@ -32,6 +39,23 @@ _FIELD_BY_DIALECT = {Dialect.POSTGRESQL: "test_db_pg", Dialect.SQLITE: "test_db_
 assert set(_FIELD_BY_DIALECT) == {param.values[0] for param in DIALECT_PARAMS}, (
     "_FIELD_BY_DIALECT is missing an entry for a dialect DIALECT_PARAMS now covers."
 )
+
+
+def registry_row(
+    connection: sa.Connection, schema_tag: str, *, database_config_name: str | None = None
+) -> sa.Row:
+    """The schema_registry row for *schema_tag* on *connection*'s database.
+
+    database_config_name is required for a Role tag (primary/vocab/results),
+    since those rows are scoped per entry; omit it for a custom tag, whose
+    rows are scoped connection-wide. Built on _row_conditions, the same
+    predicate production code uses, so a test here can't drift from it.
+    """
+    if schema_tag in _ROLE_TAG_VALUES and database_config_name is None:
+        raise ValueError(f"database_config_name is required for Role tag {schema_tag!r}.")
+    mapped = _with_provenance_translate_map(connection, physical_schema="oa_configurator_provenance")
+    conditions = _row_conditions(connection_key(connection.engine.url), schema_tag, database_config_name or "")
+    return mapped.execute(sa.select(SchemaRegistry).where(*conditions)).one()
 
 
 @pytest.fixture

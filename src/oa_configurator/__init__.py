@@ -6,6 +6,7 @@ from .domains.llm.schema import (
     ResolvedProvider,
 )
 from .domains.resources.schema import (
+    Bindable,
     CDMDatabaseConfig,
     ConnectionConfig,
     GenericDatabaseConfig,
@@ -71,6 +72,7 @@ from .stack_config import (
 )
 
 __all__ = [
+    "Bindable",
     "CDMDatabaseConfig",
     "ConfigurationError",
     "ConfigSaveError",

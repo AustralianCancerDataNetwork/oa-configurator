@@ -13,13 +13,13 @@ import uuid
 
 import pytest
 import sqlalchemy as sa
-from oa_configurator import CDMDatabaseConfig, ConnectionConfig, Resolver, StackConfig
+from oa_configurator import CDMDatabaseConfig, ConnectionConfig, GenericDatabaseConfig, Resolver, StackConfig
 from oa_configurator.domains.resources.schema_registry import _record_schema_provenance
-from oa_configurator.domains.resources.sql import connection_key
 from oa_configurator.testing import reset_schema_registry_rows
 from typer.testing import CliRunner
 
 from oa_configurator.cli import app
+from conftest import registry_row
 
 pytestmark = [pytest.mark.postgresql, pytest.mark.db_dialect, pytest.mark.usefixtures("fresh_role_registry_rows")]
 
@@ -40,20 +40,6 @@ def _stack_with_one_cdm_db(
 def _register(stack: StackConfig, database_config_name: str) -> None:
     """Register the database's Role claims, as its first create_engine() does."""
     Resolver(stack).resolve_database(database_config_name).create_engine().dispose()
-
-
-def _registry_row(pg_db, schema_tag: str, database_config_name: str | None = None) -> sa.Row:
-    registry = sa.Table(
-        "schema_registry", sa.MetaData(), autoload_with=pg_db.connection, schema="oa_configurator_provenance"
-    )
-    conditions = [
-        registry.c.connection_key == connection_key(pg_db.committing_engine.url),
-        registry.c.schema_tag == schema_tag,
-    ]
-    if database_config_name is not None:
-        conditions.append(registry.c.database_config_name == database_config_name)
-    with pg_db.committing_engine.connect() as connection:
-        return connection.execute(sa.select(registry).where(*conditions)).one()
 
 
 def test_acknowledge_schema_migration_clears_drift(pg_db, pg_connection_config, monkeypatch, cleanup_after_test):
@@ -117,38 +103,57 @@ def test_acknowledge_schema_migration_refuses_a_schema_claimed_by_another_tag(
 
 
 def test_acknowledge_schema_migration_leaves_two_entries_coexisting(pg_db, pg_connection_config, monkeypatch):
-    """Two different [databases.*] entries claiming Role.PRIMARY on one
-    connection get their own registry row each: acknowledging entry b's drift must not
-    disturb entry a's own, already-clean row."""
-    db_name_a = f"rectify_db_{uuid.uuid4().hex[:8]}"
-    db_name_b = f"rectify_db_{uuid.uuid4().hex[:8]}"
-    schema_a = f"test_{uuid.uuid4().hex[:8]}"
-    schema_b = f"test_{uuid.uuid4().hex[:8]}"
+    """A CDM entry and a colocated generic entry sharing one primary
+    connection (the legitimate colocation pattern, e.g. a vector store
+    living alongside its CDM) each get their own registry row for
+    Role.PRIMARY: acknowledging the generic entry's drift must not disturb
+    the CDM entry's own, already-clean row.
 
-    _register(_stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name_a, schema=schema_a), db_name_a)
+    Deliberately not two CDM entries: _check_database_entries_exclusive
+    forbids two CDM entries sharing a primary connection within one real
+    config, so that shape could never arise from an actual config.toml.
+    """
+    cdm_name = f"rectify_db_{uuid.uuid4().hex[:8]}"
+    generic_name = f"rectify_db_{uuid.uuid4().hex[:8]}"
+    cdm_schema = f"test_{uuid.uuid4().hex[:8]}"
+    generic_schema = f"test_{uuid.uuid4().hex[:8]}"
 
-    stack_b = _stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name_b, schema=schema_b)
-    monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack_b)
+    def _stack(current_generic_schema: str) -> StackConfig:
+        return StackConfig.for_session(
+            connections={"rectify_conn": pg_connection_config},
+            databases={
+                cdm_name: CDMDatabaseConfig(connection="rectify_conn", cdm_schema=cdm_schema),
+                generic_name: GenericDatabaseConfig(connection="rectify_conn", schema_name=current_generic_schema),
+            },
+        )
+
+    stack = _stack(generic_schema)
+    _register(stack, cdm_name)
+    _register(stack, generic_name)
+
+    drifted_generic_schema = f"test_{uuid.uuid4().hex[:8]}"
+    monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: _stack(drifted_generic_schema))
     assert runner.invoke(app, ["verify"]).exit_code == 1
 
     result = runner.invoke(
         app,
         [
             "acknowledge-schema-migration",
-            "--database", db_name_b,
+            "--database", generic_name,
             "--schema-tag", "primary",
-            "--new-schema", schema_b,
-            "--reason", "entry b takes over",
+            "--new-schema", drifted_generic_schema,
+            "--reason", "generic entry takes over",
         ],
     )
     assert result.exit_code == 0, result.output
 
-    row_b = _registry_row(pg_db, "primary", database_config_name=db_name_b)
-    assert (row_b.database_config_name, row_b.physical_schema, row_b.previous_physical_schema) == (
-        db_name_b, schema_b, None,
+    with pg_db.committing_engine.connect() as connection:
+        row_generic = registry_row(connection, "primary", database_config_name=generic_name)
+        row_cdm = registry_row(connection, "primary", database_config_name=cdm_name)
+    assert (row_generic.database_config_name, row_generic.physical_schema, row_generic.previous_physical_schema) == (
+        generic_name, drifted_generic_schema, generic_schema,
     )
-    row_a = _registry_row(pg_db, "primary", database_config_name=db_name_a)
-    assert (row_a.database_config_name, row_a.physical_schema) == (db_name_a, schema_a)
+    assert (row_cdm.database_config_name, row_cdm.physical_schema) == (cdm_name, cdm_schema)
 
 
 def test_acknowledge_schema_migration_requires_a_reason(pg_db, pg_connection_config, monkeypatch, cleanup_after_test):

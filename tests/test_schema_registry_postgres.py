@@ -20,6 +20,7 @@ from oa_configurator import (
     GenericDatabaseConfig,
     Resolver,
     SchemaClaim,
+    SchemaDriftError,
     SchemaOwnershipError,
     StackConfig,
 )
@@ -74,6 +75,94 @@ def test_reregistering_the_same_claim_from_a_new_engine_is_a_noop(pg_connection_
     for _ in range(2):
         engine = resolved.create_engine()
         engine.dispose()  # must not raise on the second call
+
+
+def test_create_engine_raises_schema_drift_for_the_same_entry_on_a_production_connection(
+    pg_connection_config,
+):
+    """create_engine() raises SchemaDriftError directly on a second call
+    with a differing schema for the same entry, on a production
+    (non-test_only) connection."""
+    db_name = f"drift_test_{uuid.uuid4().hex[:8]}"
+    schema_a = f"test_{uuid.uuid4().hex[:8]}"
+    schema_b = f"test_{uuid.uuid4().hex[:8]}"
+
+    stack_a = StackConfig.for_session(
+        connections={"c": pg_connection_config},
+        databases={db_name: CDMDatabaseConfig(connection="c", cdm_schema=schema_a)},
+    )
+    engine_a = Resolver(stack_a).resolve_database(db_name).create_engine()
+    engine_a.dispose()
+
+    stack_b = StackConfig.for_session(
+        connections={"c": pg_connection_config},
+        databases={db_name: CDMDatabaseConfig(connection="c", cdm_schema=schema_b)},
+    )
+    with pytest.raises(SchemaDriftError, match=f"{schema_b!r}.*{schema_a!r}"):
+        Resolver(stack_b).resolve_database(db_name).create_engine()
+
+
+def test_vocab_only_connection_does_not_register_primary_or_results(
+    pg_connection_config, cleanup_after_test
+):
+    """A split-CDM's vocab-only engine must not register primary/results
+    in its own schema_registry, only fold them into its translate_map.
+    Regression for local_roles in _process_schema_claims.
+
+    Uses a second real database on the same Postgres server, since a
+    different schema on the same connection wouldn't exercise this.
+    """
+    from oa_configurator.domains.resources.schema_registry import _list_registry_rows
+    from oa_configurator.testing.postgres import PostgresTestStrategy
+
+    db_name = f"split_test_{uuid.uuid4().hex[:8]}"
+    cdm_schema = f"test_{uuid.uuid4().hex[:8]}"
+    vocab_schema = f"test_{uuid.uuid4().hex[:8]}"
+    # Both must be test_only=True: StackConfig requires every connection one
+    # CDM entry references to agree, and drop_test_database() requires it.
+    primary_connection_config = pg_connection_config.model_copy(update={"test_only": True})
+    vocab_connection_config = pg_connection_config.model_copy(
+        update={"database_name": f"vocab_test_{uuid.uuid4().hex[:8]}", "test_only": True}
+    )
+
+    strategy = PostgresTestStrategy()
+    strategy._ensure_test_db_exists(vocab_connection_config.build_url())
+    cleanup_after_test(lambda: strategy.drop_test_database(vocab_connection_config.resolve("vocab")))
+
+    stack = StackConfig.for_session(
+        connections={"primary": primary_connection_config, "vocab": vocab_connection_config},
+        databases={
+            db_name: CDMDatabaseConfig(
+                connection="primary", vocab_connection="vocab",
+                cdm_schema=cdm_schema, vocab_schema=vocab_schema,
+            )
+        },
+    )
+    resolved = Resolver(stack).resolve_database(db_name)
+    primary_engine, vocab_engine = resolved.create_engines()
+    role_tags = {"primary", "vocab", "results"}
+    try:
+        with vocab_engine.connect() as connection:
+            vocab_role_rows = {
+                row.schema_tag for row in _list_registry_rows(connection)
+                if row.database_config_name == db_name
+            } & role_tags
+        with primary_engine.connect() as connection:
+            primary_role_rows = {
+                row.schema_tag for row in _list_registry_rows(connection)
+                if row.database_config_name == db_name
+            } & role_tags
+        # Both connections still compile cross-schema references correctly,
+        # even though each only registered the role(s) it actually owns.
+        vocab_map = vocab_engine.get_execution_options()["schema_translate_map"]
+        assert vocab_map["primary"] == cdm_schema
+        assert vocab_map["vocab"] == vocab_schema
+    finally:
+        primary_engine.dispose()
+        vocab_engine.dispose()
+
+    assert vocab_role_rows == {"vocab"}
+    assert primary_role_rows == {"primary", "results"}
 
 
 def test_two_databases_reusing_one_tag_on_one_connection_with_different_schemas_raises(

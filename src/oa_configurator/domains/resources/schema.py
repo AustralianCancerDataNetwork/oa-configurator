@@ -20,12 +20,12 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import event
 from sqlalchemy.engine import URL, Engine, Connection
-from sqlalchemy.orm import Session
 import sqlalchemy as sa
 
 from ...refs import RefTo, Secret, SecretSafeBaseModel
 from .sql import (
     SCHEMA_TRANSLATE_MAP_KEY,
+    Bindable,
     Role,
     connection_key,
     ensure_schema,
@@ -52,9 +52,8 @@ _EXECUTION_OPTION_TEST_ONLY = "oa_configurator_test_only"
 if TYPE_CHECKING:
     from ...stack_config import StackConfig
 
-# Types for route_for_schema_tag() 
+# Types for route_for_schema_tag()
 _T = TypeVar("_T")
-Bindable = Engine | Connection | Session
 
 class SchemaClaim(NamedTuple):
     """Explicit entry to the schema_translate_map passed to create_engine().

@@ -14,6 +14,7 @@ from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import overload
 
 import sqlalchemy as sa
 from sqlalchemy.engine import Connection, Engine
@@ -21,6 +22,8 @@ from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.compiler import IdentifierPreparer
 
+# Broader than a literal SQLAlchemy "bind" (Engine | Connection): a Session
+# isn't one, it has one. _as_bind() reduces any Bindable down to that.
 Bindable = Engine | Connection | Session
 
 # SQLAlchemy's own execution_options key for schema translation
@@ -116,6 +119,10 @@ def _profile_for(dialect_name: str) -> DialectProfile:
             f"{sorted(str(d) for d in _DIALECT_PROFILES)}."
         ) from None
 
+@overload
+def _as_bind(bindable: Engine) -> Engine: ...
+@overload
+def _as_bind(bindable: Connection | Session) -> Connection: ...
 def _as_bind(bindable: Bindable) -> Engine | Connection:
     """Reduce bindable to an Engine/Connection.
 
@@ -124,7 +131,7 @@ def _as_bind(bindable: Bindable) -> Engine | Connection:
     On SQLite's SingletonThreadPool, Session.get_bind() can return
     the same underlying DBAPI connection the session already uses.
     If the inspector's wrapper around it is closed, it rolls back
-    the session's own uncommitted work. 
+    the session's own uncommitted work.
     Solution: Return Session.connection() instead.
     """
     if isinstance(bindable, Session):
@@ -133,19 +140,21 @@ def _as_bind(bindable: Bindable) -> Engine | Connection:
 
 
 @contextmanager
-def open_connection(bindable: Engine | Connection) -> Iterator[Connection]:
-    """Opens its own transaction for an Engine, or uses
-    an already-open Connection directly, participating in the caller's own
+def open_connection(bindable: Bindable) -> Iterator[Connection]:
+    """Opens its own transaction for an Engine, or uses an already-open
+    Connection or Session directly, participating in the caller's own
     transaction.
 
     Parameters
     ----------
-    bindable : sqlalchemy.engine.Engine or sqlalchemy.engine.Connection
+    bindable : sqlalchemy.engine.Engine, sqlalchemy.engine.Connection, or sqlalchemy.orm.Session
         An Engine opens a new connection and transaction scoped to this
         context manager, committing on a clean exit. A Connection is
         forwarded as-is; its transaction is owned by the caller, and
         passing the same Connection into several calls groups them into
-        one shared transaction.
+        one shared transaction. A Session reduces to its own live
+        connection (via _as_bind), same ownership as a Connection: its
+        transaction is the Session's own, not opened or committed here.
 
     Yields
     ------
@@ -155,7 +164,7 @@ def open_connection(bindable: Engine | Connection) -> Iterator[Connection]:
         with bindable.begin() as connection:
             yield connection
     else:
-        yield bindable
+        yield _as_bind(bindable)
 
 
 def qualified(

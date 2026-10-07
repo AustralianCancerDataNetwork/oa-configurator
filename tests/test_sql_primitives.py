@@ -57,6 +57,34 @@ class TestConnectionKey:
         b = sa.make_url("postgresql://u@host:5432/other")
         assert connection_key(a) != connection_key(b)
 
+    def test_collapses_a_hostname_and_its_own_ip(self):
+        """The same server reached by hostname and by its IP must
+        collide, since the registry it keys into lives inside the physical
+        database and gains no real scoping from the spelling used to reach it."""
+        a = sa.make_url("postgresql://u@localhost:5432/omop")
+        b = sa.make_url("postgresql://u@127.0.0.1:5432/omop")
+        assert connection_key(a) == connection_key(b)
+
+
+class TestCanonicalHost:
+    def test_resolves_localhost_to_its_loopback_ip(self):
+        from oa_configurator.domains.resources.sql import canonical_host
+
+        assert canonical_host("localhost") == "127.0.0.1"
+
+    def test_none_passes_through(self):
+        from oa_configurator.domains.resources.sql import canonical_host
+
+        assert canonical_host(None) is None
+
+    def test_an_unresolvable_host_is_returned_unchanged(self):
+        """Soft-fails rather than raising: an unreachable/mock host (common
+        in tests) still yields a usable, if un-canonicalized, value."""
+        from oa_configurator.domains.resources.sql import canonical_host
+
+        bogus = "this-host-does-not-resolve.invalid"
+        assert canonical_host(bogus) == bogus
+
 
 class TestAsBind:
     def test_engine_passes_through(self, engine):
@@ -735,7 +763,7 @@ class TestGuardSchemaProvenance:
             ):
                 pass
 
-    def test_exception_in_body_does_not_refresh_last_verified_at(self, pg_db):
+    def test_exception_in_body_does_not_disturb_the_baseline(self, pg_db):
         db_name = f"guard_{uuid.uuid4().hex[:8]}"
         tag = f"tag_{uuid.uuid4().hex[:8]}"
         schema = f"test_{uuid.uuid4().hex[:8]}"
@@ -980,12 +1008,22 @@ class TestProvenanceClaimAfterAcknowledgment:
         )  # must not raise
 
 
-def _concurrent_claim_worker(url: str, database_config_name: str, schema: str) -> str | None:
+def _concurrent_claim_worker(
+    url: str, database_config_name: str, schema: str, autocommit: bool = False
+) -> str | None:
     """Runs in a separate process: a fresh create_engine() claiming
     schema_tag "primary" for database_config_name, racing several siblings
     doing the same against the same physical database. Returns the error
     message on failure, None on success. Module-level so it's picklable
-    for ProcessPoolExecutor."""
+    for ProcessPoolExecutor.
+
+    Parameters
+    ----------
+    autocommit : bool, optional
+        Pass execution_options={"isolation_level": "AUTOCOMMIT"} through
+        create_engine(), as a caller legitimately might for unrelated
+        reasons. This cannot be used to bypass the registry lock.
+    """
     from oa_configurator import CDMDatabaseConfig
     from oa_configurator.domains.resources.schema import ConnectionConfig
     from oa_configurator.resolver import Resolver
@@ -1000,8 +1038,11 @@ def _concurrent_claim_worker(url: str, database_config_name: str, schema: str) -
         connections={"c": connection_config},
         databases={database_config_name: CDMDatabaseConfig(connection="c", cdm_schema=schema)},
     )
+    execution_options = {"isolation_level": "AUTOCOMMIT"} if autocommit else None
     try:
-        Resolver(stack).resolve_database(database_config_name).create_engine().dispose()
+        Resolver(stack).resolve_database(database_config_name).create_engine(
+            execution_options=execution_options
+        ).dispose()
     except Exception as exc:
         return f"{type(exc).__name__}: {exc}"
     return None
@@ -1025,6 +1066,25 @@ class TestConcurrentBootstrap:
         with concurrent.futures.ProcessPoolExecutor(max_workers=8) as pool:
             results = list(
                 pool.map(_concurrent_claim_worker, [url] * 8, [database_config_name] * 8, [schema] * 8)
+            )
+        failures = [r for r in results if r is not None]
+        assert failures == [], f"{len(failures)}/8 workers failed: {failures}"
+
+    @pytest.mark.postgresql
+    def test_eight_concurrent_first_time_claims_all_succeed_with_autocommit(self, pg_connection_config):
+        """A caller-supplied AUTOCOMMIT isolation_level must not defeat
+        the registration lock's atomicity."""
+        import concurrent.futures
+
+        url = pg_connection_config.build_url()
+        database_config_name = f"autocommit_{uuid.uuid4().hex[:8]}"
+        schema = f"test_{uuid.uuid4().hex[:8]}"
+        with concurrent.futures.ProcessPoolExecutor(max_workers=8) as pool:
+            results = list(
+                pool.map(
+                    _concurrent_claim_worker,
+                    [url] * 8, [database_config_name] * 8, [schema] * 8, [True] * 8,
+                )
             )
         failures = [r for r in results if r is not None]
         assert failures == [], f"{len(failures)}/8 workers failed: {failures}"

@@ -25,7 +25,7 @@ from oa_configurator import (
     StackConfig,
 )
 from oa_configurator.domains.resources.schema_registry import SchemaRegistry
-from oa_configurator.testing import reset_schema_registry_rows
+from oa_configurator.testing import drop_schema_if_exists, reset_schema_registry_rows
 from sqlalchemy import Table
 
 pytestmark = [pytest.mark.postgresql, pytest.mark.db_dialect, pytest.mark.usefixtures("fresh_role_registry_rows")]
@@ -41,7 +41,9 @@ def test_create_engine_derives_owner_from_the_caller_without_being_told(pg_db, p
     schema = f"test_{uuid.uuid4().hex[:8]}"
     tag = f"custom_{uuid.uuid4().hex[:8]}"
     db_name = f"owner_test_{uuid.uuid4().hex[:8]}"
-    reset_schema_registry_rows(cleanup_after_test, pg_db.committing_engine, [tag])
+    reset_schema_registry_rows(cleanup_after_test, pg_db.committing_engine, ["primary", tag])
+
+    cleanup_after_test(lambda: drop_schema_if_exists(pg_db.committing_engine, schema))
     stack = StackConfig.for_session(
         connections={"c": pg_connection_config},
         databases={db_name: GenericDatabaseConfig(connection="c", schema_name=schema)},
@@ -65,8 +67,13 @@ def test_create_engine_derives_owner_from_the_caller_without_being_told(pg_db, p
     assert rows[tag].owner == "test_schema_registry_postgres"
 
 
-def test_reregistering_the_same_claim_from_a_new_engine_is_a_noop(pg_connection_config):
+def test_reregistering_the_same_claim_from_a_new_engine_is_a_noop(
+    pg_db, pg_connection_config, cleanup_after_test
+):
     schema = f"test_{uuid.uuid4().hex[:8]}"
+    reset_schema_registry_rows(cleanup_after_test, pg_db.committing_engine, ["primary"])
+
+    cleanup_after_test(lambda: drop_schema_if_exists(pg_db.committing_engine, schema))
     stack = StackConfig.for_session(
         connections={"c": pg_connection_config},
         databases={"default": GenericDatabaseConfig(connection="c", schema_name=schema)},
@@ -175,6 +182,8 @@ def test_two_databases_reusing_one_tag_on_one_connection_with_different_schemas_
     schema_a = f"test_{uuid.uuid4().hex[:8]}"
     schema_b = f"test_{uuid.uuid4().hex[:8]}"
     reset_schema_registry_rows(cleanup_after_test, pg_db.committing_engine, [tag])
+
+    cleanup_after_test(lambda: drop_schema_if_exists(pg_db.committing_engine, schema_a))
     stack = StackConfig.for_session(
         connections={"c": pg_connection_config},
         databases={"default": GenericDatabaseConfig(connection="c")},
@@ -200,6 +209,8 @@ def test_reserved_schema_collides_with_a_different_databases_configured_schema(
     is caught at create_engine() time."""
     reserved = f"reserved_{uuid.uuid4().hex[:8]}"
     reset_schema_registry_rows(cleanup_after_test, pg_db.committing_engine, [reserved])
+
+    cleanup_after_test(lambda: drop_schema_if_exists(pg_db.committing_engine, reserved))
 
     owner_stack = StackConfig.for_session(
         connections={"c": pg_connection_config},
@@ -228,6 +239,8 @@ def test_cdm_database_reserved_vocab_schema_collision_raises(pg_db, pg_connectio
     reserved = f"reserved_{uuid.uuid4().hex[:8]}"
     reset_schema_registry_rows(cleanup_after_test, pg_db.committing_engine, [reserved])
 
+    cleanup_after_test(lambda: drop_schema_if_exists(pg_db.committing_engine, reserved))
+
     owner_stack = StackConfig.for_session(
         connections={"c": pg_connection_config},
         databases={"owner_db": GenericDatabaseConfig(connection="c")},
@@ -254,7 +267,9 @@ def test_create_engine_without_registering_claims_writes_no_rows(pg_db, pg_conne
     schema_registry untouched."""
     schema = f"test_{uuid.uuid4().hex[:8]}"
     tag = f"custom_{uuid.uuid4().hex[:8]}"
-    reset_schema_registry_rows(cleanup_after_test, pg_db.committing_engine, [tag])
+    reset_schema_registry_rows(cleanup_after_test, pg_db.committing_engine, ["primary", tag])
+
+    cleanup_after_test(lambda: drop_schema_if_exists(pg_db.committing_engine, schema))
     stack = StackConfig.for_session(
         connections={"c": pg_connection_config},
         databases={"default": GenericDatabaseConfig(connection="c", schema_name=schema)},

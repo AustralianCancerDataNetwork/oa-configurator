@@ -24,6 +24,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from .sql import (
+    EXECUTION_OPTION_DATABASE_CONFIG_NAME,
     SCHEMA_TRANSLATE_MAP_KEY,
     Bindable,
     Dialect,
@@ -56,8 +57,11 @@ def _lock_schema_registry(connection: Connection) -> None:
     fresh table both race under concurrent transactions. No-op on a
     dialect with no advisory locks.
 
-    connection must not be AUTOCOMMIT (the lock releases after one
-    statement) and should use at most READ COMMITTED isolation.
+    *connection* must be inside a transaction at an isolation level other
+    than AUTOCOMMIT (the lock would otherwise release after one statement).
+    ``_process_schema_claims`` enforces this itself by forcing READ COMMITTED
+    on the registration connection, regardless of the engine's own isolation
+    level, so a caller-supplied AUTOCOMMIT engine can't defeat this lock.
     """
     dialect = Dialect(connection.dialect.name)  # raises ValueError on an unmodeled dialect
     if dialect == Dialect.POSTGRESQL:
@@ -187,7 +191,6 @@ class SchemaRegistry(_SchemaRegistryBase):
     previous_physical_schema: Mapped[str | None] = mapped_column(sa.String(128))
     acknowledged_at: Mapped[datetime.datetime | None] = mapped_column()
     reason: Mapped[str | None] = mapped_column(sa.Text)
-    last_verified_at: Mapped[datetime.datetime | None] = mapped_column(server_default=sa.func.now())
 
 class RegistryRow(NamedTuple):
     """One schema_registry row, as surfaced by :func:`_list_registry_rows`."""
@@ -722,7 +725,6 @@ def _record_schema_provenance(
                 physical_schema=new_physical_schema,
                 acknowledged_at=sa.func.now(),
                 reason=reason,
-                last_verified_at=sa.func.now(),
             )
         )
     else:
@@ -735,7 +737,6 @@ def _record_schema_provenance(
                 previous_physical_schema=None,
                 acknowledged_at=sa.func.now(),
                 reason=reason,
-                last_verified_at=sa.func.now(),
             )
         )
 
@@ -872,6 +873,21 @@ def physical_schema_of(bindable: Bindable, *, schema_tag: str | None = Role.PRIM
     else:
         resolved = schema_tag
     return schema_if_supported(resolved, bind)
+
+
+def database_config_name_of(bindable: Bindable) -> str | None:
+    """The ``[databases.*]``/entry name that built *bindable*, or None if it
+    wasn't built by ``create_engine()``.
+
+    Lets a consumer scope its own rows by owning entry (e.g. omop-emb's model
+    registry) without needing a separate `resolved`/entry-name argument
+    threaded alongside the engine.
+
+    Parameters
+    ----------
+    bindable : Engine | Connection | Session
+    """
+    return _as_bind(bindable).get_execution_options().get(EXECUTION_OPTION_DATABASE_CONFIG_NAME)
 
 
 def claimed_schema_tags(bindable: Bindable) -> set[str]:

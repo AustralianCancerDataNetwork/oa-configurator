@@ -30,7 +30,7 @@ from .domains.resources.schema import (
     GenericDatabaseConfig,
     _iter_schema_roles,
 )
-from .domains.resources.sql import Role, is_ephemeral_url, supports_schemas
+from .domains.resources.sql import Role, is_ephemeral_url, supports_schemas, system_schemas
 from .domains.vector_stores.schema import VectorStoreConfig
 from .logging_config import LoggingConfig
 from .refs import SecretSafeBaseModel, _iter_refs
@@ -198,6 +198,7 @@ class StackConfig(SecretSafeBaseModel):
         for name, database in self.databases.items():
             self._check_refs(database, f"databases.{name}")
             self._check_declared_schemas_supported(database, f"databases.{name}")
+            self._check_declared_schema_names_valid(database, f"databases.{name}")
             self._check_connections_share_test_only(database, f"databases.{name}")
         for mname, model in self.models.items():
             self._check_refs(model, f"models.{mname}")
@@ -205,6 +206,8 @@ class StackConfig(SecretSafeBaseModel):
             self._check_refs(vector_store, f"vector_stores.{vname}")
         self._check_connections_distinct()
         self._check_database_entries_exclusive()
+        self._check_test_only_not_a_production_twin()
+        self._check_no_schema_collision_on_one_connection()
         self._warn_vocab_connection_collisions()
         return self
 
@@ -252,6 +255,39 @@ class StackConfig(SecretSafeBaseModel):
                     f"{connection_name!r} ({connection.dialect}) has no schema concept."
                 )
             checked_connections.add(connection_name)
+
+    def _check_declared_schema_names_valid(self, database: DatabaseConfig, location: str) -> None:
+        """Reject an obviously-wrong configured schema name: empty, all
+        whitespace, leading/trailing whitespace, a dialect's own system
+        schema (e.g. Postgres's ``pg_catalog``), or longer than Postgres's
+        63-byte identifier limit.
+
+        Raises
+        ------
+        ValueError
+            If a configured schema name fails any of the above checks.
+        """
+        for field_name, role in _iter_schema_roles(type(database)):
+            value = getattr(database, field_name)
+            if value is None:
+                continue
+            if not value.strip() or value != value.strip():
+                raise ValueError(
+                    f"{location}.{field_name}={value!r} must not be empty or have "
+                    "leading/trailing whitespace."
+                )
+            if len(value) > 63:
+                raise ValueError(
+                    f"{location}.{field_name}={value!r} is longer than 63 characters, "
+                    "Postgres's own identifier limit."
+                )
+            connection_name = database.connection_name_for_role(role)
+            connection = self.connections.get(connection_name)
+            if connection is not None and value.lower() in system_schemas(connection.dialect_name):
+                raise ValueError(
+                    f"{location}.{field_name}={value!r} names a system schema reserved by "
+                    f"{connection.dialect}."
+                )
 
     def _check_connections_share_test_only(self, database: DatabaseConfig, location: str) -> None:
         """Every connection *database* references (primary and, for a CDM
@@ -350,6 +386,70 @@ class StackConfig(SecretSafeBaseModel):
                     "its own database."
                 )
             seen_vector_store[identity] = name
+
+    def _check_test_only_not_a_production_twin(self) -> None:
+        """No ``test_only`` connection may share a physical identity with a
+        non-``test_only`` connection.
+
+        ``_check_connections_distinct`` deliberately exempts every
+        ``test_only`` connection from its own check (tests routinely clone the
+        available test server under several names), which leaves a
+        ``test_only`` connection free to duplicate a *production* connection's
+        identity. That matters here specifically because ``test_only`` is the
+        re-baseline switch for the schema-provenance guard: a twin would
+        silently re-baseline production rows instead of raising on drift.
+
+        ``user`` is excluded from the comparison (a ``test_only`` connection
+        legitimately uses different credentials on the same server), matching
+        ``_check_connections_distinct``'s own exemption rationale.
+        """
+        production_identities: dict[tuple[Any, ...], str] = {}
+        for name, connection in self.connections.items():
+            if connection.test_only or is_ephemeral_url(connection.safe_url()):
+                continue
+            identity = connection.physical_identity()[:-1]
+            production_identities.setdefault(identity, name)
+
+        for name, connection in self.connections.items():
+            if not connection.test_only or is_ephemeral_url(connection.safe_url()):
+                continue
+            identity = connection.physical_identity()[:-1]
+            other = production_identities.get(identity)
+            if other is not None:
+                raise ValueError(
+                    f"connections.{name} is test_only but describes the same physical "
+                    f"database as connections.{other!r} (same dialect, host, port, and "
+                    "database), which is not test_only. A test_only connection must never "
+                    "be able to re-baseline a production database's schema provenance."
+                )
+
+    def _check_no_schema_collision_on_one_connection(self) -> None:
+        """No two database entries sharing one connection may declare the
+        same physical schema name.
+
+        Schema collision is otherwise only caught at
+        ``ResolvedDatabase.create_engine()`` time, and only once the shared
+        schema is non-empty (the first entry to create tables there "wins";
+        the second looks adopted rather than colliding). This is the static,
+        connection-free half of that check.
+        """
+        seen: dict[tuple[str, str], tuple[str, str]] = {}
+        for name, database in self.databases.items():
+            for field_name, role in _iter_schema_roles(type(database)):
+                value = getattr(database, field_name)
+                if value is None:
+                    continue
+                connection_name = database.connection_name_for_role(role)
+                key = (connection_name, value)
+                other = seen.get(key)
+                if other is not None and other[0] != name:
+                    raise ValueError(
+                        f"databases.{name}.{field_name}={value!r} and "
+                        f"databases.{other[0]}.{other[1]}={value!r} declare the same "
+                        f"physical schema on connection {connection_name!r}. Each database "
+                        "entry needs its own schema on a shared connection."
+                    )
+                seen.setdefault(key, (name, field_name))
 
     def _warn_vocab_connection_collisions(self) -> None:
         """Warn when a CDM's ``vocab_connection`` physically

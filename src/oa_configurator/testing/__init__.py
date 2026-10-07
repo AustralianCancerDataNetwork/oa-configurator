@@ -72,7 +72,7 @@ from .base import (
     TestDatabaseStrategy,
     _skip_message,
 )
-from .postgres import PostgresTestStrategy, install_postgres_extension
+from .postgres import PostgresTestStrategy, drop_schema_if_exists, install_postgres_extension
 from .sqlite import SQLiteTestStrategy
 
 if TYPE_CHECKING:
@@ -86,6 +86,7 @@ __all__ = [
     "ScopedTestSchema",
     "cleanup_after_test",
     "delete_rows_on_cleanup",
+    "drop_schema_if_exists",
     "guarded_resolver",
     "install_postgres_extension",
     "isolated_test_database",
@@ -210,6 +211,7 @@ def isolated_test_database(
     *,
     dialect: Dialect | str | None = None,
     request: pytest.FixtureRequest | None = None,
+    resolver: Resolver | None = None,
     schema_claims: Iterable["SchemaClaim"] = (),
     execution_options: dict[str, Any] | None = None,
     **engine_kwargs: Any,
@@ -221,6 +223,9 @@ def isolated_test_database(
 
     Parameters
     ----------
+    resolver : Resolver, optional
+        Resolve against this ``Resolver`` instead of the on-disk active
+        config, so a consumer can inject a session-built ``StackConfig``.
     dialect : Dialect or str, optional
         Assert the resolved connection is actually this dialect, raising
         if not. A field configured for the wrong dialect is a bug, never
@@ -248,7 +253,9 @@ def isolated_test_database(
         raise ValueError(f"Unknown dialect {dialect!r}. Registered: {sorted(d.value for d in _STRATEGIES)}.")
 
     try:
-        resolved: "ResolvedDatabase" = TestDatabaseStrategy._resolve_and_check(config_cls, field_name)
+        resolved: "ResolvedDatabase" = TestDatabaseStrategy._resolve_and_check(
+            config_cls, field_name, resolver=resolver
+        )
     except TestDatabaseNotConfigured as exc:
         if dialect is None:
             pytest.skip(_skip_message(exc.field_name or field_name))
@@ -540,9 +547,21 @@ def reset_schema_registry_rows(
         Its URL selects the physical database.
     schema_tags : Iterable[str], optional
         Tags whose rows are removed and restored. Defaults to the Role tags.
+
+    Raises
+    ------
+    pytest.fail.Exception
+        If *engine*'s physical database doesn't match a known
+        ``test_only=true`` connection in the active config, regardless of
+        whether the *claim*/connection this engine was built with was itself
+        marked ``test_only``. This function mutates real registry rows, so the
+        physical database it runs against must be a known test server even
+        when exercising non-``test_only`` claim behavior against it.
     """
     from ..domains.resources.schema_registry import SchemaRegistry, _registry_connection
     from ..domains.resources.sql import connection_key
+
+    TestDatabaseStrategy._require_test_only_engine(engine)
 
     table = cast(sa.Table, SchemaRegistry.__table__)
     condition = sa.and_(

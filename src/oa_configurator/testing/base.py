@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         SchemaClaim,
     )
     from ..package_base import PackageConfigBase
+    from ..resolver import Resolver
 
 
 class TestDatabaseNotConfigured(Exception):
@@ -123,7 +124,10 @@ class TestDatabaseStrategy(ABC):
 
     @staticmethod
     def _resolve_and_check(
-        config_cls: type["PackageConfigBase"], field_name: str
+        config_cls: type["PackageConfigBase"], 
+        field_name: str, 
+        *, 
+        resolver: "Resolver | None" = None
     ) -> "ResolvedDatabase":
         """Resolve *field_name* off *config_cls* and enforce ``test_only``.
 
@@ -136,28 +140,47 @@ class TestDatabaseStrategy(ABC):
         Raises ``TestDatabaseNotConfigured`` (rather than skipping directly) when
         *field_name* has no resolvable value, so a caller with a
         config-free fallback available gets a chance to use it first.
+
+        Parameters
+        ----------
+        resolver : Resolver, optional
+            Use this resolver instead of loading the on-disk active config.
+            Lets a consumer inject a session-built ``StackConfig`` instead of
+            relying on ``load_stack_config()``/``Resolver.from_active_config()``
+            reading the real file.
+        Raises
+        ------
+        ValueError
+            If *field_name* is explicitly set in config to a name that isn't
+            a ``[databases.*]`` entry. A config-typo must fail loudly, not be
+            folded into the same "not configured" skip as a field nobody set.
         """
         if field_name not in config_cls.model_fields:
             raise ValueError(f"{config_cls.__name__} has no field {field_name!r}.")
 
-        from ..loader import load_stack_config
-
-        try:
-            stored = load_stack_config().tools.get(config_cls.tool_name, {})
-        except FileNotFoundError:
-            stored = {}
-        default = config_cls.model_fields[field_name].default
-        name = stored.get(field_name) or (default if isinstance(default, str) else field_name)
-
         from ..resolver import Resolver
 
+        if resolver is None:
+            try:
+                resolver = Resolver.from_active_config()
+            except FileNotFoundError:
+                raise TestDatabaseNotConfigured(field_name=field_name) from None
+
+        stored = resolver.config.tools.get(config_cls.tool_name, {})
+        default = config_cls.model_fields[field_name].default
+        configured_name = stored.get(field_name)
+        name = configured_name or (default if isinstance(default, str) else field_name)
+
         try:
-            resolver = Resolver.from_active_config()
             resolved = resolver.resolve_database(name)
-        except (FileNotFoundError, KeyError):
-            # FileNotFoundError: no config file at all. 
-            # KeyError: `name` isn't  a database entry in the config. 
-            # Both are genuinely "not configured". 
+        except KeyError:
+            if configured_name is not None:
+                raise ValueError(
+                    f"{config_cls.tool_name}.{field_name} is set to {configured_name!r}, but "
+                    "no such [databases.*] entry exists in the active config. Check for a typo."
+                ) from None
+            # name fell back to the field's own default/name, which nobody
+            # configured explicitly: genuinely "not configured" rather than a typo.
             raise TestDatabaseNotConfigured(field_name=name) from None
         connection_name = resolved.connection.name
         if not resolver.config.connections[connection_name].test_only:

@@ -10,6 +10,8 @@ Role lives here rather than in schema.py.
 
 from __future__ import annotations
 
+import functools
+import socket
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -28,6 +30,11 @@ Bindable = Engine | Connection | Session
 
 # SQLAlchemy's own execution_options key for schema translation
 SCHEMA_TRANSLATE_MAP_KEY = "schema_translate_map"
+
+# Provenance context on execution options for create_engine()
+# without threading through an entire resolved DB config.
+EXECUTION_OPTION_DATABASE_CONFIG_NAME = "oa_configurator_database_config_name"
+EXECUTION_OPTION_TEST_ONLY = "oa_configurator_test_only"
 
 
 class Role(StrEnum):
@@ -81,17 +88,26 @@ class DialectProfile:
         (e.g. SQLite) that connects via a path instead. Defaults to True,
         since server-based dialects are the common case; a file-based
         dialect's profile overrides it explicitly.
+    default_schema : str or None
+        This dialect's own literal default schema name (e.g. Postgres's
+        "public"), independent of any live connection's search_path. None for
+        a dialect with no real multi-schema concept, or none fixed by the
+        dialect itself. A live ``Inspector.default_schema_name`` can be misled
+        by a role named like a schema; this is a dialect-level cross-check for
+        that, not a substitute for it.
     """
 
     system_schemas: frozenset[str]
     supports_schemas: bool
     requires_host: bool = True
+    default_schema: str | None = None
 
 
 _DIALECT_PROFILES: dict[str, DialectProfile] = {
     Dialect.POSTGRESQL: DialectProfile(
         system_schemas=frozenset({"information_schema", "pg_catalog", "pg_toast"}),
         supports_schemas=True,
+        default_schema="public",
     ),
     Dialect.SQLITE: DialectProfile(
         system_schemas=frozenset(),
@@ -227,11 +243,36 @@ def schema_if_supported(physical_schema: str | None, bindable: Bindable | str) -
     return physical_schema if supports_schemas(bindable) else None
 
 
+@functools.lru_cache(maxsize=256)
+def canonical_host(host: str | None) -> str | None:
+    """*host* resolved to a canonical IP via DNS, or *host* unchanged if
+    resolution fails.
+
+    Collapses the common host-alias case (the same server reached as a
+    hostname and as its IP, or via two hostnames resolving to one IP) into one
+    identity, so identity comparisons that key on host (``connection_key``,
+    ``ResolvedConnection.physical_identity``) aren't fooled by spelling alone.
+
+    Soft-fails on an unreachable or unresolvable host (e.g. a deliberately
+    broken host in a test) by returning it unchanged, rather than raising:
+    callers that compare identities still get a usable value, just without
+    alias collapsing for that one host.
+    """
+    if host is None:
+        return None
+    try:
+        return socket.gethostbyname(host)
+    except OSError:
+        return host
+
+
 def connection_key(url: sa.URL) -> str:
     """Physical identity of the database *url* addresses: host, port, and database name.
 
     Dialect, driver, and credentials are ignored, so the same database reached
-    through another driver or as another user yields the same key.
+    through another driver or as another user yields the same key. *host* is
+    resolved through :func:`canonical_host` first, so a hostname and its own
+    IP address yield the same key too.
 
     Parameters
     ----------
@@ -242,7 +283,7 @@ def connection_key(url: sa.URL) -> str:
     str
         ``"<host>:<port>/<database>"``, empty parts left blank.
     """
-    return f"{url.host or ''}:{url.port or ''}/{url.database or ''}"
+    return f"{canonical_host(url.host) or ''}:{url.port or ''}/{url.database or ''}"
 
 
 def is_ephemeral_url(safe_url: str) -> bool:
@@ -291,6 +332,18 @@ def requires_host(bindable: Bindable | str) -> bool:
     """
     dialect_name = bindable if isinstance(bindable, str) else _as_bind(bindable).dialect.name
     return _profile_for(dialect_name).requires_host
+
+
+def system_schemas(bindable: Bindable | str) -> frozenset[str]:
+    """Schema names *bindable*'s dialect reserves for its own internal catalogs.
+
+    Parameters
+    ----------
+    bindable : Engine | Connection | Session | str
+        A live bindable, or a bare dialect name directly (e.g. "postgresql").
+    """
+    dialect_name = bindable if isinstance(bindable, str) else _as_bind(bindable).dialect.name
+    return _profile_for(dialect_name).system_schemas
 
 
 def ensure_schema(bindable: Engine | Connection, physical_schema: str | None) -> None:

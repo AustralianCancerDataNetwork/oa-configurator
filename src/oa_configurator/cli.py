@@ -298,12 +298,10 @@ def _print_registry_rows(resolver: Resolver, config: StackConfig) -> None:
             resolved = resolver.resolve_database(db_name)
         except Exception:
             continue
-        engines = (
-            resolved.create_engines(register_claims=False)
-            if isinstance(resolved, ResolvedCDMDatabase)
-            else (resolved.create_engine(register_claims=False),)
-        )
-        for engine in dict.fromkeys(engines):
+        # Bare engines to avoid schema claim registration and drift errors
+        roles = (Role.PRIMARY, Role.VOCAB) if isinstance(resolved, ResolvedCDMDatabase) else (Role.PRIMARY,)
+        engines = dict.fromkeys(resolved.connection_for_role(role).create_engine() for role in roles)
+        for engine in engines:
             try:
                 with engine.connect() as connection:
                     ck = connection_key(connection.engine.url)
@@ -365,23 +363,29 @@ def _verify_schema_provenance(
     )
     try:
         engine = resolved.create_engine(role=connection_role, register_claims=False)
-        try:
-            with engine.begin() as connection, _guard_schema_provenance(
-                connection,
-                database_config_name=resolved.name,
-                test_only=resolved.connection_for_role(connection_role).test_only,
-                schema_tag=schema_tag,
-                physical_schema=physical_schema_of(connection, schema_tag=schema_tag),
-            ):
-                pass
-        finally:
-            engine.dispose()
+    except SchemaDriftError as exc:
+        table.add_row(label, schema_tag, "?", "[red]DRIFT[/red]", f"connection-wide: {str(exc)[:70]}")
+        return False
+    except Exception as exc:
+        table.add_row(label, schema_tag, "?", "[red]FAIL[/red]", str(exc)[:60])
+        return False
+    try:
+        with engine.begin() as connection, _guard_schema_provenance(
+            connection,
+            database_config_name=resolved.name,
+            test_only=resolved.connection_for_role(connection_role).test_only,
+            schema_tag=schema_tag,
+            physical_schema=physical_schema_of(connection, schema_tag=schema_tag),
+        ):
+            pass
     except SchemaDriftError as exc:
         table.add_row(label, schema_tag, "?", "[red]DRIFT[/red]", str(exc)[:80])
         return False
     except Exception as exc:
         table.add_row(label, schema_tag, "?", "[red]FAIL[/red]", str(exc)[:60])
         return False
+    finally:
+        engine.dispose()
     table.add_row(label, schema_tag, "-", "[green]OK[/green]", "")
     return True
 

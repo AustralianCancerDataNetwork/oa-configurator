@@ -24,9 +24,12 @@ import sqlalchemy as sa
 
 from ...refs import RefTo, Secret, SecretSafeBaseModel
 from .sql import (
+    EXECUTION_OPTION_DATABASE_CONFIG_NAME,
+    EXECUTION_OPTION_TEST_ONLY,
     SCHEMA_TRANSLATE_MAP_KEY,
     Bindable,
     Role,
+    canonical_host,
     connection_key,
     ensure_schema,
     requires_host,
@@ -42,12 +45,6 @@ from .schema_registry import (
     _register_schema_claim,
     physical_schema_of,
 )
-
-# execution_options keys create_engine() stashes alongside schema_translate_map,
-# so guard_schema_provenance_for() can derive everything it needs from the
-# bindable alone instead of requiring a `resolved` argument.
-_EXECUTION_OPTION_DATABASE_CONFIG_NAME = "oa_configurator_database_config_name"
-_EXECUTION_OPTION_TEST_ONLY = "oa_configurator_test_only"
 
 if TYPE_CHECKING:
     from ...stack_config import StackConfig
@@ -246,7 +243,7 @@ class ConnectionConfig(SecretSafeBaseModel):
         used to decide if this connection is the same physical connection as
         another one.
         """
-        return (self.dialect_name, self.host, self.port, self.database_name, self.user)
+        return (self.dialect_name, canonical_host(self.host), self.port, self.database_name, self.user)
 
 
 def _iter_schema_roles(cls: type[BaseModel]) -> Iterator[tuple[str, Role]]:
@@ -324,45 +321,60 @@ def _process_schema_claims(
 
     translate_map: dict[str, str | None] = {}
     role_members = frozenset(member.value for member in Role)
-    with engine.begin() if register_claims else engine.connect() as connection:
-        if register_claims:
-            _lock_schema_registry(connection)
-            connection = _ensure_schema_registry_table(connection)
-        for claim in claims:
-            physical_schema = (
-                claim.physical_schema
-                if claim.physical_schema is not None
-                else sa.inspect(connection).default_schema_name
-            )
-            claim_owner = (
-                claim.owner if claim.owner is not None
-                else None if claim.schema_tag in role_members
-                else default_owner
-            )
-            translate_map[claim.schema_tag] = physical_schema
-            if claim.schema_tag in role_members and claim.schema_tag not in local_roles:
-                continue
+    # Forces READ COMMITTED on the registration connection so a caller's
+    # AUTOCOMMIT isolation level can't defeat _lock_schema_registry's lock.
+    connection_cm = (
+        engine.connect().execution_options(isolation_level="READ COMMITTED")
+        if register_claims
+        else engine.connect()
+    )
+    with connection_cm as connection:
+        transaction = connection.begin() if register_claims else None
+        try:
             if register_claims:
-                _register_schema_claim(
-                    connection,
-                    database_config_name=database_config_name,
-                    schema_tag=claim.schema_tag,
-                    physical_schema=physical_schema,
-                    owner=claim_owner,
-                    reserved=claim.reserved,
-                    test_only=test_only,
+                _lock_schema_registry(connection)
+                connection = _ensure_schema_registry_table(connection)
+            for claim in claims:
+                physical_schema = (
+                    claim.physical_schema
+                    if claim.physical_schema is not None
+                    else sa.inspect(connection).default_schema_name
                 )
-                ensure_schema(connection, physical_schema)
-            else:
-                _check_schema_claim(
-                    connection,
-                    database_config_name=database_config_name,
-                    schema_tag=claim.schema_tag,
-                    physical_schema=physical_schema,
-                    owner=claim_owner,
-                    reserved=claim.reserved,
-                    test_only=test_only,
+                claim_owner = (
+                    claim.owner if claim.owner is not None
+                    else None if claim.schema_tag in role_members
+                    else default_owner
                 )
+                translate_map[claim.schema_tag] = physical_schema
+                if claim.schema_tag in role_members and claim.schema_tag not in local_roles:
+                    continue
+                if register_claims:
+                    _register_schema_claim(
+                        connection,
+                        database_config_name=database_config_name,
+                        schema_tag=claim.schema_tag,
+                        physical_schema=physical_schema,
+                        owner=claim_owner,
+                        reserved=claim.reserved,
+                        test_only=test_only,
+                    )
+                    ensure_schema(connection, physical_schema)
+                else:
+                    _check_schema_claim(
+                        connection,
+                        database_config_name=database_config_name,
+                        schema_tag=claim.schema_tag,
+                        physical_schema=physical_schema,
+                        owner=claim_owner,
+                        reserved=claim.reserved,
+                        test_only=test_only,
+                    )
+            if transaction is not None:
+                transaction.commit()
+        except BaseException:
+            if transaction is not None:
+                transaction.rollback()
+            raise
     return translate_map
 
 
@@ -690,8 +702,11 @@ class ResolvedDatabase:
             If a different owner already claims one of these schema tags, or
             a claim conflicts with a reservation on this connection.
         oa_configurator.domains.resources.sql.SchemaDriftError
-            If any claim's physical schema already has tables in it with no
-            existing baseline. Only raised when *register_claims* is True.
+            If an existing baseline row for a claim's schema_tag disagrees
+            with its currently-resolved physical schema. Raised whether
+            *register_claims* is True (checked during registration) or False
+            (checked without writing), for any connection that isn't
+            test_only.
         """
         if execution_options and SCHEMA_TRANSLATE_MAP_KEY in execution_options:
             raise ValueError(
@@ -745,8 +760,8 @@ class ResolvedDatabase:
         )
         return engine.execution_options(**{
             SCHEMA_TRANSLATE_MAP_KEY: translate_map,
-            _EXECUTION_OPTION_DATABASE_CONFIG_NAME: self.name,
-            _EXECUTION_OPTION_TEST_ONLY: connection_test_only,
+            EXECUTION_OPTION_DATABASE_CONFIG_NAME: self.name,
+            EXECUTION_OPTION_TEST_ONLY: connection_test_only,
         })
 
     def connection_for_role(self, role: Role = Role.PRIMARY) -> ResolvedConnection:
@@ -1117,12 +1132,12 @@ def guard_schema_provenance_for(
         carry neither the entry name nor test_only).
     """
     options = connection.get_execution_options()
-    database_config_name = options.get(_EXECUTION_OPTION_DATABASE_CONFIG_NAME)
-    test_only = options.get(_EXECUTION_OPTION_TEST_ONLY)
+    database_config_name = options.get(EXECUTION_OPTION_DATABASE_CONFIG_NAME)
+    test_only = options.get(EXECUTION_OPTION_TEST_ONLY)
     if database_config_name is None or test_only is None:
         raise ValueError(
             "guard_schema_provenance_for() requires a connection built by create_engine(): "
-            f"missing {_EXECUTION_OPTION_DATABASE_CONFIG_NAME!r}/{_EXECUTION_OPTION_TEST_ONLY!r} "
+            f"missing {EXECUTION_OPTION_DATABASE_CONFIG_NAME!r}/{EXECUTION_OPTION_TEST_ONLY!r} "
             "execution options."
         )
     schema_tag = schema_tag.value if isinstance(schema_tag, Role) else schema_tag

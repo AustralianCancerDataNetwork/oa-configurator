@@ -96,7 +96,6 @@ class TestIsolatedTestDatabase:
             with isolated_test_database(DemoTestConfig, "test_cdm_db"):
                 pass
 
-
 class TestIsolatedTestDatabaseDialect:
     """The dialect= parameter: validates a resolved field against an
     expected dialect (always raising on mismatch, never substituting), and
@@ -398,6 +397,83 @@ class TestResolveAndCheck:
     def test_unknown_field_name_raises(self):
         with pytest.raises(ValueError, match="test_typo"):
             TestDatabaseStrategy._resolve_and_check(DemoTestConfig, "test_typo")
+
+    def test_explicit_config_value_referencing_a_missing_database_raises_not_skips(self, monkeypatch):
+        """A config-typo (an explicitly-set value that references no
+        [databases.*] entry) must fail loudly."""
+        cfg = StackConfig.for_session(
+            connections={
+                "test_cdm": ConnectionConfig(
+                    dialect=Dialect.SQLITE, database_name=":memory:", test_only=True
+                )
+            },
+            databases={"test_cdm_db": CDMDatabaseConfig(connection="test_cdm")},
+            tools={"demo_test_tool": {"test_cdm_db": "no_such_database"}},
+        )
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        with pytest.raises(ValueError, match="no_such_database"):
+            TestDatabaseStrategy._resolve_and_check(DemoTestConfig, "test_cdm_db")
+
+    def test_unconfigured_field_falling_back_to_its_own_name_still_skips(self, monkeypatch):
+        """The field was never set at all (falls back to its own name/default,
+        not a user-provided value): still the ordinary "not configured" skip,
+        not the loud typo failure above."""
+        cfg = StackConfig.for_session(connections={}, databases={})
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        with pytest.raises(TestDatabaseNotConfigured):
+            TestDatabaseStrategy._resolve_and_check(DemoTestConfig, "test_cdm_db")
+
+    def test_injected_resolver_is_used_instead_of_the_active_config(self):
+        """A consumer can inject a session-built StackConfig via
+        resolver= instead of monkeypatching module.load_stack_config."""
+        from oa_configurator.resolver import Resolver
+
+        cfg = _stack_config(test_only=True)
+        resolver = Resolver(cfg)
+
+        resolved = TestDatabaseStrategy._resolve_and_check(
+            DemoTestConfig, "test_cdm_db", resolver=resolver
+        )
+
+        assert resolved.connection.url == "sqlite:///:memory:"
+
+
+class TestResetSchemaRegistryRowsSafety:
+    """reset_schema_registry_rows() must refuse an engine whose
+    physical database isn't a known test_only connection, since it mutates
+    real registry rows."""
+
+    def test_refuses_an_engine_matching_a_non_test_only_connection(self, monkeypatch):
+        from oa_configurator.testing import reset_schema_registry_rows
+
+        cfg = StackConfig.for_session(
+            connections={
+                "prod": ConnectionConfig(
+                    dialect=Dialect.POSTGRESQL + "+psycopg",
+                    host="dbhost", port=5432, database_name="prod_db", test_only=False,
+                )
+            },
+        )
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+
+        import sqlalchemy as sa
+
+        engine = sa.create_engine("postgresql+psycopg://user:pw@dbhost:5432/prod_db")
+        with pytest.raises(pytest.fail.Exception, match="not marked test_only"):
+            reset_schema_registry_rows(lambda _fn: None, engine, ["primary"])
+
+    def test_refuses_an_engine_matching_no_known_connection(self, monkeypatch):
+        from oa_configurator.testing import reset_schema_registry_rows
+
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: StackConfig.for_session())
+
+        import sqlalchemy as sa
+
+        engine = sa.create_engine("postgresql+psycopg://user:pw@unknown-host:5432/unknown_db")
+        with pytest.raises(pytest.fail.Exception):
+            reset_schema_registry_rows(lambda _fn: None, engine, ["primary"])
 
 
 @pytest.mark.postgresql

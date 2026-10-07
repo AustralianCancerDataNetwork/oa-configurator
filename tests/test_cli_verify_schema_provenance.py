@@ -103,3 +103,39 @@ def test_verify_clean_after_acknowledging_drift(pg_db, pg_connection_config, mon
     result = runner.invoke(app, ["verify"])
     assert result.exit_code == 0, result.output
     assert "DRIFT" not in result.output
+
+
+def test_verify_does_not_crash_when_a_sibling_role_tag_on_one_connection_drifts(pg_connection_config, monkeypatch):
+    """Primary and results share one connection. Only results drifts,
+    but create_engine(role=PRIMARY) checks every local-role claim on that
+    connection, so the primary row's own check also raises an error. This is because
+    it must be reported as DRIFT (connection-wide), not crash verify() outright, and not
+    silently claim primary itself is fine when it never got checked alone."""
+    db_name = f"verify_db_{uuid.uuid4().hex[:8]}"
+    schema_a = f"test_{uuid.uuid4().hex[:8]}"
+    schema_r1 = f"test_{uuid.uuid4().hex[:8]}"
+    schema_r2 = f"test_{uuid.uuid4().hex[:8]}"
+
+    def _stack(results_schema: str) -> StackConfig:
+        return StackConfig.for_session(
+            connections={"verify_conn": pg_connection_config},
+            databases={
+                db_name: CDMDatabaseConfig(
+                    connection="verify_conn", cdm_schema=schema_a, results_schema=results_schema,
+                ),
+            },
+        )
+
+    Resolver(_stack(schema_r1)).resolve_database(db_name).create_engine().dispose()
+
+    stack_b = _stack(schema_r2)
+    monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack_b)
+    result = runner.invoke(app, ["verify"])
+    assert result.exit_code == 1, result.output
+    assert "Traceback" not in result.output
+    # vocab is unconfigured here too, so it also routes through the PRIMARY
+    # connection and gets caught by the same connection-wide check: all three
+    # role tags report DRIFT, but the "connection-wide" marker makes clear
+    # the named schema in the message may not be *this* row's own tag.
+    assert result.output.count("DRIFT") == 3
+    assert "connection-wide" in result.output

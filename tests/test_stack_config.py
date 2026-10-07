@@ -359,6 +359,127 @@ class TestEntryExclusivity:
             )
         assert caplog.records == []
 
+    def test_two_connections_differing_only_by_host_alias_raise(self):
+        """Aa hostname and its own IP must be treated as one connection,
+        not two."""
+        with pytest.raises(ValueError, match="describes the same connection"):
+            StackConfig.for_session(
+                connections={
+                    "a": self._pg(host="localhost"),
+                    "b": self._pg(host="127.0.0.1"),
+                }
+            )
+
+    def test_test_only_connection_duplicating_a_production_one_raises(self):
+        """test_only must never let a connection re-baseline a
+        production database's schema provenance by accident."""
+        with pytest.raises(ValueError, match="is test_only but describes the same physical database"):
+            StackConfig.for_session(
+                connections={
+                    "prod": self._pg(user="app_role"),
+                    "twin": self._pg(user="other_role", test_only=True),
+                }
+            )
+
+    def test_test_only_connection_duplicating_a_production_one_via_host_alias_raises(self):
+        """The twin is expressed through a host alias."""
+        with pytest.raises(ValueError, match="is test_only but describes the same physical database"):
+            StackConfig.for_session(
+                connections={
+                    "prod": self._pg(host="localhost"),
+                    "twin": self._pg(host="127.0.0.1", test_only=True),
+                }
+            )
+
+    def test_two_test_only_twins_of_each_other_are_allowed(self):
+        """Only a test_only-vs-non-test_only pairing is forbidden; two
+        test_only connections cloning the same server remain allowed
+        (test_two_connections_with_identical_fields_are_allowed's sibling)."""
+        cfg = StackConfig.for_session(
+            connections={
+                "a": self._pg(test_only=True),
+                "b": self._pg(test_only=True),
+            }
+        )
+        assert set(cfg.connections) == {"a", "b"}
+
+    def test_two_entries_sharing_a_connection_and_schema_raise(self):
+        """The static half of the schema-collision check:
+        StackConfig._check_no_schema_collision_on_one_connection()."""
+        with pytest.raises(ValueError, match="declare the same physical schema"):
+            StackConfig.for_session(
+                connections={"c": self._pg()},
+                databases={
+                    "cdm": CDMDatabaseConfig(connection="c", cdm_schema="shared"),
+                    "other": GenericDatabaseConfig(connection="c", schema_name="shared"),
+                },
+            )
+
+    def test_two_entries_on_one_connection_with_distinct_schemas_are_allowed(self):
+        cfg = StackConfig.for_session(
+            connections={"c": self._pg()},
+            databases={
+                "cdm": CDMDatabaseConfig(connection="c", cdm_schema="a"),
+                "other": GenericDatabaseConfig(connection="c", schema_name="b"),
+            },
+        )
+        assert {"cdm", "other"} <= set(cfg.databases)
+
+
+class TestDeclaredSchemaNameValidation:
+    """Obviously-wrong configured schema names are rejected at
+    config-load time rather than silently accepted."""
+
+    @staticmethod
+    def _pg(**overrides: Any) -> ConnectionConfig:
+        fields: dict[str, Any] = dict(
+            dialect=Dialect.POSTGRESQL + "+psycopg", host="db.example", port=5432, database_name="omop",
+        )
+        fields.update(overrides)
+        return ConnectionConfig(**fields)
+
+    def test_empty_schema_name_raises(self):
+        with pytest.raises(ValueError, match="must not be empty"):
+            StackConfig.for_session(
+                connections={"c": self._pg()},
+                databases={"cdm": CDMDatabaseConfig(connection="c", cdm_schema="")},
+            )
+
+    def test_whitespace_only_schema_name_raises(self):
+        with pytest.raises(ValueError, match="must not be empty"):
+            StackConfig.for_session(
+                connections={"c": self._pg()},
+                databases={"cdm": CDMDatabaseConfig(connection="c", cdm_schema="   ")},
+            )
+
+    def test_leading_or_trailing_whitespace_raises(self):
+        with pytest.raises(ValueError, match="leading/trailing whitespace"):
+            StackConfig.for_session(
+                connections={"c": self._pg()},
+                databases={"cdm": CDMDatabaseConfig(connection="c", cdm_schema=" omop ")},
+            )
+
+    def test_postgres_system_schema_raises(self):
+        with pytest.raises(ValueError, match="system schema"):
+            StackConfig.for_session(
+                connections={"c": self._pg()},
+                databases={"cdm": CDMDatabaseConfig(connection="c", cdm_schema="pg_catalog")},
+            )
+
+    def test_overlong_schema_name_raises(self):
+        with pytest.raises(ValueError, match="longer than 63 characters"):
+            StackConfig.for_session(
+                connections={"c": self._pg()},
+                databases={"cdm": CDMDatabaseConfig(connection="c", cdm_schema="x" * 64)},
+            )
+
+    def test_ordinary_schema_name_is_accepted(self):
+        cfg = StackConfig.for_session(
+            connections={"c": self._pg()},
+            databases={"cdm": CDMDatabaseConfig(connection="c", cdm_schema="omop_cdm")},
+        )
+        assert "cdm" in cfg.databases
+
 
 class TestProviderConfig:
     def test_minimal(self):

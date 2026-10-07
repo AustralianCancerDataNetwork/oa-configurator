@@ -35,6 +35,26 @@ def _pg_ddl(template: str, *parts: object) -> str:
     return SQL(template).format(*parts).as_string(None)  # ty: ignore[invalid-argument-type]
 
 
+def drop_schema_if_exists(engine: "sa.Engine", schema: str) -> None:
+    """Drop *schema* (CASCADE) on *engine* if it exists.
+
+    Notes
+    -----
+
+    Prefer ``isolated_test_schema()``/``PostgresTestStrategy.temporary_schema()``
+    when the test also controls the schema's creation. Use this only to clean 
+    up a schema a test caused to exist indirectly, typically registered with
+    ``cleanup_after_test``.
+
+    Parameters
+    ----------
+    engine : sqlalchemy.Engine
+    schema : str
+    """
+    with engine.begin() as conn:
+        conn.execute(sa.text(_pg_ddl("DROP SCHEMA IF EXISTS {} CASCADE", _pg_ident(schema))))
+
+
 def install_postgres_extension(name: str) -> Callable[[Any, Any], None]:
     """Build an ``extensions`` connect-event callable (see
     ``ResolvedDatabase.create_engine``) that runs

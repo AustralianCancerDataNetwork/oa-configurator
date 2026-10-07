@@ -146,9 +146,13 @@ def drop_orphan_schema_tables(
             f"Cannot drop orphan schema tables: {connection.dialect.name!r} has no real schema "
             "concept, so 'orphan schema' doesn't apply and this operation isn't meaningful here."
         )
-    if orphan_schema in _profile_for(connection.dialect.name).system_schemas:
+    profile = _profile_for(connection.dialect.name)
+    if orphan_schema in profile.system_schemas:
         raise ValueError(f"Refusing to treat system schema {orphan_schema!r} as an orphan.")
-    if orphan_schema == sa.inspect(connection).default_schema_name and not allow_default_schema:
+    if (
+        orphan_schema in {sa.inspect(connection).default_schema_name, profile.default_schema}
+        and not allow_default_schema
+    ):
         raise ValueError(
             f"Refusing to treat the dialect's default schema {orphan_schema!r} as an orphan. "
             "Pass allow_default_schema=True if this is genuinely intended."

@@ -36,6 +36,7 @@ from .domains.resources.schema_registry import (
     SchemaRegistryOutdatedError,
     UnregisteredSchemaTagError,
     claimed_schema_tags,
+    database_config_name_of,
     find_table_in_other_schemas,
     physical_schema_of,
 )
@@ -111,6 +112,7 @@ __all__ = [
     "autocommit_connection",
     "claimed_schema_tags",
     "configure_logging",
+    "database_config_name_of",
     "declared_schema_tags",
     "ensure_schema",
     "find_table_in_other_schemas",

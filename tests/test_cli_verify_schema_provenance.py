@@ -97,7 +97,6 @@ def test_verify_clean_after_acknowledging_drift(pg_db, pg_connection_config, mon
             _record_schema_provenance(
                 connection, database_config_name=resolved.name, schema_tag=role,
                 new_physical_schema=schema_b, reason="test acknowledgment",
-                exclude_schema_tags=resolved.schema_tags(),
             )
 
     monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack_b)

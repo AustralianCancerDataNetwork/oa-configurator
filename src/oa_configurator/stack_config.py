@@ -14,6 +14,7 @@ imported from the module that actually defines it.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -29,10 +30,12 @@ from .domains.resources.schema import (
     GenericDatabaseConfig,
     _iter_schema_roles,
 )
-from .domains.resources.sql import supports_schemas
+from .domains.resources.sql import Role, is_ephemeral_url, supports_schemas
 from .domains.vector_stores.schema import VectorStoreConfig
 from .logging_config import LoggingConfig
 from .refs import SecretSafeBaseModel, _iter_refs
+
+logger = logging.getLogger(__name__)
 
 
 def unresolved_refs(instance: BaseModel, config: StackConfig) -> list[tuple[str, str, str]]:
@@ -195,10 +198,14 @@ class StackConfig(SecretSafeBaseModel):
         for name, database in self.databases.items():
             self._check_refs(database, f"databases.{name}")
             self._check_declared_schemas_supported(database, f"databases.{name}")
+            self._check_connections_share_test_only(database, f"databases.{name}")
         for mname, model in self.models.items():
             self._check_refs(model, f"models.{mname}")
         for vname, vector_store in self.vector_stores.items():
             self._check_refs(vector_store, f"vector_stores.{vname}")
+        self._check_connections_distinct()
+        self._check_database_entries_exclusive()
+        self._warn_vocab_connection_collisions()
         return self
 
     def _check_refs(self, instance: BaseModel, location: str) -> None:
@@ -245,6 +252,139 @@ class StackConfig(SecretSafeBaseModel):
                     f"{connection_name!r} ({connection.dialect}) has no schema concept."
                 )
             checked_connections.add(connection_name)
+
+    def _check_connections_share_test_only(self, database: DatabaseConfig, location: str) -> None:
+        """Every connection *database* references (primary and, for a CDM
+        entry, vocab) must have the same ``test_only`` value.
+
+        The schema-provenance guard now uses ``test_only`` as the switch
+        between raising on drift and re-baselining (see
+        ``guard_schema_provenance_for``), so a CDM entry with a test-marked
+        primary and a production ``vocab_connection`` (or vice versa) would
+        silently apply the wrong policy to one of its own roles.
+        """
+        values: dict[bool, str] = {}
+        for field_name, role in _iter_schema_roles(type(database)):
+            if getattr(database, field_name) is None:
+                continue
+            connection_name = database.connection_name_for_role(role)
+            connection = self.connections.get(connection_name)
+            if connection is None:
+                continue
+            values.setdefault(connection.test_only, connection_name)
+        if len(values) > 1:
+            raise ValueError(
+                f"{location}: its connections disagree on test_only ({values}). Every "
+                "connection referenced by one database entry must share test_only."
+            )
+
+    def _identity_for_connection_name(self, connection_name: str) -> tuple[Any, ...] | None:
+        """*connection_name*'s physical identity, or None if unresolvable or
+        genuinely ephemeral."""
+        connection = self.connections.get(connection_name)
+        if connection is None or is_ephemeral_url(connection.safe_url()):
+            return None
+        return connection.physical_identity()
+
+    def _check_connections_distinct(self) -> None:
+        """No two production ``[connections.*]`` entries may share a
+        physical identity.
+
+        Exceptions:
+        - ``test_only`` connections: tests routinely clone the available
+            test server under several connection names purely to exercise
+            multi-connection routing logic
+        - ephemeral SQLite connections: every ``:memory:`` URL is a distinct
+            database.
+        """
+        seen: dict[tuple[Any, ...], str] = {}
+        for name, connection in self.connections.items():
+            if connection.test_only or is_ephemeral_url(connection.safe_url()):
+                continue
+            identity = connection.physical_identity()
+            if identity in seen:
+                raise ValueError(
+                    f"connections.{name} describes the same connection as "
+                    f"connections.{seen[identity]!r} (same dialect, host, port, database, "
+                    "and user). Give it different credentials, or remove the duplicate."
+                )
+            seen[identity] = name
+
+    def _check_database_entries_exclusive(self) -> None:
+        """No two CDM database entries, and no two vector-store entries, may
+        share a primary-connection physical identity.
+
+        Notes
+        -----
+        No cross-check between CDM and vector-store entries: a vector store
+        sharing a connection with a CDM entry is the "extend this CDM's database
+        with embedding storage" pattern
+        """
+        seen_cdm: dict[tuple[Any, ...], str] = {}
+        for name, database in self.databases.items():
+            if not isinstance(database, CDMDatabaseConfig):
+                continue
+            identity = self._identity_for_connection_name(database.connection_name_for_role(Role.PRIMARY))
+            if identity is None:
+                continue
+            if identity in seen_cdm:
+                raise ValueError(
+                    f"databases.{name} and databases.{seen_cdm[identity]!r} are both CDM "
+                    "entries on the same physical connection. Each CDM database needs its own "
+                    "connection (vocab_connection may still be shared across CDM entries)."
+                )
+            seen_cdm[identity] = name
+
+        seen_vector_store: dict[tuple[Any, ...], str] = {}
+        for name, vector_store in self.vector_stores.items():
+            backing = self.databases.get(vector_store.database)
+            if backing is None:
+                continue
+            identity = self._identity_for_connection_name(backing.connection_name_for_role(Role.PRIMARY))
+            if identity is None:
+                continue
+            if identity in seen_vector_store:
+                raise ValueError(
+                    f"vector_stores.{name} and vector_stores.{seen_vector_store[identity]!r} "
+                    "are both backed by the same physical connection. Each vector store needs "
+                    "its own database."
+                )
+            seen_vector_store[identity] = name
+
+    def _warn_vocab_connection_collisions(self) -> None:
+        """Warn when a CDM's ``vocab_connection`` physically
+        coincides with another entry's primary connection.
+        """
+        primaries: dict[tuple[Any, ...], str] = {}
+        for name, database in self.databases.items():
+            identity = self._identity_for_connection_name(database.connection_name_for_role(Role.PRIMARY))
+            if identity is not None:
+                primaries.setdefault(identity, name)
+        for name, vector_store in self.vector_stores.items():
+            backing = self.databases.get(vector_store.database)
+            if backing is None:
+                continue
+            identity = self._identity_for_connection_name(backing.connection_name_for_role(Role.PRIMARY))
+            if identity is not None:
+                primaries.setdefault(identity, name)
+
+        for name, database in self.databases.items():
+            if not isinstance(database, CDMDatabaseConfig) or database.vocab_connection is None:
+                continue
+            vocab_identity = self._identity_for_connection_name(database.vocab_connection)
+            if vocab_identity is None:
+                continue
+            own_identity = self._identity_for_connection_name(database.connection_name_for_role(Role.PRIMARY))
+            if vocab_identity == own_identity:
+                continue
+            other = primaries.get(vocab_identity)
+            if other is not None and other != name:
+                logger.warning(
+                    "databases.%s.vocab_connection physically coincides with %s's primary "
+                    "connection. This is allowed and drift-safe, but double-check it's "
+                    "intentional and not a copy-paste/typo.",
+                    name, other,
+                )
 
     @classmethod
     def for_session(

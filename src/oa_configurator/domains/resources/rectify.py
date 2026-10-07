@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 
-from .sql import qualified, supports_schemas
+from .sql import _profile_for, qualified, supports_schemas
 from .schema_registry import (
     _find_schema_provenance_claim,
     _reject_reservation_conflict,
@@ -110,16 +110,20 @@ def drop_orphan_schema_tables(
     stack: "StackConfig",
     orphan_schema: str,
     confirm: bool,
+    allow_default_schema: bool = False,
 ) -> list[OrphanTablePreview]:
     """Drop every table found in *orphan_schema*, after the cross-entry safety check.
 
     Preview-only when *confirm* is False: returns what would be dropped
-    without touching anything.
+    without touching anything. Performed using literal, qualified SQL 
+    instead of ``metadata.drop_all``: an orphan_schema that happens
+    to equal a schema_translate_map key (e.g. a legacy physical schema
+    literally named ``"vocab"``) would silently drop the *configured* schema.
 
     Notes
     -----
     Cover the entire verification before dropping any tables:
-    - schema_is_a_current_target() reads *stack*'s static config (Role-tagged schemas 
+    - schema_is_a_current_target() reads *stack*'s static config (Role-tagged schemas
     only, whether or not create_engine() has ever run for them)
     - _reject_reservation_conflict()/_find_schema_provenance_claim() read the live schema_registry
      table (any tag, reserved or not, but only once actually registered by create_engine())
@@ -128,7 +132,9 @@ def drop_orphan_schema_tables(
     ------
     ValueError
         If *connection*'s dialect has no real schema concept at all (e.g.
-        SQLite). "Orphan schema" doesn't apply there.
+        SQLite). "Orphan schema" doesn't apply there. Also raised if
+        *orphan_schema* is a dialect system schema, or the dialect's own
+        default schema with *allow_default_schema* not set.
     RuntimeError
         If *orphan_schema* is reserved by a registered package, is the
         current schema target of any configured database/role in *stack*,
@@ -139,6 +145,13 @@ def drop_orphan_schema_tables(
         raise ValueError(
             f"Cannot drop orphan schema tables: {connection.dialect.name!r} has no real schema "
             "concept, so 'orphan schema' doesn't apply and this operation isn't meaningful here."
+        )
+    if orphan_schema in _profile_for(connection.dialect.name).system_schemas:
+        raise ValueError(f"Refusing to treat system schema {orphan_schema!r} as an orphan.")
+    if orphan_schema == sa.inspect(connection).default_schema_name and not allow_default_schema:
+        raise ValueError(
+            f"Refusing to treat the dialect's default schema {orphan_schema!r} as an orphan. "
+            "Pass allow_default_schema=True if this is genuinely intended."
         )
     _reject_reservation_conflict(connection, physical_schema=orphan_schema)
     blocking = schema_is_a_current_target(connection, stack, orphan_schema)
@@ -159,9 +172,10 @@ def drop_orphan_schema_tables(
     if confirm:
         metadata = sa.MetaData()
         metadata.reflect(bind=connection, schema=orphan_schema)
-        # Accumulate only tables in the orphan schema
-        for table in list(metadata.tables.values()):
+        for table in reversed(metadata.sorted_tables):
             if table.schema != orphan_schema:
-                metadata.remove(table)
-        metadata.drop_all(bind=connection)
+                continue
+            connection.execute(sa.text(
+                f"DROP TABLE IF EXISTS {qualified(connection, table.name, physical_schema=orphan_schema)}"
+            ))
     return preview

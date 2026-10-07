@@ -217,16 +217,6 @@ class TestPhysicalSchemaOfUnregisteredTagValidation:
         with pytest.raises(UnregisteredSchemaTagError, match="typo_tag"):
             physical_schema_of(pg_db.connection, schema_tag=f"typo_tag_{uuid.uuid4().hex[:8]}")
 
-    def test_literal_matching_a_registered_physical_schema_passes(self, pg_db):
-        """The reservation-style usage: a literal physical schema name used
-        directly as a schema_tag, never a schema_translate_map key, but
-        registered as a claim on this connection."""
-        name = f"registered_{uuid.uuid4().hex[:8]}"
-        _register_schema_claim(
-            pg_db.connection, database_config_name="fallback_validation", schema_tag=name, physical_schema=name,
-        )
-        assert physical_schema_of(pg_db.connection, schema_tag=name) == name
-
     def test_mapped_tag_never_consults_the_registry(self, pg_db):
         """A tag that resolves via schema_translate_map is never checked
         against the schema_registry; only the literal-fallback branch is."""
@@ -425,6 +415,22 @@ class TestRegisterSchemaClaim:
                 physical_schema=self._name(), owner="second-owner",
             )
 
+    def test_different_owner_same_tag_same_schema_raises(self, sqlite_db):
+        """A second owner must not silently inherit ownership of a tag just
+        because its physical schema happens to coincide with the first
+        owner's -- that would be an implicit, undetected ownership
+        transfer. Ownership transfer must go through release-schema-claim."""
+        tag, schema = self._name(), self._name()
+        _register_schema_claim(
+            sqlite_db.connection, database_config_name="db1", schema_tag=tag,
+            physical_schema=schema, owner="first-owner",
+        )
+        with pytest.raises(SchemaOwnershipError, match=f"{tag!r}.*first-owner"):
+            _register_schema_claim(
+                sqlite_db.connection, database_config_name="db2", schema_tag=tag,
+                physical_schema=schema, owner="second-owner",
+            )
+
     def test_different_tags_sharing_one_physical_schema_is_fine(self, sqlite_db):
         """Deliberately allowed: results_schema falling back to cdm_schema
         does exactly this in real use."""
@@ -450,15 +456,27 @@ class TestRegisterSchemaClaimAlreadyPopulated:
     def _name(self) -> str:
         return f"reserved_{uuid.uuid4().hex[:8]}"
 
-    def test_first_registration_against_pre_existing_tables_raises(self, pg_db):
+    def test_first_registration_of_a_role_tag_against_pre_existing_tables_raises(self, pg_db):
         schema = self._name()
         conn = pg_db.connection
         ensure_schema(conn, schema)
         conn.execute(sa.text(f'CREATE TABLE "{schema}".preexisting (id int)'))
         with pytest.raises(SchemaDriftError, match="no schema-registry record"):
             _register_schema_claim(
-                conn, database_config_name="db1", schema_tag=self._name(), physical_schema=schema,
+                conn, database_config_name="db1", schema_tag="primary", physical_schema=schema,
             )
+
+    def test_first_registration_of_a_custom_tag_against_pre_existing_tables_proceeds(self, pg_db):
+        """Unlike a Role tag, a custom tag is declared by the owning
+        package's own code. It registers directly since the config has 
+        no visibility into what its baseline should be."""
+        schema = self._name()
+        conn = pg_db.connection
+        ensure_schema(conn, schema)
+        conn.execute(sa.text(f'CREATE TABLE "{schema}".preexisting (id int)'))
+        _register_schema_claim(
+            conn, database_config_name="db1", schema_tag=self._name(), physical_schema=schema,
+        )  # must not raise
 
     def test_first_registration_against_an_empty_schema_proceeds(self, pg_db):
         schema = self._name()
@@ -782,14 +800,16 @@ class TestGuardSchemaProvenance:
         _register_schema_claim(conn, database_config_name="entry_b", schema_tag=tag, physical_schema=schema)
         assert _registry_row(conn, tag).database_config_name == "entry_a"
 
-    def test_a_differing_claim_leaves_the_row_untouched(self, pg_db):
+    def test_a_differing_claim_raises_instead_of_silently_leaving_the_row_untouched(self, pg_db):
         tag = f"tag_{uuid.uuid4().hex[:8]}"
         schema_a = f"test_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection
         _register_schema_claim(conn, database_config_name="entry_a", schema_tag=tag, physical_schema=schema_a)
-        _register_schema_claim(
-            conn, database_config_name="entry_b", schema_tag=tag, physical_schema=f"test_{uuid.uuid4().hex[:8]}",
-        )
+        with pytest.raises(SchemaDriftError, match="entry_a"):
+            _register_schema_claim(
+                conn, database_config_name="entry_b", schema_tag=tag,
+                physical_schema=f"test_{uuid.uuid4().hex[:8]}",
+            )
         row = _registry_row(conn, tag)
         assert (row.database_config_name, row.physical_schema) == ("entry_a", schema_a)
 
@@ -970,6 +990,56 @@ class TestProvenanceClaimAfterAcknowledgment:
             conn, database_config_name="entry", schema_tag="oa_configurator_provenance",
             physical_schema="oa_configurator_provenance", owner="oa_configurator", reserved=True,
         )  # must not raise
+
+
+def _concurrent_claim_worker(url: str, database_config_name: str, schema: str) -> str | None:
+    """Runs in a separate process: a fresh create_engine() claiming
+    schema_tag "primary" for database_config_name, racing several siblings
+    doing the same against the same physical database. Returns the error
+    message on failure, None on success. Module-level so it's picklable
+    for ProcessPoolExecutor."""
+    from oa_configurator import CDMDatabaseConfig
+    from oa_configurator.domains.resources.schema import ConnectionConfig
+    from oa_configurator.resolver import Resolver
+    from oa_configurator.stack_config import StackConfig
+
+    made_url = sa.engine.make_url(url)
+    connection_config = ConnectionConfig(
+        dialect=made_url.drivername, host=made_url.host, port=made_url.port,
+        user=made_url.username, password=made_url.password, database_name=made_url.database,
+    )
+    stack = StackConfig.for_session(
+        connections={"c": connection_config},
+        databases={database_config_name: CDMDatabaseConfig(connection="c", cdm_schema=schema)},
+    )
+    try:
+        Resolver(stack).resolve_database(database_config_name).create_engine().dispose()
+    except Exception as exc:
+        return f"{type(exc).__name__}: {exc}"
+    return None
+
+
+class TestConcurrentBootstrap:
+    """Regression for the race the registry lock (_lock_schema_registry)
+    exists to close: concurrent first-time create_engine() calls used to
+    hit UniqueViolation on the registry's own unique index. 8 real OS
+    processes, not threads -- the original bug was between separate
+    connections/transactions, which threads sharing one Python process
+    wouldn't reproduce."""
+
+    @pytest.mark.postgresql
+    def test_eight_concurrent_first_time_claims_all_succeed(self, pg_connection_config):
+        import concurrent.futures
+
+        url = pg_connection_config.build_url()
+        database_config_name = f"concurrent_{uuid.uuid4().hex[:8]}"
+        schema = f"test_{uuid.uuid4().hex[:8]}"
+        with concurrent.futures.ProcessPoolExecutor(max_workers=8) as pool:
+            results = list(
+                pool.map(_concurrent_claim_worker, [url] * 8, [database_config_name] * 8, [schema] * 8)
+            )
+        failures = [r for r in results if r is not None]
+        assert failures == [], f"{len(failures)}/8 workers failed: {failures}"
 
 
 class TestOutdatedRegistryLayout:

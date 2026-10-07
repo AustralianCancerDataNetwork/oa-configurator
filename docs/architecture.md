@@ -193,21 +193,52 @@ OMOP ORM models carry `schema="primary"`, `schema="vocab"` or `schema="results"`
 
 `schema_translate_map()` resolves a table's *current* physical schema correctly, but on its own gives no memory of a table's *previous* one. If a role's configured schema changes between two runs (a typo, an incomplete migration, two configs drifting apart), nothing would otherwise stop `create_all()` from silently creating a second, orphaned copy of the tables under the new schema while the old copy sits there unnoticed.
 
-`create_engine()` closes that gap automatically. Every claim it registers, the schema-registry table's own reservation plus each configured `Role`'s schema, is recorded as a baseline row in a small bookkeeping table (`schema_registry`, its own reserved schema). Rows are keyed by the physical database (host, port and database name, ignoring driver and credentials) and the `schema_tag`, so one tag maps to exactly one physical schema per database, shared by every `[databases.*]` entry pointing there. Side-by-side deployments on one database need distinct tags. Each row also records `database_config_name`, the entry that established the mapping, which drift errors name (informational only). A registry table in the previous layout raises `SchemaRegistryOutdatedError`: drop it and `create_engine()` registers every claim again. `guard_schema_provenance_for(connection, resolved, *, schema_tag)` (`schema.py`) wraps a `create_all()`-style call against that baseline: entering compares the currently-resolved physical schema to the recorded one, and the write that refreshes the row's `last_verified_at` happens only on successful exit, never on an exception:
+**Enforcement happens at `create_engine()` time** A connection's `schema_translate_map` is fixed for its lifetime, so one check at construction covers every read/DML/DDL done through it. Every claim `create_engine()` registers, the schema-registry table's own reservation plus each configured `Role`'s schema, is recorded as a baseline row in a small bookkeeping table (`schema_registry`, its own reserved schema), and a *mismatching* existing row raises `SchemaDriftError` immediately, whether `register_claims=True` (a real write) or `False` (a read-only/diagnostic engine checks and raises too, with nothing written). `guard_schema_provenance_for(connection, *, schema_tag)` (`schema.py`) remains for the case of a long-lived engine with a config that may have been altered between the creation and the DDL about to run:
 
 ```python
-with guard_schema_provenance_for(connection, resolved, schema_tag=Role.VOCAB):
+with guard_schema_provenance_for(connection, schema_tag=Role.VOCAB):
     Base.metadata.create_all(bind=connection, tables=vocab_tables, checkfirst=True)
 ```
 
-A resolved schema that disagrees with the recorded baseline raises `SchemaDriftError` and refuses the DDL, as does a `schema_tag` with no baseline at all (`create_engine()` was never called with this claim). `test_only=True` short-circuits to a no-op; this only guards genuinely persistent deployments. On a claim's first-ever registration, `create_engine()` itself also raises `SchemaDriftError` if the target schema already has tables in it, so a baseline is never established silently against pre-existing data. `find_table_in_other_schemas()` complements the guard directly for drift that predates the bookkeeping table entirely, checking the database's actual physical layout rather than a stored claim.
+`connection` must have been built by `create_engine()`, which stashes the entry name and `test_only` in `execution_options` alongside `schema_translate_map` for the guard to read back. Everywhere else, a short-lived engine rebuilt per call (the common case: any CLI command, any library function taking an engine or session per invocation) is re-validated automatically on every build and needs no explicit guard at all.
+
+Rows are keyed by the physical database (host, port and database name) **and**, for a `Role` tag (`primary`/`vocab`/`results`), the `database_config_name` that established it: two different `[databases.*]`/`[vector_stores.*]` entries may each claim the same Role tag on one connection (a CDM database and its own colocated vector store, say) without colliding, since "has *this entry's* mapping changed" is what the row tracks, not "has *this connection's* mapping changed." A custom (non-Role) tag stays scoped per connection only: one claim per tag per connection, owner-checked. See [Config-time entry exclusivity](#entry-exclusivity) for the complementary config-level check that keeps this scoping meaningful rather than something two entries stumble into by accident.
+
+`test_only=True` re-baselines a mismatching row instead of raising (a test-only connection's schema is expected to change between runs, and has no production data worth protecting) and bypasses the "already has tables, no baseline" check on first registration for a Role tag. A custom claim's first registration into a populated schema never raises regardless of `test_only`: it's declared by the owning package's own code, so there's nothing else that could ever "adopt" it, and the config has no visibility into what its baseline should be anyway. A registry table in the previous layout migrates in place (the old single-column unique constraint is replaced by the two scoped indexes described above, preserving every existing row) rather than requiring a drop-and-reacknowledge; a registry predating `connection_key` entirely still raises `SchemaRegistryOutdatedError`. `find_table_in_other_schemas()` complements the guard directly for drift that predates the bookkeeping table entirely, checking the database's actual physical layout rather than a stored claim.
 
 oa-configurator owns the guard, the bookkeeping table, and the CLI-level remediation path for a genuine migration, generic over any `[databases.*]` entry rather than tied to any particular domain package:
 
-- `omop-config acknowledge-schema-migration --database <name> --new-schema <schema> --reason <text> [--schema-tag <tag>]` records a schema as the deliberate new baseline and `--database` as the entry owning the mapping (`--reason` is mandatory; there is no `--yes` shortcut). It moves only the physical schema; a row's `reserved` flag is declared by its `SchemaClaim` and written by `create_engine()`, subject to the same conflict checks.
-- `omop-config drop-orphan-schema-tables --database <name> --schema <schema> [--role <role>] [--confirm]` drops tables physically found in an orphaned schema, after checking the named schema isn't still the current target of any configured database/role. Previews only, unless `--confirm` is given.
+- `omop-config verify` reports drift per configured database/role, and additionally lists every raw `schema_registry` row for each configured connection (including a package's own custom tag and any stale row left behind by a renamed or removed entry). This is a pure read, with no enforcement of its own; a custom tag's drift is still only enforced at the point its owning package calls `create_engine()` for it.
+- `omop-config acknowledge-schema-migration --database <name> --reason <text> [--schema-tag <tag>] [--new-schema <schema>]` records a schema as the deliberate new baseline, `--database` as the entry owning the mapping. For a Role tag, `--new-schema` is optional: omit it and the baseline resolves fresh from the current config (whatever's configured becomes the new baseline); pass it only to override that. Omit `--schema-tag` entirely to acknowledge every Role tag of the entry at once (also the only way to baseline an *existing* database since a first-registration into a populated schema otherwise raises). For a custom tag, `--new-schema` is required: its physical schema lives only in the owning package's own `SchemaClaim`, so there's nothing to resolve it from.
+- `omop-config release-schema-claim --database <name> --schema-tag <tag> [--role <role>] [--confirm]` deletes a stale row with no other remedy (a renamed entry's old row blocking re-acknowledgment, or a custom tag's row with no config-derivable value to re-acknowledge to). Previews only, unless `--confirm` is given.
+- `omop-config drop-orphan-schema-tables --database <name> --schema <schema> [--role <role>] [--confirm] [--allow-default-schema]` drops tables physically found in an orphaned schema, after checking the named schema isn't still the current target of any configured database/role. The DROP is emitted as literal, qualified SQL per table, instead of `metadata.drop_all()` may drop the wrong table (the DDL compiler consults the connection's `schema_translate_map`, so an orphan schema whose name happens to equal a tag key [e.g. a legacy physical schema literally named `vocab`] would otherwise be silently translated to the *configured* physical schema and drop the wrong data). Previews only, unless `--confirm` is given; refuses a dialect system schema or the dialect's own default schema unless `--allow-default-schema` is passed.
 
-Neither command moves data automatically; resolving a genuine migration is always an explicit, operator-run action with its own reasoning recorded.
+!!! note
+    None of these commands move data automatically. Resolving a genuine migration is always an explicit, operator-run action with its own reasoning recorded.
+
+---
+
+## Config-time entry exclusivity { #entry-exclusivity }
+
+`StackConfig` validates at load time that no two independent entries can be configured against the same physical connection in a way that would make the schema registry's per-entry scoping above load-bearing in the first place:
+
+- No two `[connections.*]` entries may describe the same `(dialect, host, port, database_name, user)` identity
+    - differing only by `user` (e.g. a low-privilege app role vs. an admin role against the same server) is a legitimate, distinct connection. 
+    - **Exceptions**:
+        - `test_only` connections: tests routinely clone the one real test server under several connection names purely to exercise multi-connection routing, with no need for genuine physical separation and 
+        - any genuinely ephemeral SQLite URL: two engines on the same `:memory:` URL are, by SQLAlchemy's own semantics, disconnected databases, not the same one.
+- No two CDM database entries, and no two vector-store entries, may share a primary-connection identity
+    - Deliberately not cross-checked against each other: a vector store's backing database sharing a connection with a CDM entry is the "extend this CDM's database with embedding storage" pattern, and must stay legal.
+- Several CDM entries sharing one `vocab_connection` is explicitly allowed and unchecked
+    - the standard OMOP pattern: one shared vocabulary reused across many CDM instances
+    - only each entry's own primary connection participates in the exclusivity check above.
+- A CDM's `vocab_connection` physically coinciding with *another* entry's primary connection is allowed but logs a warning
+    - most likely a copy-paste/typo, to flag without forbidding a deliberate choice.
+    - the registry's per-entry keying keeps it drift-safe
+
+!!! note
+    - `connection_key()` itself remains a pure function of the *configured* URL (host, port, database name). The same physical database reached through two differently-spelled routes (e.g. hostname vs. IP) is not detected as a collision anywhere in this stack. 
+    - Configure each physical database through one canonical, consistently-spelled connection across every `[connections.*]` entry that targets it.
 
 ---
 

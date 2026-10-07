@@ -235,6 +235,131 @@ class TestStackConfig:
             )
 
 
+class TestEntryExclusivity:
+    """StackConfig's config-time checks that no two independent entries
+    (connections, CDM databases, vector stores) accidentally share a
+    physical connection"""
+
+    @staticmethod
+    def _pg(**overrides: Any) -> ConnectionConfig:
+        fields: dict[str, Any] = dict(
+            dialect=Dialect.POSTGRESQL + "+psycopg", host="db.example", port=5432, database_name="omop",
+        )
+        fields.update(overrides)
+        return ConnectionConfig(**fields)
+
+    def test_two_connections_with_identical_fields_raise(self):
+        with pytest.raises(ValueError, match="describes the same connection"):
+            StackConfig.for_session(connections={"a": self._pg(), "b": self._pg()})
+
+    def test_two_connections_differing_only_by_user_are_not_duplicates(self):
+        cfg = StackConfig.for_session(
+            connections={"app": self._pg(user="app_role"), "admin": self._pg(user="admin_role")}
+        )
+        assert set(cfg.connections) == {"app", "admin"}
+
+    def test_two_test_only_connections_with_identical_fields_are_allowed(self):
+        """Tests routinely clone the one real test server under several
+        connection names purely to exercise multi-connection routing (e.g.
+        a split-vocab CDM), with no need for genuine physical separation."""
+        cfg = StackConfig.for_session(
+            connections={"a": self._pg(test_only=True), "b": self._pg(test_only=True)}
+        )
+        assert set(cfg.connections) == {"a", "b"}
+
+    def test_two_ephemeral_sqlite_connections_are_allowed(self):
+        cfg = StackConfig.for_session(
+            connections={
+                "a": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:"),
+                "b": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:"),
+            }
+        )
+        assert set(cfg.connections) == {"a", "b"}
+
+    def test_two_cdm_entries_sharing_a_primary_connection_raise(self):
+        with pytest.raises(ValueError, match="both CDM entries on the same physical connection"):
+            StackConfig.for_session(
+                connections={"c": self._pg()},
+                databases={
+                    "cdm_a": CDMDatabaseConfig(connection="c", cdm_schema="a"),
+                    "cdm_b": CDMDatabaseConfig(connection="c", cdm_schema="b"),
+                },
+            )
+
+    def test_two_vector_stores_sharing_a_connection_raise(self):
+        from oa_configurator.domains.resources.schema import GenericDatabaseConfig
+        from oa_configurator.domains.vector_stores.schema import VectorStoreConfig
+
+        with pytest.raises(ValueError, match="both backed by the same physical connection"):
+            StackConfig.for_session(
+                connections={"c": self._pg()},
+                databases={
+                    "db_a": GenericDatabaseConfig(connection="c", schema_name="emb_a"),
+                    "db_b": GenericDatabaseConfig(connection="c", schema_name="emb_b"),
+                },
+                vector_stores={
+                    "vs_a": VectorStoreConfig(backend_type="pgvector", database="db_a"),
+                    "vs_b": VectorStoreConfig(backend_type="pgvector", database="db_b"),
+                },
+            )
+
+    def test_a_vector_store_colocated_with_a_cdm_is_allowed(self):
+        """Deliberately not cross-checked: a vector store's backing
+        database sharing a connection with a CDM entry is the "extend this
+        CDM's database with embedding storage" pattern, not an accident."""
+        from oa_configurator.domains.resources.schema import GenericDatabaseConfig
+        from oa_configurator.domains.vector_stores.schema import VectorStoreConfig
+
+        cfg = StackConfig.for_session(
+            connections={"c": self._pg()},
+            databases={
+                "cdm": CDMDatabaseConfig(connection="c", cdm_schema="public"),
+                "emb_db": GenericDatabaseConfig(connection="c", schema_name="embeddings"),
+            },
+            vector_stores={"emb": VectorStoreConfig(backend_type="pgvector", database="emb_db")},
+        )
+        assert "emb" in cfg.vector_stores
+
+    def test_several_cdms_sharing_one_vocab_connection_is_allowed(self):
+        """The standard OMOP pattern: one shared vocabulary reused across
+        several independent CDM instances -- exactly why vocab_connection
+        is a separate field from connection in the first place."""
+        cfg = StackConfig.for_session(
+            connections={"a": self._pg(host="a"), "b": self._pg(host="b"), "vocab": self._pg(host="vocab")},
+            databases={
+                "cdm_a": CDMDatabaseConfig(connection="a", vocab_connection="vocab", cdm_schema="a"),
+                "cdm_b": CDMDatabaseConfig(connection="b", vocab_connection="vocab", cdm_schema="b"),
+            },
+        )
+        assert {"cdm_a", "cdm_b"} <= set(cfg.databases)
+
+    def test_vocab_connection_coinciding_with_anothers_primary_warns_not_raises(self, caplog):
+        """Allowed and drift-safe (the registry keys Role-tag rows per
+        entry), but surprising enough -- most likely a copy-paste/typo --
+        to deserve a loud warning rather than silent acceptance."""
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="oa_configurator.stack_config"):
+            StackConfig.for_session(
+                connections={"a": self._pg(host="a"), "b": self._pg(host="b")},
+                databases={
+                    "cdm_a": CDMDatabaseConfig(connection="a", vocab_connection="b", cdm_schema="a"),
+                    "cdm_b": CDMDatabaseConfig(connection="b", cdm_schema="b"),
+                },
+            )
+        assert any("physically coincides" in record.message for record in caplog.records)
+
+    def test_non_split_cdm_own_primary_equals_own_vocab_does_not_warn(self, caplog):
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="oa_configurator.stack_config"):
+            StackConfig.for_session(
+                connections={"c": self._pg()},
+                databases={"cdm": CDMDatabaseConfig(connection="c", cdm_schema="public")},
+            )
+        assert caplog.records == []
+
+
 class TestProviderConfig:
     def test_minimal(self):
         provider = ProviderConfig(provider="ollama")

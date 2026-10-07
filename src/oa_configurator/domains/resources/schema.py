@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import (
@@ -28,6 +28,7 @@ from .sql import (
     SCHEMA_TRANSLATE_MAP_KEY,
     Role,
     connection_key,
+    ensure_schema,
     requires_host,
     schema_if_supported,
     supports_schemas,
@@ -35,10 +36,18 @@ from .sql import (
 from .schema_registry import (
     _SCHEMA_PROVENANCE_SCHEMA,
     _check_schema_claim,
+    _ensure_schema_registry_table,
     _guard_schema_provenance,
+    _lock_schema_registry,
     _register_schema_claim,
     physical_schema_of,
 )
+
+# execution_options keys create_engine() stashes alongside schema_translate_map,
+# so guard_schema_provenance_for() can derive everything it needs from the
+# bindable alone instead of requiring a `resolved` argument.
+_EXECUTION_OPTION_DATABASE_CONFIG_NAME = "oa_configurator_database_config_name"
+_EXECUTION_OPTION_TEST_ONLY = "oa_configurator_test_only"
 
 if TYPE_CHECKING:
     from ...stack_config import StackConfig
@@ -233,6 +242,13 @@ class ConnectionConfig(SecretSafeBaseModel):
         """
         return URL.create(drivername=self.dialect).get_backend_name()
 
+    def physical_identity(self) -> tuple[Any, ...]:
+        """Identity tuple (dialect name, host, port, database name, user)
+        used to decide if this connection is the same physical connection as
+        another one.
+        """
+        return (self.dialect_name, self.host, self.port, self.database_name, self.user)
+
 
 def _iter_schema_roles(cls: type[BaseModel]) -> Iterator[tuple[str, Role]]:
     """Yield (field_name, Role) for every Role-tagged field on cls.
@@ -267,6 +283,8 @@ def _process_schema_claims(
     *,
     database_config_name: str,
     default_owner: str | None,
+    local_roles: frozenset[str] = frozenset(),
+    test_only: bool = False,
     register_claims: bool = True,
 ) -> dict[str, str | None]:
     """Fold, register, and translate every claim in one pass.
@@ -275,16 +293,27 @@ def _process_schema_claims(
     With ``register_claims=False``, claims are only checked for ownership and
     reservation conflicts; nothing is written to the schema_registry.
 
-    ``physical_schema=None`` on a claim for a dialect with schema 
-    support resolves to the connection's own real default schema 
+    ``physical_schema=None`` on a claim for a dialect with schema
+    support resolves to the connection's own real default schema
     via a single shared connection.
+
+    Parameters
+    ----------
+    local_roles : frozenset[str], optional
+        Which Role(s) this entry actually owns on this physical connection
+        (via ``roles_on_connection()``).
 
     Notes
     -----
     - An own-built engine and a SQLite engine end up in the same, unchecked
     state deliberately, since neither has anything real to protect.
-    - A dialect without real multi-schema support (e.g. SQLite) automatically 
+    - A dialect without real multi-schema support (e.g. SQLite) automatically
     folds every schema_tag to None.
+    - A Role-tagged claim whose tag isn't in *local_roles* (e.g. a split
+    CDM's results/primary tags, seen while building the vocab-only
+    connection's engine) is still folded into the returned translate_map
+    for correct cross-schema compilation, but is neither registered nor
+    checked: this connection doesn't own that role.
 
     Returns
     -------
@@ -297,6 +326,9 @@ def _process_schema_claims(
     translate_map: dict[str, str | None] = {}
     role_members = frozenset(member.value for member in Role)
     with engine.begin() if register_claims else engine.connect() as connection:
+        if register_claims:
+            _lock_schema_registry(connection)
+            connection = _ensure_schema_registry_table(connection)
         for claim in claims:
             physical_schema = (
                 claim.physical_schema
@@ -308,6 +340,9 @@ def _process_schema_claims(
                 else None if claim.schema_tag in role_members
                 else default_owner
             )
+            translate_map[claim.schema_tag] = physical_schema
+            if claim.schema_tag in role_members and claim.schema_tag not in local_roles:
+                continue
             if register_claims:
                 _register_schema_claim(
                     connection,
@@ -316,16 +351,19 @@ def _process_schema_claims(
                     physical_schema=physical_schema,
                     owner=claim_owner,
                     reserved=claim.reserved,
+                    test_only=test_only,
                 )
+                ensure_schema(connection, physical_schema)
             else:
                 _check_schema_claim(
                     connection,
+                    database_config_name=database_config_name,
                     schema_tag=claim.schema_tag,
                     physical_schema=physical_schema,
                     owner=claim_owner,
                     reserved=claim.reserved,
+                    test_only=test_only,
                 )
-            translate_map[claim.schema_tag] = physical_schema
     return translate_map
 
 
@@ -695,15 +733,22 @@ class ResolvedDatabase:
         ]
         internal_claims = (schema_provenance_claim, *resolver_claims)
 
+        connection_test_only = self.connection_for_role(role).test_only
         translate_map = _process_schema_claims(
             engine, [*internal_claims, *caller_claims],
             database_config_name=self.name,
             # Needs to be called here to derive the owner from the caller's module
             # (1 level up in the call stack)
             default_owner=owner if owner is not None else _derive_owner(),
+            local_roles=frozenset(r.value for r in self.roles_on_connection(engine)),
+            test_only=connection_test_only,
             register_claims=register_claims,
         )
-        return engine.execution_options(**{SCHEMA_TRANSLATE_MAP_KEY: translate_map})
+        return engine.execution_options(**{
+            SCHEMA_TRANSLATE_MAP_KEY: translate_map,
+            _EXECUTION_OPTION_DATABASE_CONFIG_NAME: self.name,
+            _EXECUTION_OPTION_TEST_ONLY: connection_test_only,
+        })
 
     def connection_for_role(self, role: Role = Role.PRIMARY) -> ResolvedConnection:
         """Return the resolved connection for a given role.
@@ -791,9 +836,13 @@ class ResolvedDatabase:
         """Role tags whose schema provenance is worth tracking for this database."""
         return (Role.PRIMARY,)
 
-    def roles_on_connection(self, connection: sa.Connection) -> tuple[Role, ...]:
+    def roles_on_connection(self, connection: Connection | Engine) -> tuple[Role, ...]:
         """Role(s) this database entry has on *connection*'s own physical
         server (host, database, port), or ``()`` if none.
+
+        *connection* may be an already-open ``Connection`` or an ``Engine``
+        directly (``Engine.engine`` returns itself, so ``connection.engine.url``
+        works either way).
 
         Only ``Role.PRIMARY`` is possible here, since ``ResolvedDatabase``
         has no vocab/results connection-splitting.
@@ -958,7 +1007,7 @@ class ResolvedCDMDatabase(ResolvedDatabase):
         """Role tags whose schema provenance is worth tracking: primary, vocab, and results."""
         return (Role.PRIMARY, Role.VOCAB, Role.RESULTS)
 
-    def roles_on_connection(self, connection: sa.Connection) -> tuple[Role, ...]:
+    def roles_on_connection(self, connection: Connection | Engine) -> tuple[Role, ...]:
         """Role(s) this database entry has on *connection*'s own physical
         server (host, database, port), or ``()`` if none.
 
@@ -1043,40 +1092,45 @@ class ResolvedCDMDatabase(ResolvedDatabase):
 
 def guard_schema_provenance_for(
     connection: sa.Connection,
-    resolved: ResolvedDatabase | None,
     *,
     schema_tag: Role | str,
 ) -> AbstractContextManager[None]:
-    """The schema-provenance guard scoped to schema_tag's own physical schema,
-    or a no-op when resolved is None (a bare-engine caller with no resolved
-    config behind it).
+    """The schema-provenance guard scoped to schema_tag's own physical schema.
 
     Parameters
     ----------
     connection : sqlalchemy.engine.Connection
-        Connection the guarded DDL runs on.
-    resolved : ResolvedDatabase, optional
-        Supplies the config entry name, test_only, and the connection role. None no-ops.
+        Connection the guarded DDL runs on. Must have been built by
+        create_engine(): the entry name and test_only are read back off its
+        own execution_options, set there alongside schema_translate_map, so
+        no separate `resolved` argument is needed.
     schema_tag : Role or str
-        Schema tag being guarded. Determines the connection role used
-        to read test_only and the physical schema to guard.
+        Schema tag being guarded.
 
     Returns
     -------
     AbstractContextManager[None]
+
+    Raises
+    ------
+    ValueError
+        If connection wasn't built by create_engine() (its execution_options
+        carry neither the entry name nor test_only).
     """
-    if resolved is None:
-        return nullcontext()
-    connection_role = resolved.route_for_schema_tag(
-        schema_tag, 
-        vocab=Role.VOCAB, 
-        primary=Role.PRIMARY
-    )
+    options = connection.get_execution_options()
+    database_config_name = options.get(_EXECUTION_OPTION_DATABASE_CONFIG_NAME)
+    test_only = options.get(_EXECUTION_OPTION_TEST_ONLY)
+    if database_config_name is None or test_only is None:
+        raise ValueError(
+            "guard_schema_provenance_for() requires a connection built by create_engine(): "
+            f"missing {_EXECUTION_OPTION_DATABASE_CONFIG_NAME!r}/{_EXECUTION_OPTION_TEST_ONLY!r} "
+            "execution options."
+        )
     schema_tag = schema_tag.value if isinstance(schema_tag, Role) else schema_tag
     return _guard_schema_provenance(
         connection,
-        database_config_name=resolved.name,
-        test_only=resolved.connection_for_role(connection_role).test_only,
+        database_config_name=database_config_name,
+        test_only=test_only,
         schema_tag=schema_tag,
         physical_schema=physical_schema_of(connection, schema_tag=schema_tag),
     )

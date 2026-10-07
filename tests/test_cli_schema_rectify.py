@@ -42,17 +42,18 @@ def _register(stack: StackConfig, database_config_name: str) -> None:
     Resolver(stack).resolve_database(database_config_name).create_engine().dispose()
 
 
-def _registry_row(pg_db, schema_tag: str) -> sa.Row:
+def _registry_row(pg_db, schema_tag: str, database_config_name: str | None = None) -> sa.Row:
     registry = sa.Table(
         "schema_registry", sa.MetaData(), autoload_with=pg_db.connection, schema="oa_configurator_provenance"
     )
+    conditions = [
+        registry.c.connection_key == connection_key(pg_db.committing_engine.url),
+        registry.c.schema_tag == schema_tag,
+    ]
+    if database_config_name is not None:
+        conditions.append(registry.c.database_config_name == database_config_name)
     with pg_db.committing_engine.connect() as connection:
-        return connection.execute(
-            sa.select(registry).where(
-                registry.c.connection_key == connection_key(connection.engine.url),
-                registry.c.schema_tag == schema_tag,
-            )
-        ).one()
+        return connection.execute(sa.select(registry).where(*conditions)).one()
 
 
 def test_acknowledge_schema_migration_clears_drift(pg_db, pg_connection_config, monkeypatch, cleanup_after_test):
@@ -115,7 +116,10 @@ def test_acknowledge_schema_migration_refuses_a_schema_claimed_by_another_tag(
     assert f"other_entry ({other_tag})" in result.output
 
 
-def test_acknowledge_schema_migration_records_the_acknowledging_entry(pg_db, pg_connection_config, monkeypatch):
+def test_acknowledge_schema_migration_leaves_two_entries_coexisting(pg_db, pg_connection_config, monkeypatch):
+    """Two different [databases.*] entries claiming Role.PRIMARY on one
+    connection get their own registry row each: acknowledging entry b's drift must not
+    disturb entry a's own, already-clean row."""
     db_name_a = f"rectify_db_{uuid.uuid4().hex[:8]}"
     db_name_b = f"rectify_db_{uuid.uuid4().hex[:8]}"
     schema_a = f"test_{uuid.uuid4().hex[:8]}"
@@ -139,10 +143,12 @@ def test_acknowledge_schema_migration_records_the_acknowledging_entry(pg_db, pg_
     )
     assert result.exit_code == 0, result.output
 
-    row = _registry_row(pg_db, "primary")
-    assert (row.database_config_name, row.physical_schema, row.previous_physical_schema) == (
-        db_name_b, schema_b, schema_a,
+    row_b = _registry_row(pg_db, "primary", database_config_name=db_name_b)
+    assert (row_b.database_config_name, row_b.physical_schema, row_b.previous_physical_schema) == (
+        db_name_b, schema_b, None,
     )
+    row_a = _registry_row(pg_db, "primary", database_config_name=db_name_a)
+    assert (row_a.database_config_name, row_a.physical_schema) == (db_name_a, schema_a)
 
 
 def test_acknowledge_schema_migration_requires_a_reason(pg_db, pg_connection_config, monkeypatch, cleanup_after_test):

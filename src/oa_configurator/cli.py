@@ -28,12 +28,14 @@ from .cli_support import _build_entry_params, _save_stack_config_or_exit
 from .domains.llm.cli import models_app, providers_app
 from .domains.resources.cli import connections_app, databases_app
 from .domains.resources.rectify import drop_orphan_schema_tables
-from .domains.resources.schema import ResolvedDatabase, Role
-from .domains.resources.sql import Dialect
+from .domains.resources.schema import ResolvedCDMDatabase, ResolvedDatabase, Role
+from .domains.resources.sql import Dialect, connection_key
 from .domains.resources.schema_registry import (
     SchemaDriftError,
     _guard_schema_provenance,
+    _list_registry_rows,
     _record_schema_provenance,
+    _release_schema_claim,
     physical_schema_of,
 )
 from .domains.vector_stores.cli import vector_stores_app
@@ -271,8 +273,54 @@ def verify() -> None:
     if schema_table.row_count:
         console.print(schema_table)
 
+    _print_registry_rows(resolver, config)
+
     if not all_ok or not schema_ok:
         raise typer.Exit(1)
+
+
+def _print_registry_rows(resolver: Resolver, config: StackConfig) -> None:
+    """Print every schema_registry row for each configured database's
+    physical connection.
+
+    The Role-tag table above only ever shows tags this config itself knows
+    about; a package's own custom tag (e.g. omop-emb's "registry",
+    orm-loader's "staging") is otherwise invisible to `verify`, and so is
+    a stale row left behind by a renamed or removed entry. This is a pure
+    read with no drift enforcement of its own -- a custom tag's drift is
+    still only enforced at the point its owning package calls
+    create_engine() for it.
+    """
+    rows_table = Table("Database", "Schema tag", "Schema", "Entry", "Owner", "Reserved")
+    seen_connection_keys: set[str] = set()
+    for db_name in sorted(config.databases):
+        try:
+            resolved = resolver.resolve_database(db_name)
+        except Exception:
+            continue
+        engines = (
+            resolved.create_engines(register_claims=False)
+            if isinstance(resolved, ResolvedCDMDatabase)
+            else (resolved.create_engine(register_claims=False),)
+        )
+        for engine in dict.fromkeys(engines):
+            try:
+                with engine.connect() as connection:
+                    ck = connection_key(connection.engine.url)
+                    if ck in seen_connection_keys:
+                        continue
+                    seen_connection_keys.add(ck)
+                    for row in _list_registry_rows(connection):
+                        rows_table.add_row(
+                            db_name, row.schema_tag, row.physical_schema or "-",
+                            row.database_config_name, row.owner or "-", str(row.reserved),
+                        )
+            except Exception:
+                continue
+            finally:
+                engine.dispose()
+    if rows_table.row_count:
+        console.print(rows_table)
 
 
 def _verify_schema_provenance(
@@ -348,52 +396,137 @@ def acknowledge_schema_migration(
             help="Free-text justification for this acknowledgment. Mandatory: there is no --yes shortcut.",
         ),
     ],
+    schema_tag: Annotated[
+        str | None,
+        typer.Option(
+            "--schema-tag",
+            help="Schema tag to acknowledge. A Role value (primary/vocab/results) or a "
+            "custom SchemaClaim tag. Omit to acknowledge every Role tag of --database at "
+            "once, each resolved fresh from the current config.",
+        ),
+    ] = None,
     new_physical_schema: Annotated[
         str | None,
         typer.Option(
             "--new-schema",
-            help="Schema to record as the accepted baseline. Omit to target the "
-            "default/unqualified schema (e.g. SQLite, or a dialect's own default schema).",
+            help="Schema to record as the new baseline. For a Role tag, omit this to "
+            "resolve it from the current config and only pass it to override that. "
+            "This option is required for a custom schema tag as its physical schema "
+            "lives only in the owning package's own SchemaClaim so there's nothing to resolve it from. "
+            "Requires --schema-tag; it has no single meaning across several tags at once "
+            "(primary/vocab/results sharing one schema is fine, just acknowledge each "
+            "--schema-tag separately with the same --new-schema).",
         ),
     ] = None,
-    schema_tag: Annotated[
-        str,
-        typer.Option(
-            "--schema-tag",
-            help="Schema tag whose baseline is being acknowledged. A Role value "
-            "(primary/vocab/results) for a CDM database's own tags, or any other "
-            "string for a custom SchemaClaim tag (e.g. oa_configurator_provenance).",
-        ),
-    ] = Role.PRIMARY.value,
 ) -> None:
-    """Record a schema as the new baseline for a tagged schema of a
-    configured database. Overwrites the existing provenance row for that
-    schema_tag on the physical database and records --database as the entry
-    owning the mapping. Does not touch the CDM tables themselves.
-    Only CLI-level remediation path for the schema-drift check every
-    configured database already gets from `verify`.
+    """Record a schema as the new baseline for one or every Role tag of a
+    configured database. Overwrites the existing provenance row(s) and
+    records --database as the entry owning the mapping. Does not touch the
+    CDM tables themselves. The only CLI-level remediation path for the
+    schema-drift check every configured database already gets from
+    `verify`. Also the only way to baseline a database being adopted
+    (one that already has tables, with no prior baseline at all).
 
+    Note: primary/vocab/results sharing one physical schema is fully
+    supported via equal values in config, or by acknowledging each
+    --schema-tag separately with the same --new-schema.
     """
+    if new_physical_schema is not None and schema_tag is None:
+        err_console.print(
+            "[red]Error:[/red] --new-physical-schema requires --schema-tag: acknowledging every "
+            "Role tag together always resolves each one from the current config."
+        )
+        raise typer.Exit(1)
     try:
         stack = load_stack_config()
         resolved = Resolver(stack).resolve_database(database)
-        # Physical split between vocab and primary connection
-        connection_role = resolved.route_for_schema_tag(
-            schema_tag,
-            vocab=Role.VOCAB,
-            primary=Role.PRIMARY
-        )
-        engine = resolved.create_engine(role=connection_role, register_claims=False)
+        role_values = {r.value for r in Role}
+        tags_to_acknowledge = [schema_tag] if schema_tag is not None else [r.value for r in resolved.schema_tags()]
+        if schema_tag is not None and schema_tag not in role_values and new_physical_schema is None:
+            err_console.print(
+                f"[red]Error:[/red] --new-schema is required for non-Role schema tag {schema_tag!r}: "
+                "its physical schema lives only in the owning package's own SchemaClaim, "
+                "never in this config."
+            )
+            raise typer.Exit(1)
+
+        by_connection_role: dict[Role, list[str]] = {}
+        for tag in tags_to_acknowledge:
+            connection_role = resolved.route_for_schema_tag(tag, vocab=Role.VOCAB, primary=Role.PRIMARY)
+            by_connection_role.setdefault(connection_role, []).append(tag)
+
+        acknowledged: list[tuple[str, str | None]] = []
+        for connection_role, tags in by_connection_role.items():
+            # Bare engine to not cause drift errors on baseline acknowledgment
+            engine = resolved.connection_for_role(connection_role).create_engine()
+            try:
+
+                with engine.begin() as connection:
+                    for tag in tags:
+                        if tag in role_values:
+                            configured = resolved.configured_internal_schema_translate_map().get(tag)
+                            resolved_schema = (
+                                new_physical_schema if new_physical_schema is not None
+                                else configured or sa.inspect(connection).default_schema_name
+                            )
+                        else:
+                            resolved_schema = new_physical_schema
+                        _record_schema_provenance(
+                            connection,
+                            database_config_name=resolved.name,
+                            schema_tag=tag,
+                            new_physical_schema=resolved_schema,
+                            reason=reason,
+                        )
+                        acknowledged.append((tag, resolved_schema))
+            finally:
+                engine.dispose()
+    except FileNotFoundError:
+        err_console.print(f"[red]Config file not found:[/red] {active_config_path()}")
+        raise typer.Exit(1)
+    except Exception as exc:
+        err_console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
+    for tag, new_schema in acknowledged:
+        console.print(f"[green]Acknowledged[/green] {database!r} (schema tag {tag!r}) -> schema {new_schema!r}.")
+
+
+@app.command("release-schema-claim")
+def release_schema_claim(
+    database: Annotated[str, typer.Option("--database", help="Name of the [databases.*] entry whose claim to release.")],
+    schema_tag: Annotated[str, typer.Option("--schema-tag", help="Schema tag to release.")],
+    connection_role: Annotated[
+        Role, typer.Option("--role", help="Which connection to open: primary or vocab.")
+    ] = Role.PRIMARY,
+    confirm: Annotated[
+        bool, typer.Option("--confirm", help="Actually delete the row. Omit to preview only.")
+    ] = False,
+) -> None:
+    """Delete a stale schema_registry row for --database/--schema-tag.
+    Interface to handle stale rows left behind by a renamed or removed entry, 
+    or a custom tag's row that has no config-derivable value to re-acknowledge to.
+    """
+    released: bool | None = None
+    existing_schema: str | None = None
+    try:
+        stack = load_stack_config()
+        resolved = Resolver(stack).resolve_database(database)
+        # Bare engine to not cause drift errors on baseline acknowledgment
+        engine = resolved.connection_for_role(connection_role).create_engine()
         try:
             with engine.begin() as connection:
-                _record_schema_provenance(
-                    connection,
-                    database_config_name=resolved.name,
-                    schema_tag=schema_tag,
-                    new_physical_schema=new_physical_schema,
-                    reason=reason,
-                    exclude_schema_tags=resolved.schema_tags(),
+                existing = next(
+                    (
+                        row for row in _list_registry_rows(connection)
+                        if row.schema_tag == schema_tag and row.database_config_name == resolved.name
+                    ),
+                    None,
                 )
+                existing_schema = existing.physical_schema if existing is not None else None
+                if confirm and existing is not None:
+                    released = _release_schema_claim(
+                        connection, schema_tag=schema_tag, database_config_name=resolved.name
+                    )
         finally:
             engine.dispose()
     except FileNotFoundError:
@@ -402,9 +535,15 @@ def acknowledge_schema_migration(
     except Exception as exc:
         err_console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(1)
-    console.print(
-        f"[green]Acknowledged[/green] {database!r} (schema tag {schema_tag!r}) -> schema {new_physical_schema!r}."
-    )
+    if existing_schema is None:
+        console.print(f"No claim found for databases.{database}'s {schema_tag!r}.")
+    elif not confirm:
+        console.print(
+            f"Would release databases.{database}'s {schema_tag!r} claim (schema {existing_schema!r}). "
+            "Pass --confirm to actually delete it."
+        )
+    elif released:
+        console.print(f"[green]Released[/green] databases.{database}'s {schema_tag!r} claim.")
 
 
 @app.command("drop-orphan-schema-tables")
@@ -419,6 +558,13 @@ def drop_orphan_schema_tables_command(
     confirm: Annotated[
         bool, typer.Option("--confirm", help="Actually drop the previewed tables. Omit to preview only.")
     ] = False,
+    allow_default_schema: Annotated[
+        bool,
+        typer.Option(
+            "--allow-default-schema",
+            help="Allow targeting the dialect's own default schema (e.g. Postgres's 'public').",
+        ),
+    ] = False,
 ) -> None:
     """Drop tables physically found in an orphaned schema, after a stack-wide safety check.
 
@@ -430,11 +576,16 @@ def drop_orphan_schema_tables_command(
     try:
         stack = load_stack_config()
         resolved = Resolver(stack).resolve_database(database)
-        engine = resolved.create_engine(role=connection_role)
+        # Bare engine to not cause drift errors on baseline acknowledgment
+        engine = resolved.connection_for_role(connection_role).create_engine()
         try:
             with engine.begin() as connection:
                 preview = drop_orphan_schema_tables(
-                    connection, stack=stack, orphan_schema=schema, confirm=confirm
+                    connection,
+                    stack=stack,
+                    orphan_schema=schema,
+                    confirm=confirm,
+                    allow_default_schema=allow_default_schema,
                 )
         finally:
             engine.dispose()

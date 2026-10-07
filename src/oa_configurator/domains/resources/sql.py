@@ -309,6 +309,8 @@ def ensure_schema(bindable: Engine | Connection, physical_schema: str | None) ->
         return
     if physical_schema == sa.inspect(bind).default_schema_name:
         return
+    if sa.inspect(bind).has_schema(physical_schema):
+        return
     ddl = sa.schema.CreateSchema(physical_schema, if_not_exists=True)
     if isinstance(bind, Engine):
         with bind.begin() as conn:

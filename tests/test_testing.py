@@ -536,15 +536,20 @@ class TestScopedTestSchema:
             assert list(scoped.schemas) == [Role.PRIMARY]
             assert scoped.resolved.schema_name == scoped.schemas[Role.PRIMARY]
 
-    def test_leaves_existing_role_rows_untouched(self, pg_db):
+    def test_rebaselines_role_rows_to_the_scoped_schema_and_leaves_them_there(self, pg_db):
+        """test_only re-baselines on drift, so the row tracks the scoped 
+        schema during the block and simply stays there once it exits."""
         from oa_configurator import Role
 
         pg_db.resolved.create_engine().dispose()
         tags = [role.value for role in Role]
         before = self._registry_rows(pg_db.committing_engine, tags)
-        with scoped_test_schema(pg_db.resolved, prefix="ttest_rows"):
-            pass
-        assert self._registry_rows(pg_db.committing_engine, tags) == before
+        with scoped_test_schema(pg_db.resolved, prefix="ttest_rows") as scoped:
+            during = self._registry_rows(pg_db.committing_engine, tags)
+            assert any(row[1] == scoped.schemas[Role.PRIMARY] for row in during)
+        after = self._registry_rows(pg_db.committing_engine, tags)
+        assert after == during
+        assert after != before
 
     def test_caller_claim_is_owned_by_the_calling_package(self, pg_db, cleanup_after_test):
         import uuid

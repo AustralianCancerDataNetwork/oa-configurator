@@ -263,13 +263,13 @@ def _derive_owner() -> str | None:
     """Top-level package name of the first call-stack frame outside oa_configurator
     and contextlib. To be used in combination with create_engine()."""
 
-    # Disregard the current frame, which is guaranteed to be oa_configurator itself.
-    # contextlib frames sit between a @contextmanager helper and its caller.
-    for frame_info in inspect.stack()[1:]:
-        module_name = frame_info.frame.f_globals.get("__name__", "")
-        if not module_name or module_name.startswith("oa_configurator") or module_name == "contextlib":
-            continue
-        return module_name.split(".")[0]
+    frame = inspect.currentframe()
+    frame = frame.f_back if frame is not None else None
+    while frame is not None:
+        module_name = frame.f_globals.get("__name__", "")
+        if module_name and not module_name.startswith("oa_configurator") and module_name != "contextlib":
+            return module_name.split(".")[0]
+        frame = frame.f_back
     return None
 
 

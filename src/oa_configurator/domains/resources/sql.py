@@ -95,12 +95,18 @@ class DialectProfile:
         dialect itself. A live ``Inspector.default_schema_name`` can be misled
         by a role named like a schema; this is a dialect-level cross-check for
         that, not a substitute for it.
+    default_port : int or None
+        Port this dialect's client library connects to when a URL omits one
+        (e.g. libpq's 5432). None for a dialect that takes no port. Used to
+        make an omitted port and an explicitly-stated default port compare
+        as the same physical address.
     """
 
     system_schemas: frozenset[str]
     supports_schemas: bool
     requires_host: bool = True
     default_schema: str | None = None
+    default_port: int | None = None
 
 
 _DIALECT_PROFILES: dict[str, DialectProfile] = {
@@ -108,6 +114,7 @@ _DIALECT_PROFILES: dict[str, DialectProfile] = {
         system_schemas=frozenset({"information_schema", "pg_catalog", "pg_toast"}),
         supports_schemas=True,
         default_schema="public",
+        default_port=5432,
     ),
     Dialect.SQLITE: DialectProfile(
         system_schemas=frozenset(),
@@ -250,8 +257,8 @@ def canonical_host(host: str | None) -> str | None:
 
     Collapses the common host-alias case (the same server reached as a
     hostname and as its IP, or via two hostnames resolving to one IP) into one
-    identity, so identity comparisons that key on host (``connection_key``,
-    ``ResolvedConnection.physical_identity``) aren't fooled by spelling alone.
+    identity, so identity comparisons that key on host (see
+    :func:`connection_key`) aren't fooled by spelling alone.
 
     Soft-fails on an unreachable or unresolvable host (e.g. a deliberately
     broken host in a test) by returning it unchanged, rather than raising:
@@ -266,13 +273,38 @@ def canonical_host(host: str | None) -> str | None:
         return host
 
 
-def connection_key(url: sa.URL) -> str:
-    """Physical identity of the database *url* addresses: host, port, and database name.
+def canonical_port(dialect_name: str, port: int | None) -> int | None:
+    """*port*, or the dialect's own default when *port* is unset.
 
-    Dialect, driver, and credentials are ignored, so the same database reached
-    through another driver or as another user yields the same key. *host* is
-    resolved through :func:`canonical_host` first, so a hostname and its own
-    IP address yield the same key too.
+    An omitted port and an explicitly-stated default port address the same
+    server, so identity comparisons must not treat them as different.
+
+    Parameters
+    ----------
+    dialect_name : str
+        SQLAlchemy backend name, as :class:`Dialect` spells it.
+    port : int or None
+        Port as configured, which may be unset.
+
+    Returns
+    -------
+    int or None
+        None only for a dialect that takes no port at all.
+    """
+    return port if port is not None else _profile_for(dialect_name).default_port
+
+
+def connection_key(url: sa.URL) -> str:
+    """Physical identity of the database *url* addresses.
+
+    Notes
+    -----
+    The single primitive every "is this the same physical database" check
+    uses, so they cannot disagree. Driver and credentials are ignored, so
+    the same database reached through another driver or as another user
+    yields the same key; the host goes through :func:`canonical_host` and
+    the port through :func:`canonical_port`, so neither host spelling nor
+    an omitted default port splits one database into two identities.
 
     Parameters
     ----------
@@ -283,26 +315,47 @@ def connection_key(url: sa.URL) -> str:
     str
         ``"<host>:<port>/<database>"``, empty parts left blank.
     """
-    return f"{canonical_host(url.host) or ''}:{url.port or ''}/{url.database or ''}"
+    port = canonical_port(url.get_backend_name(), url.port)
+    return f"{canonical_host(url.host) or ''}:{port or ''}/{url.database or ''}"
 
 
-def is_ephemeral_url(safe_url: str) -> bool:
+def is_ephemeral_url(safe_url: str | sa.URL) -> bool:
     """True if *safe_url* names a database that cannot be shared across
     independently-built engines.
 
-    Only SQLite ``:memory:`` (plain or shared-cache ``mode=memory`` URI)
-    databases are ephemeral this way: a second engine pointed at the same
-    URL gets its own, disconnected, empty database rather than reconnecting
-    to the first one's data. A caller that needs two engines to see the
-    same ephemeral database must instead share one already-built engine or
-    connection between them.
+    Only SQLite ``:memory:`` (plain, ``file::memory:`` shared-cache, or
+    ``mode=memory`` URI) databases are ephemeral this way: a second engine
+    pointed at the same URL gets its own, disconnected, empty database
+    rather than reconnecting to the first one's data. A caller that needs
+    two engines to see the same ephemeral database must instead share one
+    already-built engine or connection between them.
+
+    Parameters
+    ----------
+    safe_url : str or sqlalchemy.URL
+        Database URL, with or without credentials.
+
+    Returns
+    -------
+    bool
+
+    Notes
+    -----
+    SQLAlchemy 2.1 percent-encodes ``:memory:`` when rendering a URL
+    (``sqlite:///%3Amemory%3A``). This requires class 
+    
+     so matching the rendered string silently
+    stops recognising in-memory databases on that version.
     """
-    lowered = safe_url.lower()
-    if not lowered.startswith("sqlite"):
+    url = safe_url if isinstance(safe_url, sa.URL) else sa.make_url(safe_url)
+    if url.get_backend_name() != Dialect.SQLITE:
         return False
-    _, _, target = lowered.partition("://")
-    target = target.lstrip("/")
-    return target in ("", ":memory:") or "mode=memory" in lowered
+    database = url.database
+    if database is None or database in ("", ":memory:"):
+        return True
+    mode = url.query.get("mode")
+    modes = (mode,) if isinstance(mode, str) else (mode or ())
+    return ":memory:" in database or "memory" in modes
 
 
 def declared_schema_tags(tables: Iterable[sa.Table]) -> set[str]:

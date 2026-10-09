@@ -105,20 +105,22 @@ def invalidate_cache() -> None:
     _ConfigCache.clear()
 
 
-def load_stack_config(path: str | Path = CONFIG_PATH) -> StackConfig:
-    """Load a :class:`StackConfig` from *path*. Defaults to ``CONFIG_PATH``,
-    which can be overridden by setting the ``OA_CONFIG_PATH`` environment variable.
+def load_stack_config(path: str | Path | None = None) -> StackConfig:
+    """Load a :class:`StackConfig` from *path*. Defaults to
+    :func:`active_config_path`, which honours the ``OA_CONFIG_PATH``
+    environment variable.
 
     Notes
     -----
-    ``OA_CONFIG_PATH`` is resolved when this module is first imported. Set it
-    before starting the process as changing it at runtime does not change
-    ``CONFIG_PATH``.
+    The default path is resolved per call, so this always loads whatever
+    ``active_config_path()`` currently reports. ``OA_CONFIG_PATH`` itself is
+    read once, when this module is first imported.
 
     Parameters
     ----------
     path : str or pathlib.Path, optional
-        Explicit configuration file to load. Omitted uses ``CONFIG_PATH``.
+        Explicit configuration file to load. Omitted uses
+        :func:`active_config_path`.
 
     Returns
     -------
@@ -135,7 +137,7 @@ def load_stack_config(path: str | Path = CONFIG_PATH) -> StackConfig:
         If the file is valid TOML but does not conform to the StackConfig
         schema. Names the offending fields and never echoes rejected values.
     """
-    return _load_from_path(path)
+    return _load_from_path(active_config_path() if path is None else path)
 
 
 def _load_from_path(path: str | Path) -> StackConfig:

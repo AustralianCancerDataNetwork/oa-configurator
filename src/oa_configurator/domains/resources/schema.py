@@ -29,7 +29,6 @@ from .sql import (
     SCHEMA_TRANSLATE_MAP_KEY,
     Bindable,
     Role,
-    canonical_host,
     connection_key,
     ensure_schema,
     requires_host,
@@ -238,12 +237,22 @@ class ConnectionConfig(SecretSafeBaseModel):
         """
         return URL.create(drivername=self.dialect).get_backend_name()
 
-    def physical_identity(self) -> tuple[Any, ...]:
-        """Identity tuple (dialect name, host, port, database name, user)
-        used to decide if this connection is the same physical connection as
-        another one.
+    def physical_key(self) -> str:
+        """Physical identity of the database this connection addresses.
+
+        See :func:`connection_key`, which this defers to so a config entry
+        and a live URL compare through one implementation.
         """
-        return (self.dialect_name, canonical_host(self.host), self.port, self.database_name, self.user)
+        return connection_key(self._build_url_obj())
+
+    def physical_identity(self) -> tuple[Any, ...]:
+        """Identity tuple (physical connection key, user) used to decide if
+        this connection is the same physical connection as another one.
+
+        ``user`` is a separate element so callers comparing addresses alone
+        can drop it.
+        """
+        return (self.physical_key(), self.user)
 
 
 def _iter_schema_roles(cls: type[BaseModel]) -> Iterator[tuple[str, Role]]:

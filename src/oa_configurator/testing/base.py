@@ -16,6 +16,8 @@ import pytest
 from sqlalchemy import Connection, Engine
 from sqlalchemy.orm import Session
 
+from ..domains.resources.sql import connection_key
+
 if TYPE_CHECKING:
     from ..domains.resources.schema import (
         ResolvedConnection,
@@ -221,13 +223,12 @@ class TestDatabaseStrategy(ABC):
         except FileNotFoundError:
             pytest.fail(_unknown_engine_message(safe_url))
 
+        target = connection_key(url)
         match = next(
             (
                 name
                 for name, conn in config.connections.items()
-                if conn.host == url.host
-                and conn.database_name == url.database
-                and conn.port == url.port
+                if conn.physical_key() == target
             ),
             None,
         )

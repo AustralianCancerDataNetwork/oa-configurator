@@ -497,39 +497,50 @@ def acknowledge_schema_migration(
 
 @app.command("release-schema-claim")
 def release_schema_claim(
-    database: Annotated[str, typer.Option("--database", help="Name of the [databases.*] entry whose claim to release.")],
+    database: Annotated[str, typer.Option("--database", help="Name of the [databases.*] entry whose claim to release. Need not still exist in the config when --connection is given.")],
     schema_tag: Annotated[str, typer.Option("--schema-tag", help="Schema tag to release.")],
     connection_role: Annotated[
-        Role, typer.Option("--role", help="Which connection to open: primary or vocab.")
+        Role, typer.Option("--role", help="Which of --database's connections to open: primary or vocab. Ignored when --connection is given.")
     ] = Role.PRIMARY,
+    connection_name: Annotated[
+        str | None,
+        typer.Option("--connection", help="Open this [connections.*] entry directly instead of resolving --database. Use this to release a claim left by a renamed or removed entry."),
+    ] = None,
     confirm: Annotated[
         bool, typer.Option("--confirm", help="Actually delete the row. Omit to preview only.")
     ] = False,
 ) -> None:
     """Delete a stale schema_registry row for --database/--schema-tag.
-    Interface to handle stale rows left behind by a renamed or removed entry, 
+    Interface to handle stale rows left behind by a renamed or removed entry,
     or a custom tag's row that has no config-derivable value to re-acknowledge to.
+
+    Rows are matched by the --database name as written in the registry, so a claim 
+    outlives the entry that made it. Releasing such a claim needs --connection, 
+    since there is no entry left to derive the connection from.
     """
     released: bool | None = None
     existing_schema: str | None = None
     try:
         stack = load_stack_config()
-        resolved = Resolver(stack).resolve_database(database)
+        resolver = Resolver(stack)
         # Bare engine to not cause drift errors on baseline acknowledgment
-        engine = resolved.connection_for_role(connection_role).create_engine()
+        if connection_name is not None:
+            engine = resolver.resolve_connection(connection_name).create_engine()
+        else:
+            engine = resolver.resolve_database(database).connection_for_role(connection_role).create_engine()
         try:
             with engine.begin() as connection:
                 existing = next(
                     (
                         row for row in _list_registry_rows(connection)
-                        if row.schema_tag == schema_tag and row.database_config_name == resolved.name
+                        if row.schema_tag == schema_tag and row.database_config_name == database
                     ),
                     None,
                 )
                 existing_schema = existing.physical_schema if existing is not None else None
                 if confirm and existing is not None:
                     released = _release_schema_claim(
-                        connection, schema_tag=schema_tag, database_config_name=resolved.name
+                        connection, schema_tag=schema_tag, database_config_name=database
                     )
         finally:
             engine.dispose()

@@ -300,9 +300,7 @@ class StackConfig(SecretSafeBaseModel):
         silently apply the wrong policy to one of its own roles.
         """
         values: dict[bool, str] = {}
-        for field_name, role in _iter_schema_roles(type(database)):
-            if getattr(database, field_name) is None:
-                continue
+        for _, role in _iter_schema_roles(type(database)):
             connection_name = database.connection_name_for_role(role)
             connection = self.connections.get(connection_name)
             if connection is None:

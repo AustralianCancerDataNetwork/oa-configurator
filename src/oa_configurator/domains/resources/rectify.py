@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 
-from .sql import _profile_for, qualified, supports_schemas
+from .sql import _profile_for, connection_key, qualified, supports_schemas
 from .schema_registry import (
     _find_schema_provenance_claim,
     _reject_reservation_conflict,
@@ -24,20 +24,30 @@ if TYPE_CHECKING:
 
 
 def _refuse_production_collision(target: sa.URL) -> None:
-    """Raise RuntimeError if target's host/database/port matches a non-test_only connection.
+    """Raise RuntimeError if target addresses the same physical database as a
+    non-test_only connection.
 
     Shared by testing's create-database and drop-database paths, so a
     connection.toml hand-edited to bypass the connections-add-time check
     still gets caught here at provisioning time.
+
+    Notes
+    -----
+    An unreadable or invalid config raises, since this guard runs
+    immediately before CREATE DATABASE or DROP DATABASE.
     """
     from ...loader import load_stack_config
     from ...resolver import _find_production_collision
 
     try:
         config = load_stack_config()
-    except (FileNotFoundError, ValueError):
-        return
-    match = _find_production_collision(target.host, target.database, target.port, config)
+    except (FileNotFoundError, ValueError) as exc:
+        raise RuntimeError(
+            f"Refusing to target {target.database!r}: the config could not be read, so "
+            "this cannot be checked against production connections. Fix the config, or "
+            "point OA_CONFIG_PATH at the intended one, and retry."
+        ) from exc
+    match = _find_production_collision(connection_key(target), config)
     if match is not None:
         raise RuntimeError(
             f"Refusing to target {target.database!r}: matches non-test connection {match!r} "

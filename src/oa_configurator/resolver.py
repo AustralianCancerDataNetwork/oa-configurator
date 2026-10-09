@@ -279,22 +279,34 @@ def _resolve_ref(
     return name
 
 
-def _find_production_collision(
-    host: str | None, database_name: str | None, port: int | None, config: StackConfig
-) -> str | None:
-    """Return the name of a non-test_only connection matching host/database
-    name/port, or None. Checks config.connections directly, independent of
-    whether/how a database entry references it."""
-    for conn_name, conn in config.connections.items():
-        if conn.test_only:
-            continue
-        if (
-            conn.host == host
-            and conn.database_name == database_name
-            and conn.port == port
-        ):
-            return conn_name
-    return None
+def _find_production_collision(target_key: str, config: StackConfig) -> str | None:
+    """Return the name of a non-test_only connection addressing the same
+    physical database as *target_key*, or None.
+
+    Checks config.connections directly. Comparison goes through :func:`connection_key`, 
+    so an omitted port or a different spelling of the same host cannot slip a
+    production database past this check.
+
+    Parameters
+    ----------
+    target_key : str
+        Physical identity of the database being checked, from
+        :func:`connection_key` or :meth:`ConnectionConfig.physical_key`.
+    config : StackConfig
+        Config whose connections are compared against.
+
+    Returns
+    -------
+    str or None
+    """
+    return next(
+        (
+            conn_name
+            for conn_name, conn in config.connections.items()
+            if not conn.test_only and conn.physical_key() == target_key
+        ),
+        None,
+    )
 
 
 def _abort_on_invalid_entry(
@@ -351,9 +363,7 @@ def _check_test_collision(
     Test databases run DROP SCHEMA CASCADE; pointing one at production data
     by mistake (e.g. copy-pasted host/database name) would destroy it.
     """
-    match = _find_production_collision(
-        new_conn.host, new_conn.database_name, new_conn.port, config
-    )
+    match = _find_production_collision(new_conn.physical_key(), config)
     if match is not None:
         if headless:
             raise ConfigurationError(

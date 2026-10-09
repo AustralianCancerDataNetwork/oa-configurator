@@ -24,6 +24,7 @@ from .domains.resources.schema import (
 from .domains.resources.sql import (
     Dialect,
     autocommit_connection,
+    connection_key,
     declared_schema_tags,
     ensure_schema,
     is_ephemeral_url,
@@ -117,6 +118,7 @@ __all__ = [
     "autocommit_connection",
     "claimed_schema_tags",
     "configure_logging",
+    "connection_key",
     "database_config_name_of",
     "declared_schema_tags",
     "ensure_schema",

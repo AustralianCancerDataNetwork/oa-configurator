@@ -512,20 +512,27 @@ class TestCreateEngine:
         engine = target.create_engine()
         assert engine.dialect.name == Dialect.SQLITE
 
-    def test_database_create_engine(self, minimal_stack):
+    def test_cdm_database_create_engines(self, minimal_stack):
         r = Resolver(minimal_stack)
         res = r.resolve_database("default")
-        engine = res.create_engine()
-        assert engine.dialect.name == Dialect.SQLITE
+        primary, vocab = res.create_engines()
+        assert primary.dialect.name == Dialect.SQLITE
+        assert vocab is primary
+
+    def test_cdm_database_create_engine_raises(self, minimal_stack):
+        """A CDM entry has two engines, so the single-engine call is refused."""
+        res = Resolver(minimal_stack).resolve_database("default")
+        with pytest.raises(TypeError, match="create_engines"):
+            res.create_engine()
 
     def test_execution_options_schema_translate_map_is_rejected_outright(self, minimal_stack):
-        """create_engine() is the one way to add anything
+        """create_engines() is the one way to add anything
         to schema_translate_map, so a raw execution_options override is
         rejected unconditionally."""
         resolved = Resolver(minimal_stack).resolve_database("default")
 
         with pytest.raises(ValueError, match="Utilise schema_claims instead"):
-            resolved.create_engine(
+            resolved.create_engines(
                 execution_options={"schema_translate_map": {"unrelated_tag": "wrong"}}
             )
 
@@ -533,17 +540,17 @@ class TestCreateEngine:
         resolved = Resolver(pg_stack).resolve_database("default")
 
         with pytest.raises(ValueError, match="resolver-managed schema_tag"):
-            resolved.create_engine(
+            resolved.create_engines(
                 schema_claims=[SchemaClaim(schema_tag="vocab", physical_schema="wrong")]
             )
 
     def test_extensions_callable_fires_on_the_first_connection(self, minimal_stack):
         """Attached before anything else touches the engine, so it covers even the
-        very first connection opened after create_engine() returns -- the exact
+        very first connection opened after create_engines() returns -- the exact
         timing gap a connect-event listener attached afterwards would miss."""
         resolved = Resolver(minimal_stack).resolve_database("default")
         calls = []
-        engine = resolved.create_engine(extensions=[lambda conn, record: calls.append(1)])
+        engine, _ = resolved.create_engines(extensions=[lambda conn, record: calls.append(1)])
 
         with engine.connect():
             pass
@@ -563,7 +570,7 @@ class TestCreateEngine:
         )
         resolved = Resolver(stack).resolve_database("default")
         calls = []
-        engine = resolved.create_engine(extensions=[lambda conn, record: calls.append(1)])
+        engine, _ = resolved.create_engines(extensions=[lambda conn, record: calls.append(1)])
 
         with engine.connect(), engine.connect():
             assert len(calls) == 2

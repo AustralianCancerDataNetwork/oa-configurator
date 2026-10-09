@@ -194,6 +194,11 @@ class PackageConfigBase(SecretSafeBaseModel):
             resolved config (e.g. ``MyPackageConfig.get_config().cdm_db``).
         **engine_kwargs:
             Forwarded to :meth:`~oa_configurator.resolver.ResolvedDatabase.create_engine`.
+
+        Raises
+        ------
+        TypeError
+            If *database* is a CDM entry. Use ``resolve_database(database).create_engines()``.
         """
         from .resolver import Resolver
 

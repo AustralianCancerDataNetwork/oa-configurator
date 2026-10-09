@@ -49,7 +49,7 @@ config = StackConfig.for_session(
         )
     },
 )
-engine = Resolver(config).resolve_database("cdm").create_engine()
+primary, vocab = Resolver(config).resolve_database("cdm").create_engines()
 ```
 
 ### Parameters
@@ -88,7 +88,7 @@ def test_something():
         tools={"my_package": {"backend": "test_backend"}},
     )
     resolver = Resolver(cfg)
-    engine = resolver.resolve_database("cdm").create_engine()
+    primary, vocab = resolver.resolve_database("cdm").create_engines()
     # ...
 ```
 
@@ -105,7 +105,7 @@ Loads the shared config file, then replaces specific connections or databases fo
 ```python
 from oa_configurator import load_stack_config, ConnectionConfig, CDMDatabaseConfig, Resolver
 
-engine = (
+primary, vocab = (
     Resolver(load_stack_config())
     .with_overrides(
         connections={
@@ -116,7 +116,7 @@ engine = (
         },
     )
     .resolve_database("cdm")
-    .create_engine()
+    .create_engines()
 )
 ```
 

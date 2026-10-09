@@ -594,10 +594,16 @@ class TestScopedTestSchema:
             assert scoped.schemas[Role.VOCAB] != scoped.schemas[Role.PRIMARY]
             primary, vocab = scoped.resolved.create_engines()
             try:
-                assert vocab is not primary
+                # Two connection entries naming one physical database are not a
+                # split, so one engine serves both roles and still routes each
+                # tag to its own schema. A second pool here would address the
+                # database already open as primary.
+                assert vocab is primary
+                translate_map = primary.get_execution_options()["schema_translate_map"]
+                assert translate_map[Role.VOCAB.value] == scoped.schemas[Role.VOCAB]
+                assert translate_map[Role.PRIMARY.value] == scoped.schemas[Role.PRIMARY]
             finally:
                 primary.dispose()
-                vocab.dispose()
 
     def test_generic_database_scopes_only_primary(self, pg_db):
         from oa_configurator import Role
@@ -617,7 +623,8 @@ class TestScopedTestSchema:
         schema during the block and simply stays there once it exits."""
         from oa_configurator import Role
 
-        pg_db.resolved.create_engine().dispose()
+        for engine in set(pg_db.resolved.create_engines()):
+            engine.dispose()
         tags = [role.value for role in Role]
         before = self._registry_rows(pg_db.committing_engine, tags)
         with scoped_test_schema(pg_db.resolved, prefix="ttest_rows") as scoped:
@@ -640,6 +647,32 @@ class TestScopedTestSchema:
             pass
         [row] = self._registry_rows(pg_db.committing_engine, [tag])
         assert (row.owner, row.database_config_name) == ("test_testing", pg_db.resolved.name)
+
+    def test_claim_schemas_it_created_are_dropped_and_existing_ones_kept(
+        self, pg_db, cleanup_after_test
+    ):
+        """A caller claim's schema created by the block is dropped on exit; one
+        that already existed (e.g. a shared staging schema) is left alone."""
+        import uuid
+
+        import sqlalchemy as sa
+
+        from oa_configurator import SchemaClaim
+        from oa_configurator.testing import reset_schema_registry_rows
+
+        created_tag = f"ttest_created_{uuid.uuid4().hex[:8]}"
+        kept_tag = f"ttest_kept_{uuid.uuid4().hex[:8]}"
+        reset_schema_registry_rows(cleanup_after_test, pg_db.committing_engine, [created_tag, kept_tag])
+        with isolated_test_schema(pg_db.committing_engine, prefix="ttest_kept") as kept_schema:
+            claims = [
+                SchemaClaim(schema_tag=created_tag, physical_schema=f"{created_tag}_schema"),
+                SchemaClaim(schema_tag=kept_tag, physical_schema=kept_schema),
+            ]
+            with scoped_test_schema(pg_db.resolved, prefix="ttest_claims", schema_claims=claims):
+                assert f"{created_tag}_schema" in sa.inspect(pg_db.committing_engine).get_schema_names()
+            schemas = set(sa.inspect(pg_db.committing_engine).get_schema_names())
+            assert f"{created_tag}_schema" not in schemas
+            assert kept_schema in schemas
 
     def test_reset_registry_rows_restores_them_after_the_test(self, pg_db, cleanup_after_test):
         import uuid

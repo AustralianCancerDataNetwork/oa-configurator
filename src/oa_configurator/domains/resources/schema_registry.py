@@ -91,6 +91,15 @@ class UnregisteredSchemaTagError(RuntimeError):
     """
 
 
+class CrossDatabaseStatementError(RuntimeError):
+    """One statement references schema tags hosted on different databases.
+
+    Raised before execution, because such a statement does not reliably
+    fail: a leftover copy of the remote table on this database satisfies it
+    and returns stale rows instead of an error.
+    """
+
+
 def find_table_in_other_schemas(
     bindable: Bindable, table_name: str, *, physical_schema: str | None
 ) -> tuple[str, ...]:

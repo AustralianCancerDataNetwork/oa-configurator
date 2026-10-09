@@ -12,7 +12,7 @@ Each package that integrates with `oa-configurator`:
 1. Subclasses `PackageConfigBase` with its typed config fields
 2. Registers the class via an entry point in `pyproject.toml`
 3. Calls `MyPackageConfig.get_config()` to read its config
-4. Uses `Resolver.from_active_config().resolve_database("cdm").create_engine()` for SQLAlchemy
+4. Resolves its database entry with `Resolver.from_active_config().resolve_database(name)` and builds its SQLAlchemy engines from it
 5. Calls `configure_logging(verbosity=verbose, extra_namespaces=["<package>"])` at startup
 
 ---
@@ -86,22 +86,33 @@ After installing your package, `omop-config configure my_package` will find and 
 
 ### 4. Engine creation
 
+`resolve_database(name)` returns a different type depending on the entry's `kind`, and each type has its own engine call:
+
+| Entry `kind` | Resolves to | Engine call | Returns |
+|---|---|---|---|
+| `generic` (`GenericDatabaseConfig`) | `ResolvedDatabase` | `create_engine()` | one engine |
+| `cdm` (`CDMDatabaseConfig`) | `ResolvedCDMDatabase` | `create_engines()` | `(primary, vocab)` |
+
+A generic database has one connection and one schema:
+
+```python
+from oa_configurator import Resolver
+
+engine = Resolver.from_active_config().resolve_database("my_store").create_engine()
+```
+
+A CDM database can keep its vocabulary on a database of its own, so it always yields two engines:
+
 ```python
 from oa_configurator import Resolver
 
 config = MyPackageConfig.get_config()
-engine = Resolver.from_active_config().resolve_database(config.cdm_db).create_engine()
+primary, vocab = Resolver.from_active_config().resolve_database(config.cdm_db).create_engines()
 ```
 
-`create_engine()` applies the `schema_translate_map` automatically so OMOP ORM models route to the right schemas without changes.
+`vocab` is the same object as `primary` when the vocabulary shares the primary database. Both engines apply the `schema_translate_map`, so OMOP ORM models route to the right schemas without changes. `create_engine()` and `Resolver.resolve_engine()` raise `TypeError` on a CDM entry.
 
-For the vocabulary database:
-
-```python
-from oa_configurator import Role
-
-vocab_engine = Resolver.from_active_config().resolve_database(config.cdm_db).create_engine(role=Role.VOCAB)
-```
+Every engine `create_engines()` builds refuses a statement that references a table hosted on the other database (`CrossDatabaseStatementError`), so sending vocabulary work to the primary engine fails instead of reading a stale copy. Raw `text()` SQL carries no table metadata and is not checked.
 
 ---
 
@@ -292,14 +303,16 @@ This creates `cdm_db_prod` without touching the existing `cdm_db`, and points `o
 
 ### Choosing between databases of the same kind
 
-There is no config-level "default database" toggle. When more than one database of the same kind exists, the caller names the one it wants explicitly:
+There is no config-level "default database" toggle. When more than one database of the same kind exists, the caller names the one it wants explicitly. For two CDM databases:
 
 ```python
+from oa_configurator import Resolver
 from omop_alchemy.config import OmopAlchemyConfig
 
 config = OmopAlchemyConfig.get_config()
-prod_engine = OmopAlchemyConfig.get_engine("cdm_db_prod")
-dev_engine = OmopAlchemyConfig.get_engine(config.cdm_db)  # whatever cdm_db currently resolves to
+resolver = Resolver.from_active_config()
+prod_primary, prod_vocab = resolver.resolve_database("cdm_db_prod").create_engines()
+dev_primary, dev_vocab = resolver.resolve_database(config.cdm_db).create_engines()  # whatever cdm_db currently resolves to
 ```
 
 For switching between whole environments (dev vs. prod) rather than picking one database among several, use distinctly-named connections and databases per environment, and point each deployment's `omop-config configure` flags at the right ones. There is no profile/overlay mechanism; naming is the only axis.

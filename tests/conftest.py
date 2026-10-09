@@ -15,6 +15,8 @@ from oa_configurator import (
     StackConfig,
     ConnectionConfig,
     CDMDatabaseConfig,
+    ResolvedCDMDatabase,
+    Resolver,
 )
 from oa_configurator.config import OAConfiguratorConfig
 from oa_configurator.testing import DIALECT_PARAMS, isolated_test_database, reset_schema_registry_rows
@@ -56,6 +58,18 @@ def registry_row(
     mapped = _with_provenance_translate_map(connection, physical_schema="oa_configurator_provenance")
     conditions = _row_conditions(connection_key(connection.engine.url), schema_tag, database_config_name or "")
     return mapped.execute(sa.select(SchemaRegistry).where(*conditions)).one()
+
+
+def register_entry(stack: StackConfig, database_config_name: str) -> None:
+    """Register the entry's Role claims by building and disposing its engines."""
+    resolved = Resolver(stack).resolve_database(database_config_name)
+    engines = (
+        resolved.create_engines()
+        if isinstance(resolved, ResolvedCDMDatabase)
+        else (resolved.create_engine(),)
+    )
+    for engine in set(engines):
+        engine.dispose()
 
 
 @pytest.fixture

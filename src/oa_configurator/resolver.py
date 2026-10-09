@@ -868,6 +868,12 @@ class Resolver:
         Returns
         -------
         sqlalchemy.engine.Engine
+
+        Raises
+        ------
+        TypeError
+            If *database* is a CDM entry, which has two engines. Use
+            ``resolve_database(database).create_engines()`` instead.
         """
         return self.resolve_database(database).create_engine(**kwargs)
 

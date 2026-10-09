@@ -724,7 +724,7 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0,<3" },
     { name = "tomli-w", specifier = ">=1,<2" },
     { name = "ty", marker = "extra == 'dev'", specifier = ">=0.0.59" },
-    { name = "typer", specifier = ">=0.12,<1" },
+    { name = "typer", specifier = ">=0.12.4,<1" },
     { name = "typing-extensions", specifier = ">=4.5" },
 ]
 provides-extras = ["dev", "postgres"]

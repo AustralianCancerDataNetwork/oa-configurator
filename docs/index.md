@@ -28,7 +28,7 @@ A shared configuration layer for the OMOP-oriented Python stack.
     resolver = Resolver(config)
 
     database = resolver.resolve_database("cdm")
-    engine   = database.create_engine()                 # SQLAlchemy Engine, schema_translate_map applied
+    primary, vocab = database.create_engines()          # SQLAlchemy Engines, schema_translate_map applied
     ```
 
 === "Inline (no file)"
@@ -41,7 +41,7 @@ A shared configuration layer for the OMOP-oriented Python stack.
                                                 database_name="omop", password="omop")},
         databases={"cdm": CDMDatabaseConfig(connection="local", cdm_schema="omop")},
     )
-    engine = Resolver(config).resolve_database("cdm").create_engine()
+    primary, vocab = Resolver(config).resolve_database("cdm").create_engines()
     ```
 
 === "Session override"
@@ -50,14 +50,14 @@ A shared configuration layer for the OMOP-oriented Python stack.
     from oa_configurator import load_stack_config, ConnectionConfig, CDMDatabaseConfig, Resolver
 
     # Load shared team config, redirect one database to a local SQLite connection
-    engine = (
+    primary, vocab = (
         Resolver(load_stack_config())
         .with_overrides(
             connections={"local": ConnectionConfig(dialect="sqlite", database_name="/data/local.db")},
             databases={"cdm": CDMDatabaseConfig(connection="local", cdm_schema="omop")},
         )
         .resolve_database("cdm")
-        .create_engine()
+        .create_engines()
     )
     ```
 

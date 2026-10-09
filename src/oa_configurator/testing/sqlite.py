@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, Generator, Iterable
 import sqlalchemy as sa
 import sqlalchemy.orm as so
 
+from ..domains.resources.sql import Role
 from .base import IsolatedTestDatabase, TestDatabaseStrategy
 
 if TYPE_CHECKING:
@@ -77,7 +78,7 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
         execution_options : dict[str, Any] | None, optional
             Options to be passed to the database engine.
         **engine_kwargs
-            Forwarded to ``ResolvedDatabase.create_engine()``, e.g.
+            Forwarded to the primary engine build, e.g.
             ``extensions`` for a connect-event callable (such as sqlite-vec's
             extension loader) the engine needs on every physical connection.
         """
@@ -97,7 +98,8 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
                 vocab_schema=None,
                 results_schema=None,
             )
-            engine = fresh.create_engine(
+            engine = fresh._build_engine(
+                Role.PRIMARY,
                 schema_claims=schema_claims, execution_options=execution_options, **engine_kwargs
             )
             try:

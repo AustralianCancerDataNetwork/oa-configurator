@@ -27,7 +27,7 @@ config = load_stack_config()          # OA_CONFIG_PATH is read at import; set it
 resolver = Resolver(config)
 
 database = resolver.resolve_database("cdm_db")
-engine = database.create_engine()     # SQLAlchemy Engine, schema_translate_map applied
+primary, vocab = database.create_engines()   # SQLAlchemy Engines, schema_translate_map applied
 ```
 
 Or without a file, for tests and scripts:
@@ -40,7 +40,7 @@ config = StackConfig.for_session(
                                             database_name="omop", password="omop")},
     databases={"cdm_db": CDMDatabaseConfig(connection="local", cdm_schema="omop")},
 )
-engine = Resolver(config).resolve_database("cdm_db").create_engine()
+primary, vocab = Resolver(config).resolve_database("cdm_db").create_engines()
 ```
 
 ## Security

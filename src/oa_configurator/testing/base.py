@@ -249,12 +249,12 @@ class TestDatabaseStrategy(ABC):
         """Yield an isolated, dialect-appropriate test database resource.
 
         engine_kwargs
-            Forwarded to ``resolved.create_engine()``, e.g. ``poolclass`` or
+            Forwarded to the primary engine build, e.g. ``poolclass`` or
             ``connect_args`` for a caller that needs to tune the underlying
             engine (a session-scoped SQLite engine sharing one real
             connection via ``poolclass=StaticPool``, for example), or
             ``extensions`` for a connect-event callable the engine needs on
-            every physical connection (see ``ResolvedDatabase.create_engine``;
+            every physical connection (see ``ResolvedDatabase._build_engine``;
             ``install_postgres_extension()`` builds one for a named Postgres
             extension).
         """

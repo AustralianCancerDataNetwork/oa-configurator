@@ -362,7 +362,7 @@ def _verify_schema_provenance(
         primary=Role.PRIMARY
     )
     try:
-        engine = resolved.create_engine(role=connection_role, register_claims=False)
+        engine = resolved._build_engine(connection_role, register_claims=False)
     except SchemaDriftError as exc:
         table.add_row(label, schema_tag, "?", "[red]DRIFT[/red]", f"connection-wide: {str(exc)[:70]}")
         return False

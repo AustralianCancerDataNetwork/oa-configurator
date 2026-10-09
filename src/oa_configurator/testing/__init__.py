@@ -241,10 +241,10 @@ def isolated_test_database(
         fixture not already covered by ``DIALECT_PARAMS`` (whose marks are
         always correct by construction).
     engine_kwargs
-        Forwarded to the underlying ``ResolvedDatabase.create_engine()``
-        call, e.g. ``poolclass``/``connect_args`` for a caller that needs
-        to tune the engine (a session-scoped SQLite engine that must share
-        one real connection via ``poolclass=StaticPool``, for example), or
+        Forwarded to the primary engine build, e.g.
+        ``poolclass``/``connect_args`` for a caller that needs to tune the
+        engine (a session-scoped SQLite engine that must share one real
+        connection via ``poolclass=StaticPool``, for example), or
         ``extensions`` for a connect-event callable the engine needs on
         every physical connection (``install_postgres_extension()`` builds
         one for a named Postgres extension).
@@ -305,7 +305,7 @@ class ScopedTestSchema(NamedTuple):
     resolved : ResolvedDatabase
         Copy of the input resolved with every role pointed at its test schema.
     engine : sqlalchemy.engine.Engine
-        ``resolved.create_engine()`` for the primary role.
+        Engine for the primary connection, with the schema translate map applied.
     schemas : dict[Role, str]
         Physical test schema per role.
     """
@@ -404,7 +404,8 @@ def scoped_test_schema(
 
     Roles sharing a connection share one schema, except roles in
     *split_roles*, which each get their own. Schemas are created on the
-    role's own connection and dropped on exit. The config entry name is
+    role's own connection and dropped on exit, as is any schema a caller
+    claim creates that did not exist before. The config entry name is
     kept. Postgres only.
 
     Parameters
@@ -418,7 +419,7 @@ def scoped_test_schema(
     resolver : Resolver, optional
         Resolver holding *resolved*'s entry. Defaults to ``Resolver.from_active_config()``.
     schema_claims, extensions, owner, **engine_kwargs
-        Forwarded to ``ResolvedDatabase.create_engine()``.
+        Forwarded to the primary engine build.
 
     Yields
     ------
@@ -448,7 +449,14 @@ def scoped_test_schema(
             schemas[role] = shared_schemas[connection.name]
 
         scoped = resolve_with_role_schemas(resolved, schemas, resolver=resolver)
-        engine = scoped.create_engine(
+        schema_claims = tuple(schema_claims)
+        primary_ddl_engine = ddl_engines[resolved.connection.name]
+        existing = set(sa.inspect(primary_ddl_engine).get_schema_names())
+        for claim in schema_claims:
+            if claim.physical_schema is not None and claim.physical_schema not in existing:
+                stack.callback(drop_schema_if_exists, primary_ddl_engine, claim.physical_schema)
+        engine = scoped._build_engine(
+            Role.PRIMARY,
             schema_claims=schema_claims, extensions=extensions, owner=owner, **engine_kwargs
         )
         stack.callback(engine.dispose)
@@ -464,7 +472,7 @@ def cleanup_after_test() -> Iterator[Callable[[Callable[[], None]], None]]:
     tempfile (SQLite). This fixture is the counterpart for a test that
     genuinely can't get that guarantee for free because it holds a real,
     committing engine or connection instead (``pg_engine``,
-    ``resolved.create_engine()``, ``target_connection.create_engine()``).
+    ``resolved.create_engines()``, ``target_connection.create_engine()``).
     Register whatever undoes what the test actually committed::
 
         def test_writes_a_row(pg_engine, cleanup_after_test):

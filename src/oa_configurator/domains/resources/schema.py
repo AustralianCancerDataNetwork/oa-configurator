@@ -6,6 +6,7 @@ import inspect
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from enum import Enum
+from functools import cached_property
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -20,6 +21,7 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import event
 from sqlalchemy.engine import URL, Engine, Connection
+from sqlalchemy.sql import visitors
 import sqlalchemy as sa
 
 from ...refs import RefTo, Secret, SecretSafeBaseModel
@@ -37,6 +39,7 @@ from .sql import (
 )
 from .schema_registry import (
     _SCHEMA_PROVENANCE_SCHEMA,
+    CrossDatabaseStatementError,
     _check_schema_claim,
     _ensure_schema_registry_table,
     _guard_schema_provenance,
@@ -280,6 +283,127 @@ def _derive_owner() -> str | None:
             return module_name.split(".")[0]
         frame = frame.f_back
     return None
+
+
+def statement_schema_tags(clause: Any) -> set[str]:
+    """Schema tags of every ``Table`` appearing anywhere in *clause*.
+
+    Reads the in-Python ``Table.schema``, which carries the tag rather than
+    the physical schema, so this sees what a statement asks for before
+    ``schema_translate_map`` rewrites it. A raw ``text()`` construct carries
+    no table metadata and yields an empty set.
+    """
+    return {
+        element.schema
+        for element in visitors.iterate(clause)
+        if isinstance(element, sa.Table) and element.schema
+    }
+
+
+def _install_cross_database_guard(engine: Engine, resolved: "ResolvedDatabase") -> None:
+    """Refuse statements on *engine* that reference a role hosted on another database.
+
+    Covers a join spanning two databases and a statement sent to the wrong
+    engine alike, since both reference a role this engine does not host.
+    Only resolver role tags are checked: a caller-claimed tag is hosted by
+    whichever engine claimed it.
+
+    Installed on the engine rather than at call sites, so every consumer
+    inherits the protection without opting in. Only attached when *resolved*
+    actually splits its tags across connections, leaving a colocated
+    deployment at no cost.
+    """
+    role_tags = {role.value for role in resolved.schema_tags()}
+    hosted = {role.value for role in resolved.roles_on_connection(engine)}
+
+    @event.listens_for(engine, "before_execute")
+    def _guard(  # type: ignore[misc]
+        conn: Connection,
+        clauseelement: Any,
+        multiparams: Any,
+        params: Any,
+        execution_options: Any,
+    ) -> None:
+        foreign = sorted((statement_schema_tags(clauseelement) & role_tags) - hosted)
+        if not foreign:
+            return
+        hosts = {tag: resolved.connection_for_schema_tag(tag).name for tag in foreign}
+        raise CrossDatabaseStatementError(
+            f"Statement references schema tag(s) {foreign} hosted on another database "
+            f"({hosts}), but runs on an engine for connection "
+            f"{resolved.connection_for_schema_tag(next(iter(hosted))).name!r}. "
+            "Run it on the engine hosting those tables, or use filter_by_keys() for a "
+            "filter that crosses the boundary."
+        )
+
+
+def referred_schema_tag(foreign_key: sa.ForeignKey, default: str) -> str:
+    """Schema tag a foreign key points at, or *default* when it names none.
+
+    Read from ``target_fullname`` rather than from ``fk.column``, which
+    resolves the referenced table and raises on a copied table whose target
+    is not in the same MetaData.
+    """
+    parts = foreign_key.target_fullname.split(".")
+    return parts[0] if len(parts) == 3 else default
+
+
+def without_cross_engine_foreign_keys(
+    tables: Iterable[sa.Table],
+    *,
+    resolved: "ResolvedDatabase",
+) -> list[sa.Table]:
+    """Copies of *tables* with foreign keys that cross a database boundary removed.
+
+    Derived from the real tables so a column or type added to a model cannot
+    drift from its copy. Only constraints whose referred tag is hosted on
+    another connection are dropped; a composite key targeting the same tag
+    survives untouched.
+
+    This changes only the DDL emitted for a split deployment. The ORM models
+    keep their own ``ForeignKey`` declarations, and SQLAlchemy infers join
+    conditions from those in-Python, so relationship loading does not depend
+    on the physical constraint existing.
+
+    Parameters
+    ----------
+    tables : Iterable[sqlalchemy.Table]
+        Tables to copy, typically everything one engine creates. Each table's
+        own ``schema`` is the tag it belongs to.
+    resolved : ResolvedDatabase
+        Topology answering whether a foreign key can span two tags.
+
+    Returns
+    -------
+    list[sqlalchemy.Table]
+        The copies, in input order, all in one fresh MetaData so a surviving
+        foreign key resolves its target at DDL compilation. The originals
+        and their MetaData are never mutated.
+    """
+    target = sa.MetaData()
+    copies = [table.to_metadata(target) for table in tables]
+    for copied in copies:
+        own_tag = copied.schema
+        if own_tag is None:
+            continue
+        for constraint in [
+            candidate
+            for candidate in copied.constraints
+            if isinstance(candidate, sa.ForeignKeyConstraint)
+        ]:
+            crosses = any(
+                not resolved.foreign_key_can_span(
+                    own_tag, referred_schema_tag(element, own_tag)
+                )
+                for element in constraint.elements
+            )
+            if not crosses:
+                continue
+            copied.constraints.discard(constraint)
+            for element in constraint.elements:
+                copied.foreign_keys.discard(element)
+                element.parent.foreign_keys.discard(element)
+    return copies
 
 
 def _process_schema_claims(
@@ -564,6 +688,24 @@ class ResolvedConnection:
     _engine_url: URL = field(repr=False, compare=False)
     test_only: bool = False
 
+    def physical_key(self) -> str:
+        """Physical identity of the database this connection addresses.
+
+        See :func:`connection_key`. Two connection entries with different
+        names that address one database share a key, which is what decides
+        whether a role is genuinely hosted elsewhere.
+        """
+        return connection_key(self._engine_url)
+
+    def addresses_same_database_as(self, other: "ResolvedConnection") -> bool:
+        """Do self and other address the same physical database?
+
+        Compares physical identity rather than dataclass equality, so a
+        second config entry pointing at one database is recognised as the
+        same database rather than as a separate one.
+        """
+        return self.physical_key() == other.physical_key()
+
     def create_engine(self, **kwargs: Any) -> Engine:
         """Create a SQLAlchemy engine for this connection.
 
@@ -636,7 +778,6 @@ class ResolvedDatabase:
 
     def create_engine(
         self,
-        role: Role = Role.PRIMARY,
         *,
         schema_claims: Iterable[SchemaClaim] = (),
         extensions: Sequence[Callable[[Any, Any], None]] = (),
@@ -646,6 +787,32 @@ class ResolvedDatabase:
         **kwargs: Any,
     ) -> Engine:
         """Create a SQLAlchemy engine with the schema translate map applied.
+
+        Parameters are as for :meth:`_build_engine`, which this calls for
+        the primary connection.
+        """
+        return self._build_engine(
+            Role.PRIMARY,
+            schema_claims=schema_claims,
+            extensions=extensions,
+            execution_options=execution_options,
+            owner=owner,
+            register_claims=register_claims,
+            **kwargs,
+        )
+
+    def _build_engine(
+        self,
+        role: Role = Role.PRIMARY,
+        *,
+        schema_claims: Iterable[SchemaClaim] = (),
+        extensions: Sequence[Callable[[Any, Any], None]] = (),
+        execution_options: dict[str, Any] | None = None,
+        owner: str | None = None,
+        register_claims: bool = True,
+        **kwargs: Any,
+    ) -> Engine:
+        """Build the engine for *role*'s connection with the schema translate map applied.
 
         Notes
         -----
@@ -716,7 +883,7 @@ class ResolvedDatabase:
             )
 
         # Resolver-managed tags are known purely from self and the caller's own
-        # schema_claims argument -- checked before anything touches a real
+        # schema_claims argument, checked before anything touches a real
         # connection, so a caller error is reported without needing a live database.
         owned_tags = {_SCHEMA_PROVENANCE_SCHEMA, *self.configured_internal_schema_translate_map()}
         # Derived before anything else so the stack walk sees the real caller's
@@ -742,6 +909,9 @@ class ResolvedDatabase:
         for extension in extensions:
             event.listens_for(engine, "connect")(extension)
 
+        if not self.tags_share_a_transaction(*(r.value for r in self.schema_tags())):
+            _install_cross_database_guard(engine, self)
+
         schema_provenance_claim = SchemaClaim(
             schema_tag=_SCHEMA_PROVENANCE_SCHEMA,
             physical_schema=schema_if_supported(_SCHEMA_PROVENANCE_SCHEMA, engine),
@@ -750,7 +920,9 @@ class ResolvedDatabase:
         )
         # Keyed by Role rather than by tag string, so a role hosted elsewhere is
         # told apart from a caller claim that happens to share its spelling.
-        internal_map = self.configured_internal_schema_translate_map()
+        # Schemas come pre-resolved so a role hosted on another connection
+        # carries that connection's own default rather than this engine's.
+        internal_map = self.resolved_physical_schemas()
         local_roles = self.roles_on_connection(engine)
         role_claims = {
             schema_role: SchemaClaim(
@@ -863,6 +1035,88 @@ class ResolvedDatabase:
             )
         return primary
 
+    def connection_for_schema_tag(self, schema_tag: Role | str) -> ResolvedConnection:
+        """Return the connection hosting *schema_tag*'s physical schema.
+
+        Mirrors :meth:`route_for_schema_tag`'s routing rule, so a caller
+        asking where a tag lives gets the same answer as a caller routing a
+        statement to it.
+        """
+        return self.route_for_schema_tag(
+            schema_tag, vocab=self.connection, primary=self.connection
+        )
+
+    def foreign_key_can_span(self, from_tag: Role | str, to_tag: Role | str) -> bool:
+        """Can a foreign key reference *to_tag*'s tables from *from_tag*'s?
+
+        False when the two tags live on different physical databases, where
+        no dialect can express the constraint. Ask this instead of deriving
+        a split flag, so the answer stays correct if a deployment later
+        colocates the two or federates them behind one connection.
+        """
+        return self.tags_share_a_transaction(from_tag, to_tag)
+
+    def tags_share_a_transaction(self, *schema_tags: Role | str) -> bool:
+        """Can one transaction cover statements against all of *schema_tags*?
+
+        True only when every tag resolves to the same physical database.
+        Nothing provides atomicity across two engines, so a caller needing
+        all-or-nothing behaviour must check this first. Vacuously true for
+        no tags or one tag.
+        """
+        keys = {
+            self.connection_for_schema_tag(tag).physical_key() for tag in schema_tags
+        }
+        return len(keys) <= 1
+
+    @cached_property
+    def _probed_physical_schemas(self) -> dict[str, str | None]:
+        """Cached result of :meth:`resolved_physical_schemas`."""
+        configured = self.configured_internal_schema_translate_map()
+        unset = sorted(
+            tag for tag, schema in configured.items()
+            if schema is None
+            and supports_schemas(self.connection_for_schema_tag(tag).dialect_name)
+        )
+        if not unset:
+            return configured
+
+        resolved = dict(configured)
+        defaults: dict[str, str | None] = {}
+        for tag in unset:
+            connection = self.connection_for_schema_tag(tag)
+            key = connection.physical_key()
+            if key not in defaults:
+                engine = connection.create_engine()
+                try:
+                    with engine.connect() as open_connection:
+                        defaults[key] = sa.inspect(open_connection).default_schema_name
+                finally:
+                    engine.dispose()
+            resolved[tag] = defaults[key]
+        return resolved
+
+    def resolved_physical_schemas(self) -> dict[str, str | None]:
+        """Physical schema every internal tag resolves to, with unset ones
+        filled in from their own connection's live default schema.
+
+        A tag left unset in config means "use the connection's own default
+        schema", which only that connection can answer. Reading it here, per
+        tag, keeps one answer for the whole database, so engines built for
+        different roles agree on where every tag lives.
+
+        Stays ``None`` for a tag whose connection has no real schema concept,
+        where ``None`` is the correct and final answer.
+
+        Notes
+        -----
+        Opens one short-lived connection per distinct connection that has an
+        unset tag, on first call only, and none at all when config names every
+        schema. The result is cached for this object's lifetime, so it is a
+        snapshot taken when first asked rather than a live reading.
+        """
+        return dict(self._probed_physical_schemas)
+
     def schema_tags(self) -> tuple[Role, ...]:
         """Role tags whose schema provenance is worth tracking for this database."""
         return (Role.PRIMARY,)
@@ -878,7 +1132,7 @@ class ResolvedDatabase:
         Only ``Role.PRIMARY`` is possible here, since ``ResolvedDatabase``
         has no vocab/results connection-splitting.
         """
-        if connection_key(self.connection._engine_url) == connection_key(connection.engine.url):
+        if self.connection.physical_key() == connection_key(connection.engine.url):
             return (Role.PRIMARY,)
         return ()
 
@@ -986,6 +1240,17 @@ class ResolvedCDMDatabase(ResolvedDatabase):
         self._verify_route_for_schema_tag(vocab=vocab, primary=primary)
         return vocab if schema_tag == Role.VOCAB else primary
 
+    def connection_for_schema_tag(self, schema_tag: Role | str) -> ResolvedConnection:
+        """Return the connection hosting *schema_tag*'s physical schema.
+
+        ``Role.VOCAB`` resolves to ``vocab_connection``; every other tag
+        resolves to the primary connection, matching
+        :meth:`route_for_schema_tag`.
+        """
+        return self.route_for_schema_tag(
+            schema_tag, vocab=self.vocab_connection, primary=self.connection
+        )
+
     def schema_for_role(self, role: Role = Role.PRIMARY) -> str | None:
         """Return the effective schema for a given role.
         See :meth:`CDMDatabaseConfig.resolve` for how vocab/results roles are handled.
@@ -1049,9 +1314,9 @@ class ResolvedCDMDatabase(ResolvedDatabase):
         """
         target = connection_key(connection.engine.url)
         roles: list[Role] = []
-        if connection_key(self.connection._engine_url) == target:
+        if self.connection.physical_key() == target:
             roles.extend((Role.PRIMARY, Role.RESULTS))
-        if connection_key(self.vocab_connection._engine_url) == target:
+        if self.vocab_connection.physical_key() == target:
             roles.append(Role.VOCAB)
         return tuple(roles)
 
@@ -1062,7 +1327,7 @@ class ResolvedCDMDatabase(ResolvedDatabase):
         Scoped by :meth:`roles_on_connection`, so a schema belonging to a
         role hosted on a genuinely different physical server (e.g. vocab
         on its own connection) is never reported just because its name
-        happens to coincide -- unlike checking every role unconditionally,
+        happens to coincide. Unlike checking every role unconditionally,
         this never needs to open a second engine to a different server.
         """
         roles = self.roles_on_connection(connection)
@@ -1077,39 +1342,49 @@ class ResolvedCDMDatabase(ResolvedDatabase):
         }
 
 
-    def vocab_engine_for(
-        self,
-        primary: Engine,
-        *,
-        execution_options: dict[str, Any] | None = None,
-        **kwargs: Any,
-    ) -> Engine:
-        """Return the vocab-role engine paired with an already-built ``primary`` engine.
+    def create_engine(self, **kwargs: Any) -> Engine:
+        """Always raises: a CDM database has a primary and a vocabulary engine.
 
-        Returns ``primary`` unchanged when ``vocab_connection`` is not a genuinely
-        different connection, avoiding a second, redundant connection pool
-        to the same target.
+        Raises
+        ------
+        TypeError
+            Always. Use :meth:`create_engines` instead.
         """
-        if self.connection == self.vocab_connection:
-            return primary
-        return self.create_engine(
-            role=Role.VOCAB, execution_options=execution_options, **kwargs
+        raise TypeError(
+            f"{type(self).__name__} has a primary and a vocabulary engine. "
+            "Use create_engines(), which returns (primary, vocab), so vocabulary "
+            "work cannot silently land on the primary database."
         )
 
     def create_engines(
         self,
         *,
+        schema_claims: Iterable[SchemaClaim] = (),
+        extensions: Sequence[Callable[[Any, Any], None]] = (),
         execution_options: dict[str, Any] | None = None,
+        owner: str | None = None,
+        register_claims: bool = True,
         **kwargs: Any,
     ) -> tuple[Engine, Engine]:
-        """Return ``(primary_engine, vocab_engine)``, built together.
+        """Return ``(primary_engine, vocab_engine)``, the only way to get CDM engines.
 
-        See :meth:`vocab_engine_for` for the pairing rule. Parameters are
-        forwarded to :meth:`create_engine` for both.
+        The vocabulary engine is the primary engine itself when
+        ``vocab_connection`` addresses the same physical database, so a
+        colocated deployment opens one pool. Every parameter applies to both
+        engines and is as for :meth:`_build_engine`.
         """
-        primary = self.create_engine(execution_options=execution_options, **kwargs)
-        vocab = self.vocab_engine_for(primary, execution_options=execution_options, **kwargs)
-        return primary, vocab
+        options: dict[str, Any] = dict(
+            schema_claims=tuple(schema_claims),
+            extensions=extensions,
+            execution_options=execution_options,
+            owner=owner if owner is not None else _derive_owner(),
+            register_claims=register_claims,
+            **kwargs,
+        )
+        primary = self._build_engine(Role.PRIMARY, **options)
+        if self.connection.addresses_same_database_as(self.vocab_connection):
+            return primary, primary
+        return primary, self._build_engine(Role.VOCAB, **options)
 
     def __repr__(self) -> str:
         return (

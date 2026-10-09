@@ -93,7 +93,7 @@ def test_drop_orphan_schema_tables_does_not_translate_an_orphan_named_like_a_tag
     pg_db, pg_connection_config, cleanup_after_test
 ):
     """Regression for the critical live-reproduced bug: a connection built
-    by create_engine() carries a live schema_translate_map, and dropping
+    by create_engines() carries a live schema_translate_map, and dropping
     through metadata.drop_all() used to let its DDL compiler translate an
     orphan_schema that happened to equal a tag key (e.g. a legacy physical
     schema literally named "vocab") into the *configured* physical schema,
@@ -126,11 +126,12 @@ def test_drop_orphan_schema_tables_does_not_translate_an_orphan_named_like_a_tag
     # Establish the baseline for configured_schema (still empty) first,
     # then populate it, mirroring how a real deployment's schema already
     # holds data by the time someone runs this command.
-    resolved.create_engine().dispose()
+    for engine in set(resolved.create_engines()):
+        engine.dispose()
     with pg_db.committing_engine.begin() as connection:
         connection.execute(sa.text(f'CREATE TABLE "{configured_schema}".concept (id INTEGER PRIMARY KEY)'))
 
-    engine = resolved.create_engine()  # carries schema_translate_map, including {"vocab": configured_schema}
+    engine, _ = resolved.create_engines()  # carries schema_translate_map, including {"vocab": configured_schema}
     try:
         with engine.begin() as connection:
             drop_orphan_schema_tables(connection, stack=stack, orphan_schema=legacy_schema, confirm=True)

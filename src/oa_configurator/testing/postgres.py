@@ -12,6 +12,7 @@ import sqlalchemy.orm as so
 from sqlalchemy import exc as sa_exc
 
 from ..domains.resources.rectify import _refuse_production_collision
+from ..domains.resources.sql import Role
 from .base import IsolatedTestDatabase, TestDatabaseStrategy
 
 if TYPE_CHECKING:
@@ -57,7 +58,7 @@ def drop_schema_if_exists(engine: "sa.Engine", schema: str) -> None:
 
 def install_postgres_extension(name: str) -> Callable[[Any, Any], None]:
     """Build an ``extensions`` connect-event callable (see
-    ``ResolvedDatabase.create_engine``) that runs
+    ``ResolvedDatabase._build_engine``) that runs
     ``CREATE EXTENSION IF NOT EXISTS`` for *name* on every physical connection.
 
     Parameters
@@ -69,7 +70,8 @@ def install_postgres_extension(name: str) -> Callable[[Any, Any], None]:
     -------
     Callable[[Any, Any], None]
         A ``(dbapi_connection, connection_record) -> None`` callable, passed
-        straight to ``create_engine(extensions=[...])`` or
+        straight to ``create_engine(extensions=[...])``,
+        ``create_engines(extensions=[...])`` or
         ``isolated_test_database(..., extensions=[...])``.
     """
 
@@ -141,7 +143,8 @@ class PostgresTestStrategy(TestDatabaseStrategy):
         url = resolved.connection.url
         self._ensure_test_db_exists(url)
 
-        engine = resolved.create_engine(
+        engine = resolved._build_engine(
+            Role.PRIMARY,
             schema_claims=schema_claims, execution_options=execution_options, **engine_kwargs
         )
         try:

@@ -16,7 +16,10 @@ from .domains.resources.schema import (
     Role,
     guard_schema_provenance_for,
     SCHEMA_TRANSLATE_MAP_KEY,
-    SchemaClaim
+    SchemaClaim,
+    referred_schema_tag,
+    statement_schema_tags,
+    without_cross_engine_foreign_keys,
 )
 from .domains.resources.sql import (
     Dialect,
@@ -31,6 +34,7 @@ from .domains.resources.sql import (
     supports_schemas,
 )
 from .domains.resources.schema_registry import (
+    CrossDatabaseStatementError,
     SchemaDriftError,
     SchemaOwnershipError,
     SchemaRegistryOutdatedError,
@@ -78,6 +82,7 @@ __all__ = [
     "ConfigurationError",
     "ConfigSaveError",
     "ConnectionConfig",
+    "CrossDatabaseStatementError",
     "DEFAULT_CONFIG_PATH",
     "Dialect",
     "GenericDatabaseConfig",
@@ -125,11 +130,14 @@ __all__ = [
     "open_connection",
     "plan_configure",
     "qualified",
+    "referred_schema_tag",
     "requires_host",
     "safe_endpoint",
     "save_stack_config",
     "schema_if_supported",
+    "statement_schema_tags",
     "physical_schema_of",
     "supports_schemas",
     "unresolved_refs",
+    "without_cross_engine_foreign_keys",
 ]

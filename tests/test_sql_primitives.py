@@ -43,6 +43,7 @@ from oa_configurator.domains.resources.schema_registry import (
     _register_schema_claim,
     _reject_reservation_conflict,
 )
+from oa_configurator.testing import drop_schema_if_exists
 from conftest import registry_row as _registry_row
 
 
@@ -1040,9 +1041,10 @@ def _concurrent_claim_worker(
     )
     execution_options = {"isolation_level": "AUTOCOMMIT"} if autocommit else None
     try:
-        Resolver(stack).resolve_database(database_config_name).create_engine(
+        primary, _ = Resolver(stack).resolve_database(database_config_name).create_engines(
             execution_options=execution_options
-        ).dispose()
+        )
+        primary.dispose()
     except Exception as exc:
         return f"{type(exc).__name__}: {exc}"
     return None
@@ -1057,12 +1059,13 @@ class TestConcurrentBootstrap:
     wouldn't reproduce."""
 
     @pytest.mark.postgresql
-    def test_eight_concurrent_first_time_claims_all_succeed(self, pg_connection_config):
+    def test_eight_concurrent_first_time_claims_all_succeed(self, pg_db, pg_connection_config, cleanup_after_test):
         import concurrent.futures
 
         url = pg_connection_config.build_url()
         database_config_name = f"concurrent_{uuid.uuid4().hex[:8]}"
         schema = f"test_{uuid.uuid4().hex[:8]}"
+        cleanup_after_test(lambda: drop_schema_if_exists(pg_db.committing_engine, schema))
         with concurrent.futures.ProcessPoolExecutor(max_workers=8) as pool:
             results = list(
                 pool.map(_concurrent_claim_worker, [url] * 8, [database_config_name] * 8, [schema] * 8)
@@ -1071,7 +1074,7 @@ class TestConcurrentBootstrap:
         assert failures == [], f"{len(failures)}/8 workers failed: {failures}"
 
     @pytest.mark.postgresql
-    def test_eight_concurrent_first_time_claims_all_succeed_with_autocommit(self, pg_connection_config):
+    def test_eight_concurrent_first_time_claims_all_succeed_with_autocommit(self, pg_db, pg_connection_config, cleanup_after_test):
         """A caller-supplied AUTOCOMMIT isolation_level must not defeat
         the registration lock's atomicity."""
         import concurrent.futures
@@ -1079,6 +1082,7 @@ class TestConcurrentBootstrap:
         url = pg_connection_config.build_url()
         database_config_name = f"autocommit_{uuid.uuid4().hex[:8]}"
         schema = f"test_{uuid.uuid4().hex[:8]}"
+        cleanup_after_test(lambda: drop_schema_if_exists(pg_db.committing_engine, schema))
         with concurrent.futures.ProcessPoolExecutor(max_workers=8) as pool:
             results = list(
                 pool.map(

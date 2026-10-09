@@ -17,6 +17,8 @@ from typing import cast
 import pytest
 from oa_configurator import (
     CDMDatabaseConfig,
+    ConnectionConfig,
+    Dialect,
     GenericDatabaseConfig,
     Resolver,
     SchemaClaim,
@@ -314,3 +316,86 @@ def test_create_engine_without_registering_claims_still_rejects_a_reserved_schem
     colliding_resolved = Resolver(colliding_stack).resolve_database("other_db")
     with pytest.raises(SchemaOwnershipError, match=f"{reserved!r}.*reserving-pkg"):
         colliding_resolved.create_engine(register_claims=False)
+
+
+def test_role_spelled_caller_claim_on_a_generic_database_is_owned_and_checked(
+    pg_db, pg_connection_config, cleanup_after_test
+):
+    """A generic database entry has no vocab role of its own, so "vocab" is
+    an ordinary custom tag there. It must be attributed to its caller and
+    guarded like any other, rather than being mistaken for a resolver-managed
+    role claim and skipped because it is spelled like one."""
+    schema_a = f"test_{uuid.uuid4().hex[:8]}"
+    schema_b = f"test_{uuid.uuid4().hex[:8]}"
+    db_name = f"role_spelled_{uuid.uuid4().hex[:8]}"
+    reset_schema_registry_rows(cleanup_after_test, pg_db.committing_engine, ["vocab"])
+    cleanup_after_test(lambda: drop_schema_if_exists(pg_db.committing_engine, schema_a))
+
+    stack = StackConfig.for_session(
+        connections={"c": pg_connection_config},
+        databases={db_name: GenericDatabaseConfig(connection="c")},
+    )
+    resolved = Resolver(stack).resolve_database(db_name)
+    engine = resolved.create_engine(
+        schema_claims=[SchemaClaim(schema_tag="vocab", physical_schema=schema_a)],
+        owner="owner-a",
+    )
+    engine.dispose()
+
+    table = cast(Table, SchemaRegistry.__table__)
+    with pg_db.connection.engine.connect() as connection:
+        row = connection.execute(
+            table.select().where(
+                table.c.schema_tag == "vocab", table.c.database_config_name == db_name
+            )
+        ).one()
+    assert row.owner == "owner-a"
+    assert row.physical_schema == schema_a
+
+    with pytest.raises(SchemaOwnershipError, match="'vocab'.*owner-a"):
+        resolved.create_engine(
+            schema_claims=[SchemaClaim(schema_tag="vocab", physical_schema=schema_b)],
+            owner="owner-b",
+        )
+
+
+def test_role_hosted_on_a_schemaless_connection_stays_unqualified(
+    pg_db, pg_connection_config, cleanup_after_test, tmp_path
+):
+    """A vocab connection with no real schema concept resolves vocab_schema
+    to None. That None belongs in the primary engine's translate map
+    verbatim: the primary connection's own default schema is not where the
+    vocab tables live, so filling it in would point every vocab reference at
+    the wrong database's public schema."""
+    cdm_schema = f"test_{uuid.uuid4().hex[:8]}"
+    db_name = f"schemaless_vocab_{uuid.uuid4().hex[:8]}"
+    reset_schema_registry_rows(cleanup_after_test, pg_db.committing_engine, ["primary", "results"])
+    cleanup_after_test(lambda: drop_schema_if_exists(pg_db.committing_engine, cdm_schema))
+
+    primary_connection_config = pg_connection_config.model_copy(update={"test_only": True})
+    stack = StackConfig.for_session(
+        connections={
+            "primary": primary_connection_config,
+            "vocab": ConnectionConfig(
+                dialect=Dialect.SQLITE,
+                database_name=str(tmp_path / "vocab.db"),
+                test_only=True,
+            ),
+        },
+        databases={
+            db_name: CDMDatabaseConfig(
+                connection="primary", vocab_connection="vocab", cdm_schema=cdm_schema,
+            )
+        },
+    )
+    resolved = Resolver(stack).resolve_database(db_name)
+    assert resolved.vocab_schema is None
+
+    engine = resolved.create_engine()
+    try:
+        translate_map = engine.get_execution_options()["schema_translate_map"]
+    finally:
+        engine.dispose()
+
+    assert translate_map["primary"] == cdm_schema
+    assert translate_map["vocab"] is None

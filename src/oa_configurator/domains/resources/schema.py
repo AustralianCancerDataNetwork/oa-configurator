@@ -284,11 +284,10 @@ def _derive_owner() -> str | None:
 
 def _process_schema_claims(
     engine: Engine,
-    claims: list[SchemaClaim],
+    claims: Sequence[SchemaClaim],
     *,
     database_config_name: str,
-    default_owner: str | None,
-    local_roles: frozenset[str] = frozenset(),
+    translate_only: Sequence[SchemaClaim] = (),
     test_only: bool = False,
     register_claims: bool = True,
 ) -> dict[str, str | None]:
@@ -298,27 +297,26 @@ def _process_schema_claims(
     With ``register_claims=False``, claims are only checked for ownership and
     reservation conflicts; nothing is written to the schema_registry.
 
-    ``physical_schema=None`` on a claim for a dialect with schema
-    support resolves to the connection's own real default schema
-    via a single shared connection.
-
     Parameters
     ----------
-    local_roles : frozenset[str], optional
-        Which Role(s) this entry actually owns on this physical connection
-        (via ``roles_on_connection()``).
+    translate_only : Sequence[SchemaClaim], optional
+        Claims folded into the returned translate_map without being
+        registered or checked, for a schema living on a connection other
+        than this engine's (a split CDM's primary and results tags, seen
+        while building the vocab-only engine). Their ``physical_schema``
+        is taken verbatim, ``None`` included, since this engine's default
+        schema is not the one they resolve against.
 
     Notes
     -----
+    - ``physical_schema=None`` on a registered claim resolves to this
+    connection's own real default schema, read over the shared connection.
+    - Each claim's ``owner`` is used exactly as given, so a claim left
+    deliberately unowned stays unowned.
     - An own-built engine and a SQLite engine end up in the same, unchecked
     state deliberately, since neither has anything real to protect.
     - A dialect without real multi-schema support (e.g. SQLite) automatically
     folds every schema_tag to None.
-    - A Role-tagged claim whose tag isn't in *local_roles* (e.g. a split
-    CDM's results/primary tags, seen while building the vocab-only
-    connection's engine) is still folded into the returned translate_map
-    for correct cross-schema compilation, but is neither registered nor
-    checked: this connection doesn't own that role.
 
     Returns
     -------
@@ -326,10 +324,11 @@ def _process_schema_claims(
         The dict to set as ``execution_options[schema_translate_map]``.
     """
     if not supports_schemas(engine):
-        return {claim.schema_tag: None for claim in claims}
+        return {claim.schema_tag: None for claim in (*translate_only, *claims)}
 
-    translate_map: dict[str, str | None] = {}
-    role_members = frozenset(member.value for member in Role)
+    translate_map: dict[str, str | None] = {
+        claim.schema_tag: claim.physical_schema for claim in translate_only
+    }
     # Forces READ COMMITTED on the registration connection so a caller's
     # AUTOCOMMIT isolation level can't defeat _lock_schema_registry's lock.
     connection_cm = (
@@ -349,21 +348,14 @@ def _process_schema_claims(
                     if claim.physical_schema is not None
                     else sa.inspect(connection).default_schema_name
                 )
-                claim_owner = (
-                    claim.owner if claim.owner is not None
-                    else None if claim.schema_tag in role_members
-                    else default_owner
-                )
                 translate_map[claim.schema_tag] = physical_schema
-                if claim.schema_tag in role_members and claim.schema_tag not in local_roles:
-                    continue
                 if register_claims:
                     _register_schema_claim(
                         connection,
                         database_config_name=database_config_name,
                         schema_tag=claim.schema_tag,
                         physical_schema=physical_schema,
-                        owner=claim_owner,
+                        owner=claim.owner,
                         reserved=claim.reserved,
                         test_only=test_only,
                     )
@@ -374,7 +366,7 @@ def _process_schema_claims(
                         database_config_name=database_config_name,
                         schema_tag=claim.schema_tag,
                         physical_schema=physical_schema,
-                        owner=claim_owner,
+                        owner=claim.owner,
                         reserved=claim.reserved,
                         test_only=test_only,
                     )
@@ -727,7 +719,13 @@ class ResolvedDatabase:
         # schema_claims argument -- checked before anything touches a real
         # connection, so a caller error is reported without needing a live database.
         owned_tags = {_SCHEMA_PROVENANCE_SCHEMA, *self.configured_internal_schema_translate_map()}
-        caller_claims = list(schema_claims)
+        # Derived before anything else so the stack walk sees the real caller's
+        # module rather than a frame further inside create_engine().
+        default_owner = owner if owner is not None else _derive_owner()
+        caller_claims = [
+            claim if claim.owner is not None else claim._replace(owner=default_owner)
+            for claim in schema_claims
+        ]
         conflicts = sorted(
             claim.schema_tag for claim in caller_claims if claim.schema_tag in owned_tags
         )
@@ -750,20 +748,30 @@ class ResolvedDatabase:
             reserved=True,
             owner="oa_configurator",
         )
-        resolver_claims = [
-            SchemaClaim(schema_tag=tag, physical_schema=physical_schema)
-            for tag, physical_schema in self.configured_internal_schema_translate_map().items()
-        ]
-        internal_claims = (schema_provenance_claim, *resolver_claims)
+        # Keyed by Role rather than by tag string, so a role hosted elsewhere is
+        # told apart from a caller claim that happens to share its spelling.
+        internal_map = self.configured_internal_schema_translate_map()
+        local_roles = self.roles_on_connection(engine)
+        role_claims = {
+            schema_role: SchemaClaim(
+                schema_tag=schema_role.value,
+                physical_schema=internal_map[schema_role.value],
+            )
+            for schema_role in self.schema_tags()
+        }
 
         connection_test_only = self.connection_for_role(role).test_only
         translate_map = _process_schema_claims(
-            engine, [*internal_claims, *caller_claims],
+            engine,
+            [
+                schema_provenance_claim,
+                *(claim for r, claim in role_claims.items() if r in local_roles),
+                *caller_claims,
+            ],
             database_config_name=self.name,
-            # Needs to be called here to derive the owner from the caller's module
-            # (1 level up in the call stack)
-            default_owner=owner if owner is not None else _derive_owner(),
-            local_roles=frozenset(r.value for r in self.roles_on_connection(engine)),
+            translate_only=[
+                claim for r, claim in role_claims.items() if r not in local_roles
+            ],
             test_only=connection_test_only,
             register_claims=register_claims,
         )

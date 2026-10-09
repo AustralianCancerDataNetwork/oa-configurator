@@ -23,6 +23,7 @@ from .domains.resources.schema import (
     ResolvedConnection,
     ResolvedDatabase,
 )
+from .domains.resources.sql import is_ephemeral_url
 from .domains.vector_stores.schema import ResolvedVectorStore, VectorStoreConfig
 from .stack_config import (
     StackConfig,
@@ -283,9 +284,13 @@ def _find_production_collision(target_key: str, config: StackConfig) -> str | No
     """Return the name of a non-test_only connection addressing the same
     physical database as *target_key*, or None.
 
-    Checks config.connections directly. Comparison goes through :func:`connection_key`, 
+    Checks config.connections directly. Comparison goes through :func:`connection_key`,
     so an omitted port or a different spelling of the same host cannot slip a
     production database past this check.
+
+    Ephemeral connections are skipped: every in-memory SQLite URL is its own
+    database, so one matching key says nothing about the two addressing the
+    same storage, and there is no persistent data to protect either way.
 
     Parameters
     ----------
@@ -303,7 +308,9 @@ def _find_production_collision(target_key: str, config: StackConfig) -> str | No
         (
             conn_name
             for conn_name, conn in config.connections.items()
-            if not conn.test_only and conn.physical_key() == target_key
+            if not conn.test_only
+            and not is_ephemeral_url(conn.safe_url())
+            and conn.physical_key() == target_key
         ),
         None,
     )

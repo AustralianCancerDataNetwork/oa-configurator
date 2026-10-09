@@ -7,7 +7,7 @@ from typing import Annotated, Any, ClassVar, Self
 
 import pytest
 import typer
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from oa_configurator import (
     CDMDatabaseConfig,
@@ -546,42 +546,29 @@ class TestIsTestOnlyMatchEnforcement:
         result = Resolver(cfg).resolve_package_config(NeedsProdDb)
         assert result.cdm_db == "cdm_db"
 
-    def test_vocab_only_test_connection_does_not_make_database_test(self):
-        """A CDMDatabaseConfig's test-ness is decided by its primary
-        connection alone, not vocab_connection: a prod-primary database
-        with a test-only vocab connection is NOT test, matching what the
-        CLI wizard's candidate filtering (_is_test_marked) and this
-        validator both now agree on."""
-        cfg = StackConfig.for_session(
-            connections={
-                "prod": ConnectionConfig(
-                    dialect=Dialect.SQLITE, database_name=":memory:", test_only=False
-                ),
-                "test_vocab": ConnectionConfig(
-                    dialect=Dialect.SQLITE, database_name=":memory:", test_only=True
-                ),
-            },
-            databases={
-                "cdm_db": CDMDatabaseConfig(
-                    connection="prod", vocab_connection="test_vocab"
-                )
-            },
-        )
-
-        class NeedsProdDb(PackageConfigBase):
-            tool_name: ClassVar[str] = "vocab_edge_case_prod_tool"
-            cdm_db: Annotated[str, RefTo(CDMDatabaseConfig)] = "cdm_db"
-
-        class NeedsTestDb(PackageConfigBase):
-            tool_name: ClassVar[str] = "vocab_edge_case_test_tool"
-            test_cdm_db: Annotated[
-                str | None, RefTo(CDMDatabaseConfig, is_test=True)
-            ] = "cdm_db"
-
-        result = Resolver(cfg).resolve_package_config(NeedsProdDb)
-        assert result.cdm_db == "cdm_db"
-        with pytest.raises(ConfigurationError, match="is_test=True"):
-            Resolver(cfg).resolve_package_config(NeedsTestDb)
+    def test_cdm_entry_mixing_test_and_production_connections_is_rejected(self):
+        """A CDM entry whose primary and vocab connections disagree on
+        test_only never resolves at all, so no is_test check ever has to
+        decide which of the two settles the entry's test-ness. The
+        schema-provenance guard switches on test_only per connection, and a
+        mixed entry would apply opposite drift policies to two roles of one
+        database."""
+        with pytest.raises(ValidationError, match="disagree on test_only"):
+            StackConfig.for_session(
+                connections={
+                    "prod": ConnectionConfig(
+                        dialect=Dialect.SQLITE, database_name=":memory:", test_only=False
+                    ),
+                    "test_vocab": ConnectionConfig(
+                        dialect=Dialect.SQLITE, database_name=":memory:", test_only=True
+                    ),
+                },
+                databases={
+                    "cdm_db": CDMDatabaseConfig(
+                        connection="prod", vocab_connection="test_vocab"
+                    )
+                },
+            )
 
     def test_vector_store_reaching_test_only_database_via_nested_ref(self):
         """A RefTo(VectorStoreConfig, is_test=True) field is checked through

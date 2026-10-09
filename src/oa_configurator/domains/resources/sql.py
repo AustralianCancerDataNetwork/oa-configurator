@@ -341,11 +341,10 @@ def is_ephemeral_url(safe_url: str | sa.URL) -> bool:
 
     Notes
     -----
-    SQLAlchemy 2.1 percent-encodes ``:memory:`` when rendering a URL
-    (``sqlite:///%3Amemory%3A``). This requires class 
-    
-     so matching the rendered string silently
-    stops recognising in-memory databases on that version.
+    Classification reads the parsed URL's own components rather than its
+    rendered string. SQLAlchemy 2.1 percent-encodes ``:memory:`` when
+    rendering (``sqlite:///%3Amemory%3A``), so a string match would stop
+    recognising in-memory databases on that version.
     """
     url = safe_url if isinstance(safe_url, sa.URL) else sa.make_url(safe_url)
     if url.get_backend_name() != Dialect.SQLITE:

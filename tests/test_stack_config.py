@@ -127,7 +127,14 @@ class TestCDMDatabaseConfig:
         assert "looks like a 1.x config" in message
         assert "schema_name" in message and "cdm_schema" in message
         assert "default is now None" in message
-        assert "uv run https://raw.githubusercontent.com/AustralianCancerDataNetwork/oa-configurator/<tag>/migrations/to_v2.py" in message
+        assert (
+            "Follow the manual upgrade steps at "
+            "https://AustralianCancerDataNetwork.github.io/oa-configurator/upgrading-from-1.x/."
+        ) in message
+        assert (
+            "A migration script will also be available via `uv run "
+            "https://raw.githubusercontent.com/AustralianCancerDataNetwork/oa-configurator/main/migrations/to_v2.py`."
+        ) in message
 
 
 class TestDatabaseKindDiscrimination:

@@ -43,8 +43,10 @@ from .sql import (
 
 MIGRATION_COMMAND = (
     "uv run https://raw.githubusercontent.com/AustralianCancerDataNetwork/oa-configurator/"
-    "<tag>/migrations/to_v2.py"  # TODO(release): replace <tag> with the release tag.
+    "main/migrations/to_v2.py"
 )
+
+UPGRADING_GUIDE_URL = "https://AustralianCancerDataNetwork.github.io/oa-configurator/upgrading-from-1.x/"
 
 if TYPE_CHECKING:
     from ...stack_config import StackConfig
@@ -586,7 +588,8 @@ class CDMDatabaseConfig(DatabaseConfig):
             raise ValueError(
                 "This looks like a 1.x config: `schema_name` on a `kind = \"cdm\"` "
                 "entry became `cdm_schema` in 2.0, whose default is now None. "
-                f"Upgrade the config with `{MIGRATION_COMMAND}`."
+                f"Follow the manual upgrade steps at {UPGRADING_GUIDE_URL}. "
+                f"(A migration script will also be available via `{MIGRATION_COMMAND}`.)"
             )
         return value
 

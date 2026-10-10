@@ -1,26 +1,35 @@
 # Upgrading from 1.x
 
-Version 2.0 changes the CDM schema field and its default. For PostgreSQL CDM entries, rename `schema_name` to `cdm_schema`; `cdm_schema = "omop"` applies only to PostgreSQL. If it is omitted, the connection's own default schema or search path is used; the default is now `None`. SQLite has no schema support: remove `schema_name` from SQLite CDM entries and leave all schema fields unset.
+## What changed
 
-If a PostgreSQL 1.x config relied on the implicit `omop` schema, set it explicitly:
+- On CDM entries, `schema_name` is now `cdm_schema`.
+- The `cdm_schema` default is now `None`, which uses the connection's default schema or search path.
+- SQLite rejects explicit schemas. Leave both `schema_name` and `cdm_schema` unset.
+- The schema registry needs a baseline for each existing populated database before it can track schema changes.
 
-```toml
-[databases.cdm]
-kind = "cdm"
-connection = "cdm"
-cdm_schema = "omop"
-```
+## Manual upgrade
 
-Run the standalone migration script against your config:
+1. Back up your `config.toml`.
+2. Update each `[databases.*]` entry with `kind = "cdm"`:
+   - **PostgreSQL:** rename `schema_name` to `cdm_schema`. If the 1.x entry had no schema field because it used the implicit `"omop"` schema, add `cdm_schema = "omop"`.
+   - **SQLite:** delete `schema_name` and leave `cdm_schema` unset.
+3. Confirm that the config loads by running the existing read-only command `omop-config show`.
+4. For each existing populated database, inspect its schemas and confirm the configured schemas are correct. Then establish its registry baseline once:
+
+   ```sh
+   omop-config acknowledge-schema-migration --database <name> --reason "upgrade to 2.0"
+   ```
+
+## omop-emb embedding stores
+
+Existing embedding stores do not have a manual upgrade path yet. With the new omop-emb release, they raise `LegacyRegistryError` until the migration script is available. If you need to keep using an existing embedding store, stay on your current omop-emb release and its dependencies until then.
+
+## Migration script (coming in a later release)
+
+The script is currently a placeholder and does not change files. When the real script ships, run it with:
 
 ```sh
-uv run https://raw.githubusercontent.com/AustralianCancerDataNetwork/oa-configurator/<tag>/migrations/to_v2.py
+uv run https://raw.githubusercontent.com/AustralianCancerDataNetwork/oa-configurator/main/migrations/to_v2.py
 ```
 
-Replace `<tag>` with the oa-configurator release tag that provides the script. The script renames PostgreSQL `schema_name` to `cdm_schema`, writes `cdm_schema = "omop"` when a PostgreSQL 1.x entry omitted the field, and records schema-registry baselines.
-
-If you do not run the script, first check the schemas for each existing database, then record its baseline once:
-
-```sh
-omop-config acknowledge-schema-migration --database <name> --reason "..."
-```
+Track its availability [here](https://github.com/AustralianCancerDataNetwork/oa-configurator/issues/40).

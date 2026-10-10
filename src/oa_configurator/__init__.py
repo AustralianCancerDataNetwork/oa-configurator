@@ -36,6 +36,7 @@ from .domains.resources.sql import (
 )
 from .domains.resources.schema_registry import (
     CrossDatabaseStatementError,
+    SCHEMA_REGISTRY_SCHEMA,
     SchemaDriftError,
     SchemaOwnershipError,
     SchemaRegistryOutdatedError,
@@ -102,6 +103,7 @@ __all__ = [
     "ResolvedToolConfig",
     "ResolvedVectorStore",
     "Role",
+    "SCHEMA_REGISTRY_SCHEMA",
     "SCHEMA_TRANSLATE_MAP_KEY",
     "SchemaClaim",
     "SchemaDriftError",

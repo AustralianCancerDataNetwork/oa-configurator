@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 # Registered as reserved in create_engine()
 _SCHEMA_PROVENANCE_SCHEMA = "oa_configurator_provenance"
+SCHEMA_REGISTRY_SCHEMA = _SCHEMA_PROVENANCE_SCHEMA
 
 _ROLE_TAG_VALUES = frozenset(member.value for member in Role)
 

@@ -350,7 +350,34 @@
   <span class="md-ellipsis">
     
   
-    Migrating from 0.x to 1.0
+    Migrating from 0.x
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../upgrading-from-1.x/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrading from 1.x
   
 
     
@@ -385,10 +412,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
             
   
   
@@ -406,8 +433,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_5">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -586,10 +613,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
         
           
-          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
             
   
   
@@ -607,8 +634,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_6">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -711,28 +738,6 @@
       Table of contents
     </label>
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.io.save_stack_config" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        save_stack_config
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.io.ConfigSaveError" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        ConfigSaveError
-      
-    </span>
-  </a>
-  
-</li>
       
         <li class="md-nav__item">
   <a href="#what-remains-after-a-failed-save" class="md-nav__link">
@@ -1023,28 +1028,6 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.io.save_stack_config" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        save_stack_config
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.io.ConfigSaveError" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        ConfigSaveError
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#what-remains-after-a-failed-save" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1142,10 +1125,11 @@
 
 
 
-<a id="oa_configurator.io.save_stack_config"></a>
+
     <div class="doc doc-contents first">
 
         <p>Validate and atomically replace a stack TOML file.</p>
+<p>Defaults to :func:<code>~oa_configurator.loader.active_config_path</code>.</p>
 <p>Does NOT preserve comments or original formatting. The <code>logging</code> section
 is omitted when it equals the default (no custom logging configured).
 Candidate and backup files have <code>0600</code> permissions before any secret
@@ -1170,7 +1154,7 @@ and original ordering.</p>
 
 
 
-<a id="oa_configurator.io.ConfigSaveError"></a>
+
     <div class="doc doc-contents first">
             <p class="doc doc-class-bases">
               Bases: <code><span title="OSError">OSError</span></code></p>

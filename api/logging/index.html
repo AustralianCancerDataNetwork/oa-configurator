@@ -348,7 +348,34 @@
   <span class="md-ellipsis">
     
   
-    Migrating from 0.x to 1.0
+    Migrating from 0.x
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../upgrading-from-1.x/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrading from 1.x
   
 
     
@@ -383,10 +410,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
             
   
   
@@ -404,8 +431,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_5">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -584,10 +611,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
         
           
-          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
             
   
   
@@ -605,8 +632,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_6">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -935,17 +962,6 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.logging_config" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        logging_config
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#oa_configurator.logging_config.LoggingConfig" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -957,10 +973,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.logging_config.RedactingFormatter" class="md-nav__link">
+  <a href="#oa_configurator.logging_config.RedactingFilter" class="md-nav__link">
     <span class="md-ellipsis">
       
-        RedactingFormatter
+        RedactingFilter
       
     </span>
   </a>
@@ -1032,17 +1048,6 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.logging_config" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        logging_config
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#oa_configurator.logging_config.LoggingConfig" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1054,10 +1059,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.logging_config.RedactingFormatter" class="md-nav__link">
+  <a href="#oa_configurator.logging_config.RedactingFilter" class="md-nav__link">
     <span class="md-ellipsis">
       
-        RedactingFormatter
+        RedactingFilter
       
     </span>
   </a>
@@ -1155,13 +1160,14 @@
 
 
 <h1 id="logging-api">Logging API<a class="headerlink" href="#logging-api" title="Permanent link">&para;</a></h1>
+<p><code>RedactingFilter</code> is what <code>configure_logging()</code> actually installs (see <a href="../../secrets/">Secrets</a>).</p>
 
 
 <div class="doc doc-object doc-module">
 
 
 
-<a id="oa_configurator.logging_config"></a>
+
     <div class="doc doc-contents first">
 
         <p>Logging configuration for the OMOP stack.</p>
@@ -1189,16 +1195,16 @@
 
 
 
-<h2 id="oa_configurator.logging_config.LoggingConfig" class="doc doc-heading">
+<h3 id="oa_configurator.logging_config.LoggingConfig" class="doc doc-heading">
             <span class="doc doc-object-name doc-class-name">LoggingConfig</span>
 
 
-<a href="#oa_configurator.logging_config.LoggingConfig" class="headerlink" title="Permanent link">&para;</a></h2>
+<a href="#oa_configurator.logging_config.LoggingConfig" class="headerlink" title="Permanent link">&para;</a></h3>
 
 
     <div class="doc doc-contents ">
             <p class="doc doc-class-bases">
-              Bases: <code><a class="autorefs autorefs-internal" title="oa_configurator.refs.SecretSafeBaseModel" href="../secrets/#oa_configurator.refs.SecretSafeBaseModel">SecretSafeBaseModel</a></code></p>
+              Bases: <code><span title="oa_configurator.refs.SecretSafeBaseModel">SecretSafeBaseModel</span></code></p>
 
 
 
@@ -1240,20 +1246,29 @@
 
 
 
-<h2 id="oa_configurator.logging_config.RedactingFormatter" class="doc doc-heading">
-            <span class="doc doc-object-name doc-class-name">RedactingFormatter</span>
+<h3 id="oa_configurator.logging_config.RedactingFilter" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">RedactingFilter</span>
 
 
-<a href="#oa_configurator.logging_config.RedactingFormatter" class="headerlink" title="Permanent link">&para;</a></h2>
+<a href="#oa_configurator.logging_config.RedactingFilter" class="headerlink" title="Permanent link">&para;</a></h3>
 
 
     <div class="doc doc-contents ">
             <p class="doc doc-class-bases">
-              Bases: <code><span title="logging.Formatter">Formatter</span></code></p>
+              Bases: <code><span title="logging.Filter">Filter</span></code></p>
 
 
 
-        <p>Deprecated: formatter applying the same URL scrubbing as :class:<code>RedactingFilter</code>.</p>
+        <p>Scrubs credential-bearing URLs before a handler emits its record.</p>
+<p>A filter rather than a formatter, for two reasons.</p>
+<p><strong>It reaches handlers that do their own rendering.</strong> e.g. <code>RichHandler</code> -
+a formatter attached to it governs only part of the result; 
+Handler filters run in <code>Handler.handle()</code> before <code>emit()</code>, so concole
+and stream paths are covered by one mechanism and neither needs its own code 
+path.</p>
+<p><strong>It survives customisation.</strong> Replacing a handler's formatter is an ordinary
+thing to do and must not silently remove a security guarantee. Redaction is
+not a presentation concern, so it does not live in the presentation layer.</p>
 
 
 
@@ -1288,11 +1303,11 @@
 <div class="doc doc-object doc-function">
 
 
-<h2 id="oa_configurator.logging_config.configure_logging" class="doc doc-heading">
+<h3 id="oa_configurator.logging_config.configure_logging" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">configure_logging</span>
 
 
-<a href="#oa_configurator.logging_config.configure_logging" class="headerlink" title="Permanent link">&para;</a></h2>
+<a href="#oa_configurator.logging_config.configure_logging" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">configure_logging</span><span class="p">(</span>
     <span class="n">config</span><span class="p">:</span> <span class="n">LoggingConfig</span> <span class="o">|</span> <span class="n">_HasLoggingConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
@@ -1382,11 +1397,11 @@ Pass your package name here, e.g. <code>extra_namespaces=["omop_graph"]</code>.<
 <div class="doc doc-object doc-function">
 
 
-<h2 id="oa_configurator.logging_config.get_logger" class="doc doc-heading">
+<h3 id="oa_configurator.logging_config.get_logger" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">get_logger</span>
 
 
-<a href="#oa_configurator.logging_config.get_logger" class="headerlink" title="Permanent link">&para;</a></h2>
+<a href="#oa_configurator.logging_config.get_logger" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_logger</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">logging</span><span class="o">.</span><span class="n">Logger</span>
 </code></pre></div>
 

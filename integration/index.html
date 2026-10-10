@@ -350,7 +350,34 @@
   <span class="md-ellipsis">
     
   
-    Migrating from 0.x to 1.0
+    Migrating from 0.x
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../upgrading-from-1.x/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrading from 1.x
   
 
     
@@ -385,10 +412,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
             
   
   
@@ -406,8 +433,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_5">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -757,6 +784,28 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#testing-across-dialects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing across dialects
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#adding-a-new-dialect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adding a new dialect
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -922,10 +971,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
         
           
-          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
             
   
   
@@ -943,8 +992,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1429,6 +1478,28 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#testing-across-dialects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing across dialects
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#adding-a-new-dialect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adding a new dialect
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1636,7 +1707,7 @@
 <li>Subclasses <code>PackageConfigBase</code> with its typed config fields</li>
 <li>Registers the class via an entry point in <code>pyproject.toml</code></li>
 <li>Calls <code>MyPackageConfig.get_config()</code> to read its config</li>
-<li>Uses <code>Resolver.from_active_config().resolve_database("cdm").create_engine()</code> for SQLAlchemy</li>
+<li>Resolves its database entry with <code>Resolver.from_active_config().resolve_database(name)</code> and builds its SQLAlchemy engines from it</li>
 <li>Calls <code>configure_logging(verbosity=verbose, extra_namespaces=["&lt;package&gt;"])</code> at startup</li>
 </ol>
 <hr />
@@ -1675,7 +1746,7 @@
 
 <span class="n">candidate</span> <span class="o">=</span> <span class="n">plan_configure</span><span class="p">(</span><span class="n">MyPackageConfig</span><span class="p">,</span> <span class="n">current_config</span><span class="p">,</span> <span class="n">proposed_values</span><span class="p">)</span>
 </code></pre></div>
-<p>The result is a new complete stack; <code>current_config</code> is unchanged. Submitted nested dictionaries can create or update the entries behind <code>RefTo</code> fields, while omitted fields continue to use their stored values. Use <code>PackageConfigValidationError.errors()</code> to place schema messages beside the relevant inputs, and present <code>ConfigurationError</code> as a reference problem. Once the user has reviewed the result, persist it with a separate <code>save_stack_config(candidate)</code> call. The library functions raise exceptions without printing CLI text or raising <code>typer.Exit</code>.</p>
+<p>The result is a new complete stack; <code>current_config</code> is unchanged. Submitted nested dictionaries can create or update the entries behind <code>RefTo</code> fields, while omitted fields continue to use their stored values. Use <code>PackageConfigInvalidError.errors()</code> to place schema messages beside the relevant inputs, and present <code>ConfigurationError</code> as a reference problem. Once the user has reviewed the result, persist it with a separate <code>save_stack_config(candidate)</code> call. The library functions raise exceptions without printing CLI text or raising <code>typer.Exit</code>.</p>
 <hr />
 <h3 id="3-register-the-entry-point">3. Register the entry point<a class="headerlink" href="#3-register-the-entry-point" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="k">[project.entry-points.</span><span class="s2">&quot;omop.config&quot;</span><span class="k">]</span>
@@ -1684,17 +1755,44 @@
 <p>After installing your package, <code>omop-config configure my_package</code> will find and prompt through your fields.</p>
 <hr />
 <h3 id="4-engine-creation">4. Engine creation<a class="headerlink" href="#4-engine-creation" title="Permanent link">&para;</a></h3>
+<p><code>resolve_database(name)</code> returns a different type depending on the entry's <code>kind</code>, and each type has its own engine call:</p>
+<table>
+<thead>
+<tr>
+<th>Entry <code>kind</code></th>
+<th>Resolves to</th>
+<th>Engine call</th>
+<th>Returns</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>generic</code> (<code>GenericDatabaseConfig</code>)</td>
+<td><code>ResolvedDatabase</code></td>
+<td><code>create_engine()</code></td>
+<td>one engine</td>
+</tr>
+<tr>
+<td><code>cdm</code> (<code>CDMDatabaseConfig</code>)</td>
+<td><code>ResolvedCDMDatabase</code></td>
+<td><code>create_engines()</code></td>
+<td><code>(primary, vocab)</code></td>
+</tr>
+</tbody>
+</table>
+<p>A generic database has one connection and one schema:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">Resolver</span>
+
+<span class="n">engine</span> <span class="o">=</span> <span class="n">Resolver</span><span class="o">.</span><span class="n">from_active_config</span><span class="p">()</span><span class="o">.</span><span class="n">resolve_database</span><span class="p">(</span><span class="s2">&quot;my_store&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">create_engine</span><span class="p">()</span>
+</code></pre></div>
+<p>A CDM database can keep its vocabulary on a database of its own, so it always yields two engines:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">Resolver</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="n">MyPackageConfig</span><span class="o">.</span><span class="n">get_config</span><span class="p">()</span>
-<span class="n">engine</span> <span class="o">=</span> <span class="n">Resolver</span><span class="o">.</span><span class="n">from_active_config</span><span class="p">()</span><span class="o">.</span><span class="n">resolve_database</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">cdm_db</span><span class="p">)</span><span class="o">.</span><span class="n">create_engine</span><span class="p">()</span>
+<span class="n">primary</span><span class="p">,</span> <span class="n">vocab</span> <span class="o">=</span> <span class="n">Resolver</span><span class="o">.</span><span class="n">from_active_config</span><span class="p">()</span><span class="o">.</span><span class="n">resolve_database</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">cdm_db</span><span class="p">)</span><span class="o">.</span><span class="n">create_engines</span><span class="p">()</span>
 </code></pre></div>
-<p><code>create_engine()</code> applies the <code>schema_translate_map</code> automatically so OMOP ORM models route to the right schemas without changes.</p>
-<p>For the vocabulary database:</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">Role</span>
-
-<span class="n">vocab_engine</span> <span class="o">=</span> <span class="n">Resolver</span><span class="o">.</span><span class="n">from_active_config</span><span class="p">()</span><span class="o">.</span><span class="n">resolve_database</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">cdm_db</span><span class="p">)</span><span class="o">.</span><span class="n">create_engine</span><span class="p">(</span><span class="n">role</span><span class="o">=</span><span class="n">Role</span><span class="o">.</span><span class="n">VOCAB</span><span class="p">)</span>
-</code></pre></div>
+<p><code>vocab</code> is the same object as <code>primary</code> when the vocabulary shares the primary database. Both engines apply the <code>schema_translate_map</code>, so OMOP ORM models route to the right schemas without changes. <code>create_engine()</code> and <code>Resolver.resolve_engine()</code> raise <code>TypeError</code> on a CDM entry.</p>
+<p>Every engine <code>create_engines()</code> builds refuses a statement that references a table hosted on the other database (<code>CrossDatabaseStatementError</code>), so sending vocabulary work to the primary engine fails instead of reading a stale copy. Raw <code>text()</code> SQL carries no table metadata and is not checked.</p>
 <hr />
 <h3 id="5-logging">5. Logging<a class="headerlink" href="#5-logging" title="Permanent link">&para;</a></h3>
 <p>At your package's CLI entry point or startup:</p>
@@ -1716,7 +1814,7 @@
 <span class="k">def</span><span class="w"> </span><span class="nf">test_something</span><span class="p">(</span><span class="n">monkeypatch</span><span class="p">):</span>
     <span class="n">cfg</span> <span class="o">=</span> <span class="n">StackConfig</span><span class="o">.</span><span class="n">for_session</span><span class="p">(</span>
         <span class="n">connections</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;db&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;dialect&quot;</span><span class="p">:</span> <span class="s2">&quot;sqlite&quot;</span><span class="p">,</span> <span class="s2">&quot;database_name&quot;</span><span class="p">:</span> <span class="s2">&quot;:memory:&quot;</span><span class="p">}},</span>
-        <span class="n">databases</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;cdm&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;kind&quot;</span><span class="p">:</span> <span class="s2">&quot;cdm&quot;</span><span class="p">,</span> <span class="s2">&quot;connection&quot;</span><span class="p">:</span> <span class="s2">&quot;db&quot;</span><span class="p">,</span> <span class="s2">&quot;schema_name&quot;</span><span class="p">:</span> <span class="s2">&quot;omop&quot;</span><span class="p">}},</span>
+        <span class="n">databases</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;cdm&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;kind&quot;</span><span class="p">:</span> <span class="s2">&quot;cdm&quot;</span><span class="p">,</span> <span class="s2">&quot;connection&quot;</span><span class="p">:</span> <span class="s2">&quot;db&quot;</span><span class="p">}},</span>
         <span class="n">tools</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;my_package&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;backend&quot;</span><span class="p">:</span> <span class="s2">&quot;test_backend&quot;</span><span class="p">}},</span>
     <span class="p">)</span>
     <span class="n">monkeypatch</span><span class="o">.</span><span class="n">setattr</span><span class="p">(</span><span class="s2">&quot;my_package.module.load_stack_config&quot;</span><span class="p">,</span> <span class="k">lambda</span><span class="p">:</span> <span class="n">cfg</span><span class="p">)</span>
@@ -1730,39 +1828,52 @@ need to provide a real configuration for the test case.</p>
 </div>
 <h3 id="integration-tests-a-dedicated-test-database">Integration tests: a dedicated test database<a class="headerlink" href="#integration-tests-a-dedicated-test-database" title="Permanent link">&para;</a></h3>
 <p>For tests that exercise a real database (e.g. PostgreSQL-specific SQL, bulk loading, trigger management), use a <strong>dedicated named database</strong> in the user's config, never a copy of the production database under a different guise.</p>
-<p>The convention is <code>test_&lt;package&gt;_db</code> (e.g. <code>test_cdm_db</code> for omop-alchemy) for readability, but what actually marks a field as a test field is <code>RefTo(CDMDatabaseConfig, is_test=True)</code> (or <code>RefTo(GenericDatabaseConfig, is_test=True)</code>, whichever kind the package's real database is). The field's own Python name carries no meaning to <code>oa-configurator</code> itself. Keeping the <em>value</em> distinct from the production database (<code>cdm_db</code>) is still a mandatory safety guard: the test suite must never accidentally connect to a production database.</p>
-<p>In <code>conftest.py</code>, resolve the test database via the <code>resolve_test_database</code> pytest-plugin helper, which skips cleanly whether <code>config.toml</code> is entirely missing or simply doesn't have this database configured yet:</p>
-<div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span><span class="p">(</span><span class="n">scope</span><span class="o">=</span><span class="s2">&quot;session&quot;</span><span class="p">)</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">pg_engine</span><span class="p">():</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator.pytest_plugin</span><span class="w"> </span><span class="kn">import</span> <span class="n">resolve_test_database</span>
+<p>The convention is <code>test_&lt;package&gt;_db_&lt;dialect&gt;</code> (e.g. <code>test_cdm_db_pg</code> for a Postgres-backed field, <code>test_cdm_db_sqlite</code> for a SQLite one), one field per dialect your package's tests actually exercise. What marks a field as a test field is <code>RefTo(CDMDatabaseConfig, is_test=True)</code> (or <code>RefTo(GenericDatabaseConfig, is_test=True)</code>, whichever kind the package's real database is), not its Python name, which carries no meaning to <code>oa-configurator</code> itself. Keeping the <em>value</em> distinct from the production database is still a mandatory safety guard: the test suite must never accidentally connect to a production database. Declare one field per dialect rather than reusing a single field for both: a field that's genuinely dialect-agnostic (works whether it happens to resolve to Postgres or SQLite) is rare in practice, and a field pinned to a specific dialect via <code>dialect=</code> (below) will raise if it ever resolves to the wrong one, since a mismatch is treated as a real misconfiguration, never silently substituted.</p>
+<p>In <code>conftest.py</code>, resolve the test database via the <code>isolated_test_database()</code> context manager, which skips cleanly whether <code>config.toml</code> is entirely missing or simply doesn't have this database configured yet, provisions it if needed, and yields an already-isolated <code>.connection</code>/<code>.session</code> pair.
+- Postgres wraps the whole thing in one transaction that's rolled back on exit (nothing your test does ever commits, so concurrent test runs against the same shared server can't collide);
+- SQLite gets a fresh, disposable database per call:</p>
+<div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">pg_db</span><span class="p">():</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator.testing</span><span class="w"> </span><span class="kn">import</span> <span class="n">isolated_test_database</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">my_package.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">MyPackageConfig</span>
 
-    <span class="n">url</span> <span class="o">=</span> <span class="n">resolve_test_database</span><span class="p">(</span><span class="n">MyPackageConfig</span><span class="p">,</span> <span class="s2">&quot;test_cdm_db&quot;</span><span class="p">)</span>
-    <span class="n">engine</span> <span class="o">=</span> <span class="n">sa</span><span class="o">.</span><span class="n">create_engine</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">future</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-    <span class="k">yield</span> <span class="n">engine</span>
-    <span class="n">engine</span><span class="o">.</span><span class="n">dispose</span><span class="p">()</span>
+    <span class="k">with</span> <span class="n">isolated_test_database</span><span class="p">(</span><span class="n">MyPackageConfig</span><span class="p">,</span> <span class="s2">&quot;test_cdm_db_pg&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">db</span><span class="p">:</span>
+        <span class="k">yield</span> <span class="n">db</span>  <span class="c1"># db.connection (Core) / db.session (ORM)</span>
 </code></pre></div>
-<p><code>resolve_test_database(cls, field_name)</code> always takes the field name explicitly, with no auto-discovery, so it resolves without requiring the rest of your package's config (e.g. a required <code>cdm_db</code> field) to also be configured. That's deliberate on both counts: a CI runner that only provisions a test database shouldn't need a "production" database configured just to find it, and a class with more than one <code>is_test=True</code> field (e.g. one per backend) would otherwise have no way to say which one a caller means.</p>
+<p><code>isolated_test_database(cls, field_name)</code> always takes the field name explicitly, with no auto-discovery, so it resolves without requiring the rest of your package's config (e.g. a required <code>cdm_db</code> field) to also be configured. That's deliberate on both counts: a CI runner that only provisions a test database shouldn't need a "production" database configured just to find it, and a class with more than one <code>is_test=True</code> field (one per dialect, per the convention above) would otherwise have no way to say which one a caller means.</p>
+<p>Pass <code>dialect=</code> to pin the resolved connection to a specific dialect regardless of what the field happens to resolve to. A mismatch always raises, and an unconfigured field falls back to that dialect's own zero-config provisioning if it supports one (SQLite always does; Postgres doesn't, since it needs a real server):</p>
+<div class="highlight"><pre><span></span><code><span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">empty_engine</span><span class="p">():</span>
+    <span class="k">with</span> <span class="n">isolated_test_database</span><span class="p">(</span>
+        <span class="n">MyPackageConfig</span><span class="p">,</span> <span class="s2">&quot;test_cdm_db_sqlite&quot;</span><span class="p">,</span> <span class="n">dialect</span><span class="o">=</span><span class="s2">&quot;sqlite&quot;</span><span class="p">,</span>
+    <span class="p">)</span> <span class="k">as</span> <span class="n">db</span><span class="p">:</span>
+        <span class="k">yield</span> <span class="n">db</span><span class="o">.</span><span class="n">connection</span><span class="o">.</span><span class="n">engine</span>
+</code></pre></div>
+<p>For the rare case where the code under test constructs its own engine/connection and needs to see real, committed state (rather than the rolled-back transaction above), use <code>isolated_test_schema(engine)</code> instead (see <code>oa_configurator.testing</code>'s module docstring).</p>
+<div class="admonition note">
+<p class="admonition-title">Migrating from <code>resolve_test_database</code> (removed in 2.0)</p>
+<p><code>resolve_test_database</code>/<code>ensure_test_db_exists</code>/<code>create_fresh_test_db</code>/<code>drop_test_db</code>/<code>ensure_test_user_exists</code>/<code>require_pg_extension</code> and the <code>requires_database</code> pytest marker are removed as of 2.0. Replace any use of them with <code>isolated_test_database()</code>, which provisions automatically and needs no manual teardown.</p>
+</div>
 <h4 id="provisioning-the-test-database">Provisioning the test database<a class="headerlink" href="#provisioning-the-test-database" title="Permanent link">&para;</a></h4>
-<p>The test database must be provisioned for real before pytest runs. There is no fallback that papers over a missing one, by design (see the callout above).</p>
-<p>A package field marked <code>is_test=True</code> (e.g. <code>test_cdm_db: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = None</code>) gets special handling in <code>omop-config configure &lt;package&gt;</code>'s <strong>interactive</strong> flow: it asks whether to configure a test database, and if you accept, recurses through creating both the connection and the database, marking the connection <code>test_only = true</code> automatically and refusing to reuse (or collide with) a non-test connection's host/database combination. <code>resolve_package_config()</code> (used by <code>get_config()</code> and this interactive flow alike) separately enforces, every time your config loads, that an <code>is_test=True</code> field always resolves to a <code>test_only=true</code> connection and an <code>is_test=False</code> field never does. Pointing either one at the wrong kind of connection raises <code>ConfigurationError</code> immediately, not just when a test happens to run.</p>
+<p>The test database must be provisioned for real before pytest runs. There is no fallback that papers over a missing one, by design (see the callout above). A field targeting SQLite needs no provisioning at all: leave it unconfigured in <code>config.toml</code>, and <code>isolated_test_database(..., dialect="sqlite")</code> builds a disposable instance with no server, no credentials, nothing to set up.</p>
+<p>A package field marked <code>is_test=True</code> (e.g. <code>test_cdm_db_pg: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = None</code>) gets special handling in <code>omop-config configure &lt;package&gt;</code>'s <strong>interactive</strong> flow: it asks whether to configure a test database, and if you accept, recurses through creating both the connection and the database, marking the connection <code>test_only = true</code> automatically and refusing to reuse (or collide with) a non-test connection's host/database combination. <code>resolve_package_config()</code> (used by <code>get_config()</code> and this interactive flow alike) separately enforces, every time your config loads, that an <code>is_test=True</code> field always resolves to a <code>test_only=true</code> connection and an <code>is_test=False</code> field never does. Pointing either one at the wrong kind of connection raises <code>ConfigurationError</code> immediately, not just when a test happens to run.</p>
 <p>Non-interactively, <code>--test-only</code> is an ordinary flag on <code>connections add</code> (accepting <code>true</code>/<code>false</code>/<code>yes</code>/<code>no</code>/<code>1</code>/<code>0</code>):</p>
 <div class="highlight"><pre><span></span><code>omop-config<span class="w"> </span>connections<span class="w"> </span>add<span class="w"> </span>test_cdm<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--dialect<span class="w"> </span>postgresql+psycopg<span class="w"> </span>--host<span class="w"> </span>localhost<span class="w"> </span>--port<span class="w"> </span><span class="m">5432</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--user<span class="w"> </span><span class="nb">test</span><span class="w"> </span>--password<span class="w"> </span><span class="nb">test</span><span class="w"> </span>--database-name<span class="w"> </span>test_db<span class="w"> </span>--test-only<span class="w"> </span><span class="nb">true</span>
 
-omop-config<span class="w"> </span>databases<span class="w"> </span>add<span class="w"> </span>test_cdm_db<span class="w"> </span>--kind<span class="w"> </span>cdm<span class="w"> </span>--connection<span class="w"> </span>test_cdm<span class="w"> </span>--schema-name<span class="w"> </span>public
+omop-config<span class="w"> </span>databases<span class="w"> </span>add<span class="w"> </span>cdm<span class="w"> </span>test_cdm_db_pg<span class="w"> </span>--connection<span class="w"> </span>test_cdm<span class="w"> </span>--cdm-schema<span class="w"> </span>&lt;my-schema&gt;
 
-omop-config<span class="w"> </span>configure<span class="w"> </span>&lt;package&gt;<span class="w"> </span>--test-cdm-db<span class="w"> </span>test_cdm_db
+omop-config<span class="w"> </span>configure<span class="w"> </span>&lt;package&gt;<span class="w"> </span>--test-cdm-db-pg<span class="w"> </span>test_cdm_db_pg
 </code></pre></div>
-<p>The <code>--test-cdm-db</code> flag above is the field's own auto-generated flag (<code>test_cdm_db</code> -&gt; <code>--test-cdm-db</code>); it points the field at an already-created database by name, same as any other <code>RefTo</code> field passed non-interactively. Or do it in the single <code>configure</code> call directly with <code>--set</code> (see <a href="#docker-compose">Docker Compose</a> below):</p>
+<p>The <code>--test-cdm-db-pg</code> flag above is the field's own auto-generated flag (<code>test_cdm_db_pg</code> -&gt; <code>--test-cdm-db-pg</code>); it points the field at an already-created database by name, same as any other <code>RefTo</code> field passed non-interactively. Or do it in the single <code>configure</code> call directly with <code>--set</code> (see <a href="#docker-compose">Docker Compose</a> below):</p>
 <div class="highlight"><pre><span></span><code>omop-config<span class="w"> </span>configure<span class="w"> </span>&lt;package&gt;<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--set<span class="w"> </span>test_cdm_db.kind<span class="o">=</span>cdm<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--set<span class="w"> </span>test_cdm_db.connection.dialect<span class="o">=</span>postgresql+psycopg<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--set<span class="w"> </span>test_cdm_db.connection.host<span class="o">=</span>localhost<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--set<span class="w"> </span>test_cdm_db.connection.database_name<span class="o">=</span>test_db<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--set<span class="w"> </span>test_cdm_db.connection.test_only<span class="o">=</span><span class="nb">true</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--set<span class="w"> </span>test_cdm_db.schema_name<span class="o">=</span>public
+<span class="w">  </span>--set<span class="w"> </span>test_cdm_db_pg.kind<span class="o">=</span>cdm<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--set<span class="w"> </span>test_cdm_db_pg.connection.dialect<span class="o">=</span>postgresql+psycopg<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--set<span class="w"> </span>test_cdm_db_pg.connection.host<span class="o">=</span>localhost<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--set<span class="w"> </span>test_cdm_db_pg.connection.database_name<span class="o">=</span>test_db<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--set<span class="w"> </span>test_cdm_db_pg.connection.test_only<span class="o">=</span><span class="nb">true</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--set<span class="w"> </span>test_cdm_db_pg.cdm_schema<span class="o">=</span>&lt;my-schema&gt;
 </code></pre></div>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Local development</label><label for="__tabbed_1_2">CI</label></div>
 <div class="tabbed-content">
@@ -1778,28 +1889,61 @@ omop-config<span class="w"> </span>configure<span class="w"> </span>&lt;package&
 <p class="admonition-title">Safety</p>
 <p>The test database must point to a dedicated, empty database.
 If your test session drops and recreates schemas, add a runtime guard that compares the
-resolved URL of <code>test_cdm_db</code> against all other configured databases and calls
+resolved URL of <code>test_cdm_db_pg</code> against all other configured databases and calls
 <code>pytest.fail()</code> on any match.</p>
 </div>
+<h3 id="testing-across-dialects">Testing across dialects<a class="headerlink" href="#testing-across-dialects" title="Permanent link">&para;</a></h3>
+<p>A fixture that needs to exercise the <em>same</em> test body against every supported dialect should use <code>DIALECT_PARAMS</code> rather than a hand-rolled <code>params=</code> list:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator.testing</span><span class="w"> </span><span class="kn">import</span> <span class="n">DIALECT_PARAMS</span><span class="p">,</span> <span class="n">isolated_test_database</span>
+
+<span class="c1"># request.param is SQLAlchemy&#39;s own dialect name (&quot;postgresql&quot;, &quot;sqlite&quot;,</span>
+<span class="c1"># ...), not the field-naming convention&#39;s abbreviation (&quot;pg&quot;), so this maps</span>
+<span class="c1"># one to the other explicitly rather than interpolating request.param</span>
+<span class="c1"># straight into the field name.</span>
+<span class="n">_FIELD_BY_DIALECT</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;postgresql&quot;</span><span class="p">:</span> <span class="s2">&quot;test_cdm_db_pg&quot;</span><span class="p">,</span> <span class="s2">&quot;sqlite&quot;</span><span class="p">:</span> <span class="s2">&quot;test_cdm_db_sqlite&quot;</span><span class="p">}</span>
+
+
+<span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span><span class="p">(</span><span class="n">params</span><span class="o">=</span><span class="n">DIALECT_PARAMS</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">db</span><span class="p">(</span><span class="n">request</span><span class="p">):</span>
+    <span class="k">with</span> <span class="n">isolated_test_database</span><span class="p">(</span>
+        <span class="n">MyPackageConfig</span><span class="p">,</span> <span class="n">_FIELD_BY_DIALECT</span><span class="p">[</span><span class="n">request</span><span class="o">.</span><span class="n">param</span><span class="p">],</span> <span class="n">dialect</span><span class="o">=</span><span class="n">request</span><span class="o">.</span><span class="n">param</span>
+    <span class="p">)</span> <span class="k">as</span> <span class="n">db</span><span class="p">:</span>
+        <span class="k">yield</span> <span class="n">db</span>
+</code></pre></div>
+<p><code>DIALECT_PARAMS</code> is generated from the same registry that backs <code>isolated_test_database()</code>'s dialect dispatch, so it always matches whatever dialects your installed <code>oa-configurator</code> actually supports, with no list to keep in sync by hand. Each param always carries its own dialect name (<code>sqlite</code>, <code>postgresql</code>, ...), plus a second, generic <code>db_dialect</code> mark, but only if that dialect is actually capable of the corruption described below; a dialect that structurally can't cause it (SQLite today) skips that second mark, since excluding it from the default run would buy nothing.</p>
+<p>Add this to your package's <code>pyproject.toml</code> so tests capable of that corruption are excluded from the default run and only execute when explicitly selected:</p>
+<div class="highlight"><pre><span></span><code><span class="k">[tool.pytest.ini_options]</span>
+<span class="n">addopts</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;-m &#39;not db_dialect&#39;&quot;</span>
+</code></pre></div>
+<p>Then <code>pytest -m postgresql</code> (or <code>-m sqlite</code>) runs just that dialect's tests, explicitly, regardless of whether it's excluded by default. This is the shape a CI pipeline should use for its Postgres step, typically as a second job or step alongside the default run. </p>
+<div class="admonition note">
+<p class="admonition-title">Reason for exclusion</p>
+</div>
+<p>The exclusion exists because SQLAlchemy's <code>create_all()</code> permanently mutates shared <code>ForeignKeyConstraint</code> state the first time it defers a circular-dependency foreign key on a dialect whose <code>supports_alter</code> is true, which corrupts a <em>later</em> <code>create_all()</code> call against the same shared metadata on any other dialect in the same process. The fix is making sure that never happens within one pytest invocation, not chasing the mutation itself, and only excluding dialects that can actually cause it in the first place.</p>
+<p>If a test already gets its Postgres connection through a <code>pg_db</code>-named fixture (rather than <code>DIALECT_PARAMS</code>), it's marked <code>postgresql</code> + <code>db_dialect</code> automatically, with no changes needed, as long as the fixture keeps the established <code>pg_db</code> name.</p>
+<h3 id="adding-a-new-dialect">Adding a new dialect<a class="headerlink" href="#adding-a-new-dialect" title="Permanent link">&para;</a></h3>
+<p><code>oa_configurator.testing</code> dispatches to one <code>TestDatabaseStrategy</code> subclass per dialect via a plain dict, keyed off SQLAlchemy's own dialect name string. Supporting a new dialect in tests means writing one subclass and registering it there. Once registered, that dialect's pytest marker, its slot in <code>DIALECT_PARAMS</code>, and whether it's excluded from <code>-m 'not db_dialect'</code> all follow automatically, based on that dialect's own real <code>supports_alter</code> value, with no further changes needed anywhere.</p>
 <hr />
 <h2 id="multiple-environments">Multiple environments<a class="headerlink" href="#multiple-environments" title="Permanent link">&para;</a></h2>
 <h3 id="adding-a-second-database-of-the-same-kind">Adding a second database of the same kind<a class="headerlink" href="#adding-a-second-database-of-the-same-kind" title="Permanent link">&para;</a></h3>
 <p>A package's own field just names a database by default (e.g. <code>cdm_db: Annotated[str, RefTo(CDMDatabaseConfig)] = "cdm_db"</code>). To point at a second one, for example a production CDM alongside a local development one, create the extra database under its own name and pass the field's own flag:</p>
-<div class="highlight"><pre><span></span><code>omop-config<span class="w"> </span>databases<span class="w"> </span>add<span class="w"> </span>cdm_db_prod<span class="w"> </span>--kind<span class="w"> </span>cdm<span class="w"> </span>--connection<span class="w"> </span>cdm_prod<span class="w"> </span>--schema-name<span class="w"> </span>omop
+<div class="highlight"><pre><span></span><code>omop-config<span class="w"> </span>databases<span class="w"> </span>add<span class="w"> </span>cdm<span class="w"> </span>cdm_db_prod<span class="w"> </span>--connection<span class="w"> </span>cdm_prod<span class="w"> </span>--cdm-schema<span class="w"> </span>omop
 omop-config<span class="w"> </span>configure<span class="w"> </span>omop_alchemy<span class="w"> </span>--cdm-db<span class="w"> </span>cdm_db_prod
 </code></pre></div>
 <p>This creates <code>cdm_db_prod</code> without touching the existing <code>cdm_db</code>, and points <code>omop_alchemy</code> at it.</p>
 <h3 id="choosing-between-databases-of-the-same-kind">Choosing between databases of the same kind<a class="headerlink" href="#choosing-between-databases-of-the-same-kind" title="Permanent link">&para;</a></h3>
-<p>There is no config-level "default database" toggle. When more than one database of the same kind exists, the caller names the one it wants explicitly:</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">omop_alchemy.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">OmopAlchemyConfig</span>
+<p>There is no config-level "default database" toggle. When more than one database of the same kind exists, the caller names the one it wants explicitly. For two CDM databases:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="n">Resolver</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">omop_alchemy.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">OmopAlchemyConfig</span>
 
 <span class="n">config</span> <span class="o">=</span> <span class="n">OmopAlchemyConfig</span><span class="o">.</span><span class="n">get_config</span><span class="p">()</span>
-<span class="n">prod_engine</span> <span class="o">=</span> <span class="n">OmopAlchemyConfig</span><span class="o">.</span><span class="n">get_engine</span><span class="p">(</span><span class="s2">&quot;cdm_db_prod&quot;</span><span class="p">)</span>
-<span class="n">dev_engine</span> <span class="o">=</span> <span class="n">OmopAlchemyConfig</span><span class="o">.</span><span class="n">get_engine</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">cdm_db</span><span class="p">)</span>  <span class="c1"># whatever cdm_db currently resolves to</span>
+<span class="n">resolver</span> <span class="o">=</span> <span class="n">Resolver</span><span class="o">.</span><span class="n">from_active_config</span><span class="p">()</span>
+<span class="n">prod_primary</span><span class="p">,</span> <span class="n">prod_vocab</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">resolve_database</span><span class="p">(</span><span class="s2">&quot;cdm_db_prod&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">create_engines</span><span class="p">()</span>
+<span class="n">dev_primary</span><span class="p">,</span> <span class="n">dev_vocab</span> <span class="o">=</span> <span class="n">resolver</span><span class="o">.</span><span class="n">resolve_database</span><span class="p">(</span><span class="n">config</span><span class="o">.</span><span class="n">cdm_db</span><span class="p">)</span><span class="o">.</span><span class="n">create_engines</span><span class="p">()</span>  <span class="c1"># whatever cdm_db currently resolves to</span>
 </code></pre></div>
 <p>For switching between whole environments (dev vs. prod) rather than picking one database among several, use distinctly-named connections and databases per environment, and point each deployment's <code>omop-config configure</code> flags at the right ones. There is no profile/overlay mechanism; naming is the only axis.</p>
 <h3 id="cross-package-database-references">Cross-package database references<a class="headerlink" href="#cross-package-database-references" title="Permanent link">&para;</a></h3>
-<p>A package that consumes a database owned by another package (e.g. <code>omop-graph</code> using <code>omop-alchemy</code>'s CDM database) declares its own field with the same <code>RefTo(CDMDatabaseConfig)</code> type and the same default name (e.g. <code>cdm_db: Annotated[str, RefTo(CDMDatabaseConfig)] = "cdm_db"</code>). There is no typed cross-package pointer: two packages share an entry simply because both fields resolve to the same name. The shared database must be configured once, under that name, for both packages' references to resolve.</p>
+<p>A package that consumes a database owned by another package declares its own field with the same <code>RefTo(CDMDatabaseConfig)</code> type and the same default name (e.g. <code>cdm_db: Annotated[str, RefTo(CDMDatabaseConfig)] = "cdm_db"</code>). There is no typed cross-package pointer: two packages share an entry simply because both fields resolve to the same name. The shared database must be configured once, under that name, for both packages' references to resolve.</p>
 <hr />
 <h2 id="docker-compose">Docker Compose<a class="headerlink" href="#docker-compose" title="Permanent link">&para;</a></h2>
 <h3 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h3>
@@ -1838,7 +1982,7 @@ omop-config<span class="w"> </span>configure<span class="w"> </span>omop_alchemy
 <span class="w">          </span><span class="no">--dialect postgresql+psycopg --host db --port 5432</span>
 <span class="w">          </span><span class="no">--user $$POSTGRES_USER --password $$POSTGRES_PASSWORD</span>
 <span class="w">          </span><span class="no">--database-name $$POSTGRES_DB &amp;&amp;</span>
-<span class="w">        </span><span class="no">omop-config databases add cdm_db --kind cdm --connection cdm --schema-name omop &amp;&amp;</span>
+<span class="w">        </span><span class="no">omop-config databases add cdm cdm_db --connection cdm --cdm-schema omop &amp;&amp;</span>
 <span class="w">        </span><span class="no">omop-config configure my_package --cdm-db cdm_db &amp;&amp;</span>
 <span class="w">        </span><span class="no">exec my_app_entrypoint</span>
 <span class="w">      </span><span class="no">&quot;</span>
@@ -1855,7 +1999,7 @@ literal variable name to the shell rather than substituting it at YAML-parse tim
 <span class="w">      </span><span class="no">--dialect postgresql+psycopg --host db --port 5432</span>
 <span class="w">      </span><span class="no">--user $$POSTGRES_USER --password $$POSTGRES_PASSWORD</span>
 <span class="w">      </span><span class="no">--database-name $$POSTGRES_DB &amp;&amp;</span>
-<span class="w">    </span><span class="no">omop-config databases add cdm_db --kind cdm --connection cdm --schema-name omop &amp;&amp;</span>
+<span class="w">    </span><span class="no">omop-config databases add cdm cdm_db --connection cdm --cdm-schema omop &amp;&amp;</span>
 <span class="w">    </span><span class="no">omop-config configure omop_alchemy --cdm-db cdm_db &amp;&amp;</span>
 <span class="w">    </span><span class="no">omop-config configure my_package --cdm-db cdm_db &amp;&amp;</span>
 <span class="w">    </span><span class="no">exec my_app_entrypoint</span>
@@ -1874,7 +2018,7 @@ literal variable name to the shell rather than substituting it at YAML-parse tim
 <span class="w">      </span><span class="no">--set cdm_db.connection.user=$$POSTGRES_USER</span>
 <span class="w">      </span><span class="no">--set cdm_db.connection.password=$$POSTGRES_PASSWORD</span>
 <span class="w">      </span><span class="no">--set cdm_db.connection.database_name=$$POSTGRES_DB</span>
-<span class="w">      </span><span class="no">--set cdm_db.schema_name=omop &amp;&amp;</span>
+<span class="w">      </span><span class="no">--set cdm_db.cdm_schema=omop &amp;&amp;</span>
 <span class="w">    </span><span class="no">exec my_app_entrypoint</span>
 <span class="w">  </span><span class="no">&quot;</span>
 </code></pre></div>

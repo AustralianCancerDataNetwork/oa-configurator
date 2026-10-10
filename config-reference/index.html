@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://AustralianCancerDataNetwork.github.io/oa-configurator/config-reference/">
       
       
-        <link rel="prev" href="../migration-1.0/">
+        <link rel="prev" href="../upgrading-from-1.x/">
       
       
         <link rel="next" href="../secrets/">
@@ -350,7 +350,34 @@
   <span class="md-ellipsis">
     
   
-    Migrating from 0.x to 1.0
+    Migrating from 0.x
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../upgrading-from-1.x/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrading from 1.x
   
 
     
@@ -385,10 +412,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
             
   
   
@@ -406,8 +433,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_5">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -494,6 +521,17 @@
   
     <nav class="md-nav" aria-label="[connections.&lt;name&gt;]">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#supported-dialects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Dialects
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#example-postgresql" class="md-nav__link">
@@ -805,10 +843,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
         
           
-          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
             
   
   
@@ -826,8 +864,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1163,6 +1201,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#supported-dialects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Dialects
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#example-postgresql" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1396,7 +1445,7 @@
 <p>Configuration lives at <code>~/.config/omop/config.toml</code> by default. Override the path by setting
 <code>OA_CONFIG_PATH</code> to any <code>.toml</code> file (e.g. <code>OA_CONFIG_PATH=~/projects/omop.toml</code>).
 The path is resolved when <code>oa_configurator</code> is first imported, so set the variable before
-starting the process. Changing it within a running process does not change <code>CONFIG_PATH</code>.</p>
+starting the process. Changing it within a running process does not change the resolved path.</p>
 </div>
 <hr />
 <h2 id="connectionsname"><code>[connections.&lt;name&gt;]</code><a class="headerlink" href="#connectionsname" title="Permanent link">&para;</a></h2>
@@ -1415,7 +1464,7 @@ starting the process. Changing it within a running process does not change <code
 <td><code>dialect</code></td>
 <td>string</td>
 <td><strong>yes</strong></td>
-<td>SQLAlchemy dialect string, e.g. <code>postgresql+psycopg</code>, <code>mssql+pyodbc</code>, <code>sqlite</code></td>
+<td>SQLAlchemy dialect string, e.g. <code>postgresql+psycopg</code>, <code>sqlite</code></td>
 </tr>
 <tr>
 <td><code>host</code></td>
@@ -1459,6 +1508,41 @@ starting the process. Changing it within a running process does not change <code
 <p class="admonition-title">Security note</p>
 <p>Passwords are stored in plaintext in this file. Restrict permissions with <code>chmod 600 ~/.config/omop/config.toml</code>. Secret-management support (env-backed passwords, Vault, etc.) is planned for a future release.</p>
 </div>
+<h3 id="supported-dialects">Supported Dialects<a class="headerlink" href="#supported-dialects" title="Permanent link">&para;</a></h3>
+<p>As the project is built on <a href="https://www.sqlalchemy.org/">SQLAlchemy</a>, support is inherently
+limited to dialects <a href="https://docs.sqlalchemy.org/en/20/dialects/">SQLAlchemy itself supports</a>.
+Only two are implemented today:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">SQLAlchemy Dialect</th>
+<th style="text-align: center;">Supported</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;">PostgreSQL (9.6+)</td>
+<td style="text-align: center;"><img alt="✅" class="twemoji" src="https://cdn.jsdelivr.net/gh/jdecked/twemoji@16.0.1/assets/svg/2705.svg" title=":white_check_mark:" /></td>
+</tr>
+<tr>
+<td style="text-align: left;">SQLite (3.12+)</td>
+<td style="text-align: center;"><img alt="✅" class="twemoji" src="https://cdn.jsdelivr.net/gh/jdecked/twemoji@16.0.1/assets/svg/2705.svg" title=":white_check_mark:" /></td>
+</tr>
+<tr>
+<td style="text-align: left;">Microsoft SQL Server (2012+)</td>
+<td style="text-align: center;"><img alt="❌" class="twemoji" src="https://cdn.jsdelivr.net/gh/jdecked/twemoji@16.0.1/assets/svg/274c.svg" title=":x:" /></td>
+</tr>
+<tr>
+<td style="text-align: left;">MySQL / MariaDB (5.6+ / 10+)</td>
+<td style="text-align: center;"><img alt="❌" class="twemoji" src="https://cdn.jsdelivr.net/gh/jdecked/twemoji@16.0.1/assets/svg/274c.svg" title=":x:" /></td>
+</tr>
+<tr>
+<td style="text-align: left;">Oracle Database (11+)</td>
+<td style="text-align: center;"><img alt="❌" class="twemoji" src="https://cdn.jsdelivr.net/gh/jdecked/twemoji@16.0.1/assets/svg/274c.svg" title=":x:" /></td>
+</tr>
+</tbody>
+</table>
+<p>If your dialect isn't supported, lodge a feature request <a href="https://github.com/AustralianCancerDataNetwork/oa-configurator/issues">in the GitHub repo</a>.</p>
 <h3 id="example-postgresql">Example: PostgreSQL<a class="headerlink" href="#example-postgresql" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="k">[connections.cdm]</span>
 <span class="n">dialect</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;postgresql+psycopg&quot;</span>
@@ -1505,8 +1589,15 @@ starting the process. Changing it within a running process does not change <code
 <td><code>schema_name</code></td>
 <td>string</td>
 <td>no</td>
-<td>both</td>
-<td>Schema this database's tables live in. Defaults to <code>"omop"</code> for the CDM kind only; the generic kind has no default (unset means "use the connection's own default").</td>
+<td>Generic only</td>
+<td>Schema this database's tables live in. No default (unset means "use the connection's own default", e.g. Postgres's own <code>search_path</code>). Rejected at construction time if set against a connection whose dialect has no real schema concept (e.g. SQLite).</td>
+</tr>
+<tr>
+<td><code>cdm_schema</code></td>
+<td>string</td>
+<td>no</td>
+<td>CDM only</td>
+<td>Primary/CDM schema this database's clinical tables live in, matching OHDSI's own CDM/VOCAB/RESULTS naming. No default (unset means "use the connection's own default", e.g. Postgres's own <code>search_path</code>). Rejected at construction time if set against a connection whose dialect has no real schema concept (e.g. SQLite).</td>
 </tr>
 <tr>
 <td><code>vocab_connection</code></td>
@@ -1520,7 +1611,7 @@ starting the process. Changing it within a running process does not change <code
 <td>string</td>
 <td>no</td>
 <td>CDM only</td>
-<td>Vocabulary schema. Falls back to <code>schema_name</code> when not set.</td>
+<td>Vocabulary schema. Falls back to <code>cdm_schema</code> when not set.</td>
 </tr>
 <tr>
 <td><code>results_schema</code></td>
@@ -1532,31 +1623,42 @@ starting the process. Changing it within a running process does not change <code
 </tbody>
 </table>
 <p>A <code>RefTo</code> naming one kind rejects an entry of the other, at construction time, with a "wrong kind" error distinct from "doesn't exist" (<code>mismatched_kind_refs</code>).</p>
+<p><code>omop-config databases add</code> is a group with one subcommand per kind. Each subcommand only declares the fields that kind actually has. Every example below pairs the resulting TOML with the CLI command that produces it.</p>
 <h3 id="example-a-generic-database-eg-a-vector-stores-own-tables">Example: a generic database (e.g. a vector store's own tables)<a class="headerlink" href="#example-a-generic-database-eg-a-vector-stores-own-tables" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>omop-config<span class="w"> </span>databases<span class="w"> </span>add<span class="w"> </span>generic<span class="w"> </span>emb_db<span class="w"> </span>--connection<span class="w"> </span>emb
+</code></pre></div>
 <div class="highlight"><pre><span></span><code><span class="k">[databases.emb_db]</span>
 <span class="n">kind</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;generic&quot;</span>
 <span class="n">connection</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;emb&quot;</span>
 </code></pre></div>
 <h3 id="example-cdm-all-in-one-schema">Example: CDM, all in one schema<a class="headerlink" href="#example-cdm-all-in-one-schema" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>omop-config<span class="w"> </span>databases<span class="w"> </span>add<span class="w"> </span>cdm<span class="w"> </span>cdm_db<span class="w"> </span>--connection<span class="w"> </span>cdm<span class="w"> </span>--cdm-schema<span class="w"> </span>omop
+</code></pre></div>
 <div class="highlight"><pre><span></span><code><span class="k">[databases.cdm_db]</span>
-<span class="n">kind</span><span class="w">        </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
-<span class="n">connection</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
-<span class="n">schema_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
+<span class="n">kind</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
+<span class="n">connection</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
+<span class="n">cdm_schema</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
 </code></pre></div>
 <h3 id="example-cdm-separate-vocab-and-results-schemas">Example: CDM, separate vocab and results schemas<a class="headerlink" href="#example-cdm-separate-vocab-and-results-schemas" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>omop-config<span class="w"> </span>databases<span class="w"> </span>add<span class="w"> </span>cdm<span class="w"> </span>cdm_db<span class="w"> </span>--connection<span class="w"> </span>cdm<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--cdm-schema<span class="w"> </span>omop<span class="w"> </span>--vocab-schema<span class="w"> </span>omop_vocab<span class="w"> </span>--results-schema<span class="w"> </span>results
+</code></pre></div>
 <div class="highlight"><pre><span></span><code><span class="k">[databases.cdm_db]</span>
 <span class="n">kind</span><span class="w">           </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
 <span class="n">connection</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
-<span class="n">schema_name</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
+<span class="n">cdm_schema</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
 <span class="n">vocab_schema</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_vocab&quot;</span>
 <span class="n">results_schema</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;results&quot;</span>
 </code></pre></div>
 <h3 id="example-cdm-vocabulary-on-a-separate-server">Example: CDM, vocabulary on a separate server<a class="headerlink" href="#example-cdm-vocabulary-on-a-separate-server" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>omop-config<span class="w"> </span>databases<span class="w"> </span>add<span class="w"> </span>cdm<span class="w"> </span>cdm_db<span class="w"> </span>--connection<span class="w"> </span>cdm<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--vocab-connection<span class="w"> </span>central_vocab<span class="w"> </span>--cdm-schema<span class="w"> </span>omop
+</code></pre></div>
 <div class="highlight"><pre><span></span><code><span class="k">[databases.cdm_db]</span>
 <span class="n">kind</span><span class="w">              </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
 <span class="n">connection</span><span class="w">        </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
 <span class="n">vocab_connection</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;central_vocab&quot;</span>
-<span class="n">schema_name</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
+<span class="n">cdm_schema</span><span class="w">        </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
 </code></pre></div>
 <hr />
 <h2 id="vector_storesname"><code>[vector_stores.&lt;name&gt;]</code><a class="headerlink" href="#vector_storesname" title="Permanent link">&para;</a></h2>
@@ -1575,7 +1677,7 @@ starting the process. Changing it within a running process does not change <code
 <td><code>backend_type</code></td>
 <td>string</td>
 <td><strong>yes</strong></td>
-<td>Storage backend key, e.g. <code>sqlitevec</code>, <code>pgvector</code>. A plain string validated by the owning package (e.g. <code>omop-emb</code>), not by <code>oa-configurator</code> itself.</td>
+<td>Storage backend key, e.g. <code>sqlitevec</code>, <code>pgvector</code>. A plain string validated by the owning package, not by <code>oa-configurator</code> itself.</td>
 </tr>
 <tr>
 <td><code>database</code></td>
@@ -1625,7 +1727,7 @@ starting the process. Changing it within a running process does not change <code
 <td><code>base_url</code></td>
 <td>string</td>
 <td>no</td>
-<td>Base URL for this deployment (a local server, a cloud vendor endpoint, and so on). Must not contain userinfo — see below</td>
+<td>Base URL for this deployment (a local server, a cloud vendor endpoint, and so on). Must not contain userinfo, see below</td>
 </tr>
 <tr>
 <td><code>api_key</code></td>

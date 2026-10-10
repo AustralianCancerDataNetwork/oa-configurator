@@ -350,7 +350,34 @@
   <span class="md-ellipsis">
     
   
-    Migrating from 0.x to 1.0
+    Migrating from 0.x
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../upgrading-from-1.x/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrading from 1.x
   
 
     
@@ -385,10 +412,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
             
   
   
@@ -406,8 +433,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_5">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -586,10 +613,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
         
           
-          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
             
   
   
@@ -607,8 +634,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_6">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -861,20 +888,10 @@
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.domains.vector_stores.schema.VectorStoreConfig" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        VectorStoreConfig
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
+    <nav class="md-nav" aria-label="VectorStoreConfig">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
   <a href="#oa_configurator.domains.vector_stores.schema.VectorStoreConfig.resolve" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -884,23 +901,17 @@
   </a>
   
 </li>
+        
+      </ul>
+    </nav>
+  
+</li>
       
         <li class="md-nav__item">
   <a href="#resolved-type" class="md-nav__link">
     <span class="md-ellipsis">
       
         Resolved type
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.domains.vector_stores.schema.ResolvedVectorStore" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        ResolvedVectorStore
       
     </span>
   </a>
@@ -1042,20 +1053,10 @@
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.domains.vector_stores.schema.VectorStoreConfig" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        VectorStoreConfig
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
+    <nav class="md-nav" aria-label="VectorStoreConfig">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
   <a href="#oa_configurator.domains.vector_stores.schema.VectorStoreConfig.resolve" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1065,23 +1066,17 @@
   </a>
   
 </li>
+        
+      </ul>
+    </nav>
+  
+</li>
       
         <li class="md-nav__item">
   <a href="#resolved-type" class="md-nav__link">
     <span class="md-ellipsis">
       
         Resolved type
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#oa_configurator.domains.vector_stores.schema.ResolvedVectorStore" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        ResolvedVectorStore
       
     </span>
   </a>
@@ -1159,17 +1154,17 @@
 <h1 id="vector-stores">Vector Stores<a class="headerlink" href="#vector-stores" title="Permanent link">&para;</a></h1>
 <p>Which storage backend an embedding-capable package should use. A third instance of the same two-tier pattern as <a href="../resources/">Resources</a> (connection/database) and <a href="../llm/">LLM</a> (provider/model): here there is only one tier, since a vector store just names the <code>GenericDatabaseConfig</code> its tables live in plus a backend key, rather than introducing its own leaf-tier section.</p>
 <h2 id="vectorstoreconfig">VectorStoreConfig<a class="headerlink" href="#vectorstoreconfig" title="Permanent link">&para;</a></h2>
-<p>Stored in <code>[vector_stores.&lt;name&gt;]</code>. <code>backend_type</code> is a plain string (e.g. <code>"sqlitevec"</code>, <code>"pgvector"</code>) validated by the owning package, not by <code>oa-configurator</code> — the same discipline <code>ProviderConfig.provider</code> uses. <code>database</code> must reference a <code>GenericDatabaseConfig</code> entry, never a <code>CDMDatabaseConfig</code> one: a vector store's tables have no CDM vocab/results roles, so a <code>[databases.*]</code> entry with <code>kind = "generic"</code> is required.</p>
+<p>Stored in <code>[vector_stores.&lt;name&gt;]</code>. <code>backend_type</code> is a plain string (e.g. <code>"sqlitevec"</code>, <code>"pgvector"</code>) validated by the owning package, not by <code>oa-configurator</code>, the same discipline <code>ProviderConfig.provider</code> uses. <code>database</code> must reference a <code>GenericDatabaseConfig</code> entry, never a <code>CDMDatabaseConfig</code> one: a vector store's tables have no CDM vocab/results roles, so a <code>[databases.*]</code> entry with <code>kind = "generic"</code> is required.</p>
 
 
 <div class="doc doc-object doc-class">
 
 
 
-<a id="oa_configurator.domains.vector_stores.schema.VectorStoreConfig"></a>
+
     <div class="doc doc-contents first">
             <p class="doc doc-class-bases">
-              Bases: <code><a class="autorefs autorefs-internal" title="oa_configurator.refs.SecretSafeBaseModel" href="../secrets/#oa_configurator.refs.SecretSafeBaseModel">SecretSafeBaseModel</a></code></p>
+              Bases: <code><span title="oa_configurator.refs.SecretSafeBaseModel">SecretSafeBaseModel</span></code></p>
 
 
 
@@ -1210,11 +1205,11 @@ value happens in the owning package's own resolution code.</p>
 <div class="doc doc-object doc-function">
 
 
-<h2 id="oa_configurator.domains.vector_stores.schema.VectorStoreConfig.resolve" class="doc doc-heading">
+<h3 id="oa_configurator.domains.vector_stores.schema.VectorStoreConfig.resolve" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">resolve</span>
 
 
-<a href="#oa_configurator.domains.vector_stores.schema.VectorStoreConfig.resolve" class="headerlink" title="Permanent link">&para;</a></h2>
+<a href="#oa_configurator.domains.vector_stores.schema.VectorStoreConfig.resolve" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">resolve</span><span class="p">(</span>
     <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">stack</span><span class="p">:</span> <span class="n">StackConfig</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ResolvedVectorStore</span>
@@ -1246,7 +1241,7 @@ so <code>self.database</code> is guaranteed to exist in <code>stack.databases</c
 
 
 
-<a id="oa_configurator.domains.vector_stores.schema.ResolvedVectorStore"></a>
+
     <div class="doc doc-contents first">
 
 
@@ -1291,7 +1286,7 @@ construct its own backend-specific handle.</p>
           <tr class="doc-section-item">
             <td><code><span title="oa_configurator.domains.vector_stores.schema.ResolvedVectorStore.database">database</span></code></td>
             <td>
-                  <code><a class="autorefs autorefs-internal" title="oa_configurator.domains.resources.schema.ResolvedDatabase" href="../resources/#oa_configurator.domains.resources.schema.ResolvedDatabase">ResolvedDatabase</a></code>
+                  <code><span title="oa_configurator.domains.resources.schema.ResolvedDatabase">ResolvedDatabase</span></code>
             </td>
             <td>
               <div class="doc-md-description">

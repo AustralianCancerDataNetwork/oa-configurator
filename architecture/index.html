@@ -525,6 +525,39 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#schema-provenance-guard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schema provenance guard
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#entry-exclusivity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config-time entry exclusivity
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dialect-support-across-the-stack" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dialect support across the stack
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#security" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -579,7 +612,34 @@
   <span class="md-ellipsis">
     
   
-    Migrating from 0.x to 1.0
+    Migrating from 0.x
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../upgrading-from-1.x/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrading from 1.x
   
 
     
@@ -614,10 +674,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
             
   
   
@@ -635,8 +695,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_5">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -815,10 +875,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
         
           
-          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
             
   
   
@@ -836,8 +896,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1310,6 +1370,39 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#schema-provenance-guard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schema provenance guard
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#entry-exclusivity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config-time entry exclusivity
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dialect-support-across-the-stack" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dialect support across the stack
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#security" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1372,16 +1465,7 @@
 
 <h1 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h1>
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">&para;</a></h2>
-<p><code>oa-configurator</code> is a shared configuration layer for the OMOP-oriented Python stack:</p>
-<ul>
-<li><code>omop-alchemy</code></li>
-<li><code>orm-loader</code></li>
-<li><code>omop-emb</code></li>
-<li><code>omop-graph</code></li>
-<li><code>omop-spires</code></li>
-<li><code>groundworkers</code></li>
-</ul>
-<p>It replaces per-package <code>.env</code> files, inconsistent env var lookups, and duplicated engine-creation boilerplate with a single typed TOML file and a common resolver interface.</p>
+<p><code>oa-configurator</code> is a shared configuration layer for the OMOP-oriented Python stack. It replaces per-package <code>.env</code> files, inconsistent env var lookups, and duplicated engine-creation boilerplate with a single typed TOML file and a common resolver interface.</p>
 <hr />
 <h2 id="core-concepts">Core concepts<a class="headerlink" href="#core-concepts" title="Permanent link">&para;</a></h2>
 <h3 id="connection">Connection<a class="headerlink" href="#connection" title="Permanent link">&para;</a></h3>
@@ -1395,15 +1479,28 @@
 <span class="n">database_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_cdm&quot;</span>
 </code></pre></div>
 <h3 id="database">Database<a class="headerlink" href="#database" title="Permanent link">&para;</a></h3>
-<p>Every <code>[databases.&lt;name&gt;]</code> entry declares an explicit <code>kind</code> (see <a href="../api/resources/#databasekind">DatabaseKind</a> for the current members), no default, no inference. The kind decides which concrete fields exist on top of the shared <code>connection</code>/<code>schema_name</code> base; see <a href="../api/resources/#genericdatabaseconfig">Resources</a> for the field list each kind adds (only the CDM kind carries the vocab/results role bundle, and only it defaults <code>schema_name</code> to <code>"omop"</code>).</p>
+<p>Every <code>[databases.&lt;name&gt;]</code> entry declares an explicit <code>kind</code> (see <a href="../api/resources/#databasekind">DatabaseKind</a> for the current members), no default, no inference. The kind decides which concrete fields exist on top of the shared <code>connection</code> base (see <a href="../api/resources/#genericdatabaseconfig">Resources</a> for the field list each kind adds).</p>
+<ul>
+<li><code>kind=GENERIC</code><ul>
+<li><code>schema_name</code>: The schema in which all tables sit</li>
+</ul>
+</li>
+<li><code>kind=CDM</code><ul>
+<li><code>cdm_schema</code>: The schema of all CDM tables.</li>
+<li><code>vocab_schema</code>: The schema of all vocabulary tables within the CDM.</li>
+<li><code>results_schema</code>: The schema of all results tables within the CDM.</li>
+</ul>
+</li>
+</ul>
+<p>Neither has a default on its kind (unset means "use the connection's own default"), and both are rejected at construction time if set against a connection whose dialect has no real schema concept (e.g. SQLite).</p>
 <div class="highlight"><pre><span></span><code><span class="k">[databases.emb_db]</span>
 <span class="n">kind</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;generic&quot;</span>
 <span class="n">connection</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;emb&quot;</span>
 
 <span class="k">[databases.cdm_db]</span>
-<span class="n">kind</span><span class="w">        </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
-<span class="n">connection</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
-<span class="n">schema_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
+<span class="n">kind</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
+<span class="n">connection</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
+<span class="n">cdm_schema</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
 </code></pre></div>
 <p>This isn't a duplication of <code>Role</code> below: <code>kind</code> decides which fields an entry has at config-authoring time, <code>Role</code> selects among a CDM entry's several connections at resolve time. A generic entry only ever has one connection, so there's nothing for <code>Role</code> to select there.</p>
 <p>A <code>RefTo</code> targeting one kind rejects an entry of the other at construction time (<code>mismatched_kind_refs</code>), the same way a <code>RefTo</code> targeting the wrong <em>section</em> already did.</p>
@@ -1442,6 +1539,7 @@
 <span class="n">embedding_model_name</span><span class="p">:</span> <span class="n">Annotated</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">RefTo</span><span class="p">(</span><span class="n">ModelConfig</span><span class="p">)]</span> <span class="o">=</span> <span class="s2">&quot;embed-default&quot;</span>
 </code></pre></div>
 <p><code>omop-config configure</code> resolves a <code>RefTo</code>-marked field interactively: reuse an existing entry in the target section, or create one on the spot, recursing into any <code>RefTo</code> fields the new entry itself has (e.g. a newly-created database recursing into resolving or creating its connection). At load time, <code>StackConfig</code> validates that every <code>RefTo</code>-marked field resolves to a configured entry, raising a clear error naming the missing section and value otherwise. There is no separate "required"/"owned" declaration list: the field's own type is the declaration, and two packages share an entry simply by both fields resolving to the same name.</p>
+<p>Two packages point their own <code>RefTo</code>-marked field at the same entry non-interactively by naming it directly, e.g. <code>omop-config configure &lt;package&gt; --set cdm_db=&lt;existing-name&gt;</code>; no need to reconfigure the connection or schema a second time.</p>
 <hr />
 <h2 id="databasemodel-resolution">Database/Model resolution<a class="headerlink" href="#databasemodel-resolution" title="Permanent link">&para;</a></h2>
 <p><code>Database</code>/<code>Connection</code> and <code>Model</code>/<code>Provider</code> are the same two-tier pattern: a mid-tier entry references one leaf-tier entry by name (highlighted below), and <code>Resolver</code> resolves the whole pair into one runtime object. Left of each divider is the Python attribute, right is where it lives in <code>config.toml</code>. Names below are generic, not this project's real ones.</p>
@@ -1489,22 +1587,92 @@
 <p>An application with its own configuration UI uses <code>plan_configure()</code> to get the same package-aware behaviour without file I/O. It receives a new complete <code>StackConfig</code>, can present that proposal for review, and decides whether to pass it to <code>save_stack_config()</code>. Frontends therefore do not need to reproduce package schemas or <code>RefTo</code> traversal.</p>
 <hr />
 <h2 id="schema-translate-map">Schema translate map<a class="headerlink" href="#schema-translate-map" title="Permanent link">&para;</a></h2>
-<p>CDM-specific: <code>ResolvedCDMDatabase.schema_translate_map()</code> returns the SQLAlchemy-compatible schema translate dict:</p>
-<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="kc">None</span><span class="p">:</span> <span class="s2">&quot;omop&quot;</span><span class="p">,</span> <span class="s2">&quot;vocab&quot;</span><span class="p">:</span> <span class="s2">&quot;omop_vocab&quot;</span><span class="p">,</span> <span class="s2">&quot;results&quot;</span><span class="p">:</span> <span class="s2">&quot;results&quot;</span><span class="p">}</span>
+<p>CDM-specific: <code>ResolvedCDMDatabase.configured_internal_schema_translate_map()</code> returns the SQLAlchemy-compatible schema translate dict:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="s2">&quot;primary&quot;</span><span class="p">:</span> <span class="s2">&quot;omop&quot;</span><span class="p">,</span> <span class="s2">&quot;vocab&quot;</span><span class="p">:</span> <span class="s2">&quot;omop_vocab&quot;</span><span class="p">,</span> <span class="s2">&quot;results&quot;</span><span class="p">:</span> <span class="s2">&quot;results&quot;</span><span class="p">}</span>
 </code></pre></div>
-<p>OMOP ORM models (omop-alchemy) carry <code>schema=None</code> or <code>schema="vocab"</code> on their <code>__table_args__</code>. The translate map routes them to the correct schema at runtime without changing model definitions. Its keys correspond to the members of <a href="../api/resources/#role"><code>Role</code></a>, the same enum <code>ResolvedCDMDatabase.connection_target()</code>/<code>create_engine()</code> accept for their <code>role</code> parameter. A generic <code>ResolvedDatabase</code> has its own, simpler <code>create_engine()</code> with no <code>role</code> parameter, since a generic entry only ever has one connection.</p>
+<p>OMOP ORM models carry <code>schema="primary"</code>, <code>schema="vocab"</code> or <code>schema="results"</code> on their <code>__table_args__</code>. The translate map routes them to the correct schema at runtime without changing model definitions. Its keys correspond to the members of <a href="../api/resources/#role"><code>Role</code></a>. CDM databases expose role-specific connections through <code>connection_for_role()</code> and build their engines with <code>create_engines()</code>; generic databases use <code>create_engine()</code>.</p>
+<div class="admonition note">
+<p class="admonition-title">Untagged table</p>
+<p>A genuinely untagged table (no <code>schema</code> set at all in <code>__table_args__</code>) is not part of this routing and falls through to the connection's own default/<code>search_path</code></p>
+</div>
+<p><code>create_engines()</code>'s <code>schema_translate_map</code> is authoritative, not a default:</p>
+<ul>
+<li>an <code>execution_options</code> argument may <em>extend</em> the map with a key the resolver doesn't own (e.g. a package's own reserved-schema role, layered on top of the CDM map, see <a href="../api/vector-stores/">Vector Stores</a> for a real example), </li>
+<li>supplying protected schemas raises <code>ValueError</code> rather than silently overriding the configured routing.</li>
+</ul>
+<hr />
+<h2 id="schema-provenance-guard">Schema provenance guard<a class="headerlink" href="#schema-provenance-guard" title="Permanent link">&para;</a></h2>
+<p><code>schema_translate_map()</code> resolves a table's <em>current</em> physical schema correctly, but on its own gives no memory of a table's <em>previous</em> one. If a role's configured schema changes between two runs (a typo, an incomplete migration, two configs drifting apart), nothing would otherwise stop <code>create_all()</code> from silently creating a second, orphaned copy of the tables under the new schema while the old copy sits there unnoticed.</p>
+<p><strong>Enforcement happens at engine construction</strong> (<code>create_engine()</code>, or <code>create_engines()</code> for a CDM database). A connection's <code>schema_translate_map</code> is fixed for its lifetime, so one check at construction covers every read/DML/DDL done through it. Every claim engine construction registers, the schema-registry table's own reservation plus each configured <code>Role</code>'s schema, is recorded as a baseline row in a small bookkeeping table (<code>schema_registry</code>, its own reserved schema), and a <em>mismatching</em> existing row raises <code>SchemaDriftError</code> immediately, whether <code>register_claims=True</code> (a real write) or <code>False</code> (a read-only/diagnostic engine checks and raises too, with nothing written). <code>guard_schema_provenance_for(connection, *, schema_tag)</code> (<code>schema.py</code>) remains for the case of a long-lived engine with a config that may have been altered between the creation and the DDL about to run:</p>
+<div class="highlight"><pre><span></span><code><span class="k">with</span> <span class="n">guard_schema_provenance_for</span><span class="p">(</span><span class="n">connection</span><span class="p">,</span> <span class="n">schema_tag</span><span class="o">=</span><span class="n">Role</span><span class="o">.</span><span class="n">VOCAB</span><span class="p">):</span>
+    <span class="n">Base</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">create_all</span><span class="p">(</span><span class="n">bind</span><span class="o">=</span><span class="n">connection</span><span class="p">,</span> <span class="n">tables</span><span class="o">=</span><span class="n">vocab_tables</span><span class="p">,</span> <span class="n">checkfirst</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</code></pre></div>
+<p><code>connection</code> must have been built by <code>create_engine()</code> or <code>create_engines()</code>, which stash the entry name and <code>test_only</code> in <code>execution_options</code> alongside <code>schema_translate_map</code> for the guard to read back. Everywhere else, a short-lived engine rebuilt per call (the common case: any CLI command, any library function taking an engine or session per invocation) is re-validated automatically on every build and needs no explicit guard at all.</p>
+<p>The registry lives inside the database it describes, so rows need no host identity. For a <code>Role</code> tag (<code>primary</code>/<code>vocab</code>/<code>results</code>), rows are also keyed by the <code>database_config_name</code> that established them: two different <code>[databases.*]</code>/<code>[vector_stores.*]</code> entries may each claim the same Role tag on one connection (a CDM database and its own colocated vector store, say) without colliding, since "has <em>this entry's</em> mapping changed" is what the row tracks, not "has <em>this connection's</em> mapping changed." A custom (non-Role) tag stays scoped per database only: one claim per tag per database, owner-checked. See <a href="#entry-exclusivity">Config-time entry exclusivity</a> for the complementary config-level check that keeps this scoping meaningful rather than something two entries stumble into by accident.</p>
+<p><code>test_only=True</code> re-baselines a mismatching row instead of raising (a test-only connection's schema is expected to change between runs, and has no production data worth protecting) and bypasses the "already has tables, no baseline" check on first registration for a Role tag. A custom claim's first registration into a populated schema never raises regardless of <code>test_only</code>: it's declared by the owning package's own code, so there's nothing else that could ever "adopt" it, and the config has no visibility into what its baseline should be anyway. A registry with an outdated table layout raises <code>SchemaRegistryOutdatedError</code>. <code>find_table_in_other_schemas()</code> complements the guard directly for drift that predates the bookkeeping table entirely, checking the database's actual physical layout rather than a stored claim.</p>
+<p>oa-configurator owns the guard, the bookkeeping table, and the CLI-level remediation path for a genuine migration, generic over any <code>[databases.*]</code> entry rather than tied to any particular domain package:</p>
+<ul>
+<li><code>omop-config verify</code> reports drift per configured database/role, and additionally lists every raw <code>schema_registry</code> row for each configured connection (including a package's own custom tag and any stale row left behind by a renamed or removed entry). This is a pure read, with no enforcement of its own; a custom tag's drift is still only enforced at the point its owning package calls <code>create_engine()</code> for it.</li>
+<li><code>omop-config acknowledge-schema-migration --database &lt;name&gt; --reason &lt;text&gt; [--schema-tag &lt;tag&gt;] [--new-schema &lt;schema&gt;]</code> records a schema as the deliberate new baseline, <code>--database</code> as the entry owning the mapping. For a Role tag, <code>--new-schema</code> is optional: omit it and the baseline resolves fresh from the current config (whatever's configured becomes the new baseline); pass it only to override that. Omit <code>--schema-tag</code> entirely to acknowledge every Role tag of the entry at once (also the only way to baseline an <em>existing</em> database since a first-registration into a populated schema otherwise raises). For a custom tag, <code>--new-schema</code> is required: its physical schema lives only in the owning package's own <code>SchemaClaim</code>, so there's nothing to resolve it from.</li>
+<li><code>omop-config release-schema-claim --database &lt;name&gt; --schema-tag &lt;tag&gt; [--role &lt;role&gt;] [--confirm]</code> deletes a stale row with no other remedy (a renamed entry's old row blocking re-acknowledgment, or a custom tag's row with no config-derivable value to re-acknowledge to). Previews only, unless <code>--confirm</code> is given.</li>
+<li><code>omop-config drop-orphan-schema-tables --database &lt;name&gt; --schema &lt;schema&gt; [--role &lt;role&gt;] [--confirm] [--allow-default-schema]</code> drops tables physically found in an orphaned schema, after checking the named schema isn't still the current target of any configured database/role. The DROP is emitted as literal, qualified SQL per table, instead of <code>metadata.drop_all()</code> may drop the wrong table (the DDL compiler consults the connection's <code>schema_translate_map</code>, so an orphan schema whose name happens to equal a tag key [e.g. a legacy physical schema literally named <code>vocab</code>] would otherwise be silently translated to the <em>configured</em> physical schema and drop the wrong data). Previews only, unless <code>--confirm</code> is given; refuses a dialect system schema or the dialect's own default schema unless <code>--allow-default-schema</code> is passed.</li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>None of these commands move data automatically. Resolving a genuine migration is always an explicit, operator-run action with its own reasoning recorded.</p>
+</div>
+<hr />
+<h2 id="entry-exclusivity">Config-time entry exclusivity<a class="headerlink" href="#entry-exclusivity" title="Permanent link">&para;</a></h2>
+<p><code>StackConfig</code> validates at load time that no two independent entries can be configured against the same physical connection in a way that would make the schema registry's per-entry scoping above load-bearing in the first place:</p>
+<ul>
+<li>No two <code>[connections.*]</code> entries may describe the same <code>(dialect, host, port, database_name, user)</code> identity<ul>
+<li>differing only by <code>user</code> (e.g. a low-privilege app role vs. an admin role against the same server) is a legitimate, distinct connection. </li>
+<li><strong>Exceptions</strong>:<ul>
+<li><code>test_only</code> connections: tests routinely clone the one real test server under several connection names purely to exercise multi-connection routing, with no need for genuine physical separation and </li>
+<li>any genuinely ephemeral SQLite URL: two engines on the same <code>:memory:</code> URL are, by SQLAlchemy's own semantics, disconnected databases, not the same one.</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>No two CDM database entries, and no two vector-store entries, may share a primary-connection identity<ul>
+<li>Deliberately not cross-checked against each other: a vector store's backing database sharing a connection with a CDM entry is the "extend this CDM's database with embedding storage" pattern, and must stay legal.</li>
+</ul>
+</li>
+<li>Several CDM entries sharing one <code>vocab_connection</code> is explicitly allowed and unchecked<ul>
+<li>the standard OMOP pattern: one shared vocabulary reused across many CDM instances</li>
+<li>only each entry's own primary connection participates in the exclusivity check above.</li>
+</ul>
+</li>
+<li>A CDM's <code>vocab_connection</code> physically coinciding with <em>another</em> entry's primary connection is allowed but logs a warning<ul>
+<li>most likely a copy-paste/typo, to flag without forbidding a deliberate choice.</li>
+<li>the registry's per-entry keying keeps it drift-safe</li>
+</ul>
+</li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<ul>
+<li>Registry rows are stored in, and scoped by, the database itself; how a connection entry spells the host doesn’t affect them.</li>
+<li>Role rows are additionally scoped by <code>database_config_name</code>; custom claim tags remain scoped per physical database and owner-checked.</li>
+</ul>
+</div>
+<hr />
+<h2 id="dialect-support-across-the-stack">Dialect support across the stack<a class="headerlink" href="#dialect-support-across-the-stack" title="Permanent link">&para;</a></h2>
+<p><a href="../api/resources/#dialect"><code>Dialect</code></a> (<code>sql.py</code>, next to <code>Role</code>) is the one canonical enum naming the SQLAlchemy backends this codebase recognizes: <code>postgresql</code> and <code>sqlite</code> today. It sits in oa-configurator because it's needed at the bottom of the dependency graph, below every package that dispatches on it.</p>
+<p><code>Dialect</code> itself carries no behavior and makes no claim that a given member is supported anywhere in particular. Each consuming package is expected to maintain its own <code>Dialect</code>-keyed dispatch registry (a dict from <code>Dialect</code> to that package's own implementation), raising a clear, named error for anything unregistered rather than silently misrouting or crashing unhelpfully. A caller with an arbitrary engine and an unknown dialect should always go through that package's own factory function rather than instantiating a concrete backend class directly, so an unsupported dialect fails loudly and consistently in one place.</p>
+<p><strong>To add a new dialect</strong>: add it to <code>Dialect</code> here, then register it in whichever consuming package's own dispatch registry actually needs it.</p>
 <hr />
 <h2 id="security">Security<a class="headerlink" href="#security" title="Permanent link">&para;</a></h2>
 <p>Passwords are stored in plaintext in <code>~/.config/omop/config.toml</code>. Restrict permissions:</p>
 <div class="highlight"><pre><span></span><code>chmod<span class="w"> </span><span class="m">600</span><span class="w"> </span>~/.config/omop/config.toml
 </code></pre></div>
 <p><code>ResolvedConnection.safe_url</code> and <code>ResolvedConnection.url</code> are distinct: <code>safe_url</code> has the password replaced with <code>***</code> and is used for all logging and display. The <code>.url</code> value (with plaintext password) is used only for engine creation and never logged by the library.</p>
-<p><code>RedactingFormatter</code> (applied by all non-library log presets) scrubs both <code>key=value</code> patterns and <code>://user:password@host</code> URL patterns from log output.</p>
+<p><code>RedactingFilter</code> (installed by <code>configure_logging()</code>) scrubs both <code>key=value</code> patterns and <code>://user:password@host</code> URL patterns from log output.</p>
 <p><code>save_stack_config()</code> validates and serializes before changing the destination, protects candidate and backup files before writing credentials, and verifies the result after an atomic replacement. See <a href="../api/persistence/">Saving configuration safely</a> for recovery behaviour. Atomic replacement protects file integrity but does not coordinate concurrent writers, which remain last-writer-wins in this release.</p>
 <p><strong>Future work</strong>: <code>secret_source</code> support (<code>env:VAR</code>, <code>file:path</code>, Vault, cloud secret managers) is planned but not implemented in this version.</p>
 <hr />
 <h2 id="config-path">Config path<a class="headerlink" href="#config-path" title="Permanent link">&para;</a></h2>
-<p>Default: <code>~/.config/omop/config.toml</code>. Override with <code>OA_CONFIG_PATH=&lt;path/to/config.toml&gt;</code> (must end in <code>.toml</code>; <code>~</code> is expanded). Resolved once at module load time and stored as <code>CONFIG_PATH</code>.</p>
+<p>Default: <code>~/.config/omop/config.toml</code>. Override with <code>OA_CONFIG_PATH=&lt;path/to/config.toml&gt;</code> (must end in <code>.toml</code>; <code>~</code> is expanded). Resolved once, at module load time. Call <code>active_config_path()</code> to read it; the raw <code>CONFIG_PATH</code> module attribute is internal to <code>loader.py</code>.</p>
 <hr />
 <h2 id="future-work">Future work<a class="headerlink" href="#future-work" title="Permanent link">&para;</a></h2>
 <ul>

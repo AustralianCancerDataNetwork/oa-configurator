@@ -16,7 +16,7 @@
         <link rel="prev" href="../architecture/">
       
       
-        <link rel="next" href="../config-reference/">
+        <link rel="next" href="../upgrading-from-1.x/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Migrating from 0.x to 1.0 - oa-configurator</title>
+        <title>Migrating from 0.x - oa-configurator</title>
       
     
     
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#migrating-from-0x-to-10" class="md-skip">
+        <a href="#migrating-from-0x" class="md-skip">
           Skip to content
         </a>
       
@@ -116,7 +116,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Migrating from 0.x to 1.0
+              Migrating from 0.x
             
           </span>
         </div>
@@ -359,7 +359,7 @@
   <span class="md-ellipsis">
     
   
-    Migrating from 0.x to 1.0
+    Migrating from 0.x
   
 
     
@@ -377,7 +377,7 @@
   <span class="md-ellipsis">
     
   
-    Migrating from 0.x to 1.0
+    Migrating from 0.x
   
 
     
@@ -532,6 +532,33 @@
   
   
   
+    <li class="md-nav__item">
+      <a href="../upgrading-from-1.x/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrading from 1.x
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
     
     
     
@@ -548,10 +575,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
             
   
   
@@ -569,8 +596,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_5">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -749,10 +776,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
         
           
-          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
             
   
   
@@ -770,8 +797,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1238,7 +1265,8 @@
   
 
 
-<h1 id="migrating-from-0x-to-10">Migrating from 0.x to 1.0<a class="headerlink" href="#migrating-from-0x-to-10" title="Permanent link">&para;</a></h1>
+<h1 id="migrating-from-0x">Migrating from 0.x<a class="headerlink" href="#migrating-from-0x" title="Permanent link">&para;</a></h1>
+<p>This guide takes a 0.x config straight to 2.0; 0.x already used <code>cdm_schema</code> for CDM entries.</p>
 <p><code>oa-configurator</code> 1.0 is a breaking rewrite of the config schema and the Python/CLI surface. It was done pre-1.0, before any PyPI release depended on the old shape, so nothing here is deprecated first and removed later. It's a clean cutover. This page lists what changed and walks through migrating an existing <code>~/.config/omop/config.toml</code> by hand.</p>
 <hr />
 <h2 id="breaking-changes-at-a-glance">Breaking changes at a glance<a class="headerlink" href="#breaking-changes-at-a-glance" title="Permanent link">&para;</a></h2>
@@ -1253,10 +1281,10 @@
 <li><strong><code>configure</code> now refuses missing default references.</strong> A default such as <code>cdm_db = "cdm_db"</code> is still the name of a real database and must resolve even when you did not pass that field explicitly. The interactive command can help you create or select the missing item. In a script, create referenced connections, databases, providers, models, and vector stores first, or use nested <code>--set</code> values to create them in the same command. If validation fails, your existing configuration is unchanged.</li>
 <li><strong><code>test_only</code> is now an ordinary flag</strong> on <code>connections add</code> (<code>--test-only true</code>, accepts true/false/yes/no/1/0), and via <code>--set ....test_only=true</code> when created inline through <code>configure</code>.</li>
 <li><strong><code>read_only</code> removed.</strong> It was never wired to anything (stored, but never read by <code>oa-configurator</code> or any consumer) and its description ("hint only") was misleading about that. If you were setting it, it's simply gone. Dropping it from <code>[connections.*]</code> is enough.</li>
-<li><strong>SQLite connections now require an explicit <code>database_name</code>.</strong> No more implicit <code>:memory:</code> fallback when unset — it now raises at resolve time. See <a href="#toml-migration">TOML migration</a> step 6.</li>
+<li><strong>SQLite connections now require an explicit <code>database_name</code>.</strong> No more implicit <code>:memory:</code> fallback when unset; it now raises at resolve time. See <a href="#toml-migration">TOML migration</a> step 6.</li>
 <li><strong>Python API renames</strong>: <code>resolve_resource()</code> → <code>resolve_database()</code>; old <code>resolve_database()</code> (raw connection) → <code>resolve_connection()</code>; <code>ResolvedResource</code> → <code>ResolvedDatabase</code>; old <code>ResolvedDatabase</code>/<code>ResolvedDatabaseTarget</code> → <code>ResolvedConnection</code>; <code>role="vocab"</code> string → the <code>Role</code> enum (<code>Role.VOCAB</code>); pytest plugin's <code>requires_resource</code> marker → <code>requires_database</code>, <code>resolve_test_resource</code> → <code>resolve_test_database</code>.</li>
 <li><strong><code>oa_configurator.models</code> renamed to <code>oa_configurator.stack_config</code>.</strong> Only matters if you imported from the submodule directly (<code>from oa_configurator.models import ...</code>) instead of the top-level package (<code>from oa_configurator import ...</code>). The top-level re-exports are unchanged.</li>
-<li><strong><code>[databases.*]</code> entries now require an explicit <code>kind</code>.</strong> <code>DatabaseConfig</code> is no longer one shape: every entry is <code>kind = "generic"</code> or <code>kind = "cdm"</code> (see <a href="../api/resources/#databasekind">DatabaseKind</a>), no default, no inference. <code>cdm_schema</code> is renamed <code>schema_name</code> on both kinds; only the CDM kind still defaults it to <code>"omop"</code>. Only <code>CDMDatabaseConfig</code> carries <code>vocab_connection</code>/<code>vocab_schema</code>/<code>results_schema</code>. A <code>RefTo</code> naming one kind now rejects an entry of the other at construction time.</li>
+<li><strong><code>[databases.*]</code> entries now require an explicit <code>kind</code>.</strong> <code>DatabaseConfig</code> is no longer one shape: every entry is <code>kind = "generic"</code> or <code>kind = "cdm"</code> (see <a href="../api/resources/#databasekind">DatabaseKind</a>), no default, no inference. Each kind keeps its own schema field name: <code>schema_name</code> on a generic entry and <code>cdm_schema</code> on a CDM entry. Only <code>CDMDatabaseConfig</code> carries <code>vocab_connection</code>/<code>vocab_schema</code>/<code>results_schema</code>. A <code>RefTo</code> naming one kind now rejects an entry of the other at construction time.</li>
 <li><strong><code>[vector_stores.*]</code> is a new section.</strong> Which storage backend an embedding-capable package should use: <code>backend_type</code>, a <code>database</code> naming a <em>generic</em>-kind <code>[databases.*]</code> entry, an optional <code>faiss_cache_dir</code>, and a free-form <code>configuration</code> table. See <a href="../config-reference/#vector_storesname">Config Reference</a>.</li>
 </ul>
 <hr />
@@ -1289,7 +1317,7 @@
 </div>
 </div>
 <h3 id="2-rename-resources-to-databases-rename-its-two-connection-pointing-fields-and-add-kind">2. Rename <code>[resources.*]</code> to <code>[databases.*]</code>, rename its two connection-pointing fields, and add <code>kind</code><a class="headerlink" href="#2-rename-resources-to-databases-rename-its-two-connection-pointing-fields-and-add-kind" title="Permanent link">&para;</a></h3>
-<p><code>database</code> → <code>connection</code>, <code>vocab_database</code> → <code>vocab_connection</code>, <code>cdm_schema</code> → <code>schema_name</code>. <code>schema_name</code> used to be required; it now defaults to <code>"omop"</code> if omitted, for a <code>kind = "cdm"</code> entry specifically (a <code>kind = "generic"</code> entry has no such default). Every entry, whether migrated from an old resource or newly added, needs the new <code>kind</code> field added explicitly; there is no inference. A resource migrated from <code>[resources.*]</code> is always <code>kind = "cdm"</code>, since that section only ever held CDM role bundles.</p>
+<p><code>database</code> → <code>connection</code>, <code>vocab_database</code> → <code>vocab_connection</code>. <code>cdm_schema</code> keeps its name (a CDM entry's schema field is still <code>cdm_schema</code>, not <code>schema_name</code>, which is only used on a <code>kind = "generic"</code> entry). Every entry, whether migrated from an old resource or newly added, needs the new <code>kind</code> field added explicitly; there is no inference. A resource migrated from <code>[resources.*]</code> is always <code>kind = "cdm"</code>, since that section only ever held CDM role bundles.</p>
 <div class="grid">
 <div>
 <p><strong>Before</strong></p>
@@ -1305,7 +1333,7 @@
 <div class="highlight"><pre><span></span><code><span class="k">[databases.cdm]</span>
 <span class="n">kind</span><span class="w">           </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
 <span class="n">connection</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
-<span class="n">schema_name</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
+<span class="n">cdm_schema</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
 <span class="n">vocab_schema</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop_vocab&quot;</span>
 <span class="n">results_schema</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;results&quot;</span>
 </code></pre></div>
@@ -1327,7 +1355,7 @@
 <span class="n">kind</span><span class="w">             </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
 <span class="n">connection</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;cdm&quot;</span>
 <span class="n">vocab_connection</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;central_vocab&quot;</span>
-<span class="n">schema_name</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
+<span class="n">cdm_schema</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;omop&quot;</span>
 </code></pre></div>
 </div>
 </div>
@@ -1429,7 +1457,7 @@
 </div>
 </div>
 <p>There is no equivalent of <code>required_resources</code>/<code>ResourceRef</code> for consuming a <em>different</em> package's database. Declare a field with the same <code>RefTo(CDMDatabaseConfig)</code> type and the same default name as the owning package's field. The two packages share the entry simply because both fields resolve to the same name. See <a href="../integration/#cross-package-database-references">Integration</a>.</p>
-<p>Engine creation: replace <code>resolver.resolve_resource(name).create_engine()</code> with <code>resolver.resolve_database(name).create_engine()</code>. For the vocabulary connection, replace <code>create_engine(role="vocab")</code> with <code>create_engine(role=Role.VOCAB)</code> (<code>from oa_configurator import Role</code>).</p>
+<p>Engine creation: replace <code>resolver.resolve_resource(name).create_engine()</code> with <code>resolver.resolve_database(name).create_engine()</code>.</p>
 <p>Tests using the pytest plugin: replace <code>@pytest.mark.requires_resource(...)</code> with <code>@pytest.mark.requires_database(...)</code>, and <code>resolve_test_resource(...)</code> with <code>resolve_test_database(...)</code>.</p>
 <p>Full current shape: <a href="../integration/">Integration</a>, <a href="../config-reference/">Config Reference</a>, <a href="../architecture/">Architecture</a>.</p>
 

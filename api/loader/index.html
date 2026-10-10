@@ -350,7 +350,34 @@
   <span class="md-ellipsis">
     
   
-    Migrating from 0.x to 1.0
+    Migrating from 0.x
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../upgrading-from-1.x/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrading from 1.x
   
 
     
@@ -385,10 +412,10 @@
         
           
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
             
   
   
@@ -406,8 +433,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_5">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -586,10 +613,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
         
           
-          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
             
   
   
@@ -607,8 +634,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_6">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -685,17 +712,6 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.loader" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        loader
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#oa_configurator.loader.load_stack_config" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -707,10 +723,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.loader.load_stack_config_from_path" class="md-nav__link">
+  <a href="#oa_configurator.loader.active_config_path" class="md-nav__link">
     <span class="md-ellipsis">
       
-        load_stack_config_from_path
+        active_config_path
       
     </span>
   </a>
@@ -1023,17 +1039,6 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.loader" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        loader
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#oa_configurator.loader.load_stack_config" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1045,10 +1050,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#oa_configurator.loader.load_stack_config_from_path" class="md-nav__link">
+  <a href="#oa_configurator.loader.active_config_path" class="md-nav__link">
     <span class="md-ellipsis">
       
-        load_stack_config_from_path
+        active_config_path
       
     </span>
   </a>
@@ -1136,34 +1141,20 @@
 
 <h1 id="loader">Loader<a class="headerlink" href="#loader" title="Permanent link">&para;</a></h1>
 <p>The loader reads a TOML file, validates it against the typed models, and applies any environment-variable overrides before returning a bound <code>StackConfig</code>.</p>
-<p>Two entry points, differing only in where the path comes from:</p>
-<table>
-<thead>
-<tr>
-<th>Function</th>
-<th>Use when</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>load_stack_config()</code></td>
-<td>The application has no config-path option of its own. Reads <code>CONFIG_PATH</code> (default <code>~/.config/omop/config.toml</code>, overridable with <code>OA_CONFIG_PATH</code>).</td>
-</tr>
-<tr>
-<td><code>load_stack_config_from_path(path)</code></td>
-<td>Something supplies a path — a <code>--config-path</code> flag, a CLI command, a test fixture.</td>
-</tr>
-</tbody>
-</table>
-<p>Prefer <code>load_stack_config_from_path</code> over reimplementing the read. It warns when the file is group- or world-readable, which matters because the file holds database passwords, and it caches by path and file identity so repeated loads do not re-parse. A hand-rolled <code>tomllib.loads</code> + <code>model_validate</code> gets neither.</p>
-<p>Both raise <code>ConfigurationError</code> for a file that is present but unusable: malformed TOML, or content that does not validate. The validation case is a <code>StackConfigValidationError</code> naming the offending field paths. Neither ever echoes the value that was rejected, since a rejected value is often the secret itself and these messages end up in issues and CI logs.</p>
+<p>One entry point: <code>load_stack_config(path)</code>. Omit <code>path</code> and it reads the active config path
+(default <code>~/.config/omop/config.toml</code>, overridable with <code>OA_CONFIG_PATH</code>); pass a path
+explicitly when something else supplies one: a <code>--config-path</code> flag, a CLI command, a test
+fixture. Call <code>active_config_path()</code> to read that same default path without loading the file,
+e.g. to predict what a no-argument <code>load_stack_config()</code> call will read.</p>
+<p>Prefer <code>load_stack_config</code> over reimplementing the read. It warns when the file is group- or world-readable, which matters because the file holds database passwords, and it caches by path and file identity so repeated loads do not re-parse. A hand-rolled <code>tomllib.loads</code> + <code>model_validate</code> gets neither.</p>
+<p>It raises <code>ConfigurationError</code> for a file that is present but unusable: malformed TOML, or content that does not validate. The validation case is specifically a <code>StackConfigInvalidError</code> naming the offending field paths. Neither ever echoes the value that was rejected, since a rejected value is often the secret itself and these messages end up in issues and CI logs.</p>
 
 
 <div class="doc doc-object doc-module">
 
 
 
-<a id="oa_configurator.loader"></a>
+
     <div class="doc doc-contents first">
 
         <p>Helpers for loading the shared stack configuration from TOML.</p>
@@ -1191,70 +1182,29 @@
 <div class="doc doc-object doc-function">
 
 
-<h2 id="oa_configurator.loader.load_stack_config" class="doc doc-heading">
+<h3 id="oa_configurator.loader.load_stack_config" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">load_stack_config</span>
 
 
-<a href="#oa_configurator.loader.load_stack_config" class="headerlink" title="Permanent link">&para;</a></h2>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">load_stack_config</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">StackConfig</span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>Load a :class:<code>StackConfig</code> from <code>CONFIG_PATH</code>
-(default <code>~/.config/omop/config.toml</code>, overridable via <code>OA_CONFIG_PATH</code>).</p>
-<p><code>OA_CONFIG_PATH</code> is resolved when this module is first imported. Set it
-before starting the process; changing it at runtime does not change
-<code>CONFIG_PATH</code>.</p>
-
-
-<p><span class="doc-section-title">Raises:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Type</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td>
-                  <code><span title="FileNotFoundError">FileNotFoundError</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>If <code>CONFIG_PATH</code> does not exist.</p>
-              </div>
-            </td>
-          </tr>
-      </tbody>
-    </table>
-
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-function">
-
-
-<h2 id="oa_configurator.loader.load_stack_config_from_path" class="doc doc-heading">
-            <span class="doc doc-object-name doc-function-name">load_stack_config_from_path</span>
-
-
-<a href="#oa_configurator.loader.load_stack_config_from_path" class="headerlink" title="Permanent link">&para;</a></h2>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">load_stack_config_from_path</span><span class="p">(</span>
-    <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
+<a href="#oa_configurator.loader.load_stack_config" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">load_stack_config</span><span class="p">(</span>
+    <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">StackConfig</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Load a :class:<code>StackConfig</code> from an explicit path.</p>
-<p>For anything that accepts a config path of its own -- a <code>--config-path</code>
-flag, a CLI command, a test fixture. Application code with no such flag
-should use :func:<code>load_stack_config</code>, which reads <code>CONFIG_PATH</code>.</p>
+        <p>Load a :class:<code>StackConfig</code> from <em>path</em>. Defaults to
+:func:<code>active_config_path</code>, which honours the <code>OA_CONFIG_PATH</code>
+environment variable.</p>
 
+
+<details class="note" open>
+  <summary>Notes</summary>
+  <p>The default path is resolved per call, so this always loads whatever
+<code>active_config_path()</code> currently reports. <code>OA_CONFIG_PATH</code> itself is
+read once, when this module is first imported.</p>
+</details>
 
 <p><span class="doc-section-title">Parameters:</span></p>
     <table>
@@ -1276,11 +1226,12 @@ should use :func:<code>load_stack_config</code>, which reads <code>CONFIG_PATH</
             </td>
             <td>
               <div class="doc-md-description">
-                <p>File to load. <code>~</code> is expanded and the path resolved.</p>
+                <p>Explicit configuration file to load. Omitted uses
+:func:<code>active_config_path</code>.</p>
               </div>
             </td>
             <td>
-                <em>required</em>
+                  <code>None</code>
             </td>
           </tr>
       </tbody>
@@ -1298,12 +1249,11 @@ should use :func:<code>load_stack_config</code>, which reads <code>CONFIG_PATH</
       <tbody>
           <tr class="doc-section-item">
             <td>
-                  <code><a class="autorefs autorefs-internal" title="oa_configurator.stack_config.StackConfig" href="../stack-config/#oa_configurator.stack_config.StackConfig">StackConfig</a></code>
+                  <code><span title="oa_configurator.stack_config.StackConfig">StackConfig</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>A deep copy, so a caller can mutate it without disturbing the cache
-or any other holder.</p>
+                <p>Parsed and validated stack configuration.</p>
               </div>
             </td>
           </tr>
@@ -1326,7 +1276,7 @@ or any other holder.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If <em>path</em> does not exist.</p>
+                <p>If the resolved path does not exist.</p>
               </div>
             </td>
           </tr>
@@ -1336,10 +1286,18 @@ or any other holder.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>If the file is not valid TOML, or does not validate as a
-:class:<code>StackConfig</code>. Both carry the file path; the validation case
-is a :class:<code>~oa_configurator.StackConfigValidationError</code> naming the
-offending fields. Neither echoes a rejected value.</p>
+                <p>If the file is not valid TOML. Never echoes the file's contents.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="oa_configurator.package_base.StackConfigInvalidError">StackConfigInvalidError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If the file is valid TOML but does not conform to the StackConfig
+schema. Names the offending fields and never echoes rejected values.</p>
               </div>
             </td>
           </tr>
@@ -1354,11 +1312,31 @@ offending fields. Neither echoes a rejected value.</p>
 <div class="doc doc-object doc-function">
 
 
-<h2 id="oa_configurator.loader.invalidate_cache" class="doc doc-heading">
+<h3 id="oa_configurator.loader.active_config_path" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">active_config_path</span>
+
+
+<a href="#oa_configurator.loader.active_config_path" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">active_config_path</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Path</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The resolved active config path.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="oa_configurator.loader.invalidate_cache" class="doc doc-heading">
             <span class="doc doc-object-name doc-function-name">invalidate_cache</span>
 
 
-<a href="#oa_configurator.loader.invalidate_cache" class="headerlink" title="Permanent link">&para;</a></h2>
+<a href="#oa_configurator.loader.invalidate_cache" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">invalidate_cache</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </code></pre></div>
 

@@ -8,7 +8,6 @@ import sys
 from typing import Any, Protocol
 
 from pydantic import ConfigDict, Field, field_validator
-from typing_extensions import deprecated
 
 from .refs import MASK, SecretSafeBaseModel, safe_endpoint
 
@@ -27,9 +26,8 @@ _URL_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
 def _scrub_urls(text: str) -> str:
     """Mask credentials in every URL in *text*, via the shared primitive.
 
-    The single implementation of what a safe URL looks like: both
-    :class:`RedactingFilter` and :class:`RedactingFormatter` route through here,
-    and both delegate the actual masking to
+    The single implementation of what a safe URL looks like: :class:`RedactingFilter`
+    routes through here, delegating the actual masking to
     :func:`~oa_configurator.refs.safe_endpoint`.
     """
     return _URL_RE.sub(lambda m: safe_endpoint(m.group(0)) or MASK, text)
@@ -65,18 +63,6 @@ class RedactingFilter(logging.Filter):
                 logging.Formatter().formatException(record.exc_info)
             )
         return True
-
-
-@deprecated(
-    "RedactingFormatter is deprecated; configure_logging installs RedactingFilter "
-    "instead, which also covers handlers (e.g. RichHandler) that render the record "
-    "themselves. Use RedactingFilter directly."
-)
-class RedactingFormatter(logging.Formatter):
-    """Deprecated: formatter applying the same URL scrubbing as :class:`RedactingFilter`."""
-
-    def format(self, record: logging.LogRecord) -> str:
-        return _scrub_urls(super().format(record))
 
 
 def _coerce_level(value: str) -> str:

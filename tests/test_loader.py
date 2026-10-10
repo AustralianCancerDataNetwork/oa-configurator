@@ -11,10 +11,10 @@ from pathlib import Path
 import pytest
 
 from oa_configurator import (
-    ConfigurationError,
-    ConnectionConfig,
+    ConfigurationError, 
+    ConnectionConfig, 
     StackConfig,
-    StackConfigValidationError,
+    StackConfigInvalidError
 )
 from oa_configurator.io import save_stack_config
 from oa_configurator.loader import (
@@ -24,8 +24,9 @@ from oa_configurator.loader import (
     _normalize_path,
     _resolve_config_path,
     invalidate_cache,
-    load_stack_config_from_path,
+    load_stack_config,
 )
+from oa_configurator.domains.resources.sql import Dialect
 
 
 @pytest.fixture(autouse=True)
@@ -68,10 +69,11 @@ def _captured_warnings():
 
 
 def _make_config_file(tmp_path: Path, **connection_kwargs) -> Path:
+    connection_kwargs.setdefault("database_name", ":memory:")
     path = tmp_path / "config.toml"
     save_stack_config(
         StackConfig.for_session(
-            connections={"cdm": ConnectionConfig(dialect="sqlite", **connection_kwargs)},
+            connections={"cdm": ConnectionConfig(dialect=Dialect.SQLITE, **connection_kwargs)},
         ),
         path=path,
     )
@@ -135,27 +137,46 @@ class TestResolveConfigPath:
 class TestLoadFromPath:
     def test_loads_valid_config(self, tmp_path):
         path = _make_config_file(tmp_path)
-        config = load_stack_config_from_path(path)
-        assert config.connections["cdm"].dialect == "sqlite"
+        config = load_stack_config(path)
+        assert config.connections["cdm"].dialect == Dialect.SQLITE
 
     def test_missing_file_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
-            load_stack_config_from_path(tmp_path / "does_not_exist.toml")
+            load_stack_config(tmp_path / "does_not_exist.toml")
 
     def test_malformed_toml_raises_value_error(self, tmp_path):
         path = tmp_path / "config.toml"
         path.write_text("not [valid [ toml")
         with pytest.raises(ValueError, match="Malformed TOML"):
-            load_stack_config_from_path(path)
+            load_stack_config(path)
+
+    def test_schema_rejected_config_raises_configuration_error_not_bare_validation_error(
+        self, tmp_path
+    ):
+        """A whole-config schema rejection surfaces as ConfigurationError, not
+        pydantic's own ValidationError, whose default formatting would echo the
+        rejected value verbatim, a real risk when the rejected field is a secret."""
+        path = tmp_path / "config.toml"
+        path.write_text(
+            """
+            [connections.main]
+            dialect = "sqlite"
+            database_name = ":memory:"
+            api_key = "rejected-secret"
+            """
+        )
+        with pytest.raises(ConfigurationError) as raised:
+            load_stack_config(path)
+        assert "rejected-secret" not in str(raised.value)
 
     def test_binds_loaded_path(self, tmp_path):
         path = _make_config_file(tmp_path)
-        config = load_stack_config_from_path(path)
+        config = load_stack_config(path)
         assert config.loaded_path == path.resolve()
 
 
 class TestLoadFromPathCaching:
-    """Exercises the real cache through load_stack_config_from_path, not just _ConfigCache
+    """Exercises the real cache through load_stack_config, not just _ConfigCache
     in isolation. Proves the whole read path, not just the cache class."""
 
     def test_second_load_is_a_cache_hit(self, tmp_path, monkeypatch):
@@ -169,34 +190,34 @@ class TestLoadFromPathCaching:
 
         monkeypatch.setattr("oa_configurator.loader.tomllib.loads", counting_loads)
 
-        first = load_stack_config_from_path(path)
-        second = load_stack_config_from_path(path)
+        first = load_stack_config(path)
+        second = load_stack_config(path)
 
         assert len(calls) == 1, "second load re-parsed the file instead of hitting the cache"
         assert first.connections["cdm"].dialect == second.connections["cdm"].dialect
 
     def test_mutating_one_load_does_not_affect_another(self, tmp_path):
         path = _make_config_file(tmp_path)
-        first = load_stack_config_from_path(path)
+        first = load_stack_config(path)
         first.connections["cdm"].dialect = "mutated"
 
-        second = load_stack_config_from_path(path)
+        second = load_stack_config(path)
 
-        assert second.connections["cdm"].dialect == "sqlite"
+        assert second.connections["cdm"].dialect == Dialect.SQLITE
 
     def test_content_change_invalidates_cache(self, tmp_path):
         path = _make_config_file(tmp_path)
-        first = load_stack_config_from_path(path)
-        assert first.connections["cdm"].dialect == "sqlite"
+        first = load_stack_config(path)
+        assert first.connections["cdm"].dialect == Dialect.SQLITE
 
         save_stack_config(
             StackConfig.for_session(
-                connections={"cdm": ConnectionConfig(dialect="postgresql+psycopg", host="db")},
+                connections={"cdm": ConnectionConfig(dialect=Dialect.POSTGRESQL+"+psycopg", host="db")},
             ),
             path=path,
         )
-        second = load_stack_config_from_path(path)
-        assert second.connections["cdm"].dialect == "postgresql+psycopg"
+        second = load_stack_config(path)
+        assert second.connections["cdm"].dialect == Dialect.POSTGRESQL+"+psycopg"
 
     def test_invalidate_cache_forces_reparse_even_without_content_change(self, tmp_path, monkeypatch):
         path = _make_config_file(tmp_path)
@@ -209,10 +230,10 @@ class TestLoadFromPathCaching:
 
         monkeypatch.setattr("oa_configurator.loader.tomllib.loads", counting_loads)
 
-        load_stack_config_from_path(path)
+        load_stack_config(path)
         assert len(calls) == 1
         invalidate_cache()
-        load_stack_config_from_path(path)
+        load_stack_config(path)
         assert len(calls) == 2
 
 
@@ -224,7 +245,9 @@ class TestConfigCache:
         path = tmp_path / "config.toml"
         path.write_text("")
         st = path.stat()
-        original = StackConfig.for_session(connections={"cdm": ConnectionConfig(dialect="sqlite")})
+        original = StackConfig.for_session(
+            connections={"cdm": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")}
+        )
 
         _ConfigCache.put(path, st, original)
         retrieved = _ConfigCache.get(path, st)
@@ -250,7 +273,7 @@ class TestConfigCache:
 
 
 class TestLoadStackConfigFromPathIsPublic:
-    """Promoted from ``_load_from_path``.
+    """Promoted from ``load_stack_config``.
 
     The private version was being reimplemented by consumers, and the copies
     dropped the loose-permissions warning -- a security behaviour nobody should
@@ -260,9 +283,9 @@ class TestLoadStackConfigFromPathIsPublic:
     def test_exported_from_the_package_root(self):
         import oa_configurator
 
-        assert "load_stack_config_from_path" in oa_configurator.__all__
+        assert "load_stack_config" in oa_configurator.__all__
         assert (
-            oa_configurator.load_stack_config_from_path is load_stack_config_from_path
+            oa_configurator.load_stack_config is load_stack_config
         )
 
     def test_group_readable_file_warns_that_it_holds_passwords(self, tmp_path):
@@ -270,7 +293,7 @@ class TestLoadStackConfigFromPathIsPublic:
         path.chmod(0o644)
 
         with _captured_warnings() as messages:
-            load_stack_config_from_path(path)
+            load_stack_config(path)
 
         assert any("loose permissions" in message for message in messages)
         assert any("chmod 600" in message for message in messages)
@@ -280,7 +303,7 @@ class TestLoadStackConfigFromPathIsPublic:
         path.chmod(0o600)
 
         with _captured_warnings() as messages:
-            load_stack_config_from_path(path)
+            load_stack_config(path)
 
         assert messages == []
 
@@ -301,8 +324,8 @@ class TestLoadStackConfigFromPathErrors:
             'password = "s3cret-CANARY"\n'
         )
 
-        with pytest.raises(StackConfigValidationError) as excinfo:
-            load_stack_config_from_path(path)
+        with pytest.raises(StackConfigInvalidError) as excinfo:
+            load_stack_config(path)
 
         message = str(excinfo.value)
         assert "connections.cdm.port" in message
@@ -316,8 +339,8 @@ class TestLoadStackConfigFromPathErrors:
             'port = "s3cret-CANARY"\n'
         )
 
-        with pytest.raises(StackConfigValidationError) as excinfo:
-            load_stack_config_from_path(path)
+        with pytest.raises(StackConfigInvalidError) as excinfo:
+            load_stack_config(path)
 
         assert "s3cret-CANARY" not in str(excinfo.value)
         assert not any(
@@ -329,7 +352,7 @@ class TestLoadStackConfigFromPathErrors:
         path.write_text('password = "s3cret-CANARY"\ngarbage here\n')
 
         with pytest.raises(ConfigurationError) as excinfo:
-            load_stack_config_from_path(path)
+            load_stack_config(path)
 
         message = str(excinfo.value)
         assert str(path) in message
@@ -341,4 +364,4 @@ class TestLoadStackConfigFromPathErrors:
         path.write_text("not [valid [ toml")
 
         with pytest.raises(ValueError, match="Malformed TOML"):
-            load_stack_config_from_path(path)
+            load_stack_config(path)

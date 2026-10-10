@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal, NoReturn, TypeVar, get_args, get_origin
 
 from pydantic import BaseModel, ValidationError
 from pydantic_core import PydanticUndefined
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import URL, Engine
 
 from .domains.llm.schema import (
     ModelConfig,
@@ -19,20 +20,20 @@ from .domains.llm.schema import (
 )
 from .domains.resources.schema import (
     ConnectionConfig,
-    DatabaseConfig,
     DatabaseEntry,
     ResolvedConnection,
     ResolvedDatabase,
 )
+from .domains.resources.sql import connection_key, host_is_resolvable, is_ephemeral_url
 from .domains.vector_stores.schema import ResolvedVectorStore, VectorStoreConfig
+from .package_base import ConfigurationError, PackageConfigBase
+from .refs import RefTo, _iter_refs, is_sensitive, sanitized_errors
 from .stack_config import (
     StackConfig,
     _ref_section,
     mismatched_kind_refs,
     unresolved_refs,
 )
-from .package_base import ConfigurationError, PackageConfigBase
-from .refs import RefTo, _iter_refs, is_sensitive, sanitized_errors
 
 T = TypeVar("T")
 TConfig = TypeVar("TConfig", bound=PackageConfigBase)
@@ -91,9 +92,7 @@ def _is_flag_settable(info: Any) -> bool:
     origin = get_origin(info.annotation)
     if origin in (dict, list) or info.annotation is dict:
         return False
-    if origin is Literal and len(get_args(info.annotation)) == 1:
-        return False
-    return True
+    return not (origin is Literal and len(get_args(info.annotation)) == 1)
 
 
 def _flag_name(name: str) -> str:
@@ -144,6 +143,39 @@ def _check_missing_required(
     err_console.print(
         f"\n[red bold]Missing required field(s) for {display_name!r}:[/red bold] {hints}\n"
         f"No flag or stored config is available for these. Pass them explicitly."
+    )
+    raise typer.Exit(1)
+
+
+def _check_unrecognized_keys(
+    display_name: str,
+    set_dict: Mapping[str, Any],
+    valid_names: Collection[str],
+    *,
+    headless: bool = False,
+) -> None:
+    """Abort if ``set_dict`` has a top-level key that isn't a real field name.
+
+    Catches a stale or misspelled ``--set``/flag target immediately. Without
+    this, an unrecognized key is silently never consumed by the per-field
+    loop in :func:`~oa_configurator.package_base.PackageConfigBase.resolve_fields`,
+    producing an incomplete saved section with no error at all.
+    """
+    unrecognized = sorted(set(set_dict) - set(valid_names))
+    if not unrecognized:
+        return
+    if headless:
+        raise ConfigurationError(
+            f"Unrecognized field(s) for {display_name}: {', '.join(unrecognized)}"
+        )
+    import typer
+    from rich.console import Console
+
+    err_console = Console(stderr=True)
+    err_console.print(
+        f"\n[red bold]Unrecognized field(s) for {display_name!r}:[/red bold] "
+        f"{', '.join(unrecognized)}\n"
+        f"Valid fields: {', '.join(sorted(valid_names))}"
     )
     raise typer.Exit(1)
 
@@ -247,20 +279,49 @@ def _resolve_ref(
     return name
 
 
-def _find_production_collision(
-    host: str | None, database_name: str | None, port: int | None, config: StackConfig
-) -> str | None:
-    """Return the name of a non-test_only connection matching host/database
-    name/port, or None. Checks config.connections directly, independent of
-    whether/how a database entry references it."""
+def _find_production_collision(target: ConnectionConfig | URL, config: StackConfig) -> str | None:
+    """Return the name of a non-test_only connection addressing the same
+    physical database as *target*, or None. Unresolvable server hosts fail
+    closed because their identity cannot be checked safely.
+
+    Checks config.connections directly. Comparison goes through :func:`connection_key`,
+    so an omitted port or a different spelling of the same host cannot slip a
+    production database past this check.
+
+    Ephemeral connections are skipped: every in-memory SQLite URL is its own
+    database, so one matching key says nothing about the two addressing the
+    same storage, and there is no persistent data to protect either way.
+
+    Parameters
+    ----------
+    target : ConnectionConfig or sqlalchemy.engine.URL
+        Address of the database being checked.
+    config : StackConfig
+        Config whose connections are compared against.
+
+    Returns
+    -------
+    str or None
+    """
+    def comparison_key(url: URL) -> str:
+        if url.host is None and url.get_backend_name() == "sqlite" and not is_ephemeral_url(url):
+            return f"sqlite:{Path(url.database or '').expanduser().resolve()}"
+        return connection_key(url)
+
+    target_url = target._build_url_obj() if isinstance(target, ConnectionConfig) else target
+    if target_url.host is not None and not host_is_resolvable(target_url.host):
+        raise ValueError(f"Cannot verify production safety: host {target_url.host!r} does not resolve.")
+    target_key = comparison_key(target_url)
     for conn_name, conn in config.connections.items():
-        if conn.test_only:
+        if conn.test_only or is_ephemeral_url(conn.safe_url()):
             continue
-        if (
-            conn.host == host
-            and conn.database_name == database_name
-            and conn.port == port
-        ):
+        candidate_url = conn._build_url_obj()
+        if candidate_url.host is not None and not host_is_resolvable(candidate_url.host):
+            raise ValueError(
+                f"Cannot verify production safety: host {candidate_url.host!r} for "
+                f"non-test connection {conn_name!r} does not resolve."
+            )
+        if comparison_key(candidate_url) == target_key:
             return conn_name
     return None
 
@@ -319,9 +380,12 @@ def _check_test_collision(
     Test databases run DROP SCHEMA CASCADE; pointing one at production data
     by mistake (e.g. copy-pasted host/database name) would destroy it.
     """
-    match = _find_production_collision(
-        new_conn.host, new_conn.database_name, new_conn.port, config
-    )
+    try:
+        match = _find_production_collision(new_conn, config)
+    except ValueError as exc:
+        if headless:
+            raise ConfigurationError(str(exc)) from exc
+        raise
     if match is not None:
         if headless:
             raise ConfigurationError(
@@ -648,7 +712,7 @@ class Resolver:
             "Resolved database %r → connection=%s schema_name=%r",
             name,
             resolved.connection.safe_url,
-            resolved.schema_name,
+            resolved.schema_for_role(),
         )
         return resolved
 
@@ -819,6 +883,12 @@ class Resolver:
         Returns
         -------
         sqlalchemy.engine.Engine
+
+        Raises
+        ------
+        TypeError
+            If *database* is a CDM entry, which has two engines. Use
+            ``resolve_database(database).create_engines()`` instead.
         """
         return self.resolve_database(database).create_engine(**kwargs)
 
@@ -906,7 +976,7 @@ class Resolver:
         """
         return _get_named(self.config.connections, "connection", name)
 
-    def get_database(self, name: str) -> DatabaseConfig:
+    def get_database(self, name: str) -> DatabaseEntry:
         """Return the raw DatabaseConfig for a database name.
 
         Raises
@@ -978,7 +1048,7 @@ class Resolver:
         )
 
 
-def _get_named(mapping: dict[str, T], kind: str, name: str) -> T:
+def _get_named[T](mapping: dict[str, T], kind: str, name: str) -> T:
     try:
         return mapping[name]
     except KeyError as exc:

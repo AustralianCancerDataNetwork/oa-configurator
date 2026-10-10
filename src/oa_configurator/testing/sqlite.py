@@ -1,0 +1,164 @@
+"""SQLite test-database provisioning strategy.
+
+Isolation is already free here. Every call gets a brand-new, disposable
+file database, so there's nothing shared to protect and no savepoint
+wrapping is needed (unlike Postgres, whose ``isolated_database()`` has to isolate
+against a persistent, shared server). Same public interface either way
+(:class:`~oa_configurator.testing.base.IsolatedTestDatabase`); the internal
+mechanism achieving isolation is allowed to differ per dialect, and should,
+since each one gets whatever's actually cheapest and most natural for it.
+"""
+
+from __future__ import annotations
+
+import tempfile
+from collections.abc import Generator, Iterable
+from contextlib import contextmanager
+from dataclasses import replace
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import sqlalchemy as sa
+import sqlalchemy.orm as so
+
+from ..domains.resources.sql import Role
+from .base import IsolatedTestDatabase, TestDatabaseStrategy
+
+if TYPE_CHECKING:
+    from ..domains.resources.schema import (
+        ResolvedCDMDatabase,
+        ResolvedConnection,
+        ResolvedDatabase,
+        SchemaClaim,
+    )
+
+
+class SQLiteTestStrategy(TestDatabaseStrategy):
+    """Test-database provisioning for SQLite.
+
+    Internal implementation detail of ``isolated_test_database()`` --
+    not part of the public surface. SQLite needs no server or credentials,
+    so it's the one strategy that overrides ``resolve_without_config()``.
+    """
+
+    def resolve_without_config(self) -> ResolvedCDMDatabase:
+        """Fabricate a ``ResolvedCDMDatabase`` pointing at an in-memory target.
+
+        The URL is only used by ``isolated_test_database()`` to determine
+        the dialect name -- ``isolated_database()`` below ignores *resolved*
+        entirely and always provisions its own fresh tempfile database.
+        """
+        from ..domains.resources.schema import ResolvedCDMDatabase, ResolvedConnection
+
+        url = "sqlite:///:memory:"
+        connection = ResolvedConnection(
+            name="sqlite-in-memory",
+            url=url,
+            safe_url=url,
+            _engine_url=sa.engine.make_url(url),
+        )
+        return ResolvedCDMDatabase(
+            name="sqlite-in-memory",
+            connection=connection,
+            schema_name=None,
+            vocab_connection=connection,
+            vocab_schema=None,
+            results_schema=None,
+        )
+
+    @contextmanager
+    def isolated_database(
+        self,
+        resolved: ResolvedDatabase | None = None,
+        *,
+        schema_claims: Iterable[SchemaClaim] = (),
+        execution_options: dict[str, Any] | None = None,
+        **engine_kwargs: Any,
+    ) -> Generator[IsolatedTestDatabase, None, None]:
+        """Yield an isolated SQLite database in a fresh tempfile.
+
+        Parameters
+        ----------
+        resolved : ResolvedDatabase, optional
+            Unused: the yielded IsolatedTestDatabase carries the
+            ResolvedCDMDatabase built for the tempfile instead. Kept to
+            match TestDatabaseStrategy's shared signature.
+        schema_claims : Iterable[SchemaClaim], optional
+            A list of schema claims to be registered with the isolated database.
+        execution_options : dict[str, Any] | None, optional
+            Options to be passed to the database engine.
+        **engine_kwargs
+            Forwarded to the primary engine build, e.g.
+            ``extensions`` for a connect-event callable (such as sqlite-vec's
+            extension loader) the engine needs on every physical connection.
+        """
+        from ..domains.resources.schema import ResolvedCDMDatabase, ResolvedConnection
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "test.db"
+            url = f"sqlite:///{db_path}"
+            connection = ResolvedConnection(
+                name="sqlite-isolated", url=url, safe_url=url, _engine_url=sa.engine.make_url(url), test_only=True
+            )
+            fresh = resolved or replace(self.resolve_without_config(), name="sqlite-isolated")
+            if isinstance(fresh, ResolvedCDMDatabase):
+                fresh = replace(fresh, connection=connection, vocab_connection=connection)
+            else:
+                fresh = replace(fresh, connection=connection)
+            engine = fresh._build_engine(
+                Role.PRIMARY,
+                schema_claims=schema_claims, execution_options=execution_options, **engine_kwargs
+            )
+            try:
+                connection = engine.connect()
+                try:
+                    session = so.Session(bind=connection)
+                    try:
+                        yield IsolatedTestDatabase(connection=connection, session=session, resolved=fresh)
+                    finally:
+                        session.close()
+                finally:
+                    connection.close()
+            finally:
+                engine.dispose()
+
+    def temporary_schema(self, engine: sa.Engine, *, prefix: str = "test"):
+        """Always raises. SQLite cannot satisfy this method's contract.
+
+        SQLite's closest equivalent is ATTACH DATABASE. It only affects
+        the one connection that runs it. A second connection, even to
+        the same file, never sees it. This was tested directly, not
+        assumed. Implementing this anyway would look like it works, then
+        fail the moment a genuinely separate connection is involved,
+        which is the only real reason this method exists at all.
+
+        Parameters
+        ----------
+        engine : sqlalchemy.engine.Engine
+            Unused. Kept to match the abstract method's signature.
+        prefix : str, optional
+            Unused. Kept to match the abstract method's signature.
+
+        Raises
+        ------
+        NotImplementedError
+            Always. Use ``isolated_test_database()`` instead, which is
+            already free for SQLite.
+        """
+        raise NotImplementedError(
+            "SQLite cannot implement temporary_schema(). ATTACH DATABASE "
+            "only works for the connection that runs it. A second "
+            "connection never sees it. Use isolated_test_database() "
+            "instead."
+        )
+
+    def drop_test_database(self, connection: ResolvedConnection) -> bool:
+        """Always raises. Nothing to drop.
+
+        SQLite test databases are disposable tempfiles that clean
+        themselves up when isolated_test_database() exits.
+        """
+        raise NotImplementedError(
+            "SQLite has no leftover test databases to drop; isolated_test_database() "
+            "already cleans up its own tempfile on exit."
+        )

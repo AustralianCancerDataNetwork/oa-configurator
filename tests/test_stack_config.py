@@ -5,36 +5,58 @@ from __future__ import annotations
 from typing import Any, cast
 
 import pytest
+from pydantic import ValidationError
+from sqlalchemy.engine import make_url
 
 from oa_configurator import (
     CDMDatabaseConfig,
     ConnectionConfig,
-    DatabaseConfig,
-    DatabaseKind,
+    Dialect,
     GenericDatabaseConfig,
     ModelConfig,
     ProviderConfig,
     StackConfig,
+    requires_host,
 )
+from oa_configurator.domains.resources.schema import DatabaseConfig, DatabaseKind
 from oa_configurator.stack_config import mismatched_kind_refs
 
 
 class TestConnectionConfig:
     def test_sqlite_build_url(self):
-        db = ConnectionConfig(dialect="sqlite", database_name=":memory:")
-        assert db.build_url() == "sqlite:///:memory:"
+        db = ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
+        assert make_url(db.build_url()) == make_url("sqlite:///:memory:")
 
     def test_sqlite_without_database_name_raises(self):
         """No implicit ':memory:' fallback: an unset database_name for a
         sqlite dialect would otherwise silently discard data on every
         restart, with no indication anything was ever in-memory."""
-        db = ConnectionConfig(dialect="sqlite")
         with pytest.raises(ValueError, match="database_name"):
-            db.build_url()
+            ConnectionConfig(dialect=Dialect.SQLITE)
+
+    def test_sqlite_dialect_name_strips_driver_suffix_for_requires_host(self):
+        """dialect may be driver-qualified (e.g. 'sqlite+pysqlite'), not just
+        the bare name. requires_host() given a plain string uses it as-is
+        with no normalization, so it raises on a compound dialect string
+        directly. Showcases that ConnectionConfig.dialect_name strips the 
+        driver suffix for the benefit of requires_host() and other consumers."""
+        db = ConnectionConfig(dialect="sqlite+pysqlite", database_name=":memory:")
+        assert db.dialect_name == "sqlite"
+        assert requires_host(db.dialect_name) is False
+
+        with pytest.raises(ValueError, match="Unsupported dialect 'sqlite\\+pysqlite'"):
+            requires_host("sqlite+pysqlite")
+
+    def test_pg_without_host_raises(self):
+        """No implicit 'localhost' fallback: an unset host for a server-based
+        dialect must fail clearly rather than silently connecting to the
+        wrong (or no) server."""
+        with pytest.raises(ValueError, match="host"):
+            ConnectionConfig(dialect=Dialect.POSTGRESQL, database_name="mydb")
 
     def test_pg_build_url_includes_password(self):
         db = ConnectionConfig(
-            dialect="postgresql+psycopg",
+            dialect=Dialect.POSTGRESQL + "+psycopg",
             host="localhost",
             port=5432,
             user="admin",
@@ -48,7 +70,7 @@ class TestConnectionConfig:
 
     def test_pg_safe_url_redacts_password(self):
         db = ConnectionConfig(
-            dialect="postgresql+psycopg",
+            dialect=Dialect.POSTGRESQL + "+psycopg",
             host="localhost",
             user="admin",
             password="s3cret",
@@ -59,12 +81,12 @@ class TestConnectionConfig:
         assert "***" in safe
 
     def test_dialect_required(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             ConnectionConfig()  # type: ignore
 
     def test_extra_fields_forbidden(self):
-        with pytest.raises(Exception):
-            ConnectionConfig(dialect="sqlite", unknown_field="x")  # type: ignore
+        with pytest.raises(ValidationError):
+            ConnectionConfig(dialect=Dialect.SQLITE, unknown_field="x")  # type: ignore
 
 
 class TestGenericDatabaseConfig:
@@ -74,11 +96,11 @@ class TestGenericDatabaseConfig:
         assert r.schema_name is None
 
     def test_extra_fields_forbidden(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             GenericDatabaseConfig(connection="db", vocab_schema="x")  # type: ignore
 
     def test_kind_cannot_be_overridden(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             GenericDatabaseConfig(connection="db", kind="cdm")  # type: ignore
 
 
@@ -90,26 +112,42 @@ class TestCDMDatabaseConfig:
         assert r.vocab_schema is None
         assert r.results_schema is None
 
-    def test_schema_name_defaults_to_omop(self):
+    def test_schema_name_defaults_to_none(self):
         r = CDMDatabaseConfig(connection="db")
-        assert r.schema_name == "omop"
+        assert r.cdm_schema is None
 
     def test_extra_fields_forbidden(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             CDMDatabaseConfig(connection="db", unknown="x")  # type: ignore
+
+    def test_legacy_schema_name_points_to_upgrade_path(self):
+        with pytest.raises(ValidationError) as exc_info:
+            CDMDatabaseConfig(connection="db", schema_name="omop")  # type: ignore
+        message = str(exc_info.value)
+        assert "looks like a 1.x config" in message
+        assert "schema_name" in message and "cdm_schema" in message
+        assert "default is now None" in message
+        assert (
+            "Follow the manual upgrade steps at "
+            "https://AustralianCancerDataNetwork.github.io/oa-configurator/upgrading-from-1.x/."
+        ) in message
+        assert (
+            "A migration script will also be available via `uv run "
+            "https://raw.githubusercontent.com/AustralianCancerDataNetwork/oa-configurator/main/migrations/to_v2.py`."
+        ) in message
 
 
 class TestDatabaseKindDiscrimination:
     def test_missing_kind_rejected(self):
         with pytest.raises(Exception, match="kind"):
             StackConfig.for_session(
-                connections={"c": ConnectionConfig(dialect="sqlite")},
+                connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
                 databases={"r": {"connection": "c"}},  # ty: ignore[invalid-argument-type]
             )
 
     def test_raw_dict_dispatches_by_kind(self):
         cfg = StackConfig.for_session(
-            connections={"c": ConnectionConfig(dialect="sqlite")},
+            connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
             databases=cast(
                 Any,
                 {
@@ -122,9 +160,9 @@ class TestDatabaseKindDiscrimination:
         assert isinstance(cfg.databases["d"], CDMDatabaseConfig)
 
     def test_unknown_kind_rejected(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             StackConfig.for_session(
-                connections={"c": ConnectionConfig(dialect="sqlite")},
+                connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
                 databases={"r": {"kind": "bogus", "connection": "c"}},  # ty: ignore[invalid-argument-type]
             )
 
@@ -136,7 +174,7 @@ class TestMismatchedKindRefs:
 
     def test_flags_wrong_subtype(self):
         cfg = StackConfig.for_session(
-            connections={"c": ConnectionConfig(dialect="sqlite")},
+            connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
             databases={"g": GenericDatabaseConfig(connection="c")},
         )
         from oa_configurator.domains.vector_stores.schema import VectorStoreConfig
@@ -145,7 +183,7 @@ class TestMismatchedKindRefs:
         assert mismatched_kind_refs(vs, cfg) == []
 
         cfg2 = StackConfig.for_session(
-            connections={"c": ConnectionConfig(dialect="sqlite")},
+            connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
             databases={"d": CDMDatabaseConfig(connection="c")},
         )
         vs2 = VectorStoreConfig(backend_type="pgvector", database="d")
@@ -173,9 +211,9 @@ class TestStackConfig:
         """Raw, TOML-table-shaped dicts (not DatabaseConfig instances) still coerce at validation time."""
         cfg = StackConfig.for_session(
             connections={
-                "c": ConnectionConfig(dialect="sqlite", database_name=":memory:")
+                "c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
             },
-            databases={"r": {"connection": "c", "kind": "cdm", "schema_name": "s"}},  # ty: ignore[invalid-argument-type]
+            databases={"r": {"connection": "c", "kind": "cdm"}},  # ty: ignore[invalid-argument-type]
         )
         assert isinstance(cfg.connections["c"], ConnectionConfig)
         assert isinstance(cfg.databases["r"], DatabaseConfig)
@@ -185,18 +223,16 @@ class TestStackConfig:
             StackConfig.for_session(
                 connections={},
                 databases={
-                    "r": CDMDatabaseConfig(connection="missing", schema_name="s")
+                    "r": CDMDatabaseConfig(connection="missing", cdm_schema="s")
                 },
             )
 
     def test_cross_ref_validation_vocab_connection(self):
         with pytest.raises(ValueError, match="unknown connection"):
             StackConfig.for_session(
-                connections={"c": ConnectionConfig(dialect="sqlite")},
+                connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
                 databases={
-                    "r": CDMDatabaseConfig(
-                        connection="c", vocab_connection="missing", schema_name="s"
-                    )
+                    "r": CDMDatabaseConfig(connection="c", vocab_connection="missing")
                 },
             )
 
@@ -206,7 +242,7 @@ class TestStackConfig:
         assert cfg.loaded_path == tmp_path / "config.toml"
 
     def test_extra_fields_forbidden(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             StackConfig(unknown_top_level="x")  # type: ignore
 
     def test_cross_ref_validation_unknown_provider(self):
@@ -214,6 +250,270 @@ class TestStackConfig:
             StackConfig.for_session(
                 providers={},
                 models={"m": ModelConfig(provider="missing", model="llama3:8b")},
+            )
+
+
+class TestEntryExclusivity:
+    """StackConfig's config-time checks that no two independent entries
+    (connections, CDM databases, vector stores) accidentally share a
+    physical connection"""
+
+    @staticmethod
+    def _pg(**overrides: Any) -> ConnectionConfig:
+        fields: dict[str, Any] = {
+            "dialect": Dialect.POSTGRESQL + "+psycopg", "host": "db.example", "port": 5432, "database_name": "omop",
+        }
+        fields.update(overrides)
+        return ConnectionConfig(**fields)
+
+    def test_two_connections_with_identical_fields_raise(self):
+        with pytest.raises(ValueError, match="describes the same connection"):
+            StackConfig.for_session(connections={"a": self._pg(), "b": self._pg()})
+
+    def test_two_connections_differing_only_by_user_are_not_duplicates(self):
+        cfg = StackConfig.for_session(
+            connections={"app": self._pg(user="app_role"), "admin": self._pg(user="admin_role")}
+        )
+        assert set(cfg.connections) == {"app", "admin"}
+
+    def test_two_test_only_connections_with_identical_fields_are_allowed(self):
+        """Tests routinely clone the one real test server under several
+        connection names purely to exercise multi-connection routing (e.g.
+        a split-vocab CDM), with no need for genuine physical separation."""
+        cfg = StackConfig.for_session(
+            connections={"a": self._pg(test_only=True), "b": self._pg(test_only=True)}
+        )
+        assert set(cfg.connections) == {"a", "b"}
+
+    def test_two_ephemeral_sqlite_connections_are_allowed(self):
+        cfg = StackConfig.for_session(
+            connections={
+                "a": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:"),
+                "b": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:"),
+            }
+        )
+        assert set(cfg.connections) == {"a", "b"}
+
+    def test_two_cdm_entries_sharing_a_primary_connection_raise(self):
+        with pytest.raises(ValueError, match="both CDM entries on the same physical connection"):
+            StackConfig.for_session(
+                connections={"c": self._pg()},
+                databases={
+                    "cdm_a": CDMDatabaseConfig(connection="c", cdm_schema="a"),
+                    "cdm_b": CDMDatabaseConfig(connection="c", cdm_schema="b"),
+                },
+            )
+
+    def test_two_vector_stores_sharing_a_connection_raise(self):
+        from oa_configurator.domains.resources.schema import GenericDatabaseConfig
+        from oa_configurator.domains.vector_stores.schema import VectorStoreConfig
+
+        with pytest.raises(ValueError, match="both backed by the same physical connection"):
+            StackConfig.for_session(
+                connections={"c": self._pg()},
+                databases={
+                    "db_a": GenericDatabaseConfig(connection="c", schema_name="emb_a"),
+                    "db_b": GenericDatabaseConfig(connection="c", schema_name="emb_b"),
+                },
+                vector_stores={
+                    "vs_a": VectorStoreConfig(backend_type="pgvector", database="db_a"),
+                    "vs_b": VectorStoreConfig(backend_type="pgvector", database="db_b"),
+                },
+            )
+
+    def test_a_vector_store_colocated_with_a_cdm_is_allowed(self):
+        """Deliberately not cross-checked: a vector store's backing
+        database sharing a connection with a CDM entry is the "extend this
+        CDM's database with embedding storage" pattern, not an accident."""
+        from oa_configurator.domains.resources.schema import GenericDatabaseConfig
+        from oa_configurator.domains.vector_stores.schema import VectorStoreConfig
+
+        cfg = StackConfig.for_session(
+            connections={"c": self._pg()},
+            databases={
+                "cdm": CDMDatabaseConfig(connection="c", cdm_schema="public"),
+                "emb_db": GenericDatabaseConfig(connection="c", schema_name="embeddings"),
+            },
+            vector_stores={"emb": VectorStoreConfig(backend_type="pgvector", database="emb_db")},
+        )
+        assert "emb" in cfg.vector_stores
+
+    def test_several_cdms_sharing_one_vocab_connection_is_allowed(self):
+        """The standard OMOP pattern: one shared vocabulary reused across
+        several independent CDM instances -- exactly why vocab_connection
+        is a separate field from connection in the first place."""
+        cfg = StackConfig.for_session(
+            connections={"a": self._pg(host="a"), "b": self._pg(host="b"), "vocab": self._pg(host="vocab")},
+            databases={
+                "cdm_a": CDMDatabaseConfig(connection="a", vocab_connection="vocab", cdm_schema="a"),
+                "cdm_b": CDMDatabaseConfig(connection="b", vocab_connection="vocab", cdm_schema="b"),
+            },
+        )
+        assert {"cdm_a", "cdm_b"} <= set(cfg.databases)
+
+    def test_vocab_connection_coinciding_with_anothers_primary_warns_not_raises(self, caplog):
+        """Allowed and drift-safe (the registry keys Role-tag rows per
+        entry), but surprising enough -- most likely a copy-paste/typo --
+        to deserve a loud warning rather than silent acceptance."""
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="oa_configurator.stack_config"):
+            StackConfig.for_session(
+                connections={"a": self._pg(host="a"), "b": self._pg(host="b")},
+                databases={
+                    "cdm_a": CDMDatabaseConfig(connection="a", vocab_connection="b", cdm_schema="a"),
+                    "cdm_b": CDMDatabaseConfig(connection="b", cdm_schema="b"),
+                },
+            )
+        assert any("physically coincides" in record.message for record in caplog.records)
+
+    def test_non_split_cdm_own_primary_equals_own_vocab_does_not_warn(self, caplog):
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="oa_configurator.stack_config"):
+            StackConfig.for_session(
+                connections={"c": self._pg()},
+                databases={"cdm": CDMDatabaseConfig(connection="c", cdm_schema="public")},
+            )
+        assert caplog.records == []
+
+    def test_two_connections_differing_only_by_host_alias_raise(self):
+        """Aa hostname and its own IP must be treated as one connection,
+        not two."""
+        with pytest.raises(ValueError, match="describes the same connection"):
+            StackConfig.for_session(
+                connections={
+                    "a": self._pg(host="localhost"),
+                    "b": self._pg(host="127.0.0.1"),
+                }
+            )
+
+    def test_test_only_connection_duplicating_a_production_one_raises(self):
+        """test_only must never let a connection re-baseline a
+        production database's schema provenance by accident."""
+        with pytest.raises(ValueError, match="is test_only but describes the same physical database"):
+            StackConfig.for_session(
+                connections={
+                    "prod": self._pg(user="app_role"),
+                    "twin": self._pg(user="other_role", test_only=True),
+                }
+            )
+
+    def test_test_only_connection_duplicating_a_production_one_via_host_alias_raises(self):
+        """The twin is expressed through a host alias."""
+        with pytest.raises(ValueError, match="is test_only but describes the same physical database"):
+            StackConfig.for_session(
+                connections={
+                    "prod": self._pg(host="localhost"),
+                    "twin": self._pg(host="127.0.0.1", test_only=True),
+                }
+            )
+
+    def test_two_test_only_twins_of_each_other_are_allowed(self):
+        """Only a test_only-vs-non-test_only pairing is forbidden; two
+        test_only connections cloning the same server remain allowed
+        (test_two_connections_with_identical_fields_are_allowed's sibling)."""
+        cfg = StackConfig.for_session(
+            connections={
+                "a": self._pg(test_only=True),
+                "b": self._pg(test_only=True),
+            }
+        )
+        assert set(cfg.connections) == {"a", "b"}
+
+    def test_two_entries_sharing_a_connection_and_schema_raise(self):
+        """The static half of the schema-collision check:
+        StackConfig._check_no_schema_collision_on_one_connection()."""
+        with pytest.raises(ValueError, match="declare the same physical schema"):
+            StackConfig.for_session(
+                connections={"c": self._pg()},
+                databases={
+                    "cdm": CDMDatabaseConfig(connection="c", cdm_schema="shared"),
+                    "other": GenericDatabaseConfig(connection="c", schema_name="shared"),
+                },
+            )
+
+    def test_two_entries_on_one_connection_with_distinct_schemas_are_allowed(self):
+        cfg = StackConfig.for_session(
+            connections={"c": self._pg()},
+            databases={
+                "cdm": CDMDatabaseConfig(connection="c", cdm_schema="a"),
+                "other": GenericDatabaseConfig(connection="c", schema_name="b"),
+            },
+        )
+        assert {"cdm", "other"} <= set(cfg.databases)
+
+
+class TestDeclaredSchemaNameValidation:
+    """Obviously-wrong configured schema names are rejected at
+    config-load time rather than silently accepted."""
+
+    @staticmethod
+    def _pg(**overrides: Any) -> ConnectionConfig:
+        fields: dict[str, Any] = {
+            "dialect": Dialect.POSTGRESQL + "+psycopg", "host": "db.example", "port": 5432, "database_name": "omop",
+        }
+        fields.update(overrides)
+        return ConnectionConfig(**fields)
+
+    def test_empty_schema_name_raises(self):
+        with pytest.raises(ValueError, match="must not be empty"):
+            StackConfig.for_session(
+                connections={"c": self._pg()},
+                databases={"cdm": CDMDatabaseConfig(connection="c", cdm_schema="")},
+            )
+
+    def test_whitespace_only_schema_name_raises(self):
+        with pytest.raises(ValueError, match="must not be empty"):
+            StackConfig.for_session(
+                connections={"c": self._pg()},
+                databases={"cdm": CDMDatabaseConfig(connection="c", cdm_schema="   ")},
+            )
+
+    def test_leading_or_trailing_whitespace_raises(self):
+        with pytest.raises(ValueError, match="leading/trailing whitespace"):
+            StackConfig.for_session(
+                connections={"c": self._pg()},
+                databases={"cdm": CDMDatabaseConfig(connection="c", cdm_schema=" omop ")},
+            )
+
+    def test_postgres_system_schema_raises(self):
+        with pytest.raises(ValueError, match="system schema"):
+            StackConfig.for_session(
+                connections={"c": self._pg()},
+                databases={"cdm": CDMDatabaseConfig(connection="c", cdm_schema="pg_catalog")},
+            )
+
+    def test_overlong_schema_name_raises(self):
+        with pytest.raises(ValueError, match="longer than 63 bytes"):
+            StackConfig.for_session(
+                connections={"c": self._pg()},
+                databases={"cdm": CDMDatabaseConfig(connection="c", cdm_schema="x" * 64)},
+            )
+
+    def test_ordinary_schema_name_is_accepted(self):
+        cfg = StackConfig.for_session(
+            connections={"c": self._pg()},
+            databases={"cdm": CDMDatabaseConfig(connection="c", cdm_schema="omop_cdm")},
+        )
+        assert "cdm" in cfg.databases
+
+
+class TestUtf8SchemaNameLength:
+    def test_multibyte_name_under_63_characters_over_63_bytes_raises(self):
+        schema_name = "é" * 32
+        assert len(schema_name) < 63
+        assert len(schema_name.encode("utf-8")) > 63
+        connection = ConnectionConfig(
+            dialect=Dialect.POSTGRESQL + "+psycopg",
+            host="db.example",
+            port=5432,
+            database_name="omop",
+        )
+        with pytest.raises(ValueError, match="longer than 63 bytes"):
+            StackConfig.for_session(
+                connections={"c": connection},
+                databases={"cdm": CDMDatabaseConfig(connection="c", cdm_schema=schema_name)},
             )
 
 
@@ -225,11 +525,11 @@ class TestProviderConfig:
         assert provider.api_key is None
 
     def test_extra_fields_forbidden(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             ProviderConfig(provider="ollama", unknown_field="x")  # type: ignore
 
     def test_provider_required(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             ProviderConfig()  # type: ignore
 
 
@@ -276,5 +576,5 @@ class TestModelConfig:
         assert b.configuration == {}
 
     def test_extra_fields_forbidden(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             ModelConfig(provider="p", model="m", unknown_field="x")  # type: ignore

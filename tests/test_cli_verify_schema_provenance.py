@@ -1,0 +1,144 @@
+"""`omop-config verify`'s schema-provenance section.
+
+Live-Postgres regression. verify() opens the schema-provenance guard with an
+empty body per resolved database entry, the same agree/disagree check the
+DDL-time gate uses. It registers no claims itself; tests establish the
+baseline through create_engines() first.
+
+verify() builds its own fresh, real engines internally (never the
+rollback-protected pg_db.connection), so every write is a genuine commit.
+fresh_role_registry_rows restores the Role-tag rows around each test.
+"""
+
+from __future__ import annotations
+
+import uuid
+
+import pytest
+from oa_configurator import CDMDatabaseConfig, ConnectionConfig, Role, StackConfig
+from oa_configurator.domains.resources.schema_registry import _record_schema_provenance
+from typer.testing import CliRunner
+
+from oa_configurator.cli import app
+from oa_configurator.resolver import Resolver
+from oa_configurator.testing import isolated_test_schema
+from conftest import register_entry
+
+pytestmark = [pytest.mark.postgresql, pytest.mark.db_dialect, pytest.mark.usefixtures("fresh_role_registry_rows")]
+
+runner = CliRunner()
+
+
+def _stack_with_one_cdm_db(
+    connection_config: ConnectionConfig, *, database_config_name: str, schema: str
+) -> StackConfig:
+    return StackConfig.for_session(
+        connections={"verify_conn": connection_config},
+        databases={
+            database_config_name: CDMDatabaseConfig(connection="verify_conn", cdm_schema=schema),
+        },
+    )
+
+
+def test_verify_reports_ok_for_a_registered_database(pg_db, pg_connection_config, monkeypatch):
+    db_name = f"verify_db_{uuid.uuid4().hex[:8]}"
+    with isolated_test_schema(pg_db.committing_engine) as schema:
+        stack = _stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=schema)
+        register_entry(stack, db_name)
+        monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack)
+
+        result = runner.invoke(app, ["verify"])
+    assert result.exit_code == 0, result.output
+    assert db_name in result.output
+    assert "DRIFT" not in result.output
+    assert "FAIL" not in result.output
+
+
+def test_verify_registers_no_baseline(pg_connection_config, monkeypatch):
+    db_name = f"verify_db_{uuid.uuid4().hex[:8]}"
+    schema = f"test_{uuid.uuid4().hex[:8]}"
+    stack = _stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=schema)
+    monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack)
+
+    for _ in range(2):
+        result = runner.invoke(app, ["verify"])
+        assert result.exit_code == 1
+        assert "DRIFT" in result.output
+
+
+def test_verify_reports_drift_after_reconfiguring_the_schema(pg_db, pg_connection_config, monkeypatch):
+    db_name = f"verify_db_{uuid.uuid4().hex[:8]}"
+    with (
+        isolated_test_schema(pg_db.committing_engine) as schema_a,
+        isolated_test_schema(pg_db.committing_engine) as schema_b,
+    ):
+        register_entry(_stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=schema_a), db_name)
+
+        stack_b = _stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=schema_b)
+        monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack_b)
+        result = runner.invoke(app, ["verify"])
+    assert result.exit_code == 1
+    assert "DRIFT" in result.output
+
+
+def test_verify_clean_after_acknowledging_drift(pg_db, pg_connection_config, monkeypatch):
+    db_name = f"verify_db_{uuid.uuid4().hex[:8]}"
+    with (
+        isolated_test_schema(pg_db.committing_engine) as schema_a,
+        isolated_test_schema(pg_db.committing_engine) as schema_b,
+    ):
+        register_entry(_stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=schema_a), db_name)
+
+        # vocab/results fall back to schema_name (unconfigured), so verify()
+        # checks all three roles for a CDM database, and all three drifted.
+        stack_b = _stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=schema_b)
+        resolved = Resolver(stack_b).resolve_database(db_name)
+        with pg_db.committing_engine.begin() as connection:
+            for role in (Role.PRIMARY, Role.VOCAB, Role.RESULTS):
+                _record_schema_provenance(
+                    connection, database_config_name=resolved.name, schema_tag=role,
+                    new_physical_schema=schema_b, reason="test acknowledgment",
+                )
+
+        monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack_b)
+        result = runner.invoke(app, ["verify"])
+    assert result.exit_code == 0, result.output
+    assert "DRIFT" not in result.output
+
+
+def test_verify_does_not_crash_when_a_sibling_role_tag_on_one_connection_drifts(pg_db, pg_connection_config, monkeypatch):
+    """Primary and results share one connection. Only results drifts,
+    but create_engines() checks every local-role claim on that
+    connection, so the primary row's own check also raises an error. This is because
+    it must be reported as DRIFT (connection-wide), not crash verify() outright, and not
+    silently claim primary itself is fine when it never got checked alone."""
+    db_name = f"verify_db_{uuid.uuid4().hex[:8]}"
+    with (
+        isolated_test_schema(pg_db.committing_engine) as schema_a,
+        isolated_test_schema(pg_db.committing_engine) as schema_r1,
+        isolated_test_schema(pg_db.committing_engine) as schema_r2,
+    ):
+
+        def _stack(results_schema: str) -> StackConfig:
+            return StackConfig.for_session(
+                connections={"verify_conn": pg_connection_config},
+                databases={
+                    db_name: CDMDatabaseConfig(
+                        connection="verify_conn", cdm_schema=schema_a, results_schema=results_schema,
+                    ),
+                },
+            )
+
+        register_entry(_stack(schema_r1), db_name)
+
+        stack_b = _stack(schema_r2)
+        monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack_b)
+        result = runner.invoke(app, ["verify"])
+    assert result.exit_code == 1, result.output
+    assert "Traceback" not in result.output
+    # vocab is unconfigured here too, so it also routes through the PRIMARY
+    # connection and gets caught by the same connection-wide check: all three
+    # role tags report DRIFT, but the "connection-wide" marker makes clear
+    # the named schema in the message may not be *this* row's own tag.
+    assert result.output.count("DRIFT") == 3
+    assert "connection-wide" in result.output

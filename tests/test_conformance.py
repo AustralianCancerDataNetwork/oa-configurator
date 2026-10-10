@@ -14,13 +14,14 @@ from oa_configurator import (
     CDMDatabaseConfig,
     ConnectionConfig,
     ProviderConfig,
-    Secret,
     SensitiveValueLeak,
     StackConfig,
     assert_no_sensitive_values_leak,
     is_sensitive,
     safe_endpoint,
+    Dialect
 )
+from oa_configurator.refs import Secret
 
 CANARY = "canary-8f21c0-do-not-render"
 
@@ -43,7 +44,7 @@ def _stack_with_secrets() -> StackConfig:
     return StackConfig.for_session(
         connections={
             "cdm": ConnectionConfig(
-                dialect="postgresql+psycopg",
+                dialect=Dialect.POSTGRESQL + "+psycopg",
                 host="db.hospital.org",
                 port=5432,
                 user="omop",
@@ -51,7 +52,7 @@ def _stack_with_secrets() -> StackConfig:
                 database_name="omop_cdm",
             )
         },
-        databases={"default": CDMDatabaseConfig(connection="cdm", schema_name="omop")},
+        databases={"default": CDMDatabaseConfig(connection="cdm", cdm_schema="omop")},
         providers={
             "azure": ProviderConfig(
                 provider="openai",

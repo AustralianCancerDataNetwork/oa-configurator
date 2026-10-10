@@ -226,3 +226,6 @@ __pycache__/
 .venv/
 *.ipynb
 _temp/
+
+# MAC
+.DS_Store

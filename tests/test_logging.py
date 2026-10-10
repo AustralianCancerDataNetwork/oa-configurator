@@ -8,7 +8,6 @@ import pytest
 
 from oa_configurator import (
     ConnectionConfig,
-    RedactingFormatter,
     configure_logging,
     get_logger,
 )
@@ -96,21 +95,14 @@ class TestLoggingConfig:
 
 
 def _formatted(message: str) -> str:
-    """Run *message* through the formatter exactly as a handler would."""
+    """Run *message* through RedactingFilter exactly as a handler would."""
     record = logging.LogRecord("t", logging.WARNING, "", 0, message, None, None)
-    return RedactingFormatter("%(message)s").format(record)
+    RedactingFilter().filter(record)
+    return logging.Formatter("%(message)s").format(record)
 
 
-class TestRedactingFormatterDeprecation:
-    """``configure_logging`` moved to ``RedactingFilter``; the formatter should say so."""
-
-    def test_instantiation_warns(self):
-        with pytest.warns(DeprecationWarning, match="RedactingFilter"):
-            RedactingFormatter("%(message)s")
-
-
-class TestRedactingFormatterScope:
-    """The formatter no longer guesses which key names are sensitive.
+class TestUrlScrubbingScope:
+    """The scrubbing no longer guesses which key names are sensitive.
 
     Config objects are safe to render on their own account (see
     ``SecretSafeBaseModel``), so the key-name word list had nothing left to protect
@@ -130,8 +122,8 @@ class TestRedactingFormatterScope:
         for message in ("monkey=x", "turkey=1", "donkey_count=3", "api_version=2024-02-01"):
             assert _formatted(message) == message
 
-    def test_a_rendered_config_is_safe_without_the_formatter(self):
-        """The formatter is not what protects a logged config object."""
+    def test_a_rendered_config_is_safe_without_the_scrubber(self):
+        """RedactingFilter is not what protects a logged config object."""
         connection = ConnectionConfig(
             dialect="postgresql+psycopg", host="h", user="u",
             password="pw-CANARY", database_name="omop",
@@ -141,7 +133,7 @@ class TestRedactingFormatterScope:
         assert "pw-CANARY" not in _formatted(f"connecting with {connection}")
 
 
-class TestRedactingFormatterUrls:
+class TestUrlScrubbingCoverage:
     """A URL carries its credential with no ``key=`` to anchor on.
 
     Routed through ``safe_endpoint`` rather than a second redaction rule, so
@@ -290,12 +282,7 @@ class TestRedactingFilter:
             record = logging.LogRecord("t", logging.ERROR, "", 0, "failed", None,
                                        __import__("sys").exc_info())
         RedactingFilter().filter(record)
-        assert "user:pw@" not in record.exc_text
-        assert "user:***@host/db" in record.exc_text
-
-
-class TestRedactingFormatterStillWorks:
-    """Public API, retained for callers who wired it up directly."""
-
-    def test_it_shares_the_filter_s_scrubbing(self):
-        assert _formatted(DSN) == "postgresql://user:***@host/db"
+        exc_text = record.exc_text
+        assert exc_text is not None
+        assert "user:pw@" not in exc_text
+        assert "user:***@host/db" in exc_text

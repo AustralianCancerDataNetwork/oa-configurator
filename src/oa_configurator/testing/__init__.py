@@ -57,13 +57,14 @@ teardown.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
+from collections.abc import Callable, Generator, Iterable, Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
-from typing import TYPE_CHECKING, Any, Iterable, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.dialects import registry
+from sqlalchemy.exc import DBAPIError
 
 from ..domains.resources.sql import Dialect, Role
 from .base import (
@@ -72,7 +73,11 @@ from .base import (
     TestDatabaseStrategy,
     _skip_message,
 )
-from .postgres import PostgresTestStrategy, drop_schema_if_exists, install_postgres_extension
+from .postgres import (
+    PostgresTestStrategy,
+    drop_schema_if_exists,
+    install_postgres_extension,
+)
 from .sqlite import SQLiteTestStrategy
 
 if TYPE_CHECKING:
@@ -206,13 +211,13 @@ def _require_db_dialect_mark(request: pytest.FixtureRequest, field_name: str, di
 
 @contextmanager
 def isolated_test_database(
-    config_cls: type["PackageConfigBase"],
+    config_cls: type[PackageConfigBase],
     field_name: str,
     *,
     dialect: Dialect | str | None = None,
     request: pytest.FixtureRequest | None = None,
     resolver: Resolver | None = None,
-    schema_claims: Iterable["SchemaClaim"] = (),
+    schema_claims: Iterable[SchemaClaim] = (),
     execution_options: dict[str, Any] | None = None,
     **engine_kwargs: Any,
 ) -> Generator[IsolatedTestDatabase, None, None]:
@@ -253,7 +258,7 @@ def isolated_test_database(
         raise ValueError(f"Unknown dialect {dialect!r}. Registered: {sorted(d.value for d in _STRATEGIES)}.")
 
     try:
-        resolved: "ResolvedDatabase" = TestDatabaseStrategy._resolve_and_check(
+        resolved: ResolvedDatabase = TestDatabaseStrategy._resolve_and_check(
             config_cls, field_name, resolver=resolver
         )
     except TestDatabaseNotConfigured as exc:
@@ -388,6 +393,34 @@ def resolve_with_role_schemas(
     return resolver.with_overrides(databases={resolved.name: overridden}).resolve_database(resolved.name)
 
 
+def _scoped_role_schemas(
+    resolved: ResolvedDatabase, prefix: str, split_roles: set[Role], stack: ExitStack
+) -> tuple[dict[str, sa.Engine], dict[Role, str]]:
+    ddl_engines: dict[str, sa.Engine] = {}
+    shared_schemas: dict[str, str] = {}
+    schemas: dict[Role, str] = {}
+    for role in resolved.schema_tags():
+        connection_role = resolved.route_for_schema_tag(
+            role, vocab=Role.VOCAB, primary=Role.PRIMARY
+        )
+        connection = resolved.connection_for_role(connection_role)
+        if connection.name not in ddl_engines:
+            ddl_engines[connection.name] = connection.create_engine()
+            stack.callback(ddl_engines[connection.name].dispose)
+        ddl_engine = ddl_engines[connection.name]
+        if role in split_roles:
+            schemas[role] = stack.enter_context(
+                isolated_test_schema(ddl_engine, prefix=f"{prefix}_{role.value}")
+            )
+            continue
+        if connection.name not in shared_schemas:
+            shared_schemas[connection.name] = stack.enter_context(
+                isolated_test_schema(ddl_engine, prefix=prefix)
+            )
+        schemas[role] = shared_schemas[connection.name]
+    return ddl_engines, schemas
+
+
 @contextmanager
 def scoped_test_schema(
     resolved: ResolvedDatabase,
@@ -427,33 +460,25 @@ def scoped_test_schema(
     """
     split = set(split_roles)
     with ExitStack() as stack:
-        ddl_engines: dict[str, sa.Engine] = {}
-        shared_schemas: dict[str, str] = {}
-        schemas: dict[Role, str] = {}
-        for role in resolved.schema_tags():
-            connection_role = resolved.route_for_schema_tag(role, vocab=Role.VOCAB, primary=Role.PRIMARY)
-            connection = resolved.connection_for_role(connection_role)
-            if connection.name not in ddl_engines:
-                ddl_engines[connection.name] = connection.create_engine()
-                stack.callback(ddl_engines[connection.name].dispose)
-            ddl_engine = ddl_engines[connection.name]
-            if role in split:
-                schemas[role] = stack.enter_context(
-                    isolated_test_schema(ddl_engine, prefix=f"{prefix}_{role.value}")
-                )
-                continue
-            if connection.name not in shared_schemas:
-                shared_schemas[connection.name] = stack.enter_context(
-                    isolated_test_schema(ddl_engine, prefix=prefix)
-                )
-            schemas[role] = shared_schemas[connection.name]
-
+        ddl_engines, schemas = _scoped_role_schemas(resolved, prefix, split, stack)
         scoped = resolve_with_role_schemas(resolved, schemas, resolver=resolver)
         schema_claims = tuple(schema_claims)
         primary_ddl_engine = ddl_engines[resolved.connection.name]
-        existing = set(sa.inspect(primary_ddl_engine).get_schema_names())
         for claim in schema_claims:
-            if claim.physical_schema is not None and claim.physical_schema not in existing:
+            if claim.physical_schema is None:
+                continue
+            created = False
+            with primary_ddl_engine.begin() as connection:
+                try:
+                    with connection.begin_nested():
+                        connection.execute(sa.schema.CreateSchema(claim.physical_schema))
+                except DBAPIError as exc:
+                    sqlstate = getattr(exc.orig, "sqlstate", getattr(exc.orig, "pgcode", None))
+                    if sqlstate != "42P06":
+                        raise
+                else:
+                    created = True
+            if created:
                 stack.callback(drop_schema_if_exists, primary_ddl_engine, claim.physical_schema)
         engine = scoped._build_engine(
             Role.PRIMARY,
@@ -567,15 +592,10 @@ def reset_schema_registry_rows(
         when exercising non-``test_only`` claim behavior against it.
     """
     from ..domains.resources.schema_registry import SchemaRegistry, _registry_connection
-    from ..domains.resources.sql import connection_key
-
     TestDatabaseStrategy._require_test_only_engine(engine)
 
     table = cast(sa.Table, SchemaRegistry.__table__)
-    condition = sa.and_(
-        table.c.connection_key == connection_key(engine.url),
-        table.c.schema_tag.in_(list(schema_tags)),
-    )
+    condition = table.c.schema_tag.in_(list(schema_tags))
 
     with engine.begin() as connection:
         registry_connection = _registry_connection(connection)

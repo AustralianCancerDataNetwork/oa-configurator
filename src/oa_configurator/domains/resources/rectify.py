@@ -12,12 +12,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
+from sqlalchemy.exc import SQLAlchemyError
 
-from .sql import _profile_for, connection_key, qualified, supports_schemas
 from .schema_registry import (
     _find_schema_provenance_claim,
     _reject_reservation_conflict,
 )
+from .sql import _profile_for, qualified, supports_schemas
 
 if TYPE_CHECKING:
     from ...stack_config import StackConfig
@@ -47,7 +48,12 @@ def _refuse_production_collision(target: sa.URL) -> None:
             "this cannot be checked against production connections. Fix the config, or "
             "point OA_CONFIG_PATH at the intended one, and retry."
         ) from exc
-    match = _find_production_collision(connection_key(target), config)
+    try:
+        match = _find_production_collision(target, config)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Refusing to target {target.database!r}: production safety could not be verified."
+        ) from exc
     if match is not None:
         raise RuntimeError(
             f"Refusing to target {target.database!r}: matches non-test connection {match!r} "
@@ -75,10 +81,11 @@ def preview_orphan_schema_tables(connection: sa.Connection, schema: str) -> list
     previews = []
     for name in table_names:
         try:
-            count = connection.execute(
-                sa.text(f"SELECT COUNT(*) FROM {qualified(connection, name, physical_schema=schema)}")
-            ).scalar()
-        except Exception:
+            with connection.begin_nested():
+                count = connection.execute(
+                    sa.text(f"SELECT COUNT(*) FROM {qualified(connection, name, physical_schema=schema)}")
+                ).scalar()
+        except SQLAlchemyError:
             count = None
         previews.append(OrphanTablePreview(table_name=name, row_count=count))
     return previews
@@ -86,7 +93,7 @@ def preview_orphan_schema_tables(connection: sa.Connection, schema: str) -> list
 
 def schema_is_a_current_target(
     connection: sa.Connection,
-    stack: "StackConfig",
+    stack: StackConfig,
     schema: str
 ) -> str | None:
     """Is this schema still a live target of some configured database's
@@ -117,7 +124,7 @@ def schema_is_a_current_target(
 def drop_orphan_schema_tables(
     connection: sa.Connection,
     *,
-    stack: "StackConfig",
+    stack: StackConfig,
     orphan_schema: str,
     confirm: bool,
     allow_default_schema: bool = False,

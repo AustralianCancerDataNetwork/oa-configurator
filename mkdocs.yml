@@ -76,6 +76,7 @@ nav:
   - Getting Started: quickstart.md
   - Architecture: architecture.md
   - Migrating from 0.x to 1.0: migration-1.0.md
+  - Upgrading from 1.x: upgrading-from-1.x.md
 
   - User Guide:
       - Config File Reference: config-reference.md

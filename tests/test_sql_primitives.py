@@ -19,9 +19,11 @@ import uuid
 import pytest
 import sqlalchemy as sa
 import sqlalchemy.orm as so
+from conftest import registry_row as _registry_row
 from sqlalchemy.exc import InvalidRequestError
 
 from oa_configurator import (
+    Dialect,
     Role,
     SchemaDriftError,
     SchemaOwnershipError,
@@ -30,12 +32,10 @@ from oa_configurator import (
     ensure_schema,
     find_table_in_other_schemas,
     open_connection,
-    qualified,
     physical_schema_of,
+    qualified,
     supports_schemas,
-    Dialect,
 )
-from oa_configurator.domains.resources.sql import _as_bind, _profile_for, connection_key
 from oa_configurator.domains.resources.schema_registry import (
     SchemaRegistryOutdatedError,
     _guard_schema_provenance,
@@ -43,8 +43,8 @@ from oa_configurator.domains.resources.schema_registry import (
     _register_schema_claim,
     _reject_reservation_conflict,
 )
+from oa_configurator.domains.resources.sql import _as_bind, _profile_for, connection_key
 from oa_configurator.testing import drop_schema_if_exists
-from conftest import registry_row as _registry_row
 
 
 class TestConnectionKey:
@@ -66,12 +66,17 @@ class TestConnectionKey:
         b = sa.make_url("postgresql://u@127.0.0.1:5432/omop")
         assert connection_key(a) == connection_key(b)
 
+    def test_collapses_ipv6_loopback_and_localhost(self):
+        a = sa.make_url("postgresql://u@localhost:5432/omop")
+        b = sa.make_url("postgresql://u@[::1]:5432/omop")
+        assert connection_key(a) == connection_key(b)
+
 
 class TestCanonicalHost:
-    def test_resolves_localhost_to_its_loopback_ip(self):
+    def test_resolves_localhost_to_canonical_loopback_identity(self):
         from oa_configurator.domains.resources.sql import canonical_host
 
-        assert canonical_host("localhost") == "127.0.0.1"
+        assert canonical_host("localhost") == "loopback"
 
     def test_none_passes_through(self):
         from oa_configurator.domains.resources.sql import canonical_host
@@ -110,9 +115,8 @@ class TestOpenConnection:
             assert conn.in_transaction()
 
     def test_connection_is_forwarded_as_is(self, engine):
-        with engine.connect() as conn:
-            with open_connection(conn) as opened:
-                assert opened is conn
+        with engine.connect() as conn, open_connection(conn) as opened:
+            assert opened is conn
 
     def test_session_bound_to_an_engine_reduces_to_its_own_live_connection(self, engine):
         """Session.connection(), not Session.get_bind(): a fresh connection
@@ -329,9 +333,8 @@ class TestAutocommitConnection:
         conn = engine.connect()
         try:
             conn.begin()
-            with pytest.raises(InvalidRequestError, match="active transaction"):
-                with autocommit_connection(conn):
-                    pass
+            with pytest.raises(InvalidRequestError, match="active transaction"), autocommit_connection(conn):
+                pass
         finally:
             conn.close()
 
@@ -726,12 +729,11 @@ class TestGuardSchemaProvenance:
         _register_schema_claim(
             conn, database_config_name=db_name, schema_tag=tag, physical_schema=schema_a,
         )
-        with pytest.raises(SchemaDriftError, match=f"{schema_b!r}.*{schema_a!r}"):
-            with _guard_schema_provenance(
-                conn, database_config_name=db_name, test_only=False,
-                schema_tag=tag, physical_schema=schema_b,
-            ):
-                pass
+        with pytest.raises(SchemaDriftError, match=f"{schema_b!r}.*{schema_a!r}"), _guard_schema_provenance(
+            conn, database_config_name=db_name, test_only=False,
+            schema_tag=tag, physical_schema=schema_b,
+        ):
+            pass
 
     def test_test_only_short_circuits_even_on_drift(self, pg_db):
         db_name = f"guard_{uuid.uuid4().hex[:8]}"
@@ -757,12 +759,11 @@ class TestGuardSchemaProvenance:
         tag = f"tag_{uuid.uuid4().hex[:8]}"
         schema = f"test_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection
-        with pytest.raises(SchemaDriftError, match="No schema-registry baseline"):
-            with _guard_schema_provenance(
-                conn, database_config_name=db_name, test_only=False,
-                schema_tag=tag, physical_schema=schema,
-            ):
-                pass
+        with pytest.raises(SchemaDriftError, match="No schema-registry baseline"), _guard_schema_provenance(
+            conn, database_config_name=db_name, test_only=False,
+            schema_tag=tag, physical_schema=schema,
+        ):
+            pass
 
     def test_exception_in_body_does_not_disturb_the_baseline(self, pg_db):
         db_name = f"guard_{uuid.uuid4().hex[:8]}"
@@ -772,12 +773,11 @@ class TestGuardSchemaProvenance:
         _register_schema_claim(
             conn, database_config_name=db_name, schema_tag=tag, physical_schema=schema,
         )
-        with pytest.raises(ValueError, match="boom"):
-            with _guard_schema_provenance(
-                conn, database_config_name=db_name, test_only=False,
-                schema_tag=tag, physical_schema=schema,
-            ):
-                raise ValueError("boom")
+        with pytest.raises(ValueError, match="boom"), _guard_schema_provenance(
+            conn, database_config_name=db_name, test_only=False,
+            schema_tag=tag, physical_schema=schema,
+        ):
+            raise ValueError("boom")
         # Baseline is untouched by the raise; a second, clean call still succeeds.
         with _guard_schema_provenance(
             conn, database_config_name=db_name, test_only=False,
@@ -802,12 +802,11 @@ class TestGuardSchemaProvenance:
         schema_b = f"test_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection
         _register_schema_claim(conn, database_config_name="entry_a", schema_tag=tag, physical_schema=schema_a)
-        with pytest.raises(SchemaDriftError, match=f"'entry_b'.*{schema_b!r}.*'entry_a'.*{schema_a!r}"):
-            with _guard_schema_provenance(
-                conn, database_config_name="entry_b", test_only=False,
-                schema_tag=tag, physical_schema=schema_b,
-            ):
-                pass
+        with pytest.raises(SchemaDriftError, match=f"'entry_b'.*{schema_b!r}.*'entry_a'.*{schema_a!r}"), _guard_schema_provenance(
+            conn, database_config_name="entry_b", test_only=False,
+            schema_tag=tag, physical_schema=schema_b,
+        ):
+            pass
 
     def test_reasserting_a_claim_keeps_the_establishing_entry(self, pg_db):
         tag = f"tag_{uuid.uuid4().hex[:8]}"
@@ -838,23 +837,21 @@ class TestGuardSchemaProvenanceSqlite:
 
     def test_no_baseline_is_a_noop_not_a_hard_error(self, sqlite_db):
         db_name = f"guard_{uuid.uuid4().hex[:8]}"
-        with sqlite_db.committing_engine.begin() as connection:
-            with _guard_schema_provenance(
-                connection, database_config_name=db_name, test_only=False,
-                schema_tag=Role.PRIMARY, physical_schema=None,
-            ):
-                connection.execute(sa.text("CREATE TABLE t (id int)"))
+        with sqlite_db.committing_engine.begin() as connection, _guard_schema_provenance(
+            connection, database_config_name=db_name, test_only=False,
+            schema_tag=Role.PRIMARY, physical_schema=None,
+        ):
+            connection.execute(sa.text("CREATE TABLE t (id int)"))
 
     def test_pre_populated_schema_does_not_raise_either(self, sqlite_db):
         db_name = f"guard_{uuid.uuid4().hex[:8]}"
         with sqlite_db.committing_engine.begin() as connection:
             connection.execute(sa.text("CREATE TABLE preexisting (id int)"))
-        with sqlite_db.committing_engine.begin() as connection:
-            with _guard_schema_provenance(
-                connection, database_config_name=db_name, test_only=False,
-                schema_tag=Role.PRIMARY, physical_schema=None,
-            ):
-                pass  # must not raise: nothing is tracked for this dialect at all
+        with sqlite_db.committing_engine.begin() as connection, _guard_schema_provenance(
+            connection, database_config_name=db_name, test_only=False,
+            schema_tag=Role.PRIMARY, physical_schema=None,
+        ):
+            pass  # must not raise: nothing is tracked for this dialect at all
 
 
 class TestRecordSchemaProvenance:
@@ -905,12 +902,11 @@ class TestRecordSchemaProvenance:
         ensure_schema(conn, schema)
         conn.execute(sa.text(f'CREATE TABLE "{schema}".preexisting (id int)'))
 
-        with pytest.raises(SchemaDriftError):
-            with _guard_schema_provenance(
-                conn, database_config_name=db_name, test_only=False,
-                schema_tag=tag, physical_schema=schema,
-            ):
-                pass
+        with pytest.raises(SchemaDriftError), _guard_schema_provenance(
+            conn, database_config_name=db_name, test_only=False,
+            schema_tag=tag, physical_schema=schema,
+        ):
+            pass
 
         _record_schema_provenance(
             conn, database_config_name=db_name, schema_tag=tag,
@@ -1045,7 +1041,7 @@ def _concurrent_claim_worker(
             execution_options=execution_options
         )
         primary.dispose()
-    except Exception as exc:
+    except sa.exc.SQLAlchemyError as exc:
         return f"{type(exc).__name__}: {exc}"
     return None
 
@@ -1095,12 +1091,12 @@ class TestConcurrentBootstrap:
 
 
 class TestOutdatedRegistryLayout:
-    def test_a_registry_without_connection_key_raises(self, pg_db):
+    def test_a_registry_with_connection_key_raises(self, pg_db):
         conn = pg_db.connection
         conn.execute(sa.text("DROP TABLE oa_configurator_provenance.schema_registry"))
         conn.execute(sa.text(
             "CREATE TABLE oa_configurator_provenance.schema_registry "
-            "(id serial primary key, database_name text, schema_tag text)"
+            "(id serial primary key, connection_key text, schema_tag text)"
         ))
         with pytest.raises(SchemaRegistryOutdatedError, match="outdated layout"):
             _register_schema_claim(

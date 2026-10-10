@@ -9,11 +9,16 @@ of the remote table rather than failing.
 from __future__ import annotations
 
 import uuid
+from typing import ClassVar
 
 import pytest
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.schema import CreateTable
+
 from oa_configurator import (
     CDMDatabaseConfig,
+    ConnectionConfig,
     CrossDatabaseStatementError,
     GenericDatabaseConfig,
     Resolver,
@@ -23,10 +28,6 @@ from oa_configurator import (
     without_cross_engine_foreign_keys,
 )
 from oa_configurator.testing.postgres import PostgresTestStrategy
-from sqlalchemy.dialects import postgresql
-from sqlalchemy.schema import CreateTable
-
-pytestmark = [pytest.mark.postgresql, pytest.mark.db_dialect]
 
 
 def _cdm_tables() -> tuple[sa.MetaData, sa.Table, sa.Table, sa.Table]:
@@ -78,12 +79,34 @@ def split_cdm(pg_connection_config, cleanup_after_test):
     return Resolver(stack).resolve_database(name)
 
 
+@pytest.fixture
+def compile_split_cdm():
+    stack = StackConfig.for_session(
+        connections={
+            "primary": oa_connection(":memory:"),
+            "vocab": oa_connection(":memory:"),
+        },
+        databases={
+            "compile_split": CDMDatabaseConfig(
+                connection="primary", vocab_connection="vocab"
+            )
+        },
+    )
+    return Resolver(stack).resolve_database("compile_split")
+
+
+def oa_connection(database_name: str):
+    return ConnectionConfig(
+        dialect="sqlite", database_name=database_name, test_only=True
+    )
+
+
 class TestForeignKeyDerivation:
-    def test_only_the_cross_boundary_key_is_dropped(self, split_cdm):
+    def test_only_the_cross_boundary_key_is_dropped(self, compile_split_cdm):
         """The vocabulary foreign key goes; the primary-side one stays. The
         rule is "drop keys that cross an engine boundary", not "drop keys"."""
         _, _, person, cond = _cdm_tables()
-        _, derived = without_cross_engine_foreign_keys((person, cond), resolved=split_cdm)
+        _, derived = without_cross_engine_foreign_keys((person, cond), resolved=compile_split_cdm)
 
         dialect = postgresql.dialect()
         original_ddl = str(CreateTable(cond).compile(dialect=dialect))
@@ -95,49 +118,55 @@ class TestForeignKeyDerivation:
         assert [str(c.type) for c in derived.columns] == [str(c.type) for c in cond.columns]
 
     def test_nothing_is_dropped_on_a_colocated_deployment(
-        self, pg_db, pg_connection_config
+        self
     ):
         """Same models, one database: every foreign key is creatable, so the
         derivation must leave the table alone."""
-        name = f"colocated_{uuid.uuid4().hex[:8]}"
         stack = StackConfig.for_session(
-            connections={"primary": pg_connection_config},
-            databases={name: CDMDatabaseConfig(connection="primary")},
+            connections={"primary": oa_connection(":memory:")},
+            databases={"colocated": CDMDatabaseConfig(connection="primary")},
         )
-        resolved = Resolver(stack).resolve_database(name)
-        metadata, concept, person, cond = _cdm_tables()
+        resolved = Resolver(stack).resolve_database("colocated")
+        _metadata, concept, person, cond = _cdm_tables()
         *_, derived = without_cross_engine_foreign_keys(
             (concept, person, cond), resolved=resolved
         )
         dialect = postgresql.dialect()
         assert str(CreateTable(derived).compile(dialect=dialect)).count("FOREIGN KEY") == 2
 
-    def test_the_original_table_is_never_mutated(self, split_cdm):
+    def test_the_original_table_is_never_mutated(self, compile_split_cdm):
         _, _, _, cond = _cdm_tables()
         before = str(CreateTable(cond).compile(dialect=postgresql.dialect()))
-        without_cross_engine_foreign_keys((cond,), resolved=split_cdm)
+        without_cross_engine_foreign_keys((cond,), resolved=compile_split_cdm)
         assert str(CreateTable(cond).compile(dialect=postgresql.dialect())) == before
 
 
 class TestBoundaryGuard:
+    pytestmark: ClassVar[list[pytest.MarkDecorator]] = [
+        pytest.mark.postgresql,
+        pytest.mark.db_dialect,
+    ]
+
     def test_cross_tag_statement_raises_before_execution(self, split_cdm):
         _, concept, _, cond = _cdm_tables()
         primary, vocab = split_cdm.create_engines()
         try:
-            with primary.connect() as connection:
-                with pytest.raises(CrossDatabaseStatementError, match="'vocab'.*'primary'"):
-                    connection.execute(
-                        sa.select(cond.c.id).join(
-                            concept, cond.c.concept_id == concept.c.concept_id
-                        )
+            with primary.connect() as connection, pytest.raises(
+                CrossDatabaseStatementError, match="'vocab'.*'primary'"
+            ):
+                connection.execute(
+                    sa.select(cond.c.id).join(
+                        concept, cond.c.concept_id == concept.c.concept_id
                     )
-            with vocab.connect() as connection:
-                with pytest.raises(CrossDatabaseStatementError, match="'primary'.*'vocab'"):
-                    connection.execute(
-                        sa.select(cond.c.id).join(
-                            concept, cond.c.concept_id == concept.c.concept_id
-                        )
+                )
+            with vocab.connect() as connection, pytest.raises(
+                CrossDatabaseStatementError, match="'primary'.*'vocab'"
+            ):
+                connection.execute(
+                    sa.select(cond.c.id).join(
+                        concept, cond.c.concept_id == concept.c.concept_id
                     )
+                )
         finally:
             primary.dispose()
             vocab.dispose()
@@ -146,7 +175,7 @@ class TestBoundaryGuard:
         """A stale copy of a vocabulary table on the primary database would
         satisfy a vocab-only statement sent to the primary engine. The guard
         refuses it, while the vocab engine reads the real table."""
-        metadata, concept, _, _ = _cdm_tables()
+        _metadata, concept, _, _ = _cdm_tables()
         primary, vocab = split_cdm.create_engines()
         try:
             for engine in (primary, vocab):
@@ -154,9 +183,10 @@ class TestBoundaryGuard:
                     connection.execute(
                         sa.text("CREATE TABLE concept (concept_id INTEGER PRIMARY KEY)")
                     )
-            with primary.connect() as connection:
-                with pytest.raises(CrossDatabaseStatementError, match="'vocab'"):
-                    connection.execute(sa.select(concept.c.concept_id))
+            with primary.connect() as connection, pytest.raises(
+                CrossDatabaseStatementError, match="'vocab'"
+            ):
+                connection.execute(sa.select(concept.c.concept_id))
             with vocab.connect() as connection:
                 assert connection.execute(sa.select(concept.c.concept_id)).all() == []
         finally:

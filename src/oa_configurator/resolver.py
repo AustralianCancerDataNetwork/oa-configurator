@@ -9,7 +9,7 @@ from typing import Any, Literal, NoReturn, TypeVar, get_args, get_origin
 
 from pydantic import BaseModel, ValidationError
 from pydantic_core import PydanticUndefined
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import URL, Engine
 
 from .domains.llm.schema import (
     ModelConfig,
@@ -23,16 +23,16 @@ from .domains.resources.schema import (
     ResolvedConnection,
     ResolvedDatabase,
 )
-from .domains.resources.sql import is_ephemeral_url
+from .domains.resources.sql import connection_key, host_is_resolvable, is_ephemeral_url
 from .domains.vector_stores.schema import ResolvedVectorStore, VectorStoreConfig
+from .package_base import ConfigurationError, PackageConfigBase
+from .refs import RefTo, _iter_refs, is_sensitive, sanitized_errors
 from .stack_config import (
     StackConfig,
     _ref_section,
     mismatched_kind_refs,
     unresolved_refs,
 )
-from .package_base import ConfigurationError, PackageConfigBase
-from .refs import RefTo, _iter_refs, is_sensitive, sanitized_errors
 
 T = TypeVar("T")
 TConfig = TypeVar("TConfig", bound=PackageConfigBase)
@@ -91,9 +91,7 @@ def _is_flag_settable(info: Any) -> bool:
     origin = get_origin(info.annotation)
     if origin in (dict, list) or info.annotation is dict:
         return False
-    if origin is Literal and len(get_args(info.annotation)) == 1:
-        return False
-    return True
+    return not (origin is Literal and len(get_args(info.annotation)) == 1)
 
 
 def _flag_name(name: str) -> str:
@@ -280,9 +278,10 @@ def _resolve_ref(
     return name
 
 
-def _find_production_collision(target_key: str, config: StackConfig) -> str | None:
+def _find_production_collision(target: ConnectionConfig | URL, config: StackConfig) -> str | None:
     """Return the name of a non-test_only connection addressing the same
-    physical database as *target_key*, or None.
+    physical database as *target*, or None. Unresolvable server hosts fail
+    closed because their identity cannot be checked safely.
 
     Checks config.connections directly. Comparison goes through :func:`connection_key`,
     so an omitted port or a different spelling of the same host cannot slip a
@@ -294,9 +293,8 @@ def _find_production_collision(target_key: str, config: StackConfig) -> str | No
 
     Parameters
     ----------
-    target_key : str
-        Physical identity of the database being checked, from
-        :func:`connection_key` or :meth:`ConnectionConfig.physical_key`.
+    target : ConnectionConfig or sqlalchemy.engine.URL
+        Address of the database being checked.
     config : StackConfig
         Config whose connections are compared against.
 
@@ -304,16 +302,22 @@ def _find_production_collision(target_key: str, config: StackConfig) -> str | No
     -------
     str or None
     """
-    return next(
-        (
-            conn_name
-            for conn_name, conn in config.connections.items()
-            if not conn.test_only
-            and not is_ephemeral_url(conn.safe_url())
-            and conn.physical_key() == target_key
-        ),
-        None,
-    )
+    target_url = target._build_url_obj() if isinstance(target, ConnectionConfig) else target
+    if not is_ephemeral_url(target_url) and not host_is_resolvable(target_url.host):
+        raise ValueError(f"Cannot verify production safety: host {target_url.host!r} does not resolve.")
+    target_key = connection_key(target_url)
+    for conn_name, conn in config.connections.items():
+        if conn.test_only or is_ephemeral_url(conn.safe_url()):
+            continue
+        candidate_url = conn._build_url_obj()
+        if not host_is_resolvable(candidate_url.host):
+            raise ValueError(
+                f"Cannot verify production safety: host {candidate_url.host!r} for "
+                f"non-test connection {conn_name!r} does not resolve."
+            )
+        if connection_key(candidate_url) == target_key:
+            return conn_name
+    return None
 
 
 def _abort_on_invalid_entry(
@@ -370,7 +374,12 @@ def _check_test_collision(
     Test databases run DROP SCHEMA CASCADE; pointing one at production data
     by mistake (e.g. copy-pasted host/database name) would destroy it.
     """
-    match = _find_production_collision(new_conn.physical_key(), config)
+    try:
+        match = _find_production_collision(new_conn, config)
+    except ValueError as exc:
+        if headless:
+            raise ConfigurationError(str(exc)) from exc
+        raise
     if match is not None:
         if headless:
             raise ConfigurationError(
@@ -1033,7 +1042,7 @@ class Resolver:
         )
 
 
-def _get_named(mapping: dict[str, T], kind: str, name: str) -> T:
+def _get_named[T](mapping: dict[str, T], kind: str, name: str) -> T:
     try:
         return mapping[name]
     except KeyError as exc:

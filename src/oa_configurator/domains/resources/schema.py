@@ -3,40 +3,20 @@
 from __future__ import annotations
 
 import inspect
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import cached_property
-from typing import (
-    TYPE_CHECKING,
-    Annotated,
-    Any,
-    Literal,
-    TypeVar,
-    NamedTuple
-)
+from typing import TYPE_CHECKING, Annotated, Any, Literal, NamedTuple, TypeVar
 
-from collections.abc import Callable, Iterable, Iterator, Sequence
-
+import sqlalchemy as sa
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import event
-from sqlalchemy.engine import URL, Engine, Connection
+from sqlalchemy.engine import URL, Connection, Engine
 from sqlalchemy.sql import visitors
-import sqlalchemy as sa
 
 from ...refs import RefTo, Secret, SecretSafeBaseModel
-from .sql import (
-    EXECUTION_OPTION_DATABASE_CONFIG_NAME,
-    EXECUTION_OPTION_TEST_ONLY,
-    SCHEMA_TRANSLATE_MAP_KEY,
-    Bindable,
-    Role,
-    connection_key,
-    ensure_schema,
-    requires_host,
-    schema_if_supported,
-    supports_schemas,
-)
 from .schema_registry import (
     _SCHEMA_PROVENANCE_SCHEMA,
     CrossDatabaseStatementError,
@@ -46,6 +26,24 @@ from .schema_registry import (
     _lock_schema_registry,
     _register_schema_claim,
     physical_schema_of,
+)
+from .sql import (
+    EXECUTION_OPTION_DATABASE_CONFIG_NAME,
+    EXECUTION_OPTION_TEST_ONLY,
+    SCHEMA_TRANSLATE_MAP_KEY,
+    Bindable,
+    Role,
+    connection_key,
+    ensure_schema,
+    is_ephemeral_url,
+    requires_host,
+    schema_if_supported,
+    supports_schemas,
+)
+
+MIGRATION_COMMAND = (
+    "uv run https://raw.githubusercontent.com/AustralianCancerDataNetwork/oa-configurator/"
+    "<tag>/migrations/to_v2.py"  # TODO(release): replace <tag> with the release tag.
 )
 
 if TYPE_CHECKING:
@@ -300,7 +298,7 @@ def statement_schema_tags(clause: Any) -> set[str]:
     }
 
 
-def _install_cross_database_guard(engine: Engine, resolved: "ResolvedDatabase") -> None:
+def _install_cross_database_guard(engine: Engine, resolved: ResolvedDatabase) -> None:
     """Refuse statements on *engine* that reference a role hosted on another database.
 
     Covers a join spanning two databases and a statement sent to the wrong
@@ -332,8 +330,8 @@ def _install_cross_database_guard(engine: Engine, resolved: "ResolvedDatabase") 
             f"Statement references schema tag(s) {foreign} hosted on another database "
             f"({hosts}), but runs on an engine for connection "
             f"{resolved.connection_for_schema_tag(next(iter(hosted))).name!r}. "
-            "Run it on the engine hosting those tables, or use filter_by_keys() for a "
-            "filter that crosses the boundary."
+            "Run it on an engine that hosts all referenced tables, or split it into "
+            "database-local operations."
         )
 
 
@@ -351,7 +349,7 @@ def referred_schema_tag(foreign_key: sa.ForeignKey, default: str) -> str:
 def without_cross_engine_foreign_keys(
     tables: Iterable[sa.Table],
     *,
-    resolved: "ResolvedDatabase",
+    resolved: ResolvedDatabase,
 ) -> list[sa.Table]:
     """Copies of *tables* with foreign keys that cross a database boundary removed.
 
@@ -580,6 +578,18 @@ class CDMDatabaseConfig(DatabaseConfig):
     """
 
     kind: Literal[DatabaseKind.CDM] = DatabaseKind.CDM  # type: ignore[assignment]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_legacy_schema_name(cls, value: Any) -> Any:
+        if isinstance(value, dict) and "schema_name" in value:
+            raise ValueError(
+                "This looks like a 1.x config: `schema_name` on a `kind = \"cdm\"` "
+                "entry became `cdm_schema` in 2.0, whose default is now None. "
+                f"Upgrade the config with `{MIGRATION_COMMAND}`."
+            )
+        return value
+
     cdm_schema: Annotated[str | None, Role.PRIMARY] = Field(
         default=None,
         description="Schema where CDM clinical tables live. None means no override, use the connection's own default/search_path.",
@@ -697,13 +707,15 @@ class ResolvedConnection:
         """
         return connection_key(self._engine_url)
 
-    def addresses_same_database_as(self, other: "ResolvedConnection") -> bool:
+    def addresses_same_database_as(self, other: ResolvedConnection) -> bool:
         """Do self and other address the same physical database?
 
         Compares physical identity rather than dataclass equality, so a
         second config entry pointing at one database is recognised as the
         same database rather than as a separate one.
         """
+        if is_ephemeral_url(self._engine_url) or is_ephemeral_url(other._engine_url):
+            return False
         return self.physical_key() == other.physical_key()
 
     def create_engine(self, **kwargs: Any) -> Engine:
@@ -739,6 +751,14 @@ class ResolvedConnection:
 
     def __repr__(self) -> str:
         return f"ResolvedConnection(name={self.name!r}, safe_url={self.safe_url!r})"
+
+
+@dataclass(frozen=True)
+class _SchemaProbeOptions:
+    built_engine: Engine | None = None
+    built_connection: ResolvedConnection | None = None
+    extensions: Sequence[Callable[[Any, Any], None]] = ()
+    engine_kwargs: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -896,6 +916,16 @@ class ResolvedDatabase:
         conflicts = sorted(
             claim.schema_tag for claim in caller_claims if claim.schema_tag in owned_tags
         )
+        role_tags = {role.value for role in Role}
+        invalid_role_tags = sorted(
+            claim.schema_tag
+            for claim in caller_claims
+            if claim.schema_tag in role_tags
+        )
+        if invalid_role_tags and not isinstance(self, ResolvedCDMDatabase):
+            raise ValueError(
+                f"schema_claims must not use CDM role tag(s) {invalid_role_tags} on a generic database."
+            )
         if conflicts:
             raise ValueError(
                 f"schema_claims must not include resolver-managed schema_tag(s) {conflicts}: "
@@ -922,7 +952,14 @@ class ResolvedDatabase:
         # told apart from a caller claim that happens to share its spelling.
         # Schemas come pre-resolved so a role hosted on another connection
         # carries that connection's own default rather than this engine's.
-        internal_map = self.resolved_physical_schemas()
+        internal_map = self.resolved_physical_schemas(
+            probe_options=_SchemaProbeOptions(
+                built_engine=engine,
+                built_connection=self.connection_for_role(role),
+                extensions=extensions,
+                engine_kwargs=kwargs,
+            ),
+        )
         local_roles = self.roles_on_connection(engine)
         role_claims = {
             schema_role: SchemaClaim(
@@ -1065,13 +1102,24 @@ class ResolvedDatabase:
         no tags or one tag.
         """
         keys = {
-            self.connection_for_schema_tag(tag).physical_key() for tag in schema_tags
+            ("ephemeral", id(connection))
+            if is_ephemeral_url(connection._engine_url)
+            else ("persistent", connection.physical_key())
+            for tag in schema_tags
+            for connection in (self.connection_for_schema_tag(tag),)
         }
         return len(keys) <= 1
 
     @cached_property
-    def _probed_physical_schemas(self) -> dict[str, str | None]:
-        """Cached result of :meth:`resolved_physical_schemas`."""
+    def _cached_default_probed_physical_schemas(self) -> dict[str, str | None]:
+        return self._probed_physical_schemas()
+
+    def _probed_physical_schemas(
+        self,
+        probe_options: _SchemaProbeOptions | None = None,
+    ) -> dict[str, str | None]:
+        """Resolve unset schemas using the caller's engine options."""
+        probe_options = probe_options or _SchemaProbeOptions()
         configured = self.configured_internal_schema_translate_map()
         unset = sorted(
             tag for tag, schema in configured.items()
@@ -1087,16 +1135,36 @@ class ResolvedDatabase:
             connection = self.connection_for_schema_tag(tag)
             key = connection.physical_key()
             if key not in defaults:
-                engine = connection.create_engine()
-                try:
-                    with engine.connect() as open_connection:
-                        defaults[key] = sa.inspect(open_connection).default_schema_name
-                finally:
-                    engine.dispose()
+                defaults[key] = self._probe_connection_default(connection, probe_options)
             resolved[tag] = defaults[key]
         return resolved
 
-    def resolved_physical_schemas(self) -> dict[str, str | None]:
+    @staticmethod
+    def _probe_connection_default(
+        connection: ResolvedConnection, options: _SchemaProbeOptions
+    ) -> str | None:
+        built_engine = options.built_engine
+        use_built_engine = (
+            built_engine is not None
+            and options.built_connection is not None
+            and connection.physical_key() == options.built_connection.physical_key()
+        )
+        engine = built_engine if use_built_engine else connection.create_engine(**options.engine_kwargs)
+        if not use_built_engine:
+            for extension in options.extensions:
+                event.listens_for(engine, "connect")(extension)
+        try:
+            with engine.connect() as open_connection:
+                return sa.inspect(open_connection).default_schema_name
+        finally:
+            if not use_built_engine:
+                engine.dispose()
+
+    def resolved_physical_schemas(
+        self,
+        *,
+        probe_options: _SchemaProbeOptions | None = None,
+    ) -> dict[str, str | None]:
         """Physical schema every internal tag resolves to, with unset ones
         filled in from their own connection's live default schema.
 
@@ -1110,12 +1178,14 @@ class ResolvedDatabase:
 
         Notes
         -----
-        Opens one short-lived connection per distinct connection that has an
-        unset tag, on first call only, and none at all when config names every
-        schema. The result is cached for this object's lifetime, so it is a
-        snapshot taken when first asked rather than a live reading.
+        Opens one connection per distinct connection that has an unset tag,
+        reusing the supplied engine for its own connection and forwarding the same
+        engine options to any remote connection. No connection is opened when
+        config names every schema.
         """
-        return dict(self._probed_physical_schemas)
+        if probe_options is None:
+            return dict(self._cached_default_probed_physical_schemas)
+        return self._probed_physical_schemas(probe_options)
 
     def schema_tags(self) -> tuple[Role, ...]:
         """Role tags whose schema provenance is worth tracking for this database."""
@@ -1382,7 +1452,10 @@ class ResolvedCDMDatabase(ResolvedDatabase):
             **kwargs,
         )
         primary = self._build_engine(Role.PRIMARY, **options)
-        if self.connection.addresses_same_database_as(self.vocab_connection):
+        if (
+            self.connection.name == self.vocab_connection.name
+            or self.connection.addresses_same_database_as(self.vocab_connection)
+        ):
             return primary, primary
         return primary, self._build_engine(Role.VOCAB, **options)
 

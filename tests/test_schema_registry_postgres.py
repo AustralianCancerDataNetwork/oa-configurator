@@ -15,6 +15,9 @@ import uuid
 from typing import cast
 
 import pytest
+import sqlalchemy as sa
+from sqlalchemy import Table
+
 from oa_configurator import (
     CDMDatabaseConfig,
     ConnectionConfig,
@@ -27,13 +30,62 @@ from oa_configurator import (
     SchemaOwnershipError,
     StackConfig,
 )
-from oa_configurator.domains.resources.schema_registry import SchemaRegistry
-import sqlalchemy as sa
-from oa_configurator.testing import drop_schema_if_exists, isolated_test_schema, reset_schema_registry_rows
+from oa_configurator.domains.resources.rectify import drop_orphan_schema_tables
+from oa_configurator.domains.resources.schema_registry import (
+    SchemaRegistry,
+    _list_registry_rows,
+)
+from oa_configurator.testing import (
+    drop_schema_if_exists,
+    isolated_test_schema,
+    reset_schema_registry_rows,
+)
 from oa_configurator.testing.postgres import PostgresTestStrategy
-from sqlalchemy import Table
 
 pytestmark = [pytest.mark.postgresql, pytest.mark.db_dialect, pytest.mark.usefixtures("fresh_role_registry_rows")]
+
+
+def test_registry_identity_ignores_loopback_spelling_for_baselines_and_orphan_checks(
+    pg_db, pg_connection_config, cleanup_after_test
+):
+    """The in-database registry must see one claim through localhost aliases."""
+    tag = f"alias_{uuid.uuid4().hex[:8]}"
+    schema = f"test_{uuid.uuid4().hex[:8]}"
+    database_name = f"alias_entry_{uuid.uuid4().hex[:8]}"
+    reset_schema_registry_rows(cleanup_after_test, pg_db.committing_engine, [tag])
+    cleanup_after_test(lambda: drop_schema_if_exists(pg_db.committing_engine, schema))
+    configs = []
+    for host in ("127.0.0.1", "localhost"):
+        connection_config = pg_connection_config.model_copy(
+            update={"host": host, "port": pg_connection_config.port, "test_only": True}
+        )
+        stack = StackConfig.for_session(
+            connections={"c": connection_config},
+            databases={database_name: GenericDatabaseConfig(connection="c")},
+        )
+        configs.append(Resolver(stack).resolve_database(database_name))
+
+    engines = [
+        resolved.create_engine(
+            schema_claims=[SchemaClaim(schema_tag=tag, physical_schema=schema)], owner="test_owner"
+        )
+        for resolved in configs
+    ]
+    try:
+        with engines[1].connect() as connection:
+            rows = [row for row in _list_registry_rows(connection) if row.schema_tag == tag]
+            assert len(rows) == 1
+            assert rows[0].physical_schema == schema
+            with pytest.raises(RuntimeError, match="schema-provenance records"):
+                drop_orphan_schema_tables(
+                    connection,
+                    stack=StackConfig.for_session(connections={}, databases={}),
+                    orphan_schema=schema,
+                    confirm=False,
+                )
+    finally:
+        for engine in engines:
+            engine.dispose()
 
 
 def test_create_engine_derives_owner_from_the_caller_without_being_told(pg_db, pg_connection_config, cleanup_after_test):
@@ -322,45 +374,30 @@ def test_create_engine_without_registering_claims_still_rejects_a_reserved_schem
             colliding_resolved.create_engine(register_claims=False)
 
 
-def test_role_spelled_caller_claim_on_a_generic_database_is_owned_and_checked(
-    pg_db, pg_connection_config, cleanup_after_test
+def test_role_tag_claim_is_rejected_on_a_generic_database_before_registration(
+    pg_db, pg_connection_config
 ):
-    """A generic database entry has no vocab role of its own, so "vocab" is
-    an ordinary custom tag there. It must be attributed to its caller and
-    guarded like any other, rather than being mistaken for a resolver-managed
-    role claim and skipped because it is spelled like one."""
-    schema_a = f"test_{uuid.uuid4().hex[:8]}"
-    schema_b = f"test_{uuid.uuid4().hex[:8]}"
-    db_name = f"role_spelled_{uuid.uuid4().hex[:8]}"
-    reset_schema_registry_rows(cleanup_after_test, pg_db.committing_engine, ["vocab"])
-    cleanup_after_test(lambda: drop_schema_if_exists(pg_db.committing_engine, schema_a))
-
+    """Role-shaped tags cannot be registered as caller claims on generic entries."""
+    db_name = f"role_tag_{uuid.uuid4().hex[:8]}"
     stack = StackConfig.for_session(
         connections={"c": pg_connection_config},
         databases={db_name: GenericDatabaseConfig(connection="c")},
     )
     resolved = Resolver(stack).resolve_database(db_name)
-    engine = resolved.create_engine(
-        schema_claims=[SchemaClaim(schema_tag="vocab", physical_schema=schema_a)],
-        owner="owner-a",
-    )
-    engine.dispose()
+    with pytest.raises(ValueError, match="CDM role tag.*generic database"):
+        resolved.create_engine(
+            schema_claims=[SchemaClaim(schema_tag="vocab", physical_schema="caller_schema")],
+            owner="owner-a",
+        )
 
     table = cast(Table, SchemaRegistry.__table__)
     with pg_db.connection.engine.connect() as connection:
-        row = connection.execute(
+        rows = connection.execute(
             table.select().where(
                 table.c.schema_tag == "vocab", table.c.database_config_name == db_name
             )
-        ).one()
-    assert row.owner == "owner-a"
-    assert row.physical_schema == schema_a
-
-    with pytest.raises(SchemaOwnershipError, match="'vocab'.*owner-a"):
-        resolved.create_engine(
-            schema_claims=[SchemaClaim(schema_tag="vocab", physical_schema=schema_b)],
-            owner="owner-b",
-        )
+        ).all()
+    assert rows == []
 
 
 def test_both_engines_agree_on_every_shared_tag(
@@ -518,11 +555,11 @@ def test_two_connection_entries_for_one_database_are_not_a_split(
     for schema in (cdm_schema, vocab_schema):
         cleanup_after_test(lambda s=schema: drop_schema_if_exists(pg_db.committing_engine, s))
 
-    # Deliberately two entries, same database, reached by different spellings:
-    # one with the port written out, one with it omitted.
+    # Deliberately two entries, same database, reached by different loopback
+    # spellings. Keep the review server's configured port on both URLs.
     primary_connection_config = pg_connection_config.model_copy(update={"test_only": True})
     vocab_connection_config = pg_connection_config.model_copy(
-        update={"test_only": True, "port": None}
+        update={"test_only": True, "host": "localhost", "port": pg_connection_config.port}
     )
     stack = StackConfig.for_session(
         connections={"primary": primary_connection_config, "vocab_alias": vocab_connection_config},

@@ -6,28 +6,31 @@ All tests use StackConfig.for_session() or tmp_path.
 
 from __future__ import annotations
 
-
 import pytest
+import sqlalchemy as sa
 import typer.rich_utils as _typer_rich_utils
 from sqlalchemy.engine import make_url
 
 from oa_configurator import (
-    StackConfig,
-    ConnectionConfig,
     CDMDatabaseConfig,
+    ConnectionConfig,
     ResolvedCDMDatabase,
     Resolver,
+    StackConfig,
 )
 from oa_configurator.config import OAConfiguratorConfig
-from oa_configurator.testing import DIALECT_PARAMS, isolated_test_database, reset_schema_registry_rows
-from oa_configurator.domains.resources.sql import Dialect, Role, connection_key
 from oa_configurator.domains.resources.schema_registry import (
     _ROLE_TAG_VALUES,
     SchemaRegistry,
     _row_conditions,
     _with_provenance_translate_map,
 )
-import sqlalchemy as sa
+from oa_configurator.domains.resources.sql import Dialect, Role
+from oa_configurator.testing import (
+    DIALECT_PARAMS,
+    isolated_test_database,
+    reset_schema_registry_rows,
+)
 
 # typer forces colorized rich error/output rendering when GITHUB_ACTIONS (or
 # FORCE_COLOR / PY_COLORS) is set -- see typer.rich_utils.FORCE_TERMINAL. Under
@@ -56,7 +59,7 @@ def registry_row(
     if schema_tag in _ROLE_TAG_VALUES and database_config_name is None:
         raise ValueError(f"database_config_name is required for Role tag {schema_tag!r}.")
     mapped = _with_provenance_translate_map(connection, physical_schema="oa_configurator_provenance")
-    conditions = _row_conditions(connection_key(connection.engine.url), schema_tag, database_config_name or "")
+    conditions = _row_conditions(schema_tag, database_config_name or "")
     return mapped.execute(sa.select(SchemaRegistry).where(*conditions)).one()
 
 

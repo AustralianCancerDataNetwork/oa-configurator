@@ -32,7 +32,6 @@ from .sql import (
     _as_bind,
     _profile_for,
     ensure_schema,
-    connection_key,
     schema_if_supported,
     supports_schemas,
 )
@@ -128,7 +127,8 @@ class SchemaRegistry(_SchemaRegistryBase):
     """One schema-registry row: the physical schema schema_tag resolves to
     on one physical database.
 
-    Keyed by (connection_key, schema_tag). One row shape serves three
+    The registry is stored inside the database it describes, so rows are
+    scoped by the database itself. One row shape serves three
     checks: drift (compare physical_schema), ownership conflicts (owner),
     and reservation conflicts (rows with reserved set).
 
@@ -155,7 +155,6 @@ class SchemaRegistry(_SchemaRegistryBase):
         # schema_translate_map lives on its own Engine and never collides.
         sa.Index(
             "uq_schema_registry_role_tag",
-            "connection_key",
             "database_config_name",
             "schema_tag",
             unique=True,
@@ -168,7 +167,6 @@ class SchemaRegistry(_SchemaRegistryBase):
         ),
         sa.Index(
             "uq_schema_registry_custom_tag",
-            "connection_key",
             "schema_tag",
             unique=True,
             postgresql_where=sa.text(
@@ -179,8 +177,7 @@ class SchemaRegistry(_SchemaRegistryBase):
             ),
         ),
         sa.Index(
-            "uq_schema_registry_reserved_connection_schema",
-            "connection_key",
+            "uq_schema_registry_reserved_schema",
             "physical_schema",
             unique=True,
             postgresql_where=sa.text("reserved IS TRUE"),
@@ -190,7 +187,6 @@ class SchemaRegistry(_SchemaRegistryBase):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    connection_key: Mapped[str] = mapped_column(sa.String(512))
     schema_tag: Mapped[str] = mapped_column(sa.String(32))
     database_config_name: Mapped[str] = mapped_column(sa.String(128))
     physical_schema: Mapped[str | None] = mapped_column(sa.String(128))
@@ -209,11 +205,6 @@ class RegistryRow(NamedTuple):
     database_config_name: str
     owner: str | None
     reserved: bool
-
-def _connection_key(connection: Connection) -> str:
-    """Physical identity of *connection*'s database; every row in this table is scoped by it."""
-    return connection_key(connection.engine.url)
-
 
 def _with_provenance_translate_map(connection: Connection, *, physical_schema: str | None) -> Connection:
     """*connection*, guaranteed to map ``_SCHEMA_PROVENANCE_SCHEMA`` to
@@ -254,20 +245,17 @@ def _ensure_schema_registry_table(connection: Connection) -> Connection:
 
 
 def _row_conditions(
-    connection_key: str, schema_tag: str, database_config_name: str
+    schema_tag: str, database_config_name: str
 ) -> tuple[Any, ...]:
     """The predicate identifying *schema_tag*'s own registry row on this
     physical database.
 
     A Role tag's row is scoped per entry (``database_config_name`` is part
     of the predicate): two different entries may each claim the same Role
-    tag on one connection without colliding. A custom tag's row stays
-    scoped per connection only, matching :class:`SchemaRegistry`'s indexes.
+    tag in this database without colliding. A custom tag has one row per
+    database, matching :class:`SchemaRegistry`'s indexes.
     """
-    conditions: tuple[Any, ...] = (
-        SchemaRegistry.connection_key == connection_key,
-        SchemaRegistry.schema_tag == schema_tag,
-    )
+    conditions: tuple[Any, ...] = (SchemaRegistry.schema_tag == schema_tag,)
     if schema_tag in _ROLE_TAG_VALUES:
         conditions = (*conditions, SchemaRegistry.database_config_name == database_config_name)
     return conditions
@@ -276,7 +264,6 @@ def _row_conditions(
 def _reject_ownership_conflict(
     connection: Connection,
     *,
-    connection_key: str,
     schema_tag: str,
     physical_schema: str | None,
     owner: str | None,
@@ -285,7 +272,6 @@ def _reject_ownership_conflict(
     on this connection."""
     conflict = connection.execute(
         sa.select(SchemaRegistry.owner, SchemaRegistry.physical_schema).where(
-            SchemaRegistry.connection_key == connection_key,
             SchemaRegistry.schema_tag == schema_tag,
             SchemaRegistry.owner.is_not(None),
             SchemaRegistry.owner != owner,
@@ -337,7 +323,6 @@ def _reject_reservation_conflict(
     if physical_schema is None or registry is None:
         return
     conditions = [
-        SchemaRegistry.connection_key == _connection_key(connection),
         SchemaRegistry.physical_schema == physical_schema,
     ]
     if not reserved:
@@ -419,7 +404,6 @@ def _check_schema_claim(
         return
     _reject_ownership_conflict(
         registry,
-        connection_key=_connection_key(connection),
         schema_tag=schema_tag,
         physical_schema=physical_schema,
         owner=owner,
@@ -433,7 +417,7 @@ def _check_schema_claim(
     )
     if test_only:
         return
-    row_conditions = _row_conditions(_connection_key(connection), schema_tag, database_config_name)
+    row_conditions = _row_conditions(schema_tag, database_config_name)
     existing_row = registry.execute(
         sa.select(SchemaRegistry.physical_schema, SchemaRegistry.database_config_name).where(
             *row_conditions
@@ -504,7 +488,6 @@ def _register_schema_claim(
     if physical_schema is None:
         return
 
-    connection_key = _connection_key(connection)
     existing_tables = (
         set(sa.inspect(connection).get_table_names(schema=physical_schema))
         if supports_schemas(connection) else set()
@@ -528,7 +511,7 @@ def _register_schema_claim(
         test_only=test_only,
     )
 
-    row_conditions = _row_conditions(connection_key, schema_tag, database_config_name)
+    row_conditions = _row_conditions(schema_tag, database_config_name)
     existing_row = connection.execute(
         sa.select(SchemaRegistry.physical_schema).where(*row_conditions)
     ).first()
@@ -543,7 +526,6 @@ def _register_schema_claim(
             )
         connection.execute(
             sa.insert(SchemaRegistry).values(
-                connection_key=connection_key,
                 schema_tag=schema_tag,
                 database_config_name=database_config_name,
                 physical_schema=physical_schema,
@@ -618,8 +600,7 @@ def _guard_schema_provenance(
         yield
         return
 
-    connection_key = _connection_key(connection)
-    row_conditions = _row_conditions(connection_key, schema_tag, database_config_name)
+    row_conditions = _row_conditions(schema_tag, database_config_name)
     no_baseline = SchemaDriftError(
         f"No schema-registry baseline for schema_tag {schema_tag!r} on this database "
         f"({database_config_name!r}). create_engine() must register this claim before "
@@ -692,10 +673,9 @@ def _record_schema_provenance(
     if not reason.strip():
         raise ValueError("reason must not be blank.")
 
-    connection_key = _connection_key(connection)
     _lock_schema_registry(connection)
     connection = _ensure_schema_registry_table(connection)
-    row_conditions = _row_conditions(connection_key, schema_tag, database_config_name)
+    row_conditions = _row_conditions(schema_tag, database_config_name)
 
     existing_row = connection.execute(
         sa.select(SchemaRegistry.physical_schema, SchemaRegistry.owner, SchemaRegistry.reserved).where(
@@ -739,7 +719,6 @@ def _record_schema_provenance(
     else:
         connection.execute(
             sa.insert(SchemaRegistry).values(
-                connection_key=connection_key,
                 schema_tag=schema_tag,
                 database_config_name=database_config_name,
                 physical_schema=new_physical_schema,
@@ -792,19 +771,16 @@ def _find_schema_provenance_claim(
     registry = _registry_connection(connection)
     if registry is None:
         return None
-    connection_key = _connection_key(connection)
     exclusions: list[Any] = []
     if schema_tag is not None and database_config_name is not None:
-        exclusions.append(sa.and_(*_row_conditions(connection_key, schema_tag, database_config_name)))
+        exclusions.append(sa.and_(*_row_conditions(schema_tag, database_config_name)))
     if schema_tag in _ROLE_TAG_VALUES and database_config_name is not None:
         exclusions.append(sa.and_(
-            SchemaRegistry.connection_key == connection_key,
             SchemaRegistry.database_config_name == database_config_name,
             SchemaRegistry.schema_tag.in_(_ROLE_TAG_VALUES),
         ))
     row = registry.execute(
         sa.select(SchemaRegistry.database_config_name, SchemaRegistry.schema_tag).where(
-            SchemaRegistry.connection_key == connection_key,
             SchemaRegistry.physical_schema == physical_schema,
             sa.not_(sa.or_(*exclusions)) if exclusions else sa.true(),
         )
@@ -826,7 +802,7 @@ def _list_registry_rows(connection: Connection) -> tuple[RegistryRow, ...]:
             SchemaRegistry.database_config_name,
             SchemaRegistry.owner,
             SchemaRegistry.reserved,
-        ).where(SchemaRegistry.connection_key == _connection_key(connection))
+        )
     ).all()
     return tuple(RegistryRow(*row) for row in rows)
 
@@ -837,7 +813,7 @@ def _release_schema_claim(connection: Connection, *, schema_tag: str, database_c
     existed."""
     _lock_schema_registry(connection)
     connection = _ensure_schema_registry_table(connection)
-    row_conditions = _row_conditions(_connection_key(connection), schema_tag, database_config_name)
+    row_conditions = _row_conditions(schema_tag, database_config_name)
     result = connection.execute(sa.delete(SchemaRegistry).where(*row_conditions))
     return result.rowcount > 0
 
@@ -924,14 +900,15 @@ def _has_schema_registry_table(connection: Connection) -> bool:
     Raises
     ------
     SchemaRegistryOutdatedError
-        If the existing table is not keyed by ``connection_key``.
+        If the existing table has a layout from an earlier version.
     """
     bookkeeping_schema = schema_if_supported(_SCHEMA_PROVENANCE_SCHEMA, connection)
     inspector = sa.inspect(connection)
     if not inspector.has_table(SCHEMA_REGISTRY_TABLE_NAME, schema=bookkeeping_schema):
         return False
     columns = {column["name"] for column in inspector.get_columns(SCHEMA_REGISTRY_TABLE_NAME, schema=bookkeeping_schema)}
-    if "connection_key" not in columns:
+    expected_columns = {column.name for column in SchemaRegistry.__table__.columns}
+    if columns != expected_columns:
         table = f"{bookkeeping_schema}.{SCHEMA_REGISTRY_TABLE_NAME}" if bookkeeping_schema else SCHEMA_REGISTRY_TABLE_NAME
         raise SchemaRegistryOutdatedError(
             f"{table} has an outdated layout. Drop it; create_engine() registers every claim again."

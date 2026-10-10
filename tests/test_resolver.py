@@ -5,25 +5,26 @@ from __future__ import annotations
 import pytest
 import typer
 from pydantic import ValidationError
+from sqlalchemy.engine import URL, make_url
 
 from oa_configurator import (
     CDMDatabaseConfig,
     ConnectionConfig,
+    Dialect,
     GenericDatabaseConfig,
     ModelConfig,
     ProviderConfig,
-    Resolver,
     ResolvedCDMDatabase,
     ResolvedConnection,
     ResolvedDatabase,
     ResolvedModel,
     ResolvedProvider,
     ResolvedVectorStore,
+    Resolver,
+    Role,
     SchemaClaim,
     StackConfig,
     VectorStoreConfig,
-    Dialect,
-    Role,
 )
 from oa_configurator.resolver import _check_test_collision
 
@@ -33,8 +34,8 @@ class TestResolveConnection:
         r = Resolver(minimal_stack)
         target = r.resolve_connection("db")
         assert isinstance(target, ResolvedConnection)
-        assert target.url == "sqlite:///:memory:"
-        assert target.safe_url == "sqlite:///:memory:"
+        assert make_url(target.url) == make_url("sqlite:///:memory:")
+        assert make_url(target.safe_url) == make_url("sqlite:///:memory:")
 
     def test_pg_url_contains_password(self, pg_stack):
         r = Resolver(pg_stack)
@@ -82,11 +83,92 @@ class TestResolveConnection:
             }
         )
         target = Resolver(cfg).resolve_connection("db")
-        assert str(db_path) in target.url
-        assert str(db_path) in target.safe_url
+        expected = URL.create("sqlite", database=str(db_path))
+        assert make_url(target._engine_url) == expected
+        assert isinstance(target.url, str)
+        assert isinstance(target.safe_url, str)
 
 
 class TestResolveDatabase:
+    def test_ephemeral_connection_urls_never_compare_as_the_same_database(self):
+        stack = StackConfig.for_session(
+            connections={
+                "primary": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:"),
+                "vocab": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:"),
+            },
+            databases={"cdm": CDMDatabaseConfig(connection="primary", vocab_connection="vocab")},
+        )
+        resolved = Resolver(stack).resolve_database("cdm")
+        assert not resolved.connection.addresses_same_database_as(resolved.vocab_connection)
+        assert not resolved.tags_share_a_transaction(Role.PRIMARY, Role.VOCAB)
+
+    @pytest.mark.parametrize("schema_tag", [role.value for role in Role])
+    def test_generic_database_rejects_cdm_role_schema_claims(self, schema_tag):
+        stack = StackConfig.for_session(
+            connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
+            databases={"generic": GenericDatabaseConfig(connection="c")},
+        )
+        resolved = Resolver(stack).resolve_database("generic")
+        with pytest.raises(ValueError, match="CDM role tag.*generic database"):
+            resolved.create_engine(
+                schema_claims=[SchemaClaim(schema_tag=schema_tag, physical_schema=schema_tag)]
+            )
+
+    def test_schema_probe_uses_create_engines_creator_without_a_server(self):
+        class ProbeAttempt(Exception):
+            pass
+
+        calls = []
+
+        def recording_creator():
+            calls.append("creator")
+            raise ProbeAttempt
+
+        stack = StackConfig.for_session(
+            connections={
+                "c": ConnectionConfig(
+                    dialect=Dialect.POSTGRESQL + "+psycopg",
+                    host="127.0.0.1",
+                    port=55437,
+                    database_name="unused",
+                )
+            },
+            databases={"cdm": CDMDatabaseConfig(connection="c")},
+        )
+        resolved = Resolver(stack).resolve_database("cdm")
+        with pytest.raises(ProbeAttempt):
+            resolved.create_engines(creator=recording_creator)
+        assert calls == ["creator"]
+
+    def test_schema_probe_forwards_connect_args_without_a_server(self, monkeypatch):
+        import psycopg
+
+        class ProbeAttempt(Exception):
+            pass
+
+        calls = []
+
+        def recording_connect(*args, **kwargs):
+            calls.append(kwargs)
+            raise ProbeAttempt
+
+        monkeypatch.setattr(psycopg, "connect", recording_connect)
+        stack = StackConfig.for_session(
+            connections={
+                "c": ConnectionConfig(
+                    dialect=Dialect.POSTGRESQL + "+psycopg",
+                    host="127.0.0.1",
+                    port=55437,
+                    database_name="unused",
+                )
+            },
+            databases={"cdm": CDMDatabaseConfig(connection="c")},
+        )
+        resolved = Resolver(stack).resolve_database("cdm")
+        with pytest.raises(ProbeAttempt):
+            resolved.create_engines(connect_args={"application_name": "probe-test"})
+        assert calls[0]["application_name"] == "probe-test"
+
     def test_connection_resolved(self, minimal_stack):
         r = Resolver(minimal_stack)
         res = r.resolve_database("default")
@@ -335,7 +417,7 @@ class TestResolveVectorStore:
         r = Resolver(cfg)
         vs = r.resolve_vector_store("vs")
         assert vs.backend_type == "sqlitevec"
-        assert vs.database.connection.url == "sqlite:////data/emb.db"
+        assert make_url(vs.database.connection.url) == make_url("sqlite:////data/emb.db")
 
     def test_database_required(self):
         with pytest.raises(ValidationError, match="database"):
@@ -672,7 +754,7 @@ class TestWithOverrides:
                 "db": ConnectionConfig(dialect=Dialect.SQLITE, database_name="/other.db")
             }
         )
-        assert r2.resolve_connection("db").url == "sqlite:////other.db"
+        assert make_url(r2.resolve_connection("db").url) == make_url("sqlite:////other.db")
 
     def test_original_unchanged(self, minimal_stack):
         r = Resolver(minimal_stack)
@@ -681,7 +763,7 @@ class TestWithOverrides:
                 "db": ConnectionConfig(dialect=Dialect.SQLITE, database_name="/other.db")
             }
         )
-        assert r.resolve_connection("db").url == "sqlite:///:memory:"
+        assert make_url(r.resolve_connection("db").url) == make_url("sqlite:///:memory:")
 
 
 class TestDiscovery:
@@ -726,14 +808,14 @@ class TestCheckTestCollision:
         cfg = StackConfig.for_session(
             connections={
                 "prod": ConnectionConfig(
-                    dialect=Dialect.POSTGRESQL + "+psycopg", host="h", port=5432, database_name="d"
+                    dialect=Dialect.POSTGRESQL + "+psycopg", host="localhost", port=5432, database_name="d"
                 )
             },
             databases={"cdm_db": CDMDatabaseConfig(connection="prod")},
         )
         new_conn = ConnectionConfig(
             dialect=Dialect.POSTGRESQL + "+psycopg",
-            host="h",
+            host="127.0.0.1",
             port=5432,
             database_name="d",
             test_only=True,
@@ -749,13 +831,13 @@ class TestCheckTestCollision:
             connections={
                 "primary": ConnectionConfig(
                     dialect=Dialect.POSTGRESQL + "+psycopg",
-                    host="h",
+                    host="localhost",
                     port=5432,
                     database_name="primary_db",
                 ),
                 "vocab_prod": ConnectionConfig(
                     dialect=Dialect.POSTGRESQL + "+psycopg",
-                    host="vocab-h",
+                    host="localhost",
                     port=5432,
                     database_name="vocab_db",
                 ),
@@ -768,7 +850,7 @@ class TestCheckTestCollision:
         )
         new_conn = ConnectionConfig(
             dialect=Dialect.POSTGRESQL + "+psycopg",
-            host="vocab-h",
+            host="127.0.0.1",
             port=5432,
             database_name="vocab_db",
             test_only=True,
@@ -783,13 +865,13 @@ class TestCheckTestCollision:
         cfg = StackConfig.for_session(
             connections={
                 "orphan_prod": ConnectionConfig(
-                    dialect=Dialect.POSTGRESQL + "+psycopg", host="h", port=5432, database_name="d"
+                    dialect=Dialect.POSTGRESQL + "+psycopg", host="localhost", port=5432, database_name="d"
                 )
             },
         )
         new_conn = ConnectionConfig(
             dialect=Dialect.POSTGRESQL + "+psycopg",
-            host="h",
+            host="127.0.0.1",
             port=5432,
             database_name="d",
             test_only=True,
@@ -801,16 +883,40 @@ class TestCheckTestCollision:
         cfg = StackConfig.for_session(
             connections={
                 "prod": ConnectionConfig(
-                    dialect=Dialect.POSTGRESQL + "+psycopg", host="h", port=5432, database_name="d"
+                    dialect=Dialect.POSTGRESQL + "+psycopg", host="localhost", port=5432, database_name="d"
                 )
             },
             databases={"cdm_db": CDMDatabaseConfig(connection="prod")},
         )
         new_conn = ConnectionConfig(
             dialect=Dialect.POSTGRESQL + "+psycopg",
-            host="other-h",
+            host="127.0.0.1",
             port=5432,
-            database_name="d",
+            database_name="other_db",
             test_only=True,
         )
         _check_test_collision(new_conn, cfg)  # must not raise
+
+    def test_unresolvable_host_fails_closed(self, monkeypatch):
+        cfg = StackConfig.for_session(
+            connections={
+                "prod": ConnectionConfig(
+                    dialect=Dialect.POSTGRESQL + "+psycopg",
+                    host="production.example",
+                    database_name="d",
+                )
+            }
+        )
+        new_conn = ConnectionConfig(
+            dialect=Dialect.POSTGRESQL + "+psycopg",
+            host="unresolvable.example",
+            database_name="d",
+            test_only=True,
+        )
+
+        def no_dns(*args, **kwargs):
+            raise OSError("no resolver")
+
+        monkeypatch.setattr("oa_configurator.domains.resources.sql.socket.getaddrinfo", no_dns)
+        with pytest.raises(ValueError, match="Cannot verify production safety"):
+            _check_test_collision(new_conn, cfg, headless=True)

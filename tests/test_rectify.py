@@ -20,10 +20,45 @@ from oa_configurator import (
 )
 from oa_configurator.domains.resources.rectify import (
     drop_orphan_schema_tables,
+    preview_orphan_schema_tables,
     schema_is_a_current_target,
 )
+from oa_configurator.testing import drop_schema_if_exists
 
 _EMPTY_STACK = StackConfig.for_session(connections={}, databases={})
+
+
+@pytest.mark.postgresql
+@pytest.mark.db_dialect
+def test_preview_count_error_isolated_from_following_tables(pg_db, cleanup_after_test, monkeypatch):
+    schema = f"count_savepoint_{uuid.uuid4().hex[:8]}"
+    engine = pg_db.committing_engine
+    with engine.begin() as connection:
+        connection.execute(sa.schema.CreateSchema(schema))
+        connection.execute(sa.text(f'CREATE TABLE "{schema}".a_bad (id INTEGER)'))
+        connection.execute(sa.text(f'CREATE TABLE "{schema}".b_good (id INTEGER)'))
+        connection.execute(sa.text(f'INSERT INTO "{schema}".b_good VALUES (1)'))
+    cleanup_after_test(lambda: drop_schema_if_exists(engine, schema))
+
+    from oa_configurator.domains.resources import rectify
+
+    real_qualified = rectify.qualified
+    monkeypatch.setattr(
+        rectify,
+        "qualified",
+        lambda bindable, name, *, physical_schema: (
+            '"missing"."relation"'
+            if name == "a_bad"
+            else real_qualified(bindable, name, physical_schema=physical_schema)
+        ),
+    )
+    with engine.connect() as connection:
+        previews = preview_orphan_schema_tables(connection, schema)
+
+    assert [(item.table_name, item.row_count) for item in previews] == [
+        ("a_bad", None),
+        ("b_good", 1),
+    ]
 
 
 def test_drop_orphan_schema_tables_refuses_a_dialect_with_no_schema_concept():
@@ -31,14 +66,15 @@ def test_drop_orphan_schema_tables_refuses_a_dialect_with_no_schema_concept():
     concept at all. Must fail clearly and early, before the cross-entry
     safety check or any DDL, rather than a raw error partway through."""
     engine = sa.create_engine("sqlite:///:memory:")
-    with engine.connect() as connection:
-        with pytest.raises(ValueError, match="no real schema concept"):
-            drop_orphan_schema_tables(
-                connection,
-                stack=_EMPTY_STACK,
-                orphan_schema="whatever",
-                confirm=False,
-            )
+    with engine.connect() as connection, pytest.raises(
+        ValueError, match="no real schema concept"
+    ):
+        drop_orphan_schema_tables(
+            connection,
+            stack=_EMPTY_STACK,
+            orphan_schema="whatever",
+            confirm=False,
+        )
 
 
 @pytest.mark.postgresql

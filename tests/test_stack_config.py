@@ -5,15 +5,17 @@ from __future__ import annotations
 from typing import Any, cast
 
 import pytest
+from pydantic import ValidationError
+from sqlalchemy.engine import make_url
 
 from oa_configurator import (
     CDMDatabaseConfig,
     ConnectionConfig,
+    Dialect,
     GenericDatabaseConfig,
     ModelConfig,
     ProviderConfig,
     StackConfig,
-    Dialect,
     requires_host,
 )
 from oa_configurator.domains.resources.schema import DatabaseConfig, DatabaseKind
@@ -23,7 +25,7 @@ from oa_configurator.stack_config import mismatched_kind_refs
 class TestConnectionConfig:
     def test_sqlite_build_url(self):
         db = ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
-        assert db.build_url() == "sqlite:///:memory:"
+        assert make_url(db.build_url()) == make_url("sqlite:///:memory:")
 
     def test_sqlite_without_database_name_raises(self):
         """No implicit ':memory:' fallback: an unset database_name for a
@@ -79,11 +81,11 @@ class TestConnectionConfig:
         assert "***" in safe
 
     def test_dialect_required(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             ConnectionConfig()  # type: ignore
 
     def test_extra_fields_forbidden(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             ConnectionConfig(dialect=Dialect.SQLITE, unknown_field="x")  # type: ignore
 
 
@@ -94,11 +96,11 @@ class TestGenericDatabaseConfig:
         assert r.schema_name is None
 
     def test_extra_fields_forbidden(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             GenericDatabaseConfig(connection="db", vocab_schema="x")  # type: ignore
 
     def test_kind_cannot_be_overridden(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             GenericDatabaseConfig(connection="db", kind="cdm")  # type: ignore
 
 
@@ -115,8 +117,17 @@ class TestCDMDatabaseConfig:
         assert r.cdm_schema is None
 
     def test_extra_fields_forbidden(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             CDMDatabaseConfig(connection="db", unknown="x")  # type: ignore
+
+    def test_legacy_schema_name_points_to_upgrade_path(self):
+        with pytest.raises(ValidationError) as exc_info:
+            CDMDatabaseConfig(connection="db", schema_name="omop")  # type: ignore
+        message = str(exc_info.value)
+        assert "looks like a 1.x config" in message
+        assert "schema_name" in message and "cdm_schema" in message
+        assert "default is now None" in message
+        assert "uv run https://raw.githubusercontent.com/AustralianCancerDataNetwork/oa-configurator/<tag>/migrations/to_v2.py" in message
 
 
 class TestDatabaseKindDiscrimination:
@@ -142,7 +153,7 @@ class TestDatabaseKindDiscrimination:
         assert isinstance(cfg.databases["d"], CDMDatabaseConfig)
 
     def test_unknown_kind_rejected(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             StackConfig.for_session(
                 connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
                 databases={"r": {"kind": "bogus", "connection": "c"}},  # ty: ignore[invalid-argument-type]
@@ -224,7 +235,7 @@ class TestStackConfig:
         assert cfg.loaded_path == tmp_path / "config.toml"
 
     def test_extra_fields_forbidden(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             StackConfig(unknown_top_level="x")  # type: ignore
 
     def test_cross_ref_validation_unknown_provider(self):
@@ -242,9 +253,9 @@ class TestEntryExclusivity:
 
     @staticmethod
     def _pg(**overrides: Any) -> ConnectionConfig:
-        fields: dict[str, Any] = dict(
-            dialect=Dialect.POSTGRESQL + "+psycopg", host="db.example", port=5432, database_name="omop",
-        )
+        fields: dict[str, Any] = {
+            "dialect": Dialect.POSTGRESQL + "+psycopg", "host": "db.example", "port": 5432, "database_name": "omop",
+        }
         fields.update(overrides)
         return ConnectionConfig(**fields)
 
@@ -432,9 +443,9 @@ class TestDeclaredSchemaNameValidation:
 
     @staticmethod
     def _pg(**overrides: Any) -> ConnectionConfig:
-        fields: dict[str, Any] = dict(
-            dialect=Dialect.POSTGRESQL + "+psycopg", host="db.example", port=5432, database_name="omop",
-        )
+        fields: dict[str, Any] = {
+            "dialect": Dialect.POSTGRESQL + "+psycopg", "host": "db.example", "port": 5432, "database_name": "omop",
+        }
         fields.update(overrides)
         return ConnectionConfig(**fields)
 
@@ -489,11 +500,11 @@ class TestProviderConfig:
         assert provider.api_key is None
 
     def test_extra_fields_forbidden(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             ProviderConfig(provider="ollama", unknown_field="x")  # type: ignore
 
     def test_provider_required(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             ProviderConfig()  # type: ignore
 
 
@@ -540,5 +551,5 @@ class TestModelConfig:
         assert b.configuration == {}
 
     def test_extra_fields_forbidden(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             ModelConfig(provider="p", model="m", unknown_field="x")  # type: ignore

@@ -11,6 +11,7 @@ Role lives here rather than in schema.py.
 from __future__ import annotations
 
 import functools
+import ipaddress
 import socket
 from collections.abc import Generator, Iterable
 from contextlib import contextmanager
@@ -268,9 +269,26 @@ def canonical_host(host: str | None) -> str | None:
     if host is None:
         return None
     try:
-        return socket.gethostbyname(host)
+        addresses = {
+            ipaddress.ip_address(result[4][0])
+            for result in socket.getaddrinfo(host.strip("[]"), None, type=socket.SOCK_STREAM)
+        }
     except OSError:
         return host
+    if addresses and all(address.is_loopback for address in addresses):
+        return "loopback"
+    return min(str(address) for address in addresses) if addresses else host
+
+
+def host_is_resolvable(host: str | None) -> bool:
+    """Whether *host* resolves to at least one IPv4 or IPv6 address."""
+    if host is None:
+        return False
+    try:
+        socket.getaddrinfo(host.strip("[]"), None, type=socket.SOCK_STREAM)
+    except OSError:
+        return False
+    return True
 
 
 def canonical_port(dialect_name: str, port: int | None) -> int | None:
@@ -482,4 +500,3 @@ def autocommit_connection(bindable: Engine | Connection) -> Generator[Connection
     finally:
         bind.rollback()
         bind.execution_options(isolation_level=previous_isolation_level)
-

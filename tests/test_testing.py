@@ -19,24 +19,24 @@ from __future__ import annotations
 from typing import Annotated, ClassVar
 
 import pytest
+from sqlalchemy.engine import make_url
 
 from oa_configurator import (
     CDMDatabaseConfig,
     ConnectionConfig,
+    Dialect,
     PackageConfigBase,
     RefTo,
     StackConfig,
-    Dialect
 )
 from oa_configurator.config import OAConfiguratorConfig
-from oa_configurator.testing.base import TestDatabaseNotConfigured
 from oa_configurator.testing import (
     install_postgres_extension,
     isolated_test_database,
     isolated_test_schema,
     scoped_test_schema,
 )
-from oa_configurator.testing.base import TestDatabaseStrategy
+from oa_configurator.testing.base import TestDatabaseNotConfigured, TestDatabaseStrategy
 
 
 class DemoTestConfig(PackageConfigBase):
@@ -84,17 +84,19 @@ class TestIsolatedTestDatabase:
         cfg = _stack_config(test_only=False)
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
 
-        with pytest.raises(pytest.fail.Exception, match="SAFETY ABORT"):
-            with isolated_test_database(DemoTestConfig, "test_cdm_db"):
-                pass
+        with pytest.raises(pytest.fail.Exception, match="SAFETY ABORT"), isolated_test_database(
+            DemoTestConfig, "test_cdm_db"
+        ):
+            pass
 
     def test_skips_when_database_is_not_configured(self, monkeypatch):
         cfg = StackConfig.for_session()
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
 
-        with pytest.raises(pytest.skip.Exception):
-            with isolated_test_database(DemoTestConfig, "test_cdm_db"):
-                pass
+        with pytest.raises(pytest.skip.Exception), isolated_test_database(
+            DemoTestConfig, "test_cdm_db"
+        ):
+            pass
 
 class TestIsolatedTestDatabaseDialect:
     """The dialect= parameter: validates a resolved field against an
@@ -117,9 +119,10 @@ class TestIsolatedTestDatabaseDialect:
         cfg = _stack_config(test_only=True)
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
 
-        with pytest.raises(ValueError, match=f"{Dialect.SQLITE.value!r}.*{Dialect.POSTGRESQL.value!r}"):
-            with isolated_test_database(DemoTestConfig, "test_cdm_db", dialect=Dialect.POSTGRESQL):
-                pass
+        with pytest.raises(ValueError, match=f"{Dialect.SQLITE.value!r}.*{Dialect.POSTGRESQL.value!r}"), isolated_test_database(
+            DemoTestConfig, "test_cdm_db", dialect=Dialect.POSTGRESQL
+        ):
+            pass
 
     def test_unconfigured_field_falls_back_to_config_free_dialect(self, monkeypatch):
         cfg = StackConfig.for_session()
@@ -132,9 +135,10 @@ class TestIsolatedTestDatabaseDialect:
         cfg = StackConfig.for_session()
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
 
-        with pytest.raises(pytest.skip.Exception):
-            with isolated_test_database(DemoTestConfig, "test_cdm_db", dialect=Dialect.POSTGRESQL):
-                pass
+        with pytest.raises(pytest.skip.Exception), isolated_test_database(
+            DemoTestConfig, "test_cdm_db", dialect=Dialect.POSTGRESQL
+        ):
+            pass
 
     def test_unknown_dialect_raises_immediately(self, monkeypatch):
         """The message names what was actually resolved and what was
@@ -145,9 +149,8 @@ class TestIsolatedTestDatabaseDialect:
 
         with pytest.raises(
             ValueError, match=f"{Dialect.SQLITE.value!r}.*{Dialect.POSTGRESQL.value!r}"
-        ):
-            with isolated_test_database(DemoTestConfig, "test_cdm_db", dialect=Dialect.POSTGRESQL):
-                pass
+        ), isolated_test_database(DemoTestConfig, "test_cdm_db", dialect=Dialect.POSTGRESQL):
+            pass
 
 
 class TestIsolatedTestDatabaseExtensions:
@@ -228,9 +231,8 @@ class TestIsolatedTestSchema:
         import sqlalchemy as sa
 
         engine = sa.create_engine("sqlite:///:memory:")
-        with pytest.raises(NotImplementedError, match="ATTACH"):
-            with isolated_test_schema(engine):
-                pass
+        with pytest.raises(NotImplementedError, match="ATTACH"), isolated_test_schema(engine):
+            pass
 
     def test_refuses_an_engine_matching_no_known_connection(self, monkeypatch):
         """isolated_test_schema() creates and drops a real, committed
@@ -245,9 +247,8 @@ class TestIsolatedTestSchema:
         )
 
         engine = sa.create_engine("postgresql+psycopg://user:pw@dbhost:5432/unknown_db")
-        with pytest.raises(pytest.fail.Exception, match="SAFETY ABORT"):
-            with isolated_test_schema(engine):
-                pass
+        with pytest.raises(pytest.fail.Exception, match="SAFETY ABORT"), isolated_test_schema(engine):
+            pass
 
     def test_refuses_an_engine_matching_a_non_test_only_connection(self, monkeypatch):
         cfg = StackConfig.for_session(
@@ -266,9 +267,8 @@ class TestIsolatedTestSchema:
         import sqlalchemy as sa
 
         engine = sa.create_engine("postgresql+psycopg://user:pw@dbhost:5432/prod_db")
-        with pytest.raises(pytest.fail.Exception, match="not marked test_only"):
-            with isolated_test_schema(engine):
-                pass
+        with pytest.raises(pytest.fail.Exception, match="not marked test_only"), isolated_test_schema(engine):
+            pass
 
     @pytest.mark.postgresql
     @pytest.mark.db_dialect
@@ -318,7 +318,7 @@ class TestResolveAndCheck:
 
         resolved = TestDatabaseStrategy._resolve_and_check(DemoTestConfig, "test_cdm_db")
 
-        assert resolved.connection.url == "sqlite:///:memory:"
+        assert make_url(resolved.connection.url) == make_url("sqlite:///:memory:")
 
     def test_fail_message_names_the_database_and_connection(self, monkeypatch):
         cfg = _stack_config(test_only=False)
@@ -370,7 +370,7 @@ class TestResolveAndCheck:
 
         resolved = TestDatabaseStrategy._resolve_and_check(DemoTestConfig, "test_cdm_db")
 
-        assert resolved.connection.url == "sqlite:///:memory:"
+        assert make_url(resolved.connection.url) == make_url("sqlite:///:memory:")
 
     def test_falls_back_to_field_default_not_field_name(self, monkeypatch):
         """Nothing stored for test_field: must resolve the field's own
@@ -392,7 +392,7 @@ class TestResolveAndCheck:
             DemoTestConfigWithDefault, "test_field"
         )
 
-        assert resolved.connection.url == "sqlite:///:memory:"
+        assert make_url(resolved.connection.url) == make_url("sqlite:///:memory:")
 
     def test_unknown_field_name_raises(self):
         with pytest.raises(ValueError, match="test_typo"):
@@ -437,7 +437,7 @@ class TestResolveAndCheck:
             DemoTestConfig, "test_cdm_db", resolver=resolver
         )
 
-        assert resolved.connection.url == "sqlite:///:memory:"
+        assert make_url(resolved.connection.url) == make_url("sqlite:///:memory:")
 
 
 class TestResetSchemaRegistryRowsSafety:
@@ -491,8 +491,8 @@ class TestResolveWithRoleSchemas:
 
     def test_role_without_a_schema_field_raises(self, pg_db):
         from oa_configurator import Role
-        from oa_configurator.resolver import Resolver
         from oa_configurator.domains.resources.schema import GenericDatabaseConfig
+        from oa_configurator.resolver import Resolver
         from oa_configurator.testing import resolve_with_role_schemas
 
         name = f"{pg_db.resolved.name}_generic"
@@ -537,8 +537,6 @@ class TestScopedTestSchema:
             SchemaRegistry,
             _with_provenance_translate_map,
         )
-        from oa_configurator.domains.resources.sql import connection_key
-
         with engine.connect() as conn:
             conn = _with_provenance_translate_map(conn, physical_schema="oa_configurator_provenance")
             return conn.execute(
@@ -548,10 +546,7 @@ class TestScopedTestSchema:
                     SchemaRegistry.database_config_name,
                     SchemaRegistry.owner,
                 )
-                .where(
-                    SchemaRegistry.connection_key == connection_key(engine.url),
-                    SchemaRegistry.schema_tag.in_(list(schema_tags)),
-                )
+                .where(SchemaRegistry.schema_tag.in_(list(schema_tags)))
                 .order_by(SchemaRegistry.schema_tag)
             ).all()
 
@@ -607,8 +602,8 @@ class TestScopedTestSchema:
 
     def test_generic_database_scopes_only_primary(self, pg_db):
         from oa_configurator import Role
-        from oa_configurator.resolver import Resolver
         from oa_configurator.domains.resources.schema import GenericDatabaseConfig
+        from oa_configurator.resolver import Resolver
 
         name = f"{pg_db.resolved.name}_generic"
         resolver = Resolver.from_active_config().with_overrides(
@@ -651,33 +646,41 @@ class TestScopedTestSchema:
     def test_claim_schemas_it_created_are_dropped_and_existing_ones_kept(
         self, pg_db, cleanup_after_test
     ):
-        """A caller claim's schema created by the block is dropped on exit; one
-        that already existed (e.g. a shared staging schema) is left alone."""
+        """A caller-created schema is cleaned up, but shared fixed schemas survive."""
         import uuid
 
         import sqlalchemy as sa
 
         from oa_configurator import SchemaClaim
-        from oa_configurator.testing import reset_schema_registry_rows
+        from oa_configurator.testing import (
+            drop_schema_if_exists,
+            reset_schema_registry_rows,
+        )
 
         created_tag = f"ttest_created_{uuid.uuid4().hex[:8]}"
         kept_tag = f"ttest_kept_{uuid.uuid4().hex[:8]}"
+        kept_schema = "oa_configurator_shared_staging"
         reset_schema_registry_rows(cleanup_after_test, pg_db.committing_engine, [created_tag, kept_tag])
-        with isolated_test_schema(pg_db.committing_engine, prefix="ttest_kept") as kept_schema:
-            claims = [
-                SchemaClaim(schema_tag=created_tag, physical_schema=f"{created_tag}_schema"),
-                SchemaClaim(schema_tag=kept_tag, physical_schema=kept_schema),
-            ]
-            with scoped_test_schema(pg_db.resolved, prefix="ttest_claims", schema_claims=claims):
-                assert f"{created_tag}_schema" in sa.inspect(pg_db.committing_engine).get_schema_names()
-            schemas = set(sa.inspect(pg_db.committing_engine).get_schema_names())
-            assert f"{created_tag}_schema" not in schemas
-            assert kept_schema in schemas
+        with pg_db.committing_engine.begin() as connection:
+            if kept_schema not in sa.inspect(connection).get_schema_names():
+                connection.execute(sa.schema.CreateSchema(kept_schema))
+                cleanup_after_test(lambda: drop_schema_if_exists(pg_db.committing_engine, kept_schema))
+        claims = [
+            SchemaClaim(schema_tag=created_tag, physical_schema=f"{created_tag}_schema"),
+            SchemaClaim(schema_tag=kept_tag, physical_schema=kept_schema),
+        ]
+        with scoped_test_schema(pg_db.resolved, prefix="ttest_claims", schema_claims=claims):
+            assert f"{created_tag}_schema" in sa.inspect(pg_db.committing_engine).get_schema_names()
+        schemas = set(sa.inspect(pg_db.committing_engine).get_schema_names())
+        assert f"{created_tag}_schema" not in schemas
+        assert kept_schema in schemas
 
     def test_reset_registry_rows_restores_them_after_the_test(self, pg_db, cleanup_after_test):
         import uuid
 
-        from oa_configurator.domains.resources.schema_registry import _record_schema_provenance
+        from oa_configurator.domains.resources.schema_registry import (
+            _record_schema_provenance,
+        )
         from oa_configurator.testing import reset_schema_registry_rows
 
         tag = f"ttest_reset_{uuid.uuid4().hex[:8]}"

@@ -19,7 +19,7 @@
 - **SQLite connections now require an explicit `database_name`.** No more implicit `:memory:` fallback when unset; it now raises at resolve time. See [TOML migration](#toml-migration) step 6.
 - **Python API renames**: `resolve_resource()` → `resolve_database()`; old `resolve_database()` (raw connection) → `resolve_connection()`; `ResolvedResource` → `ResolvedDatabase`; old `ResolvedDatabase`/`ResolvedDatabaseTarget` → `ResolvedConnection`; `role="vocab"` string → the `Role` enum (`Role.VOCAB`); pytest plugin's `requires_resource` marker → `requires_database`, `resolve_test_resource` → `resolve_test_database`.
 - **`oa_configurator.models` renamed to `oa_configurator.stack_config`.** Only matters if you imported from the submodule directly (`from oa_configurator.models import ...`) instead of the top-level package (`from oa_configurator import ...`). The top-level re-exports are unchanged.
-- **`[databases.*]` entries now require an explicit `kind`.** `DatabaseConfig` is no longer one shape: every entry is `kind = "generic"` or `kind = "cdm"` (see [DatabaseKind](api/resources.md#databasekind)), no default, no inference. Each kind keeps its own schema field name: `schema_name` on a generic entry, `cdm_schema` on a CDM entry; both default to `None` (no override, use the connection's own default/search_path). Only `CDMDatabaseConfig` carries `vocab_connection`/`vocab_schema`/`results_schema`. A `RefTo` naming one kind now rejects an entry of the other at construction time.
+- **`[databases.*]` entries now require an explicit `kind`.** `DatabaseConfig` is no longer one shape: every entry is `kind = "generic"` or `kind = "cdm"` (see [DatabaseKind](api/resources.md#databasekind)), no default, no inference. Each kind keeps its own schema field name: `schema_name` on a generic entry and `cdm_schema` on a CDM entry. Only `CDMDatabaseConfig` carries `vocab_connection`/`vocab_schema`/`results_schema`. A `RefTo` naming one kind now rejects an entry of the other at construction time.
 - **`[vector_stores.*]` is a new section.** Which storage backend an embedding-capable package should use: `backend_type`, a `database` naming a *generic*-kind `[databases.*]` entry, an optional `faiss_cache_dir`, and a free-form `configuration` table. See [Config Reference](config-reference.md#vector_storesname).
 
 ---
@@ -66,7 +66,7 @@ database_name = "omop_cdm"
 
 ### 2. Rename `[resources.*]` to `[databases.*]`, rename its two connection-pointing fields, and add `kind`
 
-`database` → `connection`, `vocab_database` → `vocab_connection`. `cdm_schema` keeps its name (a CDM entry's schema field is still `cdm_schema`, not `schema_name`, which is only used on a `kind = "generic"` entry). `cdm_schema` used to be required; it now defaults to `None` if omitted (no schema override, use the connection's own default/search_path) rather than raising. Every entry, whether migrated from an old resource or newly added, needs the new `kind` field added explicitly; there is no inference. A resource migrated from `[resources.*]` is always `kind = "cdm"`, since that section only ever held CDM role bundles.
+`database` → `connection`, `vocab_database` → `vocab_connection`. `cdm_schema` keeps its name (a CDM entry's schema field is still `cdm_schema`, not `schema_name`, which is only used on a `kind = "generic"` entry). Every entry, whether migrated from an old resource or newly added, needs the new `kind` field added explicitly; there is no inference. A resource migrated from `[resources.*]` is always `kind = "cdm"`, since that section only ever held CDM role bundles.
 
 <div class="grid" markdown>
 
@@ -272,7 +272,7 @@ class MyPackageConfig(PackageConfigBase):
 
 There is no equivalent of `required_resources`/`ResourceRef` for consuming a *different* package's database. Declare a field with the same `RefTo(CDMDatabaseConfig)` type and the same default name as the owning package's field. The two packages share the entry simply because both fields resolve to the same name. See [Integration](integration.md#cross-package-database-references).
 
-Engine creation: replace `resolver.resolve_resource(name).create_engine()` with `resolver.resolve_database(name).create_engine()`. For the vocabulary connection, replace `create_engine(role="vocab")` with `create_engine(role=Role.VOCAB)` (`from oa_configurator import Role`).
+Engine creation: replace `resolver.resolve_resource(name).create_engine()` with `resolver.resolve_database(name).create_engine()`.
 
 Tests using the pytest plugin: replace `@pytest.mark.requires_resource(...)` with `@pytest.mark.requires_database(...)`, and `resolve_test_resource(...)` with `resolve_test_database(...)`.
 

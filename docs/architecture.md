@@ -177,12 +177,12 @@ CDM-specific: `ResolvedCDMDatabase.configured_internal_schema_translate_map()` r
 {"primary": "omop", "vocab": "omop_vocab", "results": "results"}
 ```
 
-OMOP ORM models carry `schema="primary"`, `schema="vocab"` or `schema="results"` on their `__table_args__`. The translate map routes them to the correct schema at runtime without changing model definitions. Its keys correspond to the members of [`Role`](api/resources.md#role), the same enum `ResolvedCDMDatabase.connection_for_role()`/`create_engine()` accept for their `role` parameter. 
+OMOP ORM models carry `schema="primary"`, `schema="vocab"` or `schema="results"` on their `__table_args__`. The translate map routes them to the correct schema at runtime without changing model definitions. Its keys correspond to the members of [`Role`](api/resources.md#role). CDM databases expose role-specific connections through `connection_for_role()` and build their engines with `create_engines()`; generic databases use `create_engine()`.
 
 !!! note "Untagged table"
     A genuinely untagged table (no `schema` set at all in `__table_args__`) is not part of this routing and falls through to the connection's own default/`search_path`
 
-`create_engine()`'s own `schema_translate_map` is authoritative, not a default:
+`create_engines()`'s `schema_translate_map` is authoritative, not a default:
 
 - an `execution_options` argument may *extend* the map with a key the resolver doesn't own (e.g. a package's own reserved-schema role, layered on top of the CDM map, see [Vector Stores](api/vector-stores.md) for a real example), 
 - supplying protected schemas raises `ValueError` rather than silently overriding the configured routing.
@@ -202,9 +202,9 @@ with guard_schema_provenance_for(connection, schema_tag=Role.VOCAB):
 
 `connection` must have been built by `create_engine()` or `create_engines()`, which stash the entry name and `test_only` in `execution_options` alongside `schema_translate_map` for the guard to read back. Everywhere else, a short-lived engine rebuilt per call (the common case: any CLI command, any library function taking an engine or session per invocation) is re-validated automatically on every build and needs no explicit guard at all.
 
-Rows are keyed by the physical database (host, port and database name) **and**, for a `Role` tag (`primary`/`vocab`/`results`), the `database_config_name` that established it: two different `[databases.*]`/`[vector_stores.*]` entries may each claim the same Role tag on one connection (a CDM database and its own colocated vector store, say) without colliding, since "has *this entry's* mapping changed" is what the row tracks, not "has *this connection's* mapping changed." A custom (non-Role) tag stays scoped per connection only: one claim per tag per connection, owner-checked. See [Config-time entry exclusivity](#entry-exclusivity) for the complementary config-level check that keeps this scoping meaningful rather than something two entries stumble into by accident.
+The registry lives inside the database it describes, so rows need no host identity. For a `Role` tag (`primary`/`vocab`/`results`), rows are also keyed by the `database_config_name` that established them: two different `[databases.*]`/`[vector_stores.*]` entries may each claim the same Role tag on one connection (a CDM database and its own colocated vector store, say) without colliding, since "has *this entry's* mapping changed" is what the row tracks, not "has *this connection's* mapping changed." A custom (non-Role) tag stays scoped per database only: one claim per tag per database, owner-checked. See [Config-time entry exclusivity](#entry-exclusivity) for the complementary config-level check that keeps this scoping meaningful rather than something two entries stumble into by accident.
 
-`test_only=True` re-baselines a mismatching row instead of raising (a test-only connection's schema is expected to change between runs, and has no production data worth protecting) and bypasses the "already has tables, no baseline" check on first registration for a Role tag. A custom claim's first registration into a populated schema never raises regardless of `test_only`: it's declared by the owning package's own code, so there's nothing else that could ever "adopt" it, and the config has no visibility into what its baseline should be anyway. A registry predating `connection_key` entirely raises `SchemaRegistryOutdatedError`. `find_table_in_other_schemas()` complements the guard directly for drift that predates the bookkeeping table entirely, checking the database's actual physical layout rather than a stored claim.
+`test_only=True` re-baselines a mismatching row instead of raising (a test-only connection's schema is expected to change between runs, and has no production data worth protecting) and bypasses the "already has tables, no baseline" check on first registration for a Role tag. A custom claim's first registration into a populated schema never raises regardless of `test_only`: it's declared by the owning package's own code, so there's nothing else that could ever "adopt" it, and the config has no visibility into what its baseline should be anyway. A registry with an outdated table layout raises `SchemaRegistryOutdatedError`. `find_table_in_other_schemas()` complements the guard directly for drift that predates the bookkeeping table entirely, checking the database's actual physical layout rather than a stored claim.
 
 oa-configurator owns the guard, the bookkeeping table, and the CLI-level remediation path for a genuine migration, generic over any `[databases.*]` entry rather than tied to any particular domain package:
 
@@ -237,8 +237,8 @@ oa-configurator owns the guard, the bookkeeping table, and the CLI-level remedia
     - the registry's per-entry keying keeps it drift-safe
 
 !!! note
-    - `connection_key()` itself remains a pure function of the *configured* URL (host, port, database name). The same physical database reached through two differently-spelled routes (e.g. hostname vs. IP) is not detected as a collision anywhere in this stack. 
-    - Configure each physical database through one canonical, consistently-spelled connection across every `[connections.*]` entry that targets it.
+    - Registry rows are stored in, and scoped by, the database itself; how a connection entry spells the host doesn’t affect them.
+    - Role rows are additionally scoped by `database_config_name`; custom claim tags remain scoped per physical database and owner-checked.
 
 ---
 

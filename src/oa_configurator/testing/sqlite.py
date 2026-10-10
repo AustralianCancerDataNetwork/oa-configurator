@@ -12,9 +12,11 @@ since each one gets whatever's actually cheapest and most natural for it.
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Generator, Iterable
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generator, Iterable
+from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
 import sqlalchemy.orm as so
@@ -24,7 +26,8 @@ from .base import IsolatedTestDatabase, TestDatabaseStrategy
 
 if TYPE_CHECKING:
     from ..domains.resources.schema import (
-        ResolvedConnection, 
+        ResolvedCDMDatabase,
+        ResolvedConnection,
         ResolvedDatabase,
         SchemaClaim,
     )
@@ -38,14 +41,14 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
     so it's the one strategy that overrides ``resolve_without_config()``.
     """
 
-    def resolve_without_config(self) -> "ResolvedDatabase":
-        """Fabricate a ``ResolvedDatabase`` pointing at an in-memory target.
+    def resolve_without_config(self) -> ResolvedCDMDatabase:
+        """Fabricate a ``ResolvedCDMDatabase`` pointing at an in-memory target.
 
         The URL is only used by ``isolated_test_database()`` to determine
         the dialect name -- ``isolated_database()`` below ignores *resolved*
         entirely and always provisions its own fresh tempfile database.
         """
-        from ..domains.resources.schema import ResolvedConnection, ResolvedDatabase
+        from ..domains.resources.schema import ResolvedCDMDatabase, ResolvedConnection
 
         url = "sqlite:///:memory:"
         connection = ResolvedConnection(
@@ -54,14 +57,21 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
             safe_url=url,
             _engine_url=sa.engine.make_url(url),
         )
-        return ResolvedDatabase(name="sqlite-in-memory", connection=connection, schema_name=None)
+        return ResolvedCDMDatabase(
+            name="sqlite-in-memory",
+            connection=connection,
+            schema_name=None,
+            vocab_connection=connection,
+            vocab_schema=None,
+            results_schema=None,
+        )
 
     @contextmanager
     def isolated_database(
         self,
-        resolved: "ResolvedDatabase | None" = None,
+        resolved: ResolvedDatabase | None = None,
         *,
-        schema_claims: Iterable["SchemaClaim"] = (),
+        schema_claims: Iterable[SchemaClaim] = (),
         execution_options: dict[str, Any] | None = None,
         **engine_kwargs: Any,
     ) -> Generator[IsolatedTestDatabase, None, None]:
@@ -82,7 +92,7 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
             ``extensions`` for a connect-event callable (such as sqlite-vec's
             extension loader) the engine needs on every physical connection.
         """
-        from ..domains.resources.schema import ResolvedConnection, ResolvedCDMDatabase
+        from ..domains.resources.schema import ResolvedCDMDatabase, ResolvedConnection
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             db_path = Path(tmp_dir) / "test.db"
@@ -90,14 +100,11 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
             connection = ResolvedConnection(
                 name="sqlite-isolated", url=url, safe_url=url, _engine_url=sa.engine.make_url(url), test_only=True
             )
-            fresh = ResolvedCDMDatabase(
-                name="sqlite-isolated",
-                connection=connection,
-                schema_name=None,
-                vocab_connection=connection,
-                vocab_schema=None,
-                results_schema=None,
-            )
+            fresh = resolved or replace(self.resolve_without_config(), name="sqlite-isolated")
+            if isinstance(fresh, ResolvedCDMDatabase):
+                fresh = replace(fresh, connection=connection, vocab_connection=connection)
+            else:
+                fresh = replace(fresh, connection=connection)
             engine = fresh._build_engine(
                 Role.PRIMARY,
                 schema_claims=schema_claims, execution_options=execution_options, **engine_kwargs
@@ -145,7 +152,7 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
             "instead."
         )
 
-    def drop_test_database(self, connection: "ResolvedConnection") -> bool:
+    def drop_test_database(self, connection: ResolvedConnection) -> bool:
         """Always raises. Nothing to drop.
 
         SQLite test databases are disposable tempfiles that clean

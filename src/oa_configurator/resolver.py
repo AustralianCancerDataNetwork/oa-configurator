@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal, NoReturn, TypeVar, get_args, get_origin
 
 from pydantic import BaseModel, ValidationError
@@ -302,20 +303,25 @@ def _find_production_collision(target: ConnectionConfig | URL, config: StackConf
     -------
     str or None
     """
+    def comparison_key(url: URL) -> str:
+        if url.host is None and url.get_backend_name() == "sqlite" and not is_ephemeral_url(url):
+            return f"sqlite:{Path(url.database or '').expanduser().resolve()}"
+        return connection_key(url)
+
     target_url = target._build_url_obj() if isinstance(target, ConnectionConfig) else target
-    if not is_ephemeral_url(target_url) and not host_is_resolvable(target_url.host):
+    if target_url.host is not None and not host_is_resolvable(target_url.host):
         raise ValueError(f"Cannot verify production safety: host {target_url.host!r} does not resolve.")
-    target_key = connection_key(target_url)
+    target_key = comparison_key(target_url)
     for conn_name, conn in config.connections.items():
         if conn.test_only or is_ephemeral_url(conn.safe_url()):
             continue
         candidate_url = conn._build_url_obj()
-        if not host_is_resolvable(candidate_url.host):
+        if candidate_url.host is not None and not host_is_resolvable(candidate_url.host):
             raise ValueError(
                 f"Cannot verify production safety: host {candidate_url.host!r} for "
                 f"non-test connection {conn_name!r} does not resolve."
             )
-        if connection_key(candidate_url) == target_key:
+        if comparison_key(candidate_url) == target_key:
             return conn_name
     return None
 

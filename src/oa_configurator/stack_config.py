@@ -30,7 +30,12 @@ from .domains.resources.schema import (
     GenericDatabaseConfig,
     _iter_schema_roles,
 )
-from .domains.resources.sql import Role, is_ephemeral_url, supports_schemas, system_schemas
+from .domains.resources.sql import (
+    Role,
+    is_ephemeral_url,
+    supports_schemas,
+    system_schemas,
+)
 from .domains.vector_stores.schema import VectorStoreConfig
 from .logging_config import LoggingConfig
 from .refs import SecretSafeBaseModel, _iter_refs
@@ -276,9 +281,9 @@ class StackConfig(SecretSafeBaseModel):
                     f"{location}.{field_name}={value!r} must not be empty or have "
                     "leading/trailing whitespace."
                 )
-            if len(value) > 63:
+            if len(value.encode("utf-8")) > 63:
                 raise ValueError(
-                    f"{location}.{field_name}={value!r} is longer than 63 characters, "
+                    f"{location}.{field_name}={value!r} is longer than 63 bytes, "
                     "Postgres's own identifier limit."
                 )
             connection_name = database.connection_name_for_role(role)

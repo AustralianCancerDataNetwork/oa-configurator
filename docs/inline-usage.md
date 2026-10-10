@@ -84,7 +84,7 @@ from oa_configurator import StackConfig, Resolver
 def test_something():
     cfg = StackConfig.for_session(
         connections={"db": {"dialect": "sqlite", "database_name": ":memory:"}},
-        databases={"cdm": {"kind": "cdm", "connection": "db", "cdm_schema": "omop"}},
+        databases={"cdm": {"kind": "cdm", "connection": "db"}},
         tools={"my_package": {"backend": "test_backend"}},
     )
     resolver = Resolver(cfg)
@@ -112,7 +112,7 @@ primary, vocab = (
             "local": ConnectionConfig(dialect="sqlite", database_name=":memory:")
         },
         databases={
-            "cdm": CDMDatabaseConfig(connection="local", cdm_schema="omop")
+            "cdm": CDMDatabaseConfig(connection="local")
         },
     )
     .resolve_database("cdm")

@@ -6,6 +6,7 @@ from .domains.llm.schema import (
     ResolvedProvider,
 )
 from .domains.resources.schema import (
+    SCHEMA_TRANSLATE_MAP_KEY,
     Bindable,
     CDMDatabaseConfig,
     ConnectionConfig,
@@ -14,12 +15,23 @@ from .domains.resources.schema import (
     ResolvedConnection,
     ResolvedDatabase,
     Role,
-    guard_schema_provenance_for,
-    SCHEMA_TRANSLATE_MAP_KEY,
     SchemaClaim,
+    guard_schema_provenance_for,
     referred_schema_tag,
     statement_schema_tags,
     without_cross_engine_foreign_keys,
+)
+from .domains.resources.schema_registry import (
+    SCHEMA_REGISTRY_SCHEMA,
+    CrossDatabaseStatementError,
+    SchemaDriftError,
+    SchemaOwnershipError,
+    SchemaRegistryOutdatedError,
+    UnregisteredSchemaTagError,
+    claimed_schema_tags,
+    database_config_name_of,
+    find_table_in_other_schemas,
+    physical_schema_of,
 )
 from .domains.resources.sql import (
     Dialect,
@@ -34,20 +46,8 @@ from .domains.resources.sql import (
     schema_if_supported,
     supports_schemas,
 )
-from .domains.resources.schema_registry import (
-    CrossDatabaseStatementError,
-    SCHEMA_REGISTRY_SCHEMA,
-    SchemaDriftError,
-    SchemaOwnershipError,
-    SchemaRegistryOutdatedError,
-    UnregisteredSchemaTagError,
-    claimed_schema_tags,
-    database_config_name_of,
-    find_table_in_other_schemas,
-    physical_schema_of,
-)
 from .domains.vector_stores.schema import ResolvedVectorStore, VectorStoreConfig
-from .io import ConfigSaveError, save_stack_config
+from .io import ConfigSaveError, save_stack_config, write_env_file
 from .loader import (
     DEFAULT_CONFIG_PATH,
     active_config_path,
@@ -70,7 +70,7 @@ from .refs import (
     is_sensitive,
     safe_endpoint,
 )
-from .resolver import Resolver, ResolvedToolConfig
+from .resolver import ResolvedToolConfig, Resolver
 from .stack_config import (
     StackConfig,
     UnknownRefTarget,
@@ -79,13 +79,15 @@ from .stack_config import (
 )
 
 __all__ = [
+    "DEFAULT_CONFIG_PATH",
+    "SCHEMA_REGISTRY_SCHEMA",
+    "SCHEMA_TRANSLATE_MAP_KEY",
     "Bindable",
     "CDMDatabaseConfig",
-    "ConfigurationError",
     "ConfigSaveError",
+    "ConfigurationError",
     "ConnectionConfig",
     "CrossDatabaseStatementError",
-    "DEFAULT_CONFIG_PATH",
     "Dialect",
     "GenericDatabaseConfig",
     "LoggingConfig",
@@ -94,7 +96,6 @@ __all__ = [
     "PackageConfigInvalidError",
     "ProviderConfig",
     "RefTo",
-    "Resolver",
     "ResolvedCDMDatabase",
     "ResolvedConnection",
     "ResolvedDatabase",
@@ -102,9 +103,8 @@ __all__ = [
     "ResolvedProvider",
     "ResolvedToolConfig",
     "ResolvedVectorStore",
+    "Resolver",
     "Role",
-    "SCHEMA_REGISTRY_SCHEMA",
-    "SCHEMA_TRANSLATE_MAP_KEY",
     "SchemaClaim",
     "SchemaDriftError",
     "SchemaOwnershipError",
@@ -132,6 +132,7 @@ __all__ = [
     "load_stack_config",
     "mismatched_kind_refs",
     "open_connection",
+    "physical_schema_of",
     "plan_configure",
     "qualified",
     "referred_schema_tag",
@@ -140,8 +141,8 @@ __all__ = [
     "save_stack_config",
     "schema_if_supported",
     "statement_schema_tags",
-    "physical_schema_of",
     "supports_schemas",
     "unresolved_refs",
     "without_cross_engine_foreign_keys",
+    "write_env_file",
 ]

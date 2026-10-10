@@ -149,7 +149,7 @@ from oa_configurator import StackConfig, Resolver
 def test_something(monkeypatch):
     cfg = StackConfig.for_session(
         connections={"db": {"dialect": "sqlite", "database_name": ":memory:"}},
-        databases={"cdm": {"kind": "cdm", "connection": "db", "cdm_schema": "omop"}},
+        databases={"cdm": {"kind": "cdm", "connection": "db"}},
         tools={"my_package": {"backend": "test_backend"}},
     )
     monkeypatch.setattr("my_package.module.load_stack_config", lambda: cfg)

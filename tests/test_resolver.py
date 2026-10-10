@@ -920,3 +920,49 @@ class TestCheckTestCollision:
         monkeypatch.setattr("oa_configurator.domains.resources.sql.socket.getaddrinfo", no_dns)
         with pytest.raises(ValueError, match="Cannot verify production safety"):
             _check_test_collision(new_conn, cfg, headless=True)
+
+def _sqlite_production_and_test_connections(tmp_path, test_path):
+    config = StackConfig.for_session(
+        connections={"prod": ConnectionConfig(
+            dialect=Dialect.SQLITE, database_name=str(tmp_path / "production.db")
+        )}
+    )
+    target = ConnectionConfig(
+        dialect=Dialect.SQLITE, database_name=str(test_path), test_only=True
+    )
+    return target, config
+
+
+class TestHostlessSQLiteProductionCollision:
+    def test_distinct_test_only_sqlite_file_is_allowed(self, tmp_path):
+        target, config = _sqlite_production_and_test_connections(
+            tmp_path, tmp_path / "test.db"
+        )
+
+        _check_test_collision(target, config)
+
+    def test_same_normalized_sqlite_file_is_refused(self, tmp_path):
+        alias_path = tmp_path / "alias.db"
+        alias_path.symlink_to(tmp_path / "production.db")
+        target, config = _sqlite_production_and_test_connections(
+            tmp_path, alias_path
+        )
+
+        with pytest.raises(typer.Exit):
+            _check_test_collision(target, config)
+
+    def test_postgres_target_ignores_hostless_sqlite_candidate(self, monkeypatch, tmp_path):
+        cfg = StackConfig.for_session(
+            connections={"prod_sqlite": ConnectionConfig(
+                dialect=Dialect.SQLITE, database_name=str(tmp_path / "production.db")
+            )}
+        )
+        monkeypatch.setattr("oa_configurator.resolver.host_is_resolvable", lambda host: True)
+        target = ConnectionConfig(
+            dialect=Dialect.POSTGRESQL + "+psycopg",
+            host="test-db.example",
+            database_name="test_db",
+            test_only=True,
+        )
+
+        _check_test_collision(target, cfg)

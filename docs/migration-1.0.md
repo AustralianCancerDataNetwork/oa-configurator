@@ -1,4 +1,6 @@
-# Migrating from 0.x to 1.0
+# Migrating from 0.x
+
+This guide takes a 0.x config straight to 2.0; 0.x already used `cdm_schema` for CDM entries.
 
 `oa-configurator` 1.0 is a breaking rewrite of the config schema and the Python/CLI surface. It was done pre-1.0, before any PyPI release depended on the old shape, so nothing here is deprecated first and removed later. It's a clean cutover. This page lists what changed and walks through migrating an existing `~/.config/omop/config.toml` by hand.
 

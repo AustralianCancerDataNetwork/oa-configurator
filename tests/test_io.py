@@ -11,7 +11,6 @@ from pathlib import Path
 import pytest
 
 import oa_configurator.io as io_module
-from oa_configurator import ConfigSaveError as PublicConfigSaveError
 from oa_configurator import (
     CDMDatabaseConfig,
     ConnectionConfig,
@@ -23,9 +22,11 @@ from oa_configurator import (
     StackConfig,
     VectorStoreConfig,
 )
+from oa_configurator import ConfigSaveError as PublicConfigSaveError
+from oa_configurator import write_env_file as PublicWriteEnvFile
+from oa_configurator.domains.resources.sql import Dialect
 from oa_configurator.io import ConfigSaveError, save_stack_config, write_env_file
 from oa_configurator.loader import load_stack_config
-from oa_configurator.domains.resources.sql import Dialect
 
 
 def _make_cdm_stack() -> StackConfig:
@@ -145,6 +146,9 @@ class TestWriteEnvFile:
 
 
 class TestSaveStackConfig:
+    def test_write_env_file_is_exported_from_package_root(self):
+        assert PublicWriteEnvFile is write_env_file
+
     def test_save_error_is_public(self):
         assert PublicConfigSaveError is ConfigSaveError
 

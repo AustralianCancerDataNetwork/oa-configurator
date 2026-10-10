@@ -25,8 +25,11 @@ from oa_configurator import (
     CDMDatabaseConfig,
     ConnectionConfig,
     Dialect,
+    GenericDatabaseConfig,
     PackageConfigBase,
     RefTo,
+    ResolvedCDMDatabase,
+    Resolver,
     StackConfig,
 )
 from oa_configurator.config import OAConfiguratorConfig
@@ -37,6 +40,7 @@ from oa_configurator.testing import (
     scoped_test_schema,
 )
 from oa_configurator.testing.base import TestDatabaseNotConfigured, TestDatabaseStrategy
+from oa_configurator.testing.sqlite import SQLiteTestStrategy
 
 
 class DemoTestConfig(PackageConfigBase):
@@ -110,6 +114,7 @@ class TestIsolatedTestDatabaseDialect:
 
         with isolated_test_database(DemoTestConfig, "test_cdm_db", dialect=Dialect.SQLITE) as db:
             assert db.connection.execute(pytest.importorskip("sqlalchemy").text("SELECT 1")).scalar() == 1
+            assert isinstance(db.resolved, ResolvedCDMDatabase)
 
     def test_mismatched_dialect_raises_even_though_configured(self, monkeypatch):
         """test_cdm_db resolves fine (to sqlite) -- a real, configured value,
@@ -151,6 +156,46 @@ class TestIsolatedTestDatabaseDialect:
             ValueError, match=f"{Dialect.SQLITE.value!r}.*{Dialect.POSTGRESQL.value!r}"
         ), isolated_test_database(DemoTestConfig, "test_cdm_db", dialect=Dialect.POSTGRESQL):
             pass
+
+
+class TestSQLiteStrategyResolvedTypes:
+    def test_generic_resolved_database_keeps_create_engine(self, tmp_path):
+        cfg = StackConfig.for_session(
+            connections={"test": ConnectionConfig(
+                dialect=Dialect.SQLITE, database_name=str(tmp_path / "generic.db"), test_only=True
+            )},
+            databases={"generic": GenericDatabaseConfig(connection="test")},
+        )
+        resolved = Resolver(cfg).resolve_database("generic")
+
+        with SQLiteTestStrategy().isolated_database(resolved) as isolated:
+            assert isolated.resolved.name == resolved.name
+            engine = isolated.resolved.create_engine(register_claims=False)
+            try:
+                with engine.connect() as connection:
+                    assert connection.execute(pytest.importorskip("sqlalchemy").text("SELECT 1")).scalar() == 1
+            finally:
+                engine.dispose()
+
+    def test_cdm_resolved_database_keeps_create_engines(self, tmp_path):
+        cfg = StackConfig.for_session(
+            connections={"test": ConnectionConfig(
+                dialect=Dialect.SQLITE, database_name=str(tmp_path / "cdm.db"), test_only=True
+            )},
+            databases={"cdm": CDMDatabaseConfig(connection="test")},
+        )
+        resolved = Resolver(cfg).resolve_database("cdm")
+
+        with SQLiteTestStrategy().isolated_database(resolved) as isolated:
+            assert isolated.resolved.name == resolved.name
+            engines = isolated.resolved.create_engines(register_claims=False)
+            try:
+                for engine in set(engines):
+                    with engine.connect() as connection:
+                        assert connection.execute(pytest.importorskip("sqlalchemy").text("SELECT 1")).scalar() == 1
+            finally:
+                for engine in set(engines):
+                    engine.dispose()
 
 
 class TestIsolatedTestDatabaseExtensions:

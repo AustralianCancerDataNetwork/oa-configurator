@@ -478,7 +478,7 @@ class TestDeclaredSchemaNameValidation:
             )
 
     def test_overlong_schema_name_raises(self):
-        with pytest.raises(ValueError, match="longer than 63 characters"):
+        with pytest.raises(ValueError, match="longer than 63 bytes"):
             StackConfig.for_session(
                 connections={"c": self._pg()},
                 databases={"cdm": CDMDatabaseConfig(connection="c", cdm_schema="x" * 64)},
@@ -490,6 +490,24 @@ class TestDeclaredSchemaNameValidation:
             databases={"cdm": CDMDatabaseConfig(connection="c", cdm_schema="omop_cdm")},
         )
         assert "cdm" in cfg.databases
+
+
+class TestUtf8SchemaNameLength:
+    def test_multibyte_name_under_63_characters_over_63_bytes_raises(self):
+        schema_name = "é" * 32
+        assert len(schema_name) < 63
+        assert len(schema_name.encode("utf-8")) > 63
+        connection = ConnectionConfig(
+            dialect=Dialect.POSTGRESQL + "+psycopg",
+            host="db.example",
+            port=5432,
+            database_name="omop",
+        )
+        with pytest.raises(ValueError, match="longer than 63 bytes"):
+            StackConfig.for_session(
+                connections={"c": connection},
+                databases={"cdm": CDMDatabaseConfig(connection="c", cdm_schema=schema_name)},
+            )
 
 
 class TestProviderConfig:

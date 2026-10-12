@@ -141,7 +141,7 @@ def _build_package_command(ep_name: str, cls: type[PackageConfigBase]) -> Any:
         set_dict.update(parsed)
         cls.run_configure(set_dict, interactive=not set_dict)
 
-    callback.__signature__ = inspect.Signature(params)  # type: ignore[attr-defined]
+    callback.__signature__ = inspect.Signature(params)  # ty: ignore[unresolved-attribute]
     callback.__annotations__ = {p.name: p.annotation for p in params}
     command_app = typer.Typer(add_completion=False)
     command_app.command(ep_name, help=f"Configure {cls.tool_name} settings in config.toml.")(callback)

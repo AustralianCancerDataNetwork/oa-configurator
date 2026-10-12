@@ -12,11 +12,11 @@ only discovery/dispatch and the handful of top-level commands
 
 from __future__ import annotations
 
+import inspect
 import time
 from importlib.metadata import entry_points
 from typing import Annotated, Any
 
-import click
 import rich
 import sqlalchemy as sa
 import typer
@@ -104,24 +104,35 @@ def _parse_set_flags(raw: tuple[str, ...]) -> dict[str, Any]:
     return tree
 
 
-def _build_package_command(ep_name: str, cls: type[PackageConfigBase]) -> click.Command:
-    """Build a Click command for one registered package entry point."""
-    extra_params = _build_entry_params(cls)
-    extra_names = {p.name for p in extra_params}
-    set_param = click.Option(
-        ["--set", "set_values"],
-        multiple=True,
+def _build_package_command(ep_name: str, cls: type[PackageConfigBase]) -> Any:
+    """Build the ``configure <ep_name>`` command for one registered package.
+
+    The command is generated through Typer so its ``--help`` and error
+    handling use Typer's own exception types.
+    """
+    entry_params = _build_entry_params(cls)
+    entry_names = {p.name for p in entry_params}
+    set_param = inspect.Parameter(
+        "set_values",
+        inspect.Parameter.KEYWORD_ONLY,
         default=(),
-        help=(
-            "Set a nested field non-interactively, e.g. --set cdm_db.dialect=sqlite "
-            "(repeatable). Lets a RefTo field's target be created in this same call "
-            "instead of pointing at an already-existing entry."
-        ),
+        annotation=Annotated[
+            list[str] | None,
+            typer.Option(
+                "--set",
+                help=(
+                    "Set a nested field non-interactively, e.g. --set cdm_db.dialect=sqlite "
+                    "(repeatable). Lets a RefTo field's target be created in this same call "
+                    "instead of pointing at an already-existing entry."
+                ),
+            ),
+        ],
     )
+    params = [*entry_params, set_param]
 
     def callback(**kwargs):
-        set_values = kwargs.pop("set_values", ())
-        set_dict: dict[str, Any] = {k: str(v) for k, v in kwargs.items() if k in extra_names and v is not None}
+        set_values = kwargs.pop("set_values", None) or ()
+        set_dict: dict[str, Any] = {k: str(v) for k, v in kwargs.items() if k in entry_names and v is not None}
         parsed = _parse_set_flags(tuple(set_values))
         if clash := set(set_dict) & set(parsed):
             raise typer.BadParameter(
@@ -130,12 +141,11 @@ def _build_package_command(ep_name: str, cls: type[PackageConfigBase]) -> click.
         set_dict.update(parsed)
         cls.run_configure(set_dict, interactive=not set_dict)
 
-    return click.Command(
-        name=ep_name,
-        callback=callback,
-        params=[*extra_params, set_param],
-        help=f"Configure {cls.tool_name} settings in config.toml.",
-    )
+    callback.__signature__ = inspect.Signature(params)  # type: ignore[attr-defined]
+    callback.__annotations__ = {p.name: p.annotation for p in params}
+    command_app = typer.Typer(add_completion=False)
+    command_app.command(ep_name, help=f"Configure {cls.tool_name} settings in config.toml.")(callback)
+    return typer.main.get_command(command_app)
 
 
 def _list_packages() -> None:

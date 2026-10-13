@@ -21,7 +21,7 @@ from typing import overload
 
 import sqlalchemy as sa
 from sqlalchemy.engine import Connection, Engine
-from sqlalchemy.exc import InvalidRequestError
+from sqlalchemy.exc import CompileError, InvalidRequestError
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session
 from sqlalchemy.schema import AddConstraint, CreateIndex
@@ -168,6 +168,18 @@ def _skip_partial_index_on_duckdb(element: CreateIndex, compiler, **kw) -> str:
     if index.dialect_options["postgresql"]["where"] is not None:
         return "SELECT 1"
     return compiler.visit_create_index(element, **kw)
+
+
+@compiles(sa.Computed, Dialect.DUCKDB)
+def _virtual_computed_column_on_duckdb(element: sa.Computed, compiler, **kw) -> str:
+    """Render a computed column as ``VIRTUAL``: DuckDB has no ``STORED`` support."""
+    if element.persisted is True:
+        raise CompileError(
+            "DuckDB computed columns do not support 'stored' persistence; "
+            "set the 'persisted' flag to None or False for DuckDB support."
+        )
+    rendered = compiler.sql_compiler.process(element.sqltext, include_table=False, literal_binds=True)
+    return f"GENERATED ALWAYS AS ({rendered}) VIRTUAL"
 
 @overload
 def _as_bind(bindable: Engine) -> Engine: ...

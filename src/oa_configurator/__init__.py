@@ -18,6 +18,7 @@ from .domains.resources.schema import (
     SchemaClaim,
     guard_schema_provenance_for,
     referred_schema_tag,
+    reject_claimed_tags,
     statement_schema_tags,
     without_cross_engine_foreign_keys,
 )
@@ -136,6 +137,7 @@ __all__ = [
     "plan_configure",
     "qualified",
     "referred_schema_tag",
+    "reject_claimed_tags",
     "requires_host",
     "safe_endpoint",
     "save_stack_config",

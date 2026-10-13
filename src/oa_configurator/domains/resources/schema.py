@@ -80,6 +80,43 @@ class SchemaClaim(NamedTuple):
     reserved: bool = False
     owner: str | None = None
 
+
+def reject_claimed_tags(
+    *,
+    defaults: Iterable[SchemaClaim | str],
+    extras: Iterable[SchemaClaim],
+    context: str,
+) -> None:
+    """Raise if any of *extras* claims a schema_tag already in *defaults*.
+
+    Shared by every layer that merges its own always-claimed defaults with
+    a caller's additional ``schema_claims``: ``create_engine()`` itself
+    (defaults are the resolver-owned Role/provenance tags) and any package
+    wrapper built on top of it with its own fixed defaults (e.g.
+    omop-alchemy's ``create_cdm_engines()``, whose defaults are its
+    maintenance/extension/staging claims).
+
+    Parameters
+    ----------
+    defaults : iterable of SchemaClaim or str
+        The schema tags (bare strings, or claims read for their
+        ``schema_tag``) a caller must not also supply in *extras*.
+    extras : iterable of SchemaClaim
+        Caller-supplied claims to check against *defaults*.
+    context : str
+        What derives the defaults, for the error message.
+
+    Raises
+    ------
+    ValueError
+        If any schema_tag appears in both *defaults* and *extras*.
+    """
+    default_tags = {d.schema_tag if isinstance(d, SchemaClaim) else d for d in defaults}
+    conflicts = sorted({e.schema_tag for e in extras} & default_tags)
+    if conflicts:
+        raise ValueError(f"schema_claims must not include schema_tag(s) {conflicts}: {context}.")
+
+
 class ConnectionConfig(SecretSafeBaseModel):
     """Complete specification of one physical database connection: server
     address, credentials, and target database.
@@ -916,9 +953,6 @@ class ResolvedDatabase:
             claim if claim.owner is not None else claim._replace(owner=default_owner)
             for claim in schema_claims
         ]
-        conflicts = sorted(
-            claim.schema_tag for claim in caller_claims if claim.schema_tag in owned_tags
-        )
         role_tags = {role.value for role in Role}
         invalid_role_tags = sorted(
             claim.schema_tag
@@ -929,11 +963,11 @@ class ResolvedDatabase:
             raise ValueError(
                 f"schema_claims must not use CDM role tag(s) {invalid_role_tags} on a generic database."
             )
-        if conflicts:
-            raise ValueError(
-                f"schema_claims must not include resolver-managed schema_tag(s) {conflicts}: "
-                "create_engine() derives those from the resolved config."
-            )
+        reject_claimed_tags(
+            defaults=owned_tags,
+            extras=caller_claims,
+            context="resolver-managed schema_tag(s), derived from the resolved config",
+        )
 
         engine = self.connection_for_role(role).create_engine(
             execution_options=execution_options, **kwargs

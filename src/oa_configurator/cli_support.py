@@ -11,8 +11,9 @@ consumer that never touches the CLI doesn't pay to load them.
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable
-from typing import Any
+from typing import Annotated, Any
 
 from pydantic import BaseModel
 
@@ -45,16 +46,19 @@ def _save_stack_config_or_exit(
         raise typer.Exit(1) from None
 
 
-def _build_entry_params(target: type[BaseModel]) -> list[Any]:
-    """Generate Click options for one target schema's own fields."""
-    import click
+def _build_entry_params(target: type[BaseModel]) -> list[inspect.Parameter]:
+    """Build one optional ``--flag`` signature parameter per field of *target*."""
+    import typer
 
     return [
-        click.Option(
-            [_flag_name(name)],
+        inspect.Parameter(
+            name,
+            inspect.Parameter.KEYWORD_ONLY,
             default=None,
-            type=click.STRING,
-            help=info.description or "",
+            annotation=Annotated[
+                str | None,
+                typer.Option(_flag_name(name), help=info.description or ""),
+            ],
         )
         for name, info in target.model_fields.items()
     ]

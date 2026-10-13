@@ -1162,6 +1162,24 @@ class TestConfigureSetFlag:
         conn_name = config.databases[cdm_db_name].connection
         assert config.connections[conn_name].dialect == Dialect.SQLITE
 
+    def test_help_prints_options_and_exits_cleanly(self, isolated_config, monkeypatch):
+        class FakeEP:
+            name = "demo_tool"
+
+            def load(self):
+                return DemoConfig
+
+        monkeypatch.setattr(
+            cli,
+            "entry_points",
+            lambda group=None: [FakeEP()] if group == cli.ENTRY_POINT_GROUP else [],
+        )
+        result = runner.invoke(cli.app, ["configure", "demo_tool", "--help"])
+        assert result.exit_code == 0, result.output
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        assert "--cdm-db" in result.output
+        assert "--set" in result.output
+
     def test_set_flag_clashing_with_same_field_flag_fails(
         self, isolated_config, monkeypatch
     ):

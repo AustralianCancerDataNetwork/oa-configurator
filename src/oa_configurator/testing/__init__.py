@@ -73,6 +73,7 @@ from .base import (
     TestDatabaseStrategy,
     _skip_message,
 )
+from .duckdb import DuckDBTestStrategy
 from .postgres import (
     PostgresTestStrategy,
     drop_schema_if_exists,
@@ -139,6 +140,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 _STRATEGIES: dict[Dialect, type[TestDatabaseStrategy]] = {
     Dialect.POSTGRESQL: PostgresTestStrategy,
     Dialect.SQLITE: SQLiteTestStrategy,
+    Dialect.DUCKDB: DuckDBTestStrategy,
 }
 
 

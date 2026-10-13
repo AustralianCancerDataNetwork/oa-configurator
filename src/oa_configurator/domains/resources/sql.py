@@ -22,7 +22,9 @@ from typing import overload
 import sqlalchemy as sa
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import InvalidRequestError
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session
+from sqlalchemy.schema import AddConstraint, CreateIndex
 from sqlalchemy.sql.compiler import IdentifierPreparer
 
 # Broader than a literal SQLAlchemy "bind" (Engine | Connection): a Session
@@ -66,6 +68,7 @@ class Dialect(StrEnum):
 
     POSTGRESQL = "postgresql"
     SQLITE = "sqlite"
+    DUCKDB = "duckdb"
 
 
 @dataclass(frozen=True)
@@ -122,6 +125,12 @@ _DIALECT_PROFILES: dict[str, DialectProfile] = {
         supports_schemas=False,
         requires_host=False,
     ),
+    Dialect.DUCKDB: DialectProfile(
+        system_schemas=frozenset(),
+        supports_schemas=True,
+        requires_host=False,
+        default_schema="main",
+    ),
 }
 
 def _profile_for(dialect_name: str) -> DialectProfile:
@@ -142,6 +151,23 @@ def _profile_for(dialect_name: str) -> DialectProfile:
             f"Unsupported dialect {dialect_name!r}. Supported: "
             f"{sorted(str(d) for d in _DIALECT_PROFILES)}."
         ) from None
+
+
+@compiles(AddConstraint, Dialect.DUCKDB)
+def _skip_deferred_fk_on_duckdb(element: AddConstraint, compiler, **kw) -> str:
+    """No-op a deferred ``ALTER TABLE ADD CONSTRAINT`` FK: DuckDB can't execute it."""
+    if isinstance(element.element, sa.ForeignKeyConstraint):
+        return "SELECT 1"
+    return compiler.visit_add_constraint(element, **kw)
+
+
+@compiles(CreateIndex, Dialect.DUCKDB)
+def _skip_partial_index_on_duckdb(element: CreateIndex, compiler, **kw) -> str:
+    """No-op a partial (``WHERE``-filtered) index: DuckDB has no partial-index support."""
+    index = element.element
+    if index.dialect_options["postgresql"]["where"] is not None:
+        return "SELECT 1"
+    return compiler.visit_create_index(element, **kw)
 
 @overload
 def _as_bind(bindable: Engine) -> Engine: ...
@@ -341,12 +367,14 @@ def is_ephemeral_url(safe_url: str | sa.URL) -> bool:
     """True if *safe_url* names a database that cannot be shared across
     independently-built engines.
 
-    Only SQLite ``:memory:`` (plain, ``file::memory:`` shared-cache, or
-    ``mode=memory`` URI) databases are ephemeral this way: a second engine
-    pointed at the same URL gets its own, disconnected, empty database
-    rather than reconnecting to the first one's data. A caller that needs
-    two engines to see the same ephemeral database must instead share one
-    already-built engine or connection between them.
+    SQLite ``:memory:`` (plain, ``file::memory:`` shared-cache, or
+    ``mode=memory`` URI) and DuckDB ``:memory:`` databases are ephemeral
+    this way: a second engine pointed at the same URL gets its own,
+    disconnected, empty database rather than reconnecting to the first
+    one's data (verified directly for DuckDB, not just assumed from the
+    SQLite case). A caller that needs two engines to see the same ephemeral
+    database must instead share one already-built engine or connection
+    between them.
 
     Parameters
     ----------
@@ -365,11 +393,14 @@ def is_ephemeral_url(safe_url: str | sa.URL) -> bool:
     recognising in-memory databases on that version.
     """
     url = safe_url if isinstance(safe_url, sa.URL) else sa.make_url(safe_url)
-    if url.get_backend_name() != Dialect.SQLITE:
+    backend = url.get_backend_name()
+    if backend not in (Dialect.SQLITE, Dialect.DUCKDB):
         return False
     database = url.database
     if database is None or database in ("", ":memory:"):
         return True
+    if backend == Dialect.DUCKDB:
+        return False  # no mode=memory URI variant; only the literal spelling above
     mode = url.query.get("mode")
     modes = (mode,) if isinstance(mode, str) else (mode or ())
     return ":memory:" in database or "memory" in modes

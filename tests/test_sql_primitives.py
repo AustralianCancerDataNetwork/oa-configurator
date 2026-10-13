@@ -320,12 +320,19 @@ class TestAutocommitConnection:
             conn.close()
 
     def test_restores_an_explicitly_set_isolation_level_not_just_the_driver_default(self, engine):
+        # No single non-AUTOCOMMIT level is valid on every dialect this fixture
+        # parametrizes over (e.g. SQLite has no READ COMMITTED, DuckDB has no
+        # SERIALIZABLE), so pick whichever one this engine's own dialect allows,
+        # rather than hardcoding one.
+        allowed = engine.dialect.get_isolation_level_values(None)
+        other_level = next(level for level in allowed if level != "AUTOCOMMIT")
+
         conn = engine.connect()
         try:
-            conn = conn.execution_options(isolation_level="SERIALIZABLE")
+            conn = conn.execution_options(isolation_level=other_level)
             with autocommit_connection(conn) as result:
                 assert result.get_execution_options()["isolation_level"] == "AUTOCOMMIT"
-            assert conn.get_execution_options()["isolation_level"] == "SERIALIZABLE"
+            assert conn.get_execution_options()["isolation_level"] == other_level
         finally:
             conn.close()
 

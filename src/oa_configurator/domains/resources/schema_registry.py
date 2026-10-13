@@ -55,7 +55,9 @@ def _lock_schema_registry(connection: Connection) -> None:
 
     Postgres's CREATE SCHEMA IF NOT EXISTS and the first insert into a
     fresh table both race under concurrent transactions. No-op on a
-    dialect with no advisory locks.
+    dialect with no advisory locks: SQLite has no concurrent writers at
+    all, and DuckDB serializes writers itself via an OS-level exclusive
+    file lock.
 
     *connection* must be inside a transaction at an isolation level other
     than AUTOCOMMIT (the lock would otherwise release after one statement).
@@ -66,7 +68,7 @@ def _lock_schema_registry(connection: Connection) -> None:
     dialect = Dialect(connection.dialect.name)  # raises ValueError on an unmodeled dialect
     if dialect == Dialect.POSTGRESQL:
         connection.execute(sa.text("SELECT pg_advisory_xact_lock(:k)"), {"k": _REGISTRY_LOCK_KEY})
-    elif dialect != Dialect.SQLITE:
+    elif dialect not in (Dialect.SQLITE, Dialect.DUCKDB):
         raise ValueError(f"No registry-lock strategy defined for dialect {dialect!r}.")
 
 
@@ -142,18 +144,23 @@ class SchemaRegistry(_SchemaRegistryBase):
     schema_translate_map token. :func:`_with_provenance_translate_map`
     ensures the connection's own schema_translate_map maps that token
     to the real physical schema.
+
+    Notes
+    -----
+    - The three unique indexes in ``__table_args__`` restate the ownership/
+    reservation checks above as DB-level constraints, adding only
+    concurrency protection against two transactions racing past those
+    Python checks. DuckDB can't create partial indexes
+    (``_skip_partial_index_on_duckdb``, ``sql.py``), so it relies on the
+    Python checks alone there, safe because DuckDB's engine already
+    serializes writers itself.
+    - Role-tag rows are scoped per entry: two different entries (e.g. 
+    a CDM database and its own colocated vector store) may each claim 
+    Role.PRIMARY on one connection without colliding.
     """
 
     __tablename__ = SCHEMA_REGISTRY_TABLE_NAME
     __table_args__ = (
-        # Role-tag rows ("has *this entry's* mapping changed") are scoped
-        # per entry: two different entries (e.g. a CDM database and its own
-        # colocated vector store) may each claim Role.PRIMARY on one
-        # connection without colliding. Custom tags keep the original,
-        # connection-wide scoping: one claim per tag per connection.
-        #
-        # This scopes the shared bookkeeping row only: each entry's own
-        # schema_translate_map lives on its own Engine and never collides.
         sa.Index(
             "uq_schema_registry_role_tag",
             "database_config_name",

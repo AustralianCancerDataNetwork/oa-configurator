@@ -155,8 +155,18 @@ def _profile_for(dialect_name: str) -> DialectProfile:
 
 @compiles(AddConstraint, Dialect.DUCKDB)
 def _skip_deferred_fk_on_duckdb(element: AddConstraint, compiler, **kw) -> str:
-    """No-op a deferred ``ALTER TABLE ADD CONSTRAINT`` FK: DuckDB can't execute it."""
+    """No-op a deferred ``ALTER TABLE ADD CONSTRAINT`` FK: DuckDB can't execute it.
+
+    Constructing ``AddConstraint`` already set the constraint's
+    ``_create_rule`` to permanently exclude it from any future inline
+    ``CREATE TABLE`` rendering, on the shared constraint object itself, not
+    just this one statement. Undone here since the ALTER never runs:
+    otherwise a later ``create_all()`` against any dialect in the same
+    process, including DuckDB again, would silently drop the constraint
+    rather than deferring it afresh.
+    """
     if isinstance(element.element, sa.ForeignKeyConstraint):
+        element.element._create_rule = None
         return "SELECT 1"
     return compiler.visit_add_constraint(element, **kw)
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable, Iterable, Iterator, Sequence
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import cached_property
@@ -462,40 +462,41 @@ def _process_schema_claims(
     )
     with connection_cm as connection:
         transaction = connection.begin() if register_claims else None
+        lock_cm = _lock_schema_registry(connection) if register_claims else nullcontext()
         try:
-            if register_claims:
-                _lock_schema_registry(connection)
-                connection = _ensure_schema_registry_table(connection)
-            for claim in claims:
-                physical_schema = (
-                    claim.physical_schema
-                    if claim.physical_schema is not None
-                    else sa.inspect(connection).default_schema_name
-                )
-                translate_map[claim.schema_tag] = physical_schema
+            with lock_cm:
                 if register_claims:
-                    _register_schema_claim(
-                        connection,
-                        database_config_name=database_config_name,
-                        schema_tag=claim.schema_tag,
-                        physical_schema=physical_schema,
-                        owner=claim.owner,
-                        reserved=claim.reserved,
-                        test_only=test_only,
+                    connection = _ensure_schema_registry_table(connection)
+                for claim in claims:
+                    physical_schema = (
+                        claim.physical_schema
+                        if claim.physical_schema is not None
+                        else sa.inspect(connection).default_schema_name
                     )
-                    ensure_schema(connection, physical_schema)
-                else:
-                    _check_schema_claim(
-                        connection,
-                        database_config_name=database_config_name,
-                        schema_tag=claim.schema_tag,
-                        physical_schema=physical_schema,
-                        owner=claim.owner,
-                        reserved=claim.reserved,
-                        test_only=test_only,
-                    )
-            if transaction is not None:
-                transaction.commit()
+                    translate_map[claim.schema_tag] = physical_schema
+                    if register_claims:
+                        _register_schema_claim(
+                            connection,
+                            database_config_name=database_config_name,
+                            schema_tag=claim.schema_tag,
+                            physical_schema=physical_schema,
+                            owner=claim.owner,
+                            reserved=claim.reserved,
+                            test_only=test_only,
+                        )
+                        ensure_schema(connection, physical_schema)
+                    else:
+                        _check_schema_claim(
+                            connection,
+                            database_config_name=database_config_name,
+                            schema_tag=claim.schema_tag,
+                            physical_schema=physical_schema,
+                            owner=claim.owner,
+                            reserved=claim.reserved,
+                            test_only=test_only,
+                        )
+                if transaction is not None:
+                    transaction.commit()
         except BaseException:
             if transaction is not None:
                 transaction.rollback()

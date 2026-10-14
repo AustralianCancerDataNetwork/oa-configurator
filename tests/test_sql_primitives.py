@@ -20,7 +20,9 @@ import pytest
 import sqlalchemy as sa
 import sqlalchemy.orm as so
 from conftest import registry_row as _registry_row
-from sqlalchemy.exc import InvalidRequestError
+from sqlalchemy.dialects import registry
+from sqlalchemy.exc import CompileError, InvalidRequestError, SQLAlchemyError
+from sqlalchemy.schema import AddConstraint, CreateIndex, CreateTable, DropConstraint
 
 from oa_configurator import (
     Dialect,
@@ -45,6 +47,126 @@ from oa_configurator.domains.resources.schema_registry import (
 )
 from oa_configurator.domains.resources.sql import _as_bind, _profile_for, connection_key
 from oa_configurator.testing import drop_schema_if_exists
+
+
+def _duckdb_dialect() -> sa.engine.Dialect:
+    return registry.load(Dialect.DUCKDB)()
+
+
+class TestDuckDBDDLShims:
+    """The @compiles registrations in sql.py that paper over DuckDB's DDL gaps:
+    deferred-FK (Add/DropConstraint), partial indexes, and Computed columns."""
+
+    def test_add_constraint_no_ops_a_foreign_key(self):
+        metadata = sa.MetaData()
+        sa.Table("a", metadata, sa.Column("id", sa.Integer, primary_key=True))
+        b = sa.Table(
+            "b", metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("a_id", sa.ForeignKey("a.id", use_alter=True)),
+        )
+        fk = next(iter(b.foreign_key_constraints))
+        ddl = str(AddConstraint(fk).compile(dialect=_duckdb_dialect()))
+        assert ddl.strip() == "SELECT 1"
+
+    def test_add_constraint_passes_through_a_non_fk_constraint(self):
+        metadata = sa.MetaData()
+        t = sa.Table("t", metadata, sa.Column("x", sa.Integer))
+        check = sa.CheckConstraint("x > 0", name="ck_x")
+        t.append_constraint(check)
+        ddl = str(AddConstraint(check).compile(dialect=_duckdb_dialect()))
+        assert "SELECT 1" not in ddl
+        assert "CHECK" in ddl
+
+    def test_drop_constraint_no_ops_a_foreign_key(self):
+        metadata = sa.MetaData()
+        sa.Table("a", metadata, sa.Column("id", sa.Integer, primary_key=True))
+        b = sa.Table(
+            "b", metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("a_id", sa.ForeignKey("a.id", use_alter=True)),
+        )
+        fk = next(iter(b.foreign_key_constraints))
+        ddl = str(DropConstraint(fk).compile(dialect=_duckdb_dialect()))
+        assert ddl.strip() == "SELECT 1"
+
+    def test_drop_constraint_passes_through_a_non_fk_constraint(self):
+        metadata = sa.MetaData()
+        t = sa.Table("t", metadata, sa.Column("x", sa.Integer))
+        check = sa.CheckConstraint("x > 0", name="ck_x")
+        t.append_constraint(check)
+        ddl = str(DropConstraint(check).compile(dialect=_duckdb_dialect()))
+        assert "SELECT 1" not in ddl
+        assert "DROP CONSTRAINT" in ddl.upper()
+
+    def test_partial_index_no_ops(self):
+        metadata = sa.MetaData()
+        t = sa.Table("t", metadata, sa.Column("x", sa.Integer))
+        idx = sa.Index("ix_t_x", t.c.x, postgresql_where=t.c.x > 0)
+        ddl = str(CreateIndex(idx).compile(dialect=_duckdb_dialect()))
+        assert ddl.strip() == "SELECT 1"
+
+    def test_non_partial_index_creates_normally(self):
+        metadata = sa.MetaData()
+        t = sa.Table("t", metadata, sa.Column("x", sa.Integer))
+        idx = sa.Index("ix_t_x", t.c.x)
+        ddl = str(CreateIndex(idx).compile(dialect=_duckdb_dialect()))
+        assert "CREATE INDEX" in ddl.upper()
+
+    def test_computed_column_renders_virtual(self):
+        metadata = sa.MetaData()
+        t = sa.Table(
+            "t", metadata,
+            sa.Column("a", sa.Integer),
+            sa.Column("b", sa.Integer, sa.Computed("a + 1"), nullable=True),
+        )
+        ddl = str(CreateTable(t).compile(dialect=_duckdb_dialect()))
+        assert "GENERATED ALWAYS AS" in ddl
+        assert "VIRTUAL" in ddl
+        assert "STORED" not in ddl
+
+    def test_computed_column_rejects_stored(self):
+        metadata = sa.MetaData()
+        t = sa.Table(
+            "t", metadata,
+            sa.Column("a", sa.Integer),
+            sa.Column("b", sa.Integer, sa.Computed("a + 1", persisted=True)),
+        )
+        with pytest.raises(CompileError, match="stored"):
+            str(CreateTable(t).compile(dialect=_duckdb_dialect()))
+
+    def test_computed_column_rejects_not_null(self):
+        metadata = sa.MetaData()
+        t = sa.Table(
+            "t", metadata,
+            sa.Column("a", sa.Integer),
+            sa.Column("b", sa.Integer, sa.Computed("a + 1"), nullable=False),
+        )
+        with pytest.raises(CompileError, match="NOT NULL"):
+            str(CreateTable(t).compile(dialect=_duckdb_dialect()))
+
+    @pytest.mark.duckdb
+    @pytest.mark.db_dialect
+    def test_deferred_fk_cycle_creates_and_drops_end_to_end(self, duckdb_db):
+        """Real round trip on a committing engine: a two-table FK cycle
+        creates (the deferred FK silently skipped) and drops cleanly
+        (DropConstraint's twin shim, closing the drop_all() gap)."""
+        metadata = sa.MetaData()
+        a = sa.Table(
+            "ddl_shim_a", metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("b_id", sa.Integer),
+        )
+        sa.Table(
+            "ddl_shim_b", metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("a_id", sa.ForeignKey("ddl_shim_a.id", use_alter=True)),
+        )
+        a.append_constraint(sa.ForeignKeyConstraint(["b_id"], ["ddl_shim_b.id"], use_alter=True))
+
+        engine = duckdb_db.committing_engine
+        metadata.create_all(engine)
+        metadata.drop_all(engine)
 
 
 class TestConnectionKey:
@@ -1092,6 +1214,55 @@ class TestConcurrentBootstrap:
                     _concurrent_claim_worker,
                     [url] * 8, [database_config_name] * 8, [schema] * 8, [True] * 8,
                 )
+            )
+        failures = [r for r in results if r is not None]
+        assert failures == [], f"{len(failures)}/8 workers failed: {failures}"
+
+
+def _concurrent_duckdb_claim_worker(url: str, database_config_name: str, schema: str) -> str | None:
+    """Prevents two threads racing create_engine() against the same DuckDB file from
+    both succeeding.
+    """
+    from oa_configurator import CDMDatabaseConfig
+    from oa_configurator.domains.resources.schema import ConnectionConfig
+    from oa_configurator.resolver import Resolver
+    from oa_configurator.stack_config import StackConfig
+
+    made_url = sa.engine.make_url(url)
+    connection_config = ConnectionConfig(dialect=made_url.drivername, database_name=made_url.database)
+    stack = StackConfig.for_session(
+        connections={"c": connection_config},
+        databases={database_config_name: CDMDatabaseConfig(connection="c", cdm_schema=schema)},
+    )
+    try:
+        primary, _ = Resolver(stack).resolve_database(database_config_name).create_engines()
+        primary.dispose()
+    except SQLAlchemyError as exc:
+        return f"{type(exc).__name__}: {exc}"
+    return None
+
+
+class TestIntraProcessRegistryLock:
+    """Regression for the same-process gap _lock_schema_registry's
+    intra-process lock closes.
+
+    Notes
+    -----
+    DuckDB serializes writers across processes via an OS-level exclusive file lock.
+    This does not prevent two threads in the same process from racing each other.
+    """
+
+    @pytest.mark.duckdb
+    @pytest.mark.db_dialect
+    def test_eight_concurrent_threads_claiming_against_one_duckdb_file_all_succeed(self, tmp_path):
+        import concurrent.futures
+
+        url = f"duckdb:///{tmp_path / 'race.duckdb'}"
+        database_config_name = f"concurrent_{uuid.uuid4().hex[:8]}"
+        schema = f"test_{uuid.uuid4().hex[:8]}"
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(
+                pool.map(_concurrent_duckdb_claim_worker, [url] * 8, [database_config_name] * 8, [schema] * 8)
             )
         failures = [r for r in results if r is not None]
         assert failures == [], f"{len(failures)}/8 workers failed: {failures}"

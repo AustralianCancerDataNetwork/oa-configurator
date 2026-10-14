@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Annotated, ClassVar
 
 import pytest
+import sqlalchemy as sa
 from sqlalchemy.engine import make_url
 
 from oa_configurator import (
@@ -31,15 +32,18 @@ from oa_configurator import (
     ResolvedCDMDatabase,
     Resolver,
     StackConfig,
+    is_ephemeral_url,
 )
 from oa_configurator.config import OAConfiguratorConfig
 from oa_configurator.testing import (
+    assert_compiles_for_every_dialect,
     install_postgres_extension,
     isolated_test_database,
     isolated_test_schema,
     scoped_test_schema,
 )
 from oa_configurator.testing.base import TestDatabaseNotConfigured, TestDatabaseStrategy
+from oa_configurator.testing.duckdb import DuckDBTestStrategy
 from oa_configurator.testing.sqlite import SQLiteTestStrategy
 
 
@@ -198,6 +202,137 @@ class TestSQLiteStrategyResolvedTypes:
                     engine.dispose()
 
 
+class TestDuckDBStrategyResolvedTypes:
+    def test_generic_resolved_database_keeps_create_engine(self, tmp_path):
+        cfg = StackConfig.for_session(
+            connections={"test": ConnectionConfig(
+                dialect=Dialect.DUCKDB, database_name=str(tmp_path / "generic.duckdb"), test_only=True
+            )},
+            databases={"generic": GenericDatabaseConfig(connection="test")},
+        )
+        resolved = Resolver(cfg).resolve_database("generic")
+
+        with DuckDBTestStrategy().isolated_database(resolved) as isolated:
+            assert isolated.resolved.name == resolved.name
+            engine = isolated.resolved.create_engine(register_claims=False)
+            try:
+                with engine.connect() as connection:
+                    assert connection.execute(pytest.importorskip("sqlalchemy").text("SELECT 1")).scalar() == 1
+            finally:
+                engine.dispose()
+
+    def test_cdm_resolved_database_keeps_create_engines(self, tmp_path):
+        cfg = StackConfig.for_session(
+            connections={"test": ConnectionConfig(
+                dialect=Dialect.DUCKDB, database_name=str(tmp_path / "cdm.duckdb"), test_only=True
+            )},
+            databases={"cdm": CDMDatabaseConfig(connection="test")},
+        )
+        resolved = Resolver(cfg).resolve_database("cdm")
+
+        with DuckDBTestStrategy().isolated_database(resolved) as isolated:
+            assert isolated.resolved.name == resolved.name
+            engines = isolated.resolved.create_engines(register_claims=False)
+            try:
+                for engine in set(engines):
+                    with engine.connect() as connection:
+                        assert connection.execute(pytest.importorskip("sqlalchemy").text("SELECT 1")).scalar() == 1
+            finally:
+                for engine in set(engines):
+                    engine.dispose()
+
+
+class TestDuckDBStrategyTemporarySchema:
+    """DuckDB genuinely supports a committed schema visible from a second 
+    connection on the same engine. temporary_schema() follows Postgres's 
+    real-schema pattern. Proves the cross-connection visibility, not just that 
+    it doesn't raise."""
+
+    @staticmethod
+    def _config_matching(engine: sa.Engine, *, test_only: bool) -> StackConfig:
+        """A StackConfig whose one connection matches engine's own URL,
+        so _require_test_only_engine's physical_key() lookup succeeds."""
+        url = engine.url
+        return StackConfig.for_session(
+            connections={
+                "duckdb_match": ConnectionConfig(
+                    dialect=Dialect.DUCKDB, database_name=url.database, test_only=test_only
+                )
+            },
+        )
+
+    @pytest.mark.duckdb
+    @pytest.mark.db_dialect
+    def test_creates_and_drops_a_real_schema_visible_from_a_second_connection(self, duckdb_db, monkeypatch):
+        engine = duckdb_db.committing_engine
+        monkeypatch.setattr(
+            "oa_configurator.loader.load_stack_config",
+            lambda: self._config_matching(engine, test_only=True),
+        )
+        with (
+            DuckDBTestStrategy().temporary_schema(engine, prefix="ttest") as schema,
+            engine.connect() as conn,
+        ):
+            assert sa.inspect(conn).has_schema(schema)
+
+        with engine.connect() as conn:
+            assert not sa.inspect(conn).has_schema(schema)
+
+    @pytest.mark.duckdb
+    @pytest.mark.db_dialect
+    def test_refuses_a_non_test_only_engine(self, duckdb_db, monkeypatch):
+        engine = duckdb_db.committing_engine
+        monkeypatch.setattr(
+            "oa_configurator.loader.load_stack_config",
+            lambda: self._config_matching(engine, test_only=False),
+        )
+        with (
+            pytest.raises(pytest.fail.Exception, match="not marked test_only"),
+            DuckDBTestStrategy().temporary_schema(engine),
+        ):
+            pass
+
+
+class TestDuckDBStrategyDropTestDatabase:
+    def test_always_raises_not_implemented(self):
+        with pytest.raises(NotImplementedError, match="tempfile"):
+            DuckDBTestStrategy().drop_test_database(connection=None)
+
+
+class TestIsEphemeralURL:
+    """is_ephemeral_url() classifies SQLite/DuckDB URLs that can't be
+    shared across independently-built engines."""
+
+    @pytest.mark.parametrize("url", [
+        "sqlite:///:memory:",
+        "sqlite://",
+        "sqlite:///file::memory:?cache=shared",
+        "sqlite:///:memory:?mode=memory",
+    ])
+    def test_sqlite_recognizes_every_in_memory_spelling(self, url):
+        assert is_ephemeral_url(url) is True
+
+    def test_sqlite_file_database_is_not_ephemeral(self, tmp_path):
+        assert is_ephemeral_url(f"sqlite:///{tmp_path / 'real.db'}") is False
+
+    @pytest.mark.parametrize("url", ["duckdb:///:memory:", "duckdb://"])
+    def test_duckdb_recognizes_the_literal_memory_spelling(self, url):
+        assert is_ephemeral_url(url) is True
+
+    def test_duckdb_has_no_mode_memory_uri_variant(self, tmp_path):
+        """Unlike SQLite, DuckDB has no URI mode=memory query-param
+        spelling for a named file: only the literal ':memory:' database
+        name is ephemeral, so a real path with mode=memory stays real."""
+        assert is_ephemeral_url(f"duckdb:///{tmp_path / 'real.duckdb'}?mode=memory") is False
+        assert is_ephemeral_url(f"sqlite:///{tmp_path / 'real.db'}?mode=memory") is True
+
+    def test_duckdb_file_database_is_not_ephemeral(self, tmp_path):
+        assert is_ephemeral_url(f"duckdb:///{tmp_path / 'real.duckdb'}") is False
+
+    def test_postgresql_is_never_ephemeral(self):
+        assert is_ephemeral_url("postgresql://u@host:5432/db") is False
+
+
 class TestIsolatedTestDatabaseExtensions:
     """``extensions`` isn't a named parameter of isolated_test_database() /
     isolated_database() -- it reaches create_engine() through **engine_kwargs,
@@ -255,6 +390,52 @@ class TestInstallPostgresExtension:
 
         assert connection.cursor_obj.executed == ['CREATE EXTENSION IF NOT EXISTS "vector"']
         assert connection.committed is True
+
+
+class TestAssertCompilesForEveryDialect:
+    """Catches the "registered for two dialects, forgot the third" class
+    of bug (e.g. omop-alchemy's episode-derivation @compiles gap)."""
+
+    @staticmethod
+    def _construct_cls():
+        from sqlalchemy.sql.expression import ColumnElement
+
+        class _Probe(ColumnElement):
+            inherit_cache = True
+            type = sa.Integer()
+
+        return _Probe
+
+    def test_raises_for_a_construct_with_no_compiles_registrations(self):
+        with pytest.raises(AssertionError, match="no @compiles registrations at all"):
+            assert_compiles_for_every_dialect(self._construct_cls())
+
+    def test_raises_naming_the_missing_dialect(self):
+        from sqlalchemy.ext.compiler import compiles
+
+        probe = self._construct_cls()
+        compiles(probe, Dialect.POSTGRESQL)(lambda element, compiler, **kw: "1")
+        compiles(probe, Dialect.SQLITE)(lambda element, compiler, **kw: "1")
+
+        with pytest.raises(AssertionError, match=r"\['duckdb'\]"):
+            assert_compiles_for_every_dialect(probe)
+
+    def test_passes_once_every_dialect_is_registered(self):
+        from sqlalchemy.ext.compiler import compiles
+
+        probe = self._construct_cls()
+        for dialect in Dialect:
+            compiles(probe, dialect)(lambda element, compiler, **kw: "1")
+
+        assert_compiles_for_every_dialect(probe)  # must not raise
+
+    def test_dialects_parameter_narrows_the_check(self):
+        from sqlalchemy.ext.compiler import compiles
+
+        probe = self._construct_cls()
+        compiles(probe, Dialect.POSTGRESQL)(lambda element, compiler, **kw: "1")
+
+        assert_compiles_for_every_dialect(probe, dialects=[Dialect.POSTGRESQL])  # must not raise
 
 
 class TestIsolatedTestSchema:

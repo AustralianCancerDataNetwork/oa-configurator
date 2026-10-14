@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import datetime
 import logging
+import threading
 from collections.abc import Generator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any, NamedTuple, cast
 
 import sqlalchemy as sa
@@ -48,16 +50,51 @@ _ROLE_TAG_VALUES = frozenset(member.value for member in Role)
 # section. Scoped per physical database already, so one constant suffices.
 _REGISTRY_LOCK_KEY = 0x6f61636667  # oacf -> oa_configurator
 
+# Process-local locks for dialects with no advisory-lock mechanism of their
+# own, keyed by canonical physical-database identity.
+_INTRA_PROCESS_LOCKS: dict[str, threading.Lock] = {}
+_INTRA_PROCESS_LOCKS_GUARD = threading.Lock()
 
-def _lock_schema_registry(connection: Connection) -> None:
+
+def _intra_process_lock_for(connection: Connection) -> threading.Lock:
+    """Process-local lock for connection's physical database.
+    One lock per canonical file path (or per dialect for an in-memory database)
+
+    Notes
+    -----
+    SQLite has no concurrent writers at all for a real file, and DuckDB
+    serializes writers across processes via an OS-level exclusive file
+    lock, but neither serializes two connections racing from within the
+    same process.
+    """
+    url = connection.engine.url
+    database = url.database or ""
+    backend = url.get_backend_name()
+    key = (
+        f"{backend}:{database}"
+        if database in ("", ":memory:")
+        else f"{backend}:{Path(database).expanduser().resolve()}"
+    )
+    with _INTRA_PROCESS_LOCKS_GUARD:
+        return _INTRA_PROCESS_LOCKS.setdefault(key, threading.Lock())
+
+
+@contextmanager
+def _lock_schema_registry(connection: Connection) -> Generator[None, None, None]:
     """Serialize concurrent first-time create_engine() calls against this
-    physical database.
+    physical database, for the duration of the wrapped block.
 
     Postgres's CREATE SCHEMA IF NOT EXISTS and the first insert into a
-    fresh table both race under concurrent transactions. No-op on a
-    dialect with no advisory locks: SQLite has no concurrent writers at
-    all, and DuckDB serializes writers itself via an OS-level exclusive
-    file lock.
+    fresh table both race under concurrent transactions: guarded by a
+    session-level advisory lock, scoped to *connection*'s transaction and
+    released automatically at commit/rollback, so this context manager
+    does nothing on exit for Postgres.
+
+    SQLite/DuckDB have no advisory-lock mechanism, but also no concurrency
+    gap at the database level for SQLite, and only a cross-process one for
+    DuckDB (see :func:`_intra_process_lock_for`). A process-local lock held
+    for the duration of the wrapped block closes the remaining
+    same-process gap for both.
 
     *connection* must be inside a transaction at an isolation level other
     than AUTOCOMMIT (the lock would otherwise release after one statement).
@@ -68,7 +105,11 @@ def _lock_schema_registry(connection: Connection) -> None:
     dialect = Dialect(connection.dialect.name)  # raises ValueError on an unmodeled dialect
     if dialect == Dialect.POSTGRESQL:
         connection.execute(sa.text("SELECT pg_advisory_xact_lock(:k)"), {"k": _REGISTRY_LOCK_KEY})
-    elif dialect not in (Dialect.SQLITE, Dialect.DUCKDB):
+        yield
+    elif dialect in (Dialect.SQLITE, Dialect.DUCKDB):
+        with _intra_process_lock_for(connection):
+            yield
+    else:
         raise ValueError(f"No registry-lock strategy defined for dialect {dialect!r}.")
 
 
@@ -681,60 +722,60 @@ def _record_schema_provenance(
     if not reason.strip():
         raise ValueError("reason must not be blank.")
 
-    _lock_schema_registry(connection)
-    connection = _ensure_schema_registry_table(connection)
-    row_conditions = _row_conditions(schema_tag, database_config_name)
+    with _lock_schema_registry(connection):
+        connection = _ensure_schema_registry_table(connection)
+        row_conditions = _row_conditions(schema_tag, database_config_name)
 
-    existing_row = connection.execute(
-        sa.select(SchemaRegistry.physical_schema, SchemaRegistry.owner, SchemaRegistry.reserved).where(
-            *row_conditions
-        )
-    ).first()
-
-    if new_physical_schema is not None:
-        _reject_reservation_conflict(
-            connection,
-            physical_schema=new_physical_schema,
-            schema_tag=schema_tag,
-            owner=existing_row.owner if existing_row is not None else None,
-            reserved=existing_row is not None and existing_row.reserved,
-        )
-        claimant = _find_schema_provenance_claim(
-            connection,
-            physical_schema=new_physical_schema,
-            schema_tag=schema_tag,
-            database_config_name=database_config_name,
-        )
-        if claimant is not None:
-            raise SchemaDriftError(
-                f"Refusing to acknowledge {new_physical_schema!r} as the new baseline for "
-                f"{database_config_name!r} ({schema_tag!r}): schema-provenance already "
-                f"records it as claimed by {claimant!r}."
+        existing_row = connection.execute(
+            sa.select(SchemaRegistry.physical_schema, SchemaRegistry.owner, SchemaRegistry.reserved).where(
+                *row_conditions
             )
+        ).first()
 
-    if existing_row is not None:
-        connection.execute(
-            sa.update(SchemaRegistry)
-            .where(*row_conditions)
-            .values(
-                database_config_name=database_config_name,
-                previous_physical_schema=existing_row.physical_schema,
+        if new_physical_schema is not None:
+            _reject_reservation_conflict(
+                connection,
                 physical_schema=new_physical_schema,
-                acknowledged_at=sa.func.now(),
-                reason=reason,
+                schema_tag=schema_tag,
+                owner=existing_row.owner if existing_row is not None else None,
+                reserved=existing_row is not None and existing_row.reserved,
             )
-        )
-    else:
-        connection.execute(
-            sa.insert(SchemaRegistry).values(
+            claimant = _find_schema_provenance_claim(
+                connection,
+                physical_schema=new_physical_schema,
                 schema_tag=schema_tag,
                 database_config_name=database_config_name,
-                physical_schema=new_physical_schema,
-                previous_physical_schema=None,
-                acknowledged_at=sa.func.now(),
-                reason=reason,
             )
-        )
+            if claimant is not None:
+                raise SchemaDriftError(
+                    f"Refusing to acknowledge {new_physical_schema!r} as the new baseline for "
+                    f"{database_config_name!r} ({schema_tag!r}): schema-provenance already "
+                    f"records it as claimed by {claimant!r}."
+                )
+
+        if existing_row is not None:
+            connection.execute(
+                sa.update(SchemaRegistry)
+                .where(*row_conditions)
+                .values(
+                    database_config_name=database_config_name,
+                    previous_physical_schema=existing_row.physical_schema,
+                    physical_schema=new_physical_schema,
+                    acknowledged_at=sa.func.now(),
+                    reason=reason,
+                )
+            )
+        else:
+            connection.execute(
+                sa.insert(SchemaRegistry).values(
+                    schema_tag=schema_tag,
+                    database_config_name=database_config_name,
+                    physical_schema=new_physical_schema,
+                    previous_physical_schema=None,
+                    acknowledged_at=sa.func.now(),
+                    reason=reason,
+                )
+            )
 
 
 def _find_schema_provenance_claim(
@@ -819,10 +860,10 @@ def _release_schema_claim(connection: Connection, *, schema_tag: str, database_c
     """Delete schema_tag's registry row for database_config_name on this
     physical database. Returns True if a row was deleted, False if none
     existed."""
-    _lock_schema_registry(connection)
-    connection = _ensure_schema_registry_table(connection)
-    row_conditions = _row_conditions(schema_tag, database_config_name)
-    result = connection.execute(sa.delete(SchemaRegistry).where(*row_conditions))
+    with _lock_schema_registry(connection):
+        connection = _ensure_schema_registry_table(connection)
+        row_conditions = _row_conditions(schema_tag, database_config_name)
+        result = connection.execute(sa.delete(SchemaRegistry).where(*row_conditions))
     return result.rowcount > 0
 
 

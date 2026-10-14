@@ -24,7 +24,12 @@ from .domains.resources.schema import (
     ResolvedConnection,
     ResolvedDatabase,
 )
-from .domains.resources.sql import connection_key, host_is_resolvable, is_ephemeral_url
+from .domains.resources.sql import (
+    connection_key,
+    host_is_resolvable,
+    is_ephemeral_url,
+    requires_host,
+)
 from .domains.vector_stores.schema import ResolvedVectorStore, VectorStoreConfig
 from .package_base import ConfigurationError, PackageConfigBase
 from .refs import RefTo, _iter_refs, is_sensitive, sanitized_errors
@@ -288,9 +293,10 @@ def _find_production_collision(target: ConnectionConfig | URL, config: StackConf
     so an omitted port or a different spelling of the same host cannot slip a
     production database past this check.
 
-    Ephemeral connections are skipped: every in-memory SQLite URL is its own
-    database, so one matching key says nothing about the two addressing the
-    same storage, and there is no persistent data to protect either way.
+    Ephemeral connections are skipped: every in-memory SQLite/DuckDB URL is
+    its own database, so one matching key says nothing about the two
+    addressing the same storage, and there is no persistent data to protect
+    either way.
 
     Parameters
     ----------
@@ -304,8 +310,9 @@ def _find_production_collision(target: ConnectionConfig | URL, config: StackConf
     str or None
     """
     def comparison_key(url: URL) -> str:
-        if url.host is None and url.get_backend_name() == "sqlite" and not is_ephemeral_url(url):
-            return f"sqlite:{Path(url.database or '').expanduser().resolve()}"
+        backend = url.get_backend_name()
+        if url.host is None and not requires_host(backend) and not is_ephemeral_url(url):
+            return f"{backend}:{Path(url.database or '').expanduser().resolve()}"
         return connection_key(url)
 
     target_url = target._build_url_obj() if isinstance(target, ConnectionConfig) else target

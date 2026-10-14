@@ -24,7 +24,7 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import CompileError, InvalidRequestError
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session
-from sqlalchemy.schema import AddConstraint, CreateIndex
+from sqlalchemy.schema import AddConstraint, CreateIndex, DropConstraint
 from sqlalchemy.sql.compiler import IdentifierPreparer
 
 # Broader than a literal SQLAlchemy "bind" (Engine | Connection): a Session
@@ -104,6 +104,9 @@ class DialectProfile:
         (e.g. libpq's 5432). None for a dialect that takes no port. Used to
         make an omitted port and an explicitly-stated default port compare
         as the same physical address.
+    reflects_varchar_length : bool
+        Whether reflecting a declared ``VARCHAR(n)`` column back from the
+        database preserves ``n``.
     """
 
     system_schemas: frozenset[str]
@@ -111,6 +114,7 @@ class DialectProfile:
     requires_host: bool = True
     default_schema: str | None = None
     default_port: int | None = None
+    reflects_varchar_length: bool = True
 
 
 _DIALECT_PROFILES: dict[str, DialectProfile] = {
@@ -130,6 +134,7 @@ _DIALECT_PROFILES: dict[str, DialectProfile] = {
         supports_schemas=True,
         requires_host=False,
         default_schema="main",
+        reflects_varchar_length=False,
     ),
 }
 
@@ -159,16 +164,24 @@ def _skip_deferred_fk_on_duckdb(element: AddConstraint, compiler, **kw) -> str:
 
     Constructing ``AddConstraint`` already set the constraint's
     ``_create_rule`` to permanently exclude it from any future inline
-    ``CREATE TABLE`` rendering, on the shared constraint object itself, not
-    just this one statement. Undone here since the ALTER never runs:
-    otherwise a later ``create_all()`` against any dialect in the same
-    process, including DuckDB again, would silently drop the constraint
-    rather than deferring it afresh.
+    ``CREATE TABLE`` rendering. Has to be undone as otherwise a later 
+    ``create_all()`` against any dialect in the same process would
+    silently drop the constraint instead of deferring it again.
     """
     if isinstance(element.element, sa.ForeignKeyConstraint):
         element.element._create_rule = None
         return "SELECT 1"
     return compiler.visit_add_constraint(element, **kw)
+
+
+@compiles(DropConstraint, Dialect.DUCKDB)
+def _skip_dropped_fk_on_duckdb(element: DropConstraint, compiler, **kw) -> str:
+    """No-op dropping a deferred FK: DuckDB can't execute ``ALTER TABLE DROP CONSTRAINT``.
+    Symmetric with :func:`_skip_deferred_fk_on_duckdb`
+    """
+    if isinstance(element.element, sa.ForeignKeyConstraint):
+        return "SELECT 1"
+    return compiler.visit_drop_constraint(element, **kw)
 
 
 @compiles(CreateIndex, Dialect.DUCKDB)
@@ -187,6 +200,11 @@ def _virtual_computed_column_on_duckdb(element: sa.Computed, compiler, **kw) -> 
         raise CompileError(
             "DuckDB computed columns do not support 'stored' persistence; "
             "set the 'persisted' flag to None or False for DuckDB support."
+        )
+    if element.column is not None and element.column.nullable is False:
+        raise CompileError(
+            "DuckDB does not support constraints (e.g. NOT NULL) on a generated "
+            "column; set the column's 'nullable' flag to True for DuckDB support."
         )
     rendered = compiler.sql_compiler.process(element.sqltext, include_table=False, literal_binds=True)
     return f"GENERATED ALWAYS AS ({rendered}) VIRTUAL"
@@ -455,6 +473,18 @@ def requires_host(bindable: Bindable | str) -> bool:
     """
     dialect_name = bindable if isinstance(bindable, str) else _as_bind(bindable).dialect.name
     return _profile_for(dialect_name).requires_host
+
+
+def reflects_varchar_length(bindable: Bindable | str) -> bool:
+    """True if reflecting a declared ``VARCHAR(n)`` column preserves ``n``.
+
+    Parameters
+    ----------
+    bindable : Engine | Connection | Session | str
+        A live bindable, or a bare dialect name directly (e.g. "duckdb").
+    """
+    dialect_name = bindable if isinstance(bindable, str) else _as_bind(bindable).dialect.name
+    return _profile_for(dialect_name).reflects_varchar_length
 
 
 def system_schemas(bindable: Bindable | str) -> frozenset[str]:

@@ -12,6 +12,8 @@
 
 A consuming package subclasses `PackageConfigBase`, declares its fields with `RefTo(...)` to name entries in the sections above, and registers via a `pyproject.toml` entry point. `omop-config configure <package>` then discovers it and interactively resolves or creates whatever it needs.
 
+Supported dialects: PostgreSQL, SQLite, and DuckDB. SQLite and DuckDB are both file-based (no `host` needed) and need `database_name` set explicitly, with no implicit default.
+
 ## Install
 
 ```bash

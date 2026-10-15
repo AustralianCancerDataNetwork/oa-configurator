@@ -3,8 +3,8 @@
 Like SQLite, isolation is free for ``isolated_database()``: every call gets
 a brand-new, disposable file database. Unlike SQLite, DuckDB genuinely
 supports a committed schema visible from a second connection on the same
-engine (verified directly), so ``temporary_schema()`` follows Postgres's
-pattern instead of SQLite's hard-raising one.
+engine, so ``temporary_schema()`` follows Postgres's pattern instead of
+SQLite's hard-raising one.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ class DuckDBTestStrategy(TestDatabaseStrategy):
         """Fabricate a ``ResolvedCDMDatabase`` pointing at an in-memory target.
 
         The URL is only used by ``isolated_test_database()`` to determine
-        the dialect name -- ``isolated_database()`` below ignores *resolved*
+        the dialect name. ``isolated_database()`` below ignores *resolved*
         entirely and always provisions its own fresh tempfile database.
         """
         from ..domains.resources.schema import ResolvedCDMDatabase, ResolvedConnection
@@ -126,10 +126,10 @@ class DuckDBTestStrategy(TestDatabaseStrategy):
     def temporary_schema(self, engine: sa.Engine, *, prefix: str = "test") -> Generator[str, None, None]:
         """Yield a uniquely-named, genuinely-committed schema, dropped on exit.
 
-        Unlike SQLite, verified directly: a second connection opened from
-        the same engine sees a schema (and its tables) committed by another
-        connection, so this can follow Postgres's real-schema pattern rather
-        than SQLite's hard-raising one.
+        A second connection opened from the same engine sees
+        a schema (and its tables) committed by another connection, so this
+        follows Postgres's real-schema pattern rather than SQLite's
+        hard-raising one.
         """
         self._require_test_only_engine(engine)
         schema = f"{prefix}_{uuid.uuid4().hex[:12]}"

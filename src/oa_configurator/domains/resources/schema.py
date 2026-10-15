@@ -100,8 +100,8 @@ class ConnectionConfig(SecretSafeBaseModel):
     host: str | None = Field(
         default=None,
         description=(
-            "Hostname or IP address. Required for every dialect except SQLite, which "
-            "connects to a local file and has no host to speak of."
+            "Hostname or IP address. Required for every dialect except SQLite and "
+            "DuckDB, which connect to a local file and have no host to speak of."
         ),
     )
     port: int | None = Field(default=None, description="Port number.")
@@ -113,8 +113,9 @@ class ConnectionConfig(SecretSafeBaseModel):
     database_name: str | None = Field(
         default=None,
         description=(
-            "Database name on the server. Required for SQLite, which has no implicit "
-            "default: pass an absolute path, or ':memory:' for an in-memory database."
+            "Database name on the server. Required for SQLite and DuckDB, which have "
+            "no implicit default: pass an absolute path, or ':memory:' for an "
+            "in-memory database."
         ),
     )
     test_only: bool = Field(

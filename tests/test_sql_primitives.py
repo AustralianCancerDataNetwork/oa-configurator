@@ -803,6 +803,29 @@ class TestFindTableInOtherSchemas:
         assert "information_schema" not in found
         assert "pg_catalog" not in found
 
+    @pytest.mark.duckdb
+    @pytest.mark.db_dialect
+    def test_finds_a_table_relocated_to_another_schema_on_duckdb(self, duckdb_db):
+        """get_schema_names() on DuckDB returns catalog-qualified names
+        (e.g. "mydb.main"), so the current schema (bare "main") must not
+        be mistaken for an "other" one, and a genuinely other schema must
+        still be found despite its own catalog qualification."""
+        conn = duckdb_db.connection
+        conn.execute(sa.text("CREATE SCHEMA other"))
+        conn.execute(sa.text("CREATE TABLE other.orphan (id INTEGER)"))
+
+        found = find_table_in_other_schemas(conn, "orphan", physical_schema="main")
+        assert len(found) == 1
+        assert found[0].rsplit(".", 1)[-1] == "other"
+
+    @pytest.mark.duckdb
+    @pytest.mark.db_dialect
+    def test_excludes_duckdb_system_and_temp_catalogs(self, duckdb_db):
+        found = find_table_in_other_schemas(
+            duckdb_db.connection, "tables", physical_schema="main"
+        )
+        assert found == ()
+
 
 class TestGuardSchemaProvenance:
     """Guard's core drift semantics, exercised against real Postgres:

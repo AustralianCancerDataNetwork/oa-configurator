@@ -107,6 +107,9 @@ class DialectProfile:
     reflects_varchar_length : bool
         Whether reflecting a declared ``VARCHAR(n)`` column back from the
         database preserves ``n``.
+    reflects_text_as_varchar : bool
+        Whether reflecting a declared ``TEXT`` column back from the
+        database returns ``VARCHAR`` instead.
     """
 
     system_schemas: frozenset[str]
@@ -115,6 +118,7 @@ class DialectProfile:
     default_schema: str | None = None
     default_port: int | None = None
     reflects_varchar_length: bool = True
+    reflects_text_as_varchar: bool = False
 
 
 _DIALECT_PROFILES: dict[str, DialectProfile] = {
@@ -130,11 +134,13 @@ _DIALECT_PROFILES: dict[str, DialectProfile] = {
         requires_host=False,
     ),
     Dialect.DUCKDB: DialectProfile(
-        system_schemas=frozenset(),
+        # Catalog-qualified (see get_system_schemas() of DuckDBDialect)
+        system_schemas=frozenset({"system.information_schema", "system.main", "temp.main"}),
         supports_schemas=True,
         requires_host=False,
         default_schema="main",
         reflects_varchar_length=False,
+        reflects_text_as_varchar=True,
     ),
 }
 
@@ -411,8 +417,7 @@ def is_ephemeral_url(safe_url: str | sa.URL) -> bool:
     ``mode=memory`` URI) and DuckDB ``:memory:`` databases are ephemeral
     this way: a second engine pointed at the same URL gets its own,
     disconnected, empty database rather than reconnecting to the first
-    one's data (verified directly for DuckDB, not just assumed from the
-    SQLite case). A caller that needs two engines to see the same ephemeral
+    one's data. A caller that needs two engines to see the same ephemeral
     database must instead share one already-built engine or connection
     between them.
 
@@ -485,6 +490,18 @@ def reflects_varchar_length(bindable: Bindable | str) -> bool:
     """
     dialect_name = bindable if isinstance(bindable, str) else _as_bind(bindable).dialect.name
     return _profile_for(dialect_name).reflects_varchar_length
+
+
+def reflects_text_as_varchar(bindable: Bindable | str) -> bool:
+    """True if reflecting a declared ``TEXT`` column returns ``VARCHAR`` instead.
+
+    Parameters
+    ----------
+    bindable : Engine | Connection | Session | str
+        A live bindable, or a bare dialect name directly (e.g. "duckdb").
+    """
+    dialect_name = bindable if isinstance(bindable, str) else _as_bind(bindable).dialect.name
+    return _profile_for(dialect_name).reflects_text_as_varchar
 
 
 def system_schemas(bindable: Bindable | str) -> frozenset[str]:

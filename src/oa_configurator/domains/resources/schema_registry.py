@@ -148,6 +148,15 @@ def find_table_in_other_schemas(
 ) -> tuple[str, ...]:
     """Schemas, other than physical_schema, that already have a table
     named table_name. Excludes the dialect's own system schemas.
+
+    Notes
+    -----
+    - DuckDB uses catalog-qualified names in get_schema_names() (e.g. "mydb.main")
+    - Physical_schema is always bare (e.g. "main")
+    - No code path in this codebase ever ATTACHes a second DuckDB catalog
+      today, so a schema sharing a name across two attached catalogs is not
+      disambiguated here. A future feature that does attach a second
+      catalog would need to revisit this function.
     """
     bind = _as_bind(bindable)
     inspector = sa.inspect(bind)
@@ -155,7 +164,7 @@ def find_table_in_other_schemas(
     candidates = [
         schema
         for schema in inspector.get_schema_names()
-        if schema != physical_schema and schema not in system_schemas
+        if schema.rsplit(".", 1)[-1] != physical_schema and schema not in system_schemas
     ]
     return tuple(
         schema for schema in candidates if inspector.has_table(table_name, schema=schema)

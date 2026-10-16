@@ -588,8 +588,8 @@ class CDMDatabaseConfig(DatabaseConfig):
             raise ValueError(
                 "This looks like a 1.x config: `schema_name` on a `kind = \"cdm\"` "
                 "entry became `cdm_schema` in 2.0, whose default is now None. "
-                f"Follow the manual upgrade steps at {UPGRADING_GUIDE_URL}. "
-                f"(A migration script will also be available via `{MIGRATION_COMMAND}`.)"
+                f"Run the migration script with `{MIGRATION_COMMAND}` (a dry run unless "
+                f"given --apply), or follow the manual upgrade steps at {UPGRADING_GUIDE_URL}."
             )
         return value
 

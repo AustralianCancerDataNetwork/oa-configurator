@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable, Iterable, Iterator, Sequence
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import cached_property
@@ -100,8 +100,8 @@ class ConnectionConfig(SecretSafeBaseModel):
     host: str | None = Field(
         default=None,
         description=(
-            "Hostname or IP address. Required for every dialect except SQLite, which "
-            "connects to a local file and has no host to speak of."
+            "Hostname or IP address. Required for every dialect except SQLite and "
+            "DuckDB, which connect to a local file and have no host to speak of."
         ),
     )
     port: int | None = Field(default=None, description="Port number.")
@@ -113,8 +113,9 @@ class ConnectionConfig(SecretSafeBaseModel):
     database_name: str | None = Field(
         default=None,
         description=(
-            "Database name on the server. Required for SQLite, which has no implicit "
-            "default: pass an absolute path, or ':memory:' for an in-memory database."
+            "Database name on the server. Required for SQLite and DuckDB, which have "
+            "no implicit default: pass an absolute path, or ':memory:' for an "
+            "in-memory database."
         ),
     )
     test_only: bool = Field(
@@ -462,40 +463,41 @@ def _process_schema_claims(
     )
     with connection_cm as connection:
         transaction = connection.begin() if register_claims else None
+        lock_cm = _lock_schema_registry(connection) if register_claims else nullcontext()
         try:
-            if register_claims:
-                _lock_schema_registry(connection)
-                connection = _ensure_schema_registry_table(connection)
-            for claim in claims:
-                physical_schema = (
-                    claim.physical_schema
-                    if claim.physical_schema is not None
-                    else sa.inspect(connection).default_schema_name
-                )
-                translate_map[claim.schema_tag] = physical_schema
+            with lock_cm:
                 if register_claims:
-                    _register_schema_claim(
-                        connection,
-                        database_config_name=database_config_name,
-                        schema_tag=claim.schema_tag,
-                        physical_schema=physical_schema,
-                        owner=claim.owner,
-                        reserved=claim.reserved,
-                        test_only=test_only,
+                    connection = _ensure_schema_registry_table(connection)
+                for claim in claims:
+                    physical_schema = (
+                        claim.physical_schema
+                        if claim.physical_schema is not None
+                        else sa.inspect(connection).default_schema_name
                     )
-                    ensure_schema(connection, physical_schema)
-                else:
-                    _check_schema_claim(
-                        connection,
-                        database_config_name=database_config_name,
-                        schema_tag=claim.schema_tag,
-                        physical_schema=physical_schema,
-                        owner=claim.owner,
-                        reserved=claim.reserved,
-                        test_only=test_only,
-                    )
-            if transaction is not None:
-                transaction.commit()
+                    translate_map[claim.schema_tag] = physical_schema
+                    if register_claims:
+                        _register_schema_claim(
+                            connection,
+                            database_config_name=database_config_name,
+                            schema_tag=claim.schema_tag,
+                            physical_schema=physical_schema,
+                            owner=claim.owner,
+                            reserved=claim.reserved,
+                            test_only=test_only,
+                        )
+                        ensure_schema(connection, physical_schema)
+                    else:
+                        _check_schema_claim(
+                            connection,
+                            database_config_name=database_config_name,
+                            schema_tag=claim.schema_tag,
+                            physical_schema=physical_schema,
+                            owner=claim.owner,
+                            reserved=claim.reserved,
+                            test_only=test_only,
+                        )
+                if transaction is not None:
+                    transaction.commit()
         except BaseException:
             if transaction is not None:
                 transaction.rollback()
@@ -551,7 +553,7 @@ class GenericDatabaseConfig(DatabaseConfig):
     distinction, e.g. an embedding store or a metadata database.
     """
 
-    kind: Literal[DatabaseKind.GENERIC] = DatabaseKind.GENERIC  # type: ignore[assignment]
+    kind: Literal[DatabaseKind.GENERIC] = DatabaseKind.GENERIC
     schema_name: Annotated[str | None, Role.PRIMARY] = Field(
         default=None,
         description=(
@@ -579,7 +581,7 @@ class CDMDatabaseConfig(DatabaseConfig):
     packages only need a single ``cdm_db`` database.
     """
 
-    kind: Literal[DatabaseKind.CDM] = DatabaseKind.CDM  # type: ignore[assignment]
+    kind: Literal[DatabaseKind.CDM] = DatabaseKind.CDM
 
     @model_validator(mode="before")
     @classmethod

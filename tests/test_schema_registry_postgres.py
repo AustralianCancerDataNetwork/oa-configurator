@@ -11,6 +11,7 @@ restores each test's own tags, and fresh_role_registry_rows the Role tags.
 
 from __future__ import annotations
 
+import socket
 import uuid
 from typing import cast
 
@@ -45,17 +46,17 @@ from oa_configurator.testing.postgres import PostgresTestStrategy
 pytestmark = [pytest.mark.postgresql, pytest.mark.db_dialect, pytest.mark.usefixtures("fresh_role_registry_rows")]
 
 
-def test_registry_identity_ignores_loopback_spelling_for_baselines_and_orphan_checks(
+def test_registry_identity_ignores_host_vs_ip_spelling_for_baselines_and_orphan_checks(
     pg_db, pg_connection_config, cleanup_after_test
 ):
-    """The in-database registry must see one claim through localhost aliases."""
+    """The in-database registry must see one claim through a hostname and its own resolved IP."""
     tag = f"alias_{uuid.uuid4().hex[:8]}"
     schema = f"test_{uuid.uuid4().hex[:8]}"
     database_name = f"alias_entry_{uuid.uuid4().hex[:8]}"
     reset_schema_registry_rows(cleanup_after_test, pg_db.committing_engine, [tag])
     cleanup_after_test(lambda: drop_schema_if_exists(pg_db.committing_engine, schema))
     configs = []
-    for host in ("127.0.0.1", "localhost"):
+    for host in (pg_connection_config.host, socket.gethostbyname(pg_connection_config.host)):
         connection_config = pg_connection_config.model_copy(
             update={"host": host, "port": pg_connection_config.port, "test_only": True}
         )
@@ -555,11 +556,16 @@ def test_two_connection_entries_for_one_database_are_not_a_split(
     for schema in (cdm_schema, vocab_schema):
         cleanup_after_test(lambda s=schema: drop_schema_if_exists(pg_db.committing_engine, s))
 
-    # Deliberately two entries, same database, reached by different loopback
-    # spellings. Keep the review server's configured port on both URLs.
+    # Deliberately two entries, same database, reached by different host
+    # spellings (hostname vs. its own resolved IP). Keep the review server's
+    # configured port on both URLs.
     primary_connection_config = pg_connection_config.model_copy(update={"test_only": True})
     vocab_connection_config = pg_connection_config.model_copy(
-        update={"test_only": True, "host": "localhost", "port": pg_connection_config.port}
+        update={
+            "test_only": True,
+            "host": socket.gethostbyname(pg_connection_config.host),
+            "port": pg_connection_config.port,
+        }
     )
     stack = StackConfig.for_session(
         connections={"primary": primary_connection_config, "vocab_alias": vocab_connection_config},

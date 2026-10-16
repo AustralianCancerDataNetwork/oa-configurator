@@ -73,6 +73,7 @@ from .base import (
     TestDatabaseStrategy,
     _skip_message,
 )
+from .duckdb import DuckDBTestStrategy
 from .postgres import (
     PostgresTestStrategy,
     drop_schema_if_exists,
@@ -89,6 +90,7 @@ __all__ = [
     "DIALECT_PARAMS",
     "IsolatedTestDatabase",
     "ScopedTestSchema",
+    "assert_compiles_for_every_dialect",
     "cleanup_after_test",
     "delete_rows_on_cleanup",
     "drop_schema_if_exists",
@@ -100,6 +102,39 @@ __all__ = [
     "resolve_with_role_schemas",
     "scoped_test_schema",
 ]
+
+
+def assert_compiles_for_every_dialect(
+    construct_cls: type, *, dialects: Iterable[Dialect] = Dialect
+) -> None:
+    """Assert construct_cls has an ``@compiles`` registration for every dialect.
+    Catches wthether a @compiles was registered for every dialect. 
+    
+    Parameters
+    ----------
+    construct_cls : type
+        A SQLAlchemy construct class (e.g. a ``ColumnElement``/``DDLElement``
+        subclass) that has at least one ``@compiles`` registration.
+    dialects : Iterable[Dialect], optional
+        Dialects that must each have their own registration. Defaults to
+        every member of :class:`Dialect`.
+
+    Raises
+    ------
+    AssertionError
+        If construct_cls has no ``@compiles`` registrations at all, or is
+        missing one for any of dialects.
+    """
+    dispatcher = getattr(construct_cls, "_compiler_dispatcher", None)
+    if dispatcher is None:
+        raise AssertionError(
+            f"{construct_cls.__name__} has no @compiles registrations at all."
+        )
+    missing = [dialect.value for dialect in dialects if dialect.value not in dispatcher.specs]
+    if missing:
+        raise AssertionError(
+            f"{construct_cls.__name__} has no @compiles registration for: {missing}."
+        )
 
 def pytest_configure(config: pytest.Config) -> None:
     # See _can_corrupt_shared_metadata() for what "corrupting" means here.
@@ -139,6 +174,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 _STRATEGIES: dict[Dialect, type[TestDatabaseStrategy]] = {
     Dialect.POSTGRESQL: PostgresTestStrategy,
     Dialect.SQLITE: SQLiteTestStrategy,
+    Dialect.DUCKDB: DuckDBTestStrategy,
 }
 
 

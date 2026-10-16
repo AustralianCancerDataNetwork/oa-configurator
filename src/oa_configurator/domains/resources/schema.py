@@ -553,7 +553,7 @@ class GenericDatabaseConfig(DatabaseConfig):
     distinction, e.g. an embedding store or a metadata database.
     """
 
-    kind: Literal[DatabaseKind.GENERIC] = DatabaseKind.GENERIC  # type: ignore[assignment]
+    kind: Literal[DatabaseKind.GENERIC] = DatabaseKind.GENERIC
     schema_name: Annotated[str | None, Role.PRIMARY] = Field(
         default=None,
         description=(
@@ -581,7 +581,7 @@ class CDMDatabaseConfig(DatabaseConfig):
     packages only need a single ``cdm_db`` database.
     """
 
-    kind: Literal[DatabaseKind.CDM] = DatabaseKind.CDM  # type: ignore[assignment]
+    kind: Literal[DatabaseKind.CDM] = DatabaseKind.CDM
 
     @model_validator(mode="before")
     @classmethod

@@ -803,6 +803,19 @@ class TestFindTableInOtherSchemas:
         assert "information_schema" not in found
         assert "pg_catalog" not in found
 
+    def test_finds_a_table_in_a_schema_whose_name_contains_a_literal_dot(self, pg_db):
+        """A quoted Postgres schema name with a literal dot (e.g. "a.b") must
+        not be mistaken for a DuckDB-style catalog-qualified name and have
+        its suffix wrongly compared against physical_schema."""
+        conn = pg_db.connection
+        dotted = f"a.test_{uuid.uuid4().hex[:8]}"
+        expected = f"test_{uuid.uuid4().hex[:8]}"
+        ensure_schema(conn, dotted)
+        ensure_schema(conn, expected)
+        conn.execute(sa.text(f'CREATE TABLE "{dotted}".orphan (id int)'))
+        found = find_table_in_other_schemas(conn, "orphan", physical_schema=expected)
+        assert found == (dotted,)
+
     @pytest.mark.duckdb
     @pytest.mark.db_dialect
     def test_finds_a_table_relocated_to_another_schema_on_duckdb(self, duckdb_db):

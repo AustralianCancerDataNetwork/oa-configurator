@@ -113,6 +113,9 @@ class DialectProfile:
     reflects_float_as_double_precision : bool
         Whether reflecting a declared unparameterized ``FLOAT`` column back
         from the database returns ``DOUBLE PRECISION`` instead.
+    schema_names_are_catalog_qualified : bool
+        Whether ``Inspector.get_schema_names()`` returns names prefixed with
+        a catalog (e.g. ``"mydb.main"``) rather than a bare schema name.
     """
 
     system_schemas: frozenset[str]
@@ -123,6 +126,7 @@ class DialectProfile:
     reflects_varchar_length: bool = True
     reflects_text_as_varchar: bool = False
     reflects_float_as_double_precision: bool = False
+    schema_names_are_catalog_qualified: bool = False
 
 
 _DIALECT_PROFILES: dict[str, DialectProfile] = {
@@ -146,6 +150,7 @@ _DIALECT_PROFILES: dict[str, DialectProfile] = {
         default_schema="main",
         reflects_varchar_length=False,
         reflects_text_as_varchar=True,
+        schema_names_are_catalog_qualified=True,
     ),
 }
 

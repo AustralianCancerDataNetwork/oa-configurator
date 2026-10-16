@@ -153,6 +153,10 @@ def find_table_in_other_schemas(
     -----
     - DuckDB uses catalog-qualified names in get_schema_names() (e.g. "mydb.main")
     - Physical_schema is always bare (e.g. "main")
+    - The catalog prefix is only stripped for dialects whose profile declares
+      schema_names_are_catalog_qualified; otherwise a schema name is compared
+      as-is, so a quoted name that happens to contain a literal dot (e.g.
+      Postgres's "a.b") is never mistaken for a catalog-qualified name.
     - No code path in this codebase ever ATTACHes a second DuckDB catalog
       today, so a schema sharing a name across two attached catalogs is not
       disambiguated here. A future feature that does attach a second
@@ -160,11 +164,15 @@ def find_table_in_other_schemas(
     """
     bind = _as_bind(bindable)
     inspector = sa.inspect(bind)
-    system_schemas = _profile_for(bind.dialect.name).system_schemas
+    profile = _profile_for(bind.dialect.name)
+
+    def _bare_name(schema: str) -> str:
+        return schema.rsplit(".", 1)[-1] if profile.schema_names_are_catalog_qualified else schema
+
     candidates = [
         schema
         for schema in inspector.get_schema_names()
-        if schema.rsplit(".", 1)[-1] != physical_schema and schema not in system_schemas
+        if _bare_name(schema) != physical_schema and schema not in profile.system_schemas
     ]
     return tuple(
         schema for schema in candidates if inspector.has_table(table_name, schema=schema)

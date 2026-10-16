@@ -110,6 +110,9 @@ class DialectProfile:
     reflects_text_as_varchar : bool
         Whether reflecting a declared ``TEXT`` column back from the
         database returns ``VARCHAR`` instead.
+    reflects_float_as_double_precision : bool
+        Whether reflecting a declared unparameterized ``FLOAT`` column back
+        from the database returns ``DOUBLE PRECISION`` instead.
     """
 
     system_schemas: frozenset[str]
@@ -119,6 +122,7 @@ class DialectProfile:
     default_port: int | None = None
     reflects_varchar_length: bool = True
     reflects_text_as_varchar: bool = False
+    reflects_float_as_double_precision: bool = False
 
 
 _DIALECT_PROFILES: dict[str, DialectProfile] = {
@@ -127,6 +131,7 @@ _DIALECT_PROFILES: dict[str, DialectProfile] = {
         supports_schemas=True,
         default_schema="public",
         default_port=5432,
+        reflects_float_as_double_precision=True,
     ),
     Dialect.SQLITE: DialectProfile(
         system_schemas=frozenset(),
@@ -502,6 +507,18 @@ def reflects_text_as_varchar(bindable: Bindable | str) -> bool:
     """
     dialect_name = bindable if isinstance(bindable, str) else _as_bind(bindable).dialect.name
     return _profile_for(dialect_name).reflects_text_as_varchar
+
+
+def reflects_float_as_double_precision(bindable: Bindable | str) -> bool:
+    """True if reflecting a declared unparameterized ``FLOAT`` column returns ``DOUBLE PRECISION`` instead.
+
+    Parameters
+    ----------
+    bindable : Engine | Connection | Session | str
+        A live bindable, or a bare dialect name directly (e.g. "postgresql").
+    """
+    dialect_name = bindable if isinstance(bindable, str) else _as_bind(bindable).dialect.name
+    return _profile_for(dialect_name).reflects_float_as_double_precision
 
 
 def system_schemas(bindable: Bindable | str) -> frozenset[str]:

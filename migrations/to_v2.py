@@ -77,6 +77,7 @@ class Names:
     REASON = "upgrade to 2.0 (to_v2.py)"
     REGISTRY_TABLE = "model_registry"
     LEGACY_TABLE = "model_registry_legacy_v1"
+    PRERELEASE_REGISTRY_COLUMNS = frozenset({"connection_key", "last_verified_at"})
     SUPPORTED_DIALECTS = (Dialect.POSTGRESQL, Dialect.SQLITE)
 
 
@@ -257,7 +258,8 @@ def registry_layout(connection: sa.Connection) -> str:
     -------
     str
         ``absent``, ``current``, ``connection_key`` (a pre-release layout
-        with an extra column), or ``unknown``.
+        with ``connection_key`` and optionally ``last_verified_at`` as extra
+        columns), or ``unknown``.
     """
     inspector = sa.inspect(connection)
     schema = schema_if_supported(SCHEMA_REGISTRY_SCHEMA, connection)
@@ -267,7 +269,7 @@ def registry_layout(connection: sa.Connection) -> str:
         return "absent"
     if columns == expected:
         return "current"
-    if columns == expected | {"connection_key"}:
+    if "connection_key" in columns and expected <= columns <= expected | Names.PRERELEASE_REGISTRY_COLUMNS:
         return "connection_key"
     return "unknown"
 
@@ -592,6 +594,7 @@ def _plan_entry_registry(plan: Plan, entry: Any, previous_name: str | None) -> N
             legacy, problems = find_legacy_registries(live)
             current = current_registry_rows(live)
             owned_schema = entry.schema_name or sa.inspect(live).default_schema_name if supports_schemas(live) else None
+            registry_home = MODEL_REGISTRY_SCHEMA if supports_schemas(live) else None
     except SQLAlchemyError as exc:
         plan.problems.append(f"{label}: cannot read the database: {type(exc).__name__}")
         return
@@ -602,20 +605,21 @@ def _plan_entry_registry(plan: Plan, entry: Any, previous_name: str | None) -> N
     current = [(entry.name if owner == previous_name else owner, model) for owner, model in current]
     migrated_models = {model for _, model in current}
     todo = [r for r in legacy if not (r.table == Names.LEGACY_TABLE and set(r.models) <= migrated_models)]
-    owned = [r for r in todo if r.schema == owned_schema]
+    owned_schemas = (owned_schema, registry_home)
+    owned = [r for r in todo if r.schema in owned_schemas]
     problems = [f"{label}: {line}" for line in problems]
     problems += [
-        f"{label}: legacy registry {qualified_label(r)} is not in this entry's schema ({owned_schema!r}); "
-        "move or drop it by hand."
+        f"{label}: legacy registry {qualified_label(r)} is not in this entry's schema ({owned_schema!r}) "
+        f"or the registry schema ({registry_home!r}); move or drop it by hand."
         for r in todo
-        if r.schema != owned_schema
+        if r.schema not in owned_schemas
     ]
     holders: dict[str, set[str]] = defaultdict(set)
     for owner, model in current:
         holders[model].add(owner)
     for registry in todo:
         for model in registry.models:
-            holders[model].add(entry.name if registry.schema == owned_schema else qualified_label(registry))
+            holders[model].add(entry.name if registry.schema in owned_schemas else qualified_label(registry))
     problems += [
         f"{label}: model {model!r} is held by several registries ({', '.join(sorted(who))}); "
         "2.0 allows one per database."

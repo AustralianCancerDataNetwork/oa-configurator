@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 import pytest
+from pydantic import ValidationError
 
 from oa_configurator import (
     ConnectionConfig,
@@ -85,7 +86,7 @@ class TestLoggingConfig:
         assert cfg.level == "INFO"
 
     def test_invalid_level_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             LoggingConfig(level="SUPERVERBOSE")
 
     def test_loggers_validated(self):

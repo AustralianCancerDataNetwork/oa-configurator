@@ -7,6 +7,7 @@ import os
 import stat
 import tomllib
 from pathlib import Path
+from typing import ClassVar
 
 from pydantic import ValidationError
 
@@ -47,7 +48,7 @@ class _ConfigCache:
     always receive a deep copy so no caller can mutate a shared instance.
     """
 
-    _entries: dict[tuple, StackConfig] = {}
+    _entries: ClassVar[dict[tuple, StackConfig]] = {}
 
     @classmethod
     def _key(cls, resolved_path: Path, st: os.stat_result) -> tuple:

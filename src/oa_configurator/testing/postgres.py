@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, LiteralString
 
 import pytest
 import sqlalchemy as sa
@@ -30,11 +30,11 @@ def _pg_ident(name: str) -> object:
     return Identifier(name)
 
 
-def _pg_ddl(template: str, *parts: object) -> str:
+def _pg_ddl(template: LiteralString, *parts: object) -> str:
     """Build a safe DDL string using psycopg.sql quoting (lazy import)."""
     from psycopg.sql import SQL
 
-    return SQL(template).format(*parts).as_string(None)  # ty: ignore[invalid-argument-type]
+    return SQL(template).format(*parts).as_string(None)
 
 
 def drop_schema_if_exists(engine: sa.Engine, schema: str) -> None:

@@ -13,7 +13,7 @@ from typing import Annotated
 from urllib.parse import urlsplit
 
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from oa_configurator import (
     CDMDatabaseConfig,
@@ -368,7 +368,7 @@ class TestMaskedJson:
 
     def test_lists_and_tuples_are_walked(self):
         class Holder(SecretSafeBaseModel):
-            entries: list[ConnectionConfig] = []
+            entries: list[ConnectionConfig] = Field(default_factory=list)
 
         holder = Holder(entries=[_stack().connections["cdm"]])
         assert CANARY not in holder.masked_json()

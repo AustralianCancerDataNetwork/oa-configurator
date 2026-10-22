@@ -325,7 +325,7 @@ def _install_cross_database_guard(engine: Engine, resolved: ResolvedDatabase) ->
     hosted = {role.value for role in resolved.roles_on_connection(engine)}
 
     @event.listens_for(engine, "before_execute")
-    def _guard(  # type: ignore[misc]
+    def _guard(
         conn: Connection,
         clauseelement: Any,
         multiparams: Any,
@@ -516,7 +516,7 @@ class DatabaseKind(str, Enum):
     CDM = "cdm"
 
 
-class DatabaseConfig(SecretSafeBaseModel):
+class DatabaseConfig[KindT: DatabaseKind](SecretSafeBaseModel):
     """Shared interface for every named database: a connection, plus each
     concrete kind's own schema field(s).
 
@@ -536,7 +536,7 @@ class DatabaseConfig(SecretSafeBaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: DatabaseKind = Field(description="Which concrete database shape this entry is.")
+    kind: KindT = Field(description="Which concrete database shape this entry is.")
     connection: Annotated[str, RefTo(ConnectionConfig)] = Field(
         description="Name of the connection entry (from [connections]) used as the primary server."
     )
@@ -550,14 +550,14 @@ class DatabaseConfig(SecretSafeBaseModel):
         return self.connection
 
 
-class GenericDatabaseConfig(DatabaseConfig):
+class GenericDatabaseConfig(DatabaseConfig[Literal[DatabaseKind.GENERIC]]):
     """A connection plus one optional schema. No CDM role-splitting.
 
     Used by consumers that need a single database with no vocab/results
     distinction, e.g. an embedding store or a metadata database.
     """
 
-    kind: Literal[DatabaseKind.GENERIC] = DatabaseKind.GENERIC  # type: ignore[assignment]
+    kind: Literal[DatabaseKind.GENERIC] = DatabaseKind.GENERIC
     schema_name: Annotated[str | None, Role.PRIMARY] = Field(
         default=None,
         description=(
@@ -576,7 +576,7 @@ class GenericDatabaseConfig(DatabaseConfig):
         return ResolvedDatabase(name=name, connection=primary, schema_name=self.schema_name)
 
 
-class CDMDatabaseConfig(DatabaseConfig):
+class CDMDatabaseConfig(DatabaseConfig[Literal[DatabaseKind.CDM]]):
     """Maps the OMOP logical roles (CDM, vocab, results) to named connections and schema names.
 
     This is what a CDM-consuming package treats as "its database": the
@@ -585,7 +585,7 @@ class CDMDatabaseConfig(DatabaseConfig):
     packages only need a single ``cdm_db`` database.
     """
 
-    kind: Literal[DatabaseKind.CDM] = DatabaseKind.CDM  # type: ignore[assignment]
+    kind: Literal[DatabaseKind.CDM] = DatabaseKind.CDM
 
     @model_validator(mode="before")
     @classmethod

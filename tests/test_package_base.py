@@ -84,7 +84,7 @@ class TestPackageConfigBase:
                 pass
 
             # Accessing tool_name on an instance should fail
-            BadConfig().tool_name  # type: ignore[attr-defined]
+            _ = BadConfig().tool_name
 
 
 class NestedLimits(BaseModel):
@@ -624,7 +624,7 @@ class RequiredFieldConfig(PackageConfigBase):
 
 class DictFieldConfig(PackageConfigBase):
     tool_name: ClassVar[str] = "dict_field_tool"
-    configuration: dict[str, Any] = {}
+    configuration: dict[str, Any] = Field(default_factory=dict)
 
 
 class TestResolveFieldsPlainFieldHandling:

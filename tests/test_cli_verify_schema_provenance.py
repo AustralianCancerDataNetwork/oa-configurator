@@ -24,7 +24,11 @@ from oa_configurator.resolver import Resolver
 from oa_configurator.testing import isolated_test_schema
 from conftest import register_entry
 
-pytestmark = [pytest.mark.postgresql, pytest.mark.db_dialect, pytest.mark.usefixtures("fresh_role_registry_rows")]
+pytestmark = [
+    pytest.mark.postgresql,
+    pytest.mark.db_dialect,
+    pytest.mark.usefixtures("fresh_role_registry_rows"),
+]
 
 runner = CliRunner()
 
@@ -43,7 +47,9 @@ def _stack_with_one_cdm_db(
 def test_verify_reports_ok_for_a_registered_database(pg_db, pg_connection_config, monkeypatch):
     db_name = f"verify_db_{uuid.uuid4().hex[:8]}"
     with isolated_test_schema(pg_db.committing_engine) as schema:
-        stack = _stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=schema)
+        stack = _stack_with_one_cdm_db(
+            pg_connection_config, database_config_name=db_name, schema=schema
+        )
         register_entry(stack, db_name)
         monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack)
 
@@ -57,7 +63,9 @@ def test_verify_reports_ok_for_a_registered_database(pg_db, pg_connection_config
 def test_verify_registers_no_baseline(pg_connection_config, monkeypatch):
     db_name = f"verify_db_{uuid.uuid4().hex[:8]}"
     schema = f"test_{uuid.uuid4().hex[:8]}"
-    stack = _stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=schema)
+    stack = _stack_with_one_cdm_db(
+        pg_connection_config, database_config_name=db_name, schema=schema
+    )
     monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack)
 
     for _ in range(2):
@@ -66,15 +74,24 @@ def test_verify_registers_no_baseline(pg_connection_config, monkeypatch):
         assert "DRIFT" in result.output
 
 
-def test_verify_reports_drift_after_reconfiguring_the_schema(pg_db, pg_connection_config, monkeypatch):
+def test_verify_reports_drift_after_reconfiguring_the_schema(
+    pg_db, pg_connection_config, monkeypatch
+):
     db_name = f"verify_db_{uuid.uuid4().hex[:8]}"
     with (
         isolated_test_schema(pg_db.committing_engine) as schema_a,
         isolated_test_schema(pg_db.committing_engine) as schema_b,
     ):
-        register_entry(_stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=schema_a), db_name)
+        register_entry(
+            _stack_with_one_cdm_db(
+                pg_connection_config, database_config_name=db_name, schema=schema_a
+            ),
+            db_name,
+        )
 
-        stack_b = _stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=schema_b)
+        stack_b = _stack_with_one_cdm_db(
+            pg_connection_config, database_config_name=db_name, schema=schema_b
+        )
         monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack_b)
         result = runner.invoke(app, ["verify"])
     assert result.exit_code == 1
@@ -87,17 +104,27 @@ def test_verify_clean_after_acknowledging_drift(pg_db, pg_connection_config, mon
         isolated_test_schema(pg_db.committing_engine) as schema_a,
         isolated_test_schema(pg_db.committing_engine) as schema_b,
     ):
-        register_entry(_stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=schema_a), db_name)
+        register_entry(
+            _stack_with_one_cdm_db(
+                pg_connection_config, database_config_name=db_name, schema=schema_a
+            ),
+            db_name,
+        )
 
         # vocab/results fall back to schema_name (unconfigured), so verify()
         # checks all three roles for a CDM database, and all three drifted.
-        stack_b = _stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=schema_b)
+        stack_b = _stack_with_one_cdm_db(
+            pg_connection_config, database_config_name=db_name, schema=schema_b
+        )
         resolved = Resolver(stack_b).resolve_database(db_name)
         with pg_db.committing_engine.begin() as connection:
             for role in (Role.PRIMARY, Role.VOCAB, Role.RESULTS):
                 _record_schema_provenance(
-                    connection, database_config_name=resolved.name, schema_tag=role,
-                    new_physical_schema=schema_b, reason="test acknowledgment",
+                    connection,
+                    database_config_name=resolved.name,
+                    schema_tag=role,
+                    new_physical_schema=schema_b,
+                    reason="test acknowledgment",
                 )
 
         monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack_b)
@@ -106,7 +133,9 @@ def test_verify_clean_after_acknowledging_drift(pg_db, pg_connection_config, mon
     assert "DRIFT" not in result.output
 
 
-def test_verify_does_not_crash_when_a_sibling_role_tag_on_one_connection_drifts(pg_db, pg_connection_config, monkeypatch):
+def test_verify_does_not_crash_when_a_sibling_role_tag_on_one_connection_drifts(
+    pg_db, pg_connection_config, monkeypatch
+):
     """Primary and results share one connection. Only results drifts,
     but create_engines() checks every local-role claim on that
     connection, so the primary row's own check also raises an error. This is because
@@ -124,7 +153,9 @@ def test_verify_does_not_crash_when_a_sibling_role_tag_on_one_connection_drifts(
                 connections={"verify_conn": pg_connection_config},
                 databases={
                     db_name: CDMDatabaseConfig(
-                        connection="verify_conn", cdm_schema=schema_a, results_schema=results_schema,
+                        connection="verify_conn",
+                        cdm_schema=schema_a,
+                        results_schema=results_schema,
                     ),
                 },
             )

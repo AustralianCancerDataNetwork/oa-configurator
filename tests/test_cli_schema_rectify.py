@@ -21,7 +21,11 @@ from typer.testing import CliRunner
 from oa_configurator.cli import app
 from conftest import register_entry, registry_row
 
-pytestmark = [pytest.mark.postgresql, pytest.mark.db_dialect, pytest.mark.usefixtures("fresh_role_registry_rows")]
+pytestmark = [
+    pytest.mark.postgresql,
+    pytest.mark.db_dialect,
+    pytest.mark.usefixtures("fresh_role_registry_rows"),
+]
 
 runner = CliRunner()
 
@@ -37,15 +41,24 @@ def _stack_with_one_cdm_db(
     )
 
 
-def test_acknowledge_schema_migration_clears_drift(pg_db, pg_connection_config, monkeypatch, cleanup_after_test):
+def test_acknowledge_schema_migration_clears_drift(
+    pg_db, pg_connection_config, monkeypatch, cleanup_after_test
+):
     db_name = f"rectify_db_{uuid.uuid4().hex[:8]}"
     with (
         isolated_test_schema(pg_db.committing_engine) as schema_a,
         isolated_test_schema(pg_db.committing_engine) as schema_b,
     ):
-        register_entry(_stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=schema_a), db_name)
+        register_entry(
+            _stack_with_one_cdm_db(
+                pg_connection_config, database_config_name=db_name, schema=schema_a
+            ),
+            db_name,
+        )
 
-        stack_b = _stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=schema_b)
+        stack_b = _stack_with_one_cdm_db(
+            pg_connection_config, database_config_name=db_name, schema=schema_b
+        )
         monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack_b)
         assert runner.invoke(app, ["verify"]).exit_code == 1
 
@@ -54,10 +67,14 @@ def test_acknowledge_schema_migration_clears_drift(pg_db, pg_connection_config, 
                 app,
                 [
                     "acknowledge-schema-migration",
-                    "--database", db_name,
-                    "--schema-tag", role,
-                    "--new-schema", schema_b,
-                    "--reason", "test acknowledgment",
+                    "--database",
+                    db_name,
+                    "--schema-tag",
+                    role,
+                    "--new-schema",
+                    schema_b,
+                    "--reason",
+                    "test acknowledgment",
                 ],
             )
             assert result.exit_code == 0, result.output
@@ -77,20 +94,29 @@ def test_acknowledge_schema_migration_refuses_a_schema_claimed_by_another_tag(
     reset_schema_registry_rows(cleanup_after_test, pg_db.committing_engine, [other_tag])
     with pg_db.committing_engine.begin() as connection:
         _record_schema_provenance(
-            connection, database_config_name="other_entry", schema_tag=other_tag,
-            new_physical_schema=claimed_schema, reason="claimed by another tag",
+            connection,
+            database_config_name="other_entry",
+            schema_tag=other_tag,
+            new_physical_schema=claimed_schema,
+            reason="claimed by another tag",
         )
 
-    stack = _stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=f"test_{uuid.uuid4().hex[:8]}")
+    stack = _stack_with_one_cdm_db(
+        pg_connection_config, database_config_name=db_name, schema=f"test_{uuid.uuid4().hex[:8]}"
+    )
     monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack)
     result = runner.invoke(
         app,
         [
             "acknowledge-schema-migration",
-            "--database", db_name,
-            "--schema-tag", "primary",
-            "--new-schema", claimed_schema,
-            "--reason", "test acknowledgment onto a claimed schema",
+            "--database",
+            db_name,
+            "--schema-tag",
+            "primary",
+            "--new-schema",
+            claimed_schema,
+            "--reason",
+            "test acknowledgment onto a claimed schema",
         ],
     )
     assert result.exit_code != 0
@@ -98,7 +124,9 @@ def test_acknowledge_schema_migration_refuses_a_schema_claimed_by_another_tag(
     assert f"other_entry ({other_tag})" in result.output
 
 
-def test_acknowledge_schema_migration_leaves_two_entries_coexisting(pg_db, pg_connection_config, monkeypatch):
+def test_acknowledge_schema_migration_leaves_two_entries_coexisting(
+    pg_db, pg_connection_config, monkeypatch
+):
     """A CDM entry and a colocated generic entry sharing one primary
     connection (the legitimate colocation pattern, e.g. a vector store
     living alongside its CDM) each get their own registry row for
@@ -122,7 +150,9 @@ def test_acknowledge_schema_migration_leaves_two_entries_coexisting(pg_db, pg_co
                 connections={"rectify_conn": pg_connection_config},
                 databases={
                     cdm_name: CDMDatabaseConfig(connection="rectify_conn", cdm_schema=cdm_schema),
-                    generic_name: GenericDatabaseConfig(connection="rectify_conn", schema_name=current_generic_schema),
+                    generic_name: GenericDatabaseConfig(
+                        connection="rectify_conn", schema_name=current_generic_schema
+                    ),
                 },
             )
 
@@ -130,17 +160,23 @@ def test_acknowledge_schema_migration_leaves_two_entries_coexisting(pg_db, pg_co
         register_entry(stack, cdm_name)
         register_entry(stack, generic_name)
 
-        monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: _stack(drifted_generic_schema))
+        monkeypatch.setattr(
+            "oa_configurator.cli.load_stack_config", lambda: _stack(drifted_generic_schema)
+        )
         assert runner.invoke(app, ["verify"]).exit_code == 1
 
         result = runner.invoke(
             app,
             [
                 "acknowledge-schema-migration",
-                "--database", generic_name,
-                "--schema-tag", "primary",
-                "--new-schema", drifted_generic_schema,
-                "--reason", "generic entry takes over",
+                "--database",
+                generic_name,
+                "--schema-tag",
+                "primary",
+                "--new-schema",
+                drifted_generic_schema,
+                "--reason",
+                "generic entry takes over",
             ],
         )
         assert result.exit_code == 0, result.output
@@ -148,16 +184,26 @@ def test_acknowledge_schema_migration_leaves_two_entries_coexisting(pg_db, pg_co
         with pg_db.committing_engine.connect() as connection:
             row_generic = registry_row(connection, "primary", database_config_name=generic_name)
             row_cdm = registry_row(connection, "primary", database_config_name=cdm_name)
-    assert (row_generic.database_config_name, row_generic.physical_schema, row_generic.previous_physical_schema) == (
-        generic_name, drifted_generic_schema, generic_schema,
+    assert (
+        row_generic.database_config_name,
+        row_generic.physical_schema,
+        row_generic.previous_physical_schema,
+    ) == (
+        generic_name,
+        drifted_generic_schema,
+        generic_schema,
     )
     assert (row_cdm.database_config_name, row_cdm.physical_schema) == (cdm_name, cdm_schema)
 
 
-def test_acknowledge_schema_migration_requires_a_reason(pg_db, pg_connection_config, monkeypatch, cleanup_after_test):
+def test_acknowledge_schema_migration_requires_a_reason(
+    pg_db, pg_connection_config, monkeypatch, cleanup_after_test
+):
     db_name = f"rectify_db_{uuid.uuid4().hex[:8]}"
     schema = f"test_{uuid.uuid4().hex[:8]}"
-    stack = _stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=schema)
+    stack = _stack_with_one_cdm_db(
+        pg_connection_config, database_config_name=db_name, schema=schema
+    )
     monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack)
 
     result = runner.invoke(
@@ -166,11 +212,15 @@ def test_acknowledge_schema_migration_requires_a_reason(pg_db, pg_connection_con
     assert result.exit_code != 0
 
 
-def test_drop_orphan_schema_tables_previews_then_drops(pg_db, pg_connection_config, monkeypatch, cleanup_after_test):
+def test_drop_orphan_schema_tables_previews_then_drops(
+    pg_db, pg_connection_config, monkeypatch, cleanup_after_test
+):
     db_name = f"rectify_db_{uuid.uuid4().hex[:8]}"
     cdm_schema = f"test_{uuid.uuid4().hex[:8]}"
     orphan_schema = f"orphan_{uuid.uuid4().hex[:8]}"
-    stack = _stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=cdm_schema)
+    stack = _stack_with_one_cdm_db(
+        pg_connection_config, database_config_name=db_name, schema=cdm_schema
+    )
     monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack)
 
     engine = pg_db.connection.engine
@@ -194,13 +244,21 @@ def test_drop_orphan_schema_tables_previews_then_drops(pg_db, pg_connection_conf
     assert "2 rows" in preview.output
 
     with engine.connect() as connection:
-        assert connection.execute(
-            sa.text(f'SELECT COUNT(*) FROM "{orphan_schema}".leftover')
-        ).scalar() == 2
+        assert (
+            connection.execute(sa.text(f'SELECT COUNT(*) FROM "{orphan_schema}".leftover')).scalar()
+            == 2
+        )
 
     confirmed = runner.invoke(
         app,
-        ["drop-orphan-schema-tables", "--database", db_name, "--schema", orphan_schema, "--confirm"],
+        [
+            "drop-orphan-schema-tables",
+            "--database",
+            db_name,
+            "--schema",
+            orphan_schema,
+            "--confirm",
+        ],
     )
     assert confirmed.exit_code == 0, confirmed.output
     assert "Dropped" in confirmed.output
@@ -212,10 +270,14 @@ def test_drop_orphan_schema_tables_previews_then_drops(pg_db, pg_connection_conf
     assert exists is None
 
 
-def test_drop_orphan_schema_tables_refuses_a_schema_still_in_use(pg_db, pg_connection_config, monkeypatch, cleanup_after_test):
+def test_drop_orphan_schema_tables_refuses_a_schema_still_in_use(
+    pg_db, pg_connection_config, monkeypatch, cleanup_after_test
+):
     db_name = f"rectify_db_{uuid.uuid4().hex[:8]}"
     cdm_schema = f"test_{uuid.uuid4().hex[:8]}"
-    stack = _stack_with_one_cdm_db(pg_connection_config, database_config_name=db_name, schema=cdm_schema)
+    stack = _stack_with_one_cdm_db(
+        pg_connection_config, database_config_name=db_name, schema=cdm_schema
+    )
     monkeypatch.setattr("oa_configurator.cli.load_stack_config", lambda: stack)
 
     engine = pg_db.connection.engine

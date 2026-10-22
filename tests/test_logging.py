@@ -125,8 +125,11 @@ class TestUrlScrubbingScope:
     def test_a_rendered_config_is_safe_without_the_scrubber(self):
         """RedactingFilter is not what protects a logged config object."""
         connection = ConnectionConfig(
-            dialect="postgresql+psycopg", host="h", user="u",
-            password="pw-CANARY", database_name="omop",
+            dialect="postgresql+psycopg",
+            host="h",
+            user="u",
+            password="pw-CANARY",
+            database_name="omop",
         )
         record = logging.LogRecord("t", logging.WARNING, "", 0, "%s", (connection,), None)
         assert "pw-CANARY" not in logging.Formatter("%(message)s").format(record)
@@ -141,9 +144,7 @@ class TestUrlScrubbingCoverage:
     """
 
     def test_bare_url_password_is_masked(self):
-        assert _formatted("postgresql://user:pw@host/db") == (
-            "postgresql://user:***@host/db"
-        )
+        assert _formatted("postgresql://user:pw@host/db") == ("postgresql://user:***@host/db")
 
     def test_host_and_path_survive_for_diagnosis(self):
         formatted = _formatted("could not connect to postgresql://u:pw@db.example/omop")
@@ -180,8 +181,11 @@ def _emit_through(console, message, args=None):
     if console:
         from rich.console import Console
 
-        configure_logging(verbosity=2, extra_namespaces=["probe"],
-                          console=Console(file=buffer, width=200, no_color=True, markup=False))
+        configure_logging(
+            verbosity=2,
+            extra_namespaces=["probe"],
+            console=Console(file=buffer, width=200, no_color=True, markup=False),
+        )
     else:
         configure_logging(verbosity=2, extra_namespaces=["probe"])
         handler = logging.getLogger("probe").handlers[0]
@@ -225,8 +229,11 @@ class TestUrlRedactionIsHandlerIndependent:
     def test_a_deliberately_extracted_secret_is_not_caught(self, console):
         """Both paths, so nobody closes this by adding a key-name rule to one."""
         connection = ConnectionConfig(
-            dialect="postgresql+psycopg", host="h", user="u",
-            password="hunter2", database_name="omop",
+            dialect="postgresql+psycopg",
+            host="h",
+            user="u",
+            password="hunter2",
+            database_name="omop",
         )
         output = _emit_through(console, "password=%s", (connection.password,))
         assert "password=hunter2" in output
@@ -235,8 +242,11 @@ class TestUrlRedactionIsHandlerIndependent:
     def test_a_logged_config_object_is_safe_without_the_scrubber(self, console):
         """Safety here comes from SecretSafeBaseModel, not from this filter."""
         connection = ConnectionConfig(
-            dialect="postgresql+psycopg", host="h", user="u",
-            password="pw-CANARY", database_name="omop",
+            dialect="postgresql+psycopg",
+            host="h",
+            user="u",
+            password="pw-CANARY",
+            database_name="omop",
         )
         assert "pw-CANARY" not in _emit_through(console, "%s", (connection,))
         assert "pw-CANARY" not in _emit_through(console, "%r", (connection,))
@@ -251,6 +261,7 @@ class TestRedactingFilter:
         assert any(isinstance(f, RedactingFilter) for f in plain.filters)
 
         from rich.console import Console
+
         _reset("probe")
         configure_logging(verbosity=2, extra_namespaces=["probe"], console=Console())
         rich_handler = logging.getLogger("probe").handlers[0]
@@ -279,8 +290,9 @@ class TestRedactingFilter:
         try:
             raise ValueError(f"could not connect: {DSN}")
         except ValueError:
-            record = logging.LogRecord("t", logging.ERROR, "", 0, "failed", None,
-                                       __import__("sys").exc_info())
+            record = logging.LogRecord(
+                "t", logging.ERROR, "", 0, "failed", None, __import__("sys").exc_info()
+            )
         RedactingFilter().filter(record)
         exc_text = record.exc_text
         assert exc_text is not None

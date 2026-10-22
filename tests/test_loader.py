@@ -11,10 +11,10 @@ from pathlib import Path
 import pytest
 
 from oa_configurator import (
-    ConfigurationError, 
-    ConnectionConfig, 
+    ConfigurationError,
+    ConnectionConfig,
     StackConfig,
-    StackConfigInvalidError
+    StackConfigInvalidError,
 )
 from oa_configurator.io import save_stack_config
 from oa_configurator.loader import (
@@ -212,14 +212,18 @@ class TestLoadFromPathCaching:
 
         save_stack_config(
             StackConfig.for_session(
-                connections={"cdm": ConnectionConfig(dialect=Dialect.POSTGRESQL+"+psycopg", host="db")},
+                connections={
+                    "cdm": ConnectionConfig(dialect=Dialect.POSTGRESQL + "+psycopg", host="db")
+                },
             ),
             path=path,
         )
         second = load_stack_config(path)
-        assert second.connections["cdm"].dialect == Dialect.POSTGRESQL+"+psycopg"
+        assert second.connections["cdm"].dialect == Dialect.POSTGRESQL + "+psycopg"
 
-    def test_invalidate_cache_forces_reparse_even_without_content_change(self, tmp_path, monkeypatch):
+    def test_invalidate_cache_forces_reparse_even_without_content_change(
+        self, tmp_path, monkeypatch
+    ):
         path = _make_config_file(tmp_path)
         calls: list[str] = []
         real_loads = tomllib.loads
@@ -284,9 +288,7 @@ class TestLoadStackConfigFromPathIsPublic:
         import oa_configurator
 
         assert "load_stack_config" in oa_configurator.__all__
-        assert (
-            oa_configurator.load_stack_config is load_stack_config
-        )
+        assert oa_configurator.load_stack_config is load_stack_config
 
     def test_group_readable_file_warns_that_it_holds_passwords(self, tmp_path):
         path = _make_config_file(tmp_path)
@@ -318,7 +320,7 @@ class TestLoadStackConfigFromPathErrors:
     def test_validation_failure_names_the_offending_field(self, tmp_path):
         path = tmp_path / "config.toml"
         path.write_text(
-            '[connections.cdm]\n'
+            "[connections.cdm]\n"
             'dialect = "sqlite"\n'
             'port = "not-a-port"\n'
             'password = "s3cret-CANARY"\n'
@@ -333,19 +335,13 @@ class TestLoadStackConfigFromPathErrors:
 
     def test_validation_failure_never_echoes_the_rejected_value(self, tmp_path):
         path = tmp_path / "config.toml"
-        path.write_text(
-            '[connections.cdm]\n'
-            'dialect = "sqlite"\n'
-            'port = "s3cret-CANARY"\n'
-        )
+        path.write_text('[connections.cdm]\ndialect = "sqlite"\nport = "s3cret-CANARY"\n')
 
         with pytest.raises(StackConfigInvalidError) as excinfo:
             load_stack_config(path)
 
         assert "s3cret-CANARY" not in str(excinfo.value)
-        assert not any(
-            "s3cret-CANARY" in str(error) for error in excinfo.value.errors()
-        )
+        assert not any("s3cret-CANARY" in str(error) for error in excinfo.value.errors())
 
     def test_malformed_toml_names_the_file_without_echoing_its_contents(self, tmp_path):
         path = tmp_path / "config.toml"

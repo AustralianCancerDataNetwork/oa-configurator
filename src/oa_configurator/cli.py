@@ -65,6 +65,7 @@ app.add_typer(vector_stores_app, name="vector-stores")
 # (resolve_fields/run_configure). This part just discovers and dispatches.
 # ------------------
 
+
 class _DynamicConfigureGroup(TyperGroup):
     def __init__(self, **kwargs):
         kwargs.setdefault("invoke_without_command", True)
@@ -132,7 +133,9 @@ def _build_package_command(ep_name: str, cls: type[PackageConfigBase]) -> Any:
 
     def callback(**kwargs):
         set_values = kwargs.pop("set_values", None) or ()
-        set_dict: dict[str, Any] = {k: str(v) for k, v in kwargs.items() if k in entry_names and v is not None}
+        set_dict: dict[str, Any] = {
+            k: str(v) for k, v in kwargs.items() if k in entry_names and v is not None
+        }
         parsed = _parse_set_flags(tuple(set_values))
         if clash := set(set_dict) & set(parsed):
             raise typer.BadParameter(
@@ -144,7 +147,9 @@ def _build_package_command(ep_name: str, cls: type[PackageConfigBase]) -> Any:
     callback.__signature__ = inspect.Signature(params)  # ty: ignore[unresolved-attribute]
     callback.__annotations__ = {p.name: p.annotation for p in params}
     command_app = typer.Typer(add_completion=False)
-    command_app.command(ep_name, help=f"Configure {cls.tool_name} settings in config.toml.")(callback)
+    command_app.command(ep_name, help=f"Configure {cls.tool_name} settings in config.toml.")(
+        callback
+    )
     return typer.main.get_command(command_app)
 
 
@@ -169,7 +174,8 @@ def _main(
     verbose: Annotated[
         int,
         typer.Option(
-            "--verbose", "-v",
+            "--verbose",
+            "-v",
             count=True,
             help="Increase log verbosity (-v INFO, -vv DEBUG). Must come before the subcommand name.",
         ),
@@ -206,7 +212,10 @@ def init(
         for ep in sorted(eps, key=lambda e: e.name):
             console.print(f"  omop-config configure {ep.name}")
     else:
-        console.print("\nNo packages registered yet. Install a package that supports oa_configurator.")
+        console.print(
+            "\nNo packages registered yet. Install a package that supports oa_configurator."
+        )
+
 
 @app.command()
 def show() -> None:
@@ -267,7 +276,9 @@ def verify() -> None:
             schema_ok = False
             continue
         for schema_tag in resolved.schema_tags():
-            schema_ok &= _verify_schema_provenance(schema_table, resolved, schema_tag, label=db_name)
+            schema_ok &= _verify_schema_provenance(
+                schema_table, resolved, schema_tag, label=db_name
+            )
 
     for vs_name in sorted(config.vector_stores):
         try:
@@ -309,8 +320,14 @@ def _print_registry_rows(resolver: Resolver, config: StackConfig) -> None:
         except Exception:
             continue
         # Bare engines to avoid schema claim registration and drift errors
-        roles = (Role.PRIMARY, Role.VOCAB) if isinstance(resolved, ResolvedCDMDatabase) else (Role.PRIMARY,)
-        engines = dict.fromkeys(resolved.connection_for_role(role).create_engine() for role in roles)
+        roles = (
+            (Role.PRIMARY, Role.VOCAB)
+            if isinstance(resolved, ResolvedCDMDatabase)
+            else (Role.PRIMARY,)
+        )
+        engines = dict.fromkeys(
+            resolved.connection_for_role(role).create_engine() for role in roles
+        )
         for engine in engines:
             try:
                 with engine.connect() as connection:
@@ -320,8 +337,12 @@ def _print_registry_rows(resolver: Resolver, config: StackConfig) -> None:
                     seen_connection_keys.add(ck)
                     for row in _list_registry_rows(connection):
                         rows_table.add_row(
-                            db_name, row.schema_tag, row.physical_schema or "-",
-                            row.database_config_name, row.owner or "-", str(row.reserved),
+                            db_name,
+                            row.schema_tag,
+                            row.physical_schema or "-",
+                            row.database_config_name,
+                            row.owner or "-",
+                            str(row.reserved),
                         )
             except Exception:
                 continue
@@ -332,11 +353,7 @@ def _print_registry_rows(resolver: Resolver, config: StackConfig) -> None:
 
 
 def _verify_schema_provenance(
-    table: Table, 
-    resolved: ResolvedDatabase, 
-    schema_tag: str, 
-    *, 
-    label: str
+    table: Table, resolved: ResolvedDatabase, schema_tag: str, *, label: str
 ) -> bool:
     """Check schema_tag's recorded provenance against its currently-resolved
     physical schema, appending a status row to table.
@@ -362,30 +379,33 @@ def _verify_schema_provenance(
     -----
     Schema registration is performed by ``ResolvedDatabase.create_engine()`` itself.
     This guard only compares the currently-resolved schema against that baseline.
-    A separate per-table cross-schema check (does one of this database's own tables 
+    A separate per-table cross-schema check (does one of this database's own tables
     already exist under some other schema) is separate (see :func:`find_table_in_other_schemas`).
     """
     # Physical split between vocab and primary connection
     connection_role = resolved.route_for_schema_tag(
-        schema_tag, 
-        vocab=Role.VOCAB, 
-        primary=Role.PRIMARY
+        schema_tag, vocab=Role.VOCAB, primary=Role.PRIMARY
     )
     try:
         engine = resolved._build_engine(connection_role, register_claims=False)
     except SchemaDriftError as exc:
-        table.add_row(label, schema_tag, "?", "[red]DRIFT[/red]", f"connection-wide: {str(exc)[:70]}")
+        table.add_row(
+            label, schema_tag, "?", "[red]DRIFT[/red]", f"connection-wide: {str(exc)[:70]}"
+        )
         return False
     except Exception as exc:
         table.add_row(label, schema_tag, "?", "[red]FAIL[/red]", str(exc)[:60])
         return False
     try:
-        with engine.begin() as connection, _guard_schema_provenance(
-            connection,
-            database_config_name=resolved.name,
-            test_only=resolved.connection_for_role(connection_role).test_only,
-            schema_tag=schema_tag,
-            physical_schema=physical_schema_of(connection, schema_tag=schema_tag),
+        with (
+            engine.begin() as connection,
+            _guard_schema_provenance(
+                connection,
+                database_config_name=resolved.name,
+                test_only=resolved.connection_for_role(connection_role).test_only,
+                schema_tag=schema_tag,
+                physical_schema=physical_schema_of(connection, schema_tag=schema_tag),
+            ),
         ):
             pass
     except SchemaDriftError as exc:
@@ -402,7 +422,9 @@ def _verify_schema_provenance(
 
 @app.command("acknowledge-schema-migration")
 def acknowledge_schema_migration(
-    database: Annotated[str, typer.Option("--database", help="Name of the [databases.*] entry to acknowledge.")],
+    database: Annotated[
+        str, typer.Option("--database", help="Name of the [databases.*] entry to acknowledge.")
+    ],
     reason: Annotated[
         str,
         typer.Option(
@@ -455,7 +477,9 @@ def acknowledge_schema_migration(
         stack = load_stack_config()
         resolved = Resolver(stack).resolve_database(database)
         role_values = {r.value for r in Role}
-        tags_to_acknowledge = [schema_tag] if schema_tag is not None else [r.value for r in resolved.schema_tags()]
+        tags_to_acknowledge = (
+            [schema_tag] if schema_tag is not None else [r.value for r in resolved.schema_tags()]
+        )
         if schema_tag is not None and schema_tag not in role_values and new_physical_schema is None:
             err_console.print(
                 f"[red]Error:[/red] --new-schema is required for non-Role schema tag {schema_tag!r}: "
@@ -466,7 +490,9 @@ def acknowledge_schema_migration(
 
         by_connection_role: dict[Role, list[str]] = {}
         for tag in tags_to_acknowledge:
-            connection_role = resolved.route_for_schema_tag(tag, vocab=Role.VOCAB, primary=Role.PRIMARY)
+            connection_role = resolved.route_for_schema_tag(
+                tag, vocab=Role.VOCAB, primary=Role.PRIMARY
+            )
             by_connection_role.setdefault(connection_role, []).append(tag)
 
         acknowledged: list[tuple[str, str | None]] = []
@@ -474,13 +500,15 @@ def acknowledge_schema_migration(
             # Bare engine to not cause drift errors on baseline acknowledgment
             engine = resolved.connection_for_role(connection_role).create_engine()
             try:
-
                 with engine.begin() as connection:
                     for tag in tags:
                         if tag in role_values:
-                            configured = resolved.configured_internal_schema_translate_map().get(tag)
+                            configured = resolved.configured_internal_schema_translate_map().get(
+                                tag
+                            )
                             resolved_schema = (
-                                new_physical_schema if new_physical_schema is not None
+                                new_physical_schema
+                                if new_physical_schema is not None
                                 else configured or sa.inspect(connection).default_schema_name
                             )
                         else:
@@ -502,19 +530,34 @@ def acknowledge_schema_migration(
         err_console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(1)
     for tag, new_schema in acknowledged:
-        console.print(f"[green]Acknowledged[/green] {database!r} (schema tag {tag!r}) -> schema {new_schema!r}.")
+        console.print(
+            f"[green]Acknowledged[/green] {database!r} (schema tag {tag!r}) -> schema {new_schema!r}."
+        )
 
 
 @app.command("release-schema-claim")
 def release_schema_claim(
-    database: Annotated[str, typer.Option("--database", help="Name of the [databases.*] entry whose claim to release. Need not still exist in the config when --connection is given.")],
+    database: Annotated[
+        str,
+        typer.Option(
+            "--database",
+            help="Name of the [databases.*] entry whose claim to release. Need not still exist in the config when --connection is given.",
+        ),
+    ],
     schema_tag: Annotated[str, typer.Option("--schema-tag", help="Schema tag to release.")],
     connection_role: Annotated[
-        Role, typer.Option("--role", help="Which of --database's connections to open: primary or vocab. Ignored when --connection is given.")
+        Role,
+        typer.Option(
+            "--role",
+            help="Which of --database's connections to open: primary or vocab. Ignored when --connection is given.",
+        ),
     ] = Role.PRIMARY,
     connection_name: Annotated[
         str | None,
-        typer.Option("--connection", help="Open this [connections.*] entry directly instead of resolving --database. Use this to release a claim left by a renamed or removed entry."),
+        typer.Option(
+            "--connection",
+            help="Open this [connections.*] entry directly instead of resolving --database. Use this to release a claim left by a renamed or removed entry.",
+        ),
     ] = None,
     confirm: Annotated[
         bool, typer.Option("--confirm", help="Actually delete the row. Omit to preview only.")
@@ -524,8 +567,8 @@ def release_schema_claim(
     Interface to handle stale rows left behind by a renamed or removed entry,
     or a custom tag's row that has no config-derivable value to re-acknowledge to.
 
-    Rows are matched by the --database name as written in the registry, so a claim 
-    outlives the entry that made it. Releasing such a claim needs --connection, 
+    Rows are matched by the --database name as written in the registry, so a claim
+    outlives the entry that made it. Releasing such a claim needs --connection,
     since there is no entry left to derive the connection from.
     """
     released: bool | None = None
@@ -537,12 +580,17 @@ def release_schema_claim(
         if connection_name is not None:
             engine = resolver.resolve_connection(connection_name).create_engine()
         else:
-            engine = resolver.resolve_database(database).connection_for_role(connection_role).create_engine()
+            engine = (
+                resolver.resolve_database(database)
+                .connection_for_role(connection_role)
+                .create_engine()
+            )
         try:
             with engine.begin() as connection:
                 existing = next(
                     (
-                        row for row in _list_registry_rows(connection)
+                        row
+                        for row in _list_registry_rows(connection)
                         if row.schema_tag == schema_tag and row.database_config_name == database
                     ),
                     None,
@@ -574,14 +622,20 @@ def release_schema_claim(
 @app.command("drop-orphan-schema-tables")
 def drop_orphan_schema_tables_command(
     database: Annotated[
-        str, typer.Option("--database", help="Name of the [databases.*] entry providing the connection.")
+        str,
+        typer.Option(
+            "--database", help="Name of the [databases.*] entry providing the connection."
+        ),
     ],
-    schema: Annotated[str, typer.Option("--schema", help="Orphan schema to inspect/drop tables from.")],
+    schema: Annotated[
+        str, typer.Option("--schema", help="Orphan schema to inspect/drop tables from.")
+    ],
     connection_role: Annotated[
         Role, typer.Option("--role", help="Which connection to open: primary or vocab.")
     ] = Role.PRIMARY,
     confirm: Annotated[
-        bool, typer.Option("--confirm", help="Actually drop the previewed tables. Omit to preview only.")
+        bool,
+        typer.Option("--confirm", help="Actually drop the previewed tables. Omit to preview only."),
     ] = False,
     allow_default_schema: Annotated[
         bool,
@@ -629,7 +683,9 @@ def drop_orphan_schema_tables_command(
         verb = "Dropped" if confirm else "Would drop"
         console.print(f"{verb} {schema}.{item.table_name} (~{count} rows)")
     if not confirm:
-        console.print("[yellow]Preview only. Re-run with --confirm to actually drop these tables.[/yellow]")
+        console.print(
+            "[yellow]Preview only. Re-run with --confirm to actually drop these tables.[/yellow]"
+        )
 
 
 @app.command("export-env")
@@ -643,6 +699,7 @@ def export_env() -> None:
 
     env_path = write_env_file(Resolver(config))
     console.print(f"[green]✓[/green] Wrote [dim]{env_path}[/dim]")
+
 
 @app.command("cleanup-test-databases")
 def cleanup_test_databases(

@@ -155,8 +155,7 @@ def save_stack_config(config: StackConfig, path: Path | None = None) -> Path:
                 invalidate_cache()
             except Exception as rollback_error:
                 raise ConfigSaveError(
-                    f"Failed to save {path}: {save_error}; "
-                    f"recovery also failed: {rollback_error}"
+                    f"Failed to save {path}: {save_error}; recovery also failed: {rollback_error}"
                 ) from save_error
             recovery = (
                 "the previous state was restored"
@@ -204,9 +203,7 @@ def _write_and_sync(stream: BinaryIO, data: bytes) -> None:
     """Write all *data* to *stream* and make the file contents durable."""
     written = stream.write(data)
     if written != len(data):
-        raise OSError(
-            errno.EIO, f"short write: expected {len(data)} bytes, wrote {written}"
-        )
+        raise OSError(errno.EIO, f"short write: expected {len(data)} bytes, wrote {written}")
     stream.flush()
     os.fsync(stream.fileno())
 
@@ -244,9 +241,7 @@ def _write_chunk(stream: BinaryIO, chunk: bytes) -> None:
     """Write one complete copy chunk or fail on a short write."""
     written = stream.write(chunk)
     if written != len(chunk):
-        raise OSError(
-            errno.EIO, f"short write: expected {len(chunk)} bytes, wrote {written}"
-        )
+        raise OSError(errno.EIO, f"short write: expected {len(chunk)} bytes, wrote {written}")
 
 
 def _fsync_directory(directory: Path) -> None:
@@ -275,9 +270,7 @@ def _verify_saved_config(path: Path, expected: StackConfig) -> None:
 
     actual = load_stack_config(path)
     if actual.model_dump(mode="python") != expected.model_dump(mode="python"):
-        raise ConfigSaveError(
-            f"Reload verification produced a different config for {path}"
-        )
+        raise ConfigSaveError(f"Reload verification produced a different config for {path}")
 
 
 def _restore_previous(path: Path, backup_path: Path, *, previous_exists: bool) -> None:
@@ -314,9 +307,7 @@ def _close_fd(fd: int) -> None:
 def _drop_none_and_empty(value: Any) -> Any:
     """Recursively strip None values and empty dicts from a model_dump result."""
     if isinstance(value, dict):
-        cleaned = {
-            k: _drop_none_and_empty(v) for k, v in value.items() if v is not None
-        }
+        cleaned = {k: _drop_none_and_empty(v) for k, v in value.items() if v is not None}
         return {k: v for k, v in cleaned.items() if v != {}}
     if isinstance(value, list):
         return [_drop_none_and_empty(v) for v in value]

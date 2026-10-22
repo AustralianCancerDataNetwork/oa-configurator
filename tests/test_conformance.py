@@ -19,7 +19,7 @@ from oa_configurator import (
     assert_no_sensitive_values_leak,
     is_sensitive,
     safe_endpoint,
-    Dialect
+    Dialect,
 )
 from oa_configurator.refs import Secret
 
@@ -71,9 +71,7 @@ class TestFlatModel:
 
     def test_leaked_value_raises(self):
         with pytest.raises(SensitiveValueLeak):
-            assert_no_sensitive_values_leak(
-                _Outer(api_key=CANARY), f"api_key={CANARY}"
-            )
+            assert_no_sensitive_values_leak(_Outer(api_key=CANARY), f"api_key={CANARY}")
 
     def test_error_names_the_field_path(self):
         with pytest.raises(SensitiveValueLeak, match=r"_Outer\.api_key"):

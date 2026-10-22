@@ -193,7 +193,7 @@ class TestPhysicalSchemaOf:
 
     def test_bare_string_schema_tag_falls_back_to_itself_when_unmapped(self, engine):
         """A bare string schema_tag is itself a plausible literal schema
-        name,so it falls to the literal-fallback branch. 
+        name,so it falls to the literal-fallback branch.
         On a dialect with no schema concept it's folded to None;
         otherwise it's checked against the schema_registry, and this
         arbitrary, unregistered name raises."""
@@ -333,7 +333,10 @@ class TestAutocommitConnection:
         conn = engine.connect()
         try:
             conn.begin()
-            with pytest.raises(InvalidRequestError, match="active transaction"), autocommit_connection(conn):
+            with (
+                pytest.raises(InvalidRequestError, match="active transaction"),
+                autocommit_connection(conn),
+            ):
                 pass
         finally:
             conn.close()
@@ -417,22 +420,36 @@ class TestRegisterSchemaClaim:
     def test_same_owner_same_physical_schema_is_a_noop(self, sqlite_db):
         tag, name = self._name(), self._name()
         _register_schema_claim(
-            sqlite_db.connection, database_config_name="db1", schema_tag=tag, physical_schema=name, owner="pkg",
+            sqlite_db.connection,
+            database_config_name="db1",
+            schema_tag=tag,
+            physical_schema=name,
+            owner="pkg",
         )
         _register_schema_claim(
-            sqlite_db.connection, database_config_name="db1", schema_tag=tag, physical_schema=name, owner="pkg",
+            sqlite_db.connection,
+            database_config_name="db1",
+            schema_tag=tag,
+            physical_schema=name,
+            owner="pkg",
         )  # must not raise
 
     def test_different_owner_same_tag_different_schema_raises(self, sqlite_db):
         tag = self._name()
         _register_schema_claim(
-            sqlite_db.connection, database_config_name="db1", schema_tag=tag,
-            physical_schema=self._name(), owner="first-owner",
+            sqlite_db.connection,
+            database_config_name="db1",
+            schema_tag=tag,
+            physical_schema=self._name(),
+            owner="first-owner",
         )
         with pytest.raises(SchemaOwnershipError, match=f"{tag!r}.*first-owner"):
             _register_schema_claim(
-                sqlite_db.connection, database_config_name="db2", schema_tag=tag,
-                physical_schema=self._name(), owner="second-owner",
+                sqlite_db.connection,
+                database_config_name="db2",
+                schema_tag=tag,
+                physical_schema=self._name(),
+                owner="second-owner",
             )
 
     def test_different_owner_same_tag_same_schema_raises(self, sqlite_db):
@@ -442,13 +459,19 @@ class TestRegisterSchemaClaim:
         Ownership transfer must go through release-schema-claim."""
         tag, schema = self._name(), self._name()
         _register_schema_claim(
-            sqlite_db.connection, database_config_name="db1", schema_tag=tag,
-            physical_schema=schema, owner="first-owner",
+            sqlite_db.connection,
+            database_config_name="db1",
+            schema_tag=tag,
+            physical_schema=schema,
+            owner="first-owner",
         )
         with pytest.raises(SchemaOwnershipError, match=f"{tag!r}.*first-owner"):
             _register_schema_claim(
-                sqlite_db.connection, database_config_name="db2", schema_tag=tag,
-                physical_schema=schema, owner="second-owner",
+                sqlite_db.connection,
+                database_config_name="db2",
+                schema_tag=tag,
+                physical_schema=schema,
+                owner="second-owner",
             )
 
     def test_different_tags_sharing_one_physical_schema_is_fine(self, sqlite_db):
@@ -456,15 +479,24 @@ class TestRegisterSchemaClaim:
         does exactly this in real use."""
         shared = self._name()
         _register_schema_claim(
-            sqlite_db.connection, database_config_name="db1", schema_tag="primary", physical_schema=shared,
+            sqlite_db.connection,
+            database_config_name="db1",
+            schema_tag="primary",
+            physical_schema=shared,
         )
         _register_schema_claim(
-            sqlite_db.connection, database_config_name="db1", schema_tag="results", physical_schema=shared,
+            sqlite_db.connection,
+            database_config_name="db1",
+            schema_tag="results",
+            physical_schema=shared,
         )  # must not raise
 
     def test_none_physical_schema_is_a_noop(self, sqlite_db):
         _register_schema_claim(
-            sqlite_db.connection, database_config_name="db1", schema_tag="primary", physical_schema=None,
+            sqlite_db.connection,
+            database_config_name="db1",
+            schema_tag="primary",
+            physical_schema=None,
         )  # must not raise, and writes nothing
 
 
@@ -483,25 +515,34 @@ class TestRegisterSchemaClaimAlreadyPopulated:
         conn.execute(sa.text(f'CREATE TABLE "{schema}".preexisting (id int)'))
         with pytest.raises(SchemaDriftError, match="no schema-registry record"):
             _register_schema_claim(
-                conn, database_config_name="db1", schema_tag="primary", physical_schema=schema,
+                conn,
+                database_config_name="db1",
+                schema_tag="primary",
+                physical_schema=schema,
             )
 
     def test_first_registration_of_a_custom_tag_against_pre_existing_tables_proceeds(self, pg_db):
         """Unlike a Role tag, a custom tag is declared by the owning
-        package's own code. It registers directly since the config has 
+        package's own code. It registers directly since the config has
         no visibility into what its baseline should be."""
         schema = self._name()
         conn = pg_db.connection
         ensure_schema(conn, schema)
         conn.execute(sa.text(f'CREATE TABLE "{schema}".preexisting (id int)'))
         _register_schema_claim(
-            conn, database_config_name="db1", schema_tag=self._name(), physical_schema=schema,
+            conn,
+            database_config_name="db1",
+            schema_tag=self._name(),
+            physical_schema=schema,
         )  # must not raise
 
     def test_first_registration_against_an_empty_schema_proceeds(self, pg_db):
         schema = self._name()
         _register_schema_claim(
-            pg_db.connection, database_config_name="db1", schema_tag=self._name(), physical_schema=schema,
+            pg_db.connection,
+            database_config_name="db1",
+            schema_tag=self._name(),
+            physical_schema=schema,
         )  # must not raise
 
 
@@ -517,13 +558,19 @@ class TestReservation:
         _reject_reservation_conflict(sqlite_db.connection, physical_schema=None)  # must not raise
 
     def test_reject_passes_for_unreserved_name(self, sqlite_db):
-        _reject_reservation_conflict(sqlite_db.connection, physical_schema=self._name())  # must not raise
+        _reject_reservation_conflict(
+            sqlite_db.connection, physical_schema=self._name()
+        )  # must not raise
 
     def test_reserve_then_reject_raises(self, sqlite_db):
         name = self._name()
         _register_schema_claim(
-            sqlite_db.connection, database_config_name="db1", schema_tag=name,
-            physical_schema=name, owner="test-owner", reserved=True,
+            sqlite_db.connection,
+            database_config_name="db1",
+            schema_tag=name,
+            physical_schema=name,
+            owner="test-owner",
+            reserved=True,
         )
         with pytest.raises(SchemaOwnershipError, match=f"{name!r}.*test-owner"):
             _reject_reservation_conflict(sqlite_db.connection, physical_schema=name)
@@ -532,8 +579,12 @@ class TestReservation:
         name = self._name()
         for _ in range(2):
             _register_schema_claim(
-                sqlite_db.connection, database_config_name="db1", schema_tag=name,
-                physical_schema=name, owner="test-owner", reserved=True,
+                sqlite_db.connection,
+                database_config_name="db1",
+                schema_tag=name,
+                physical_schema=name,
+                owner="test-owner",
+                reserved=True,
             )  # must not raise
         with pytest.raises(SchemaOwnershipError):
             _reject_reservation_conflict(sqlite_db.connection, physical_schema=name)
@@ -541,47 +592,74 @@ class TestReservation:
     def test_different_owner_reservation_raises(self, sqlite_db):
         name = self._name()
         _register_schema_claim(
-            sqlite_db.connection, database_config_name="db1", schema_tag=name,
-            physical_schema=name, owner="first-owner", reserved=True,
+            sqlite_db.connection,
+            database_config_name="db1",
+            schema_tag=name,
+            physical_schema=name,
+            owner="first-owner",
+            reserved=True,
         )
         with pytest.raises(SchemaOwnershipError, match=f"{name!r}.*first-owner"):
             _register_schema_claim(
-                sqlite_db.connection, database_config_name="db2", schema_tag=name,
-                physical_schema=name, owner="second-owner", reserved=True,
+                sqlite_db.connection,
+                database_config_name="db2",
+                schema_tag=name,
+                physical_schema=name,
+                owner="second-owner",
+                reserved=True,
             )
 
     def test_reserving_a_schema_another_owner_uses_raises(self, sqlite_db):
         name = self._name()
         _register_schema_claim(
-            sqlite_db.connection, database_config_name="db1", schema_tag=self._name(),
-            physical_schema=name, owner="first-owner",
+            sqlite_db.connection,
+            database_config_name="db1",
+            schema_tag=self._name(),
+            physical_schema=name,
+            owner="first-owner",
         )
         with pytest.raises(SchemaOwnershipError, match=f"{name!r}.*already used by.*'first-owner'"):
             _register_schema_claim(
-                sqlite_db.connection, database_config_name="db2", schema_tag=self._name(),
-                physical_schema=name, owner="second-owner", reserved=True,
+                sqlite_db.connection,
+                database_config_name="db2",
+                schema_tag=self._name(),
+                physical_schema=name,
+                owner="second-owner",
+                reserved=True,
             )
 
     def test_reserving_a_schema_the_same_owner_uses_is_fine(self, sqlite_db):
         name = self._name()
         _register_schema_claim(
-            sqlite_db.connection, database_config_name="db1", schema_tag=self._name(),
-            physical_schema=name, owner="test-owner",
+            sqlite_db.connection,
+            database_config_name="db1",
+            schema_tag=self._name(),
+            physical_schema=name,
+            owner="test-owner",
         )
         _register_schema_claim(
-            sqlite_db.connection, database_config_name="db1", schema_tag=self._name(),
-            physical_schema=name, owner="test-owner", reserved=True,
+            sqlite_db.connection,
+            database_config_name="db1",
+            schema_tag=self._name(),
+            physical_schema=name,
+            owner="test-owner",
+            reserved=True,
         )  # must not raise
 
     def test_an_ownerless_reservation_is_enforced(self, sqlite_db):
         name = self._name()
         _register_schema_claim(
-            sqlite_db.connection, database_config_name="db1", schema_tag=self._name(),
-            physical_schema=name, reserved=True,
+            sqlite_db.connection,
+            database_config_name="db1",
+            schema_tag=self._name(),
+            physical_schema=name,
+            reserved=True,
         )
         with pytest.raises(SchemaOwnershipError, match=f"{name!r}.*already reserved"):
             _register_schema_claim(
-                sqlite_db.connection, database_config_name="db2", schema_tag=self._name(),
+                sqlite_db.connection,
+                database_config_name="db2",
+                schema_tag=self._name(),
                 physical_schema=name,
             )
 
@@ -589,28 +667,47 @@ class TestReservation:
         name = self._name()
         for reserved in (True, False):
             _register_schema_claim(
-                sqlite_db.connection, database_config_name="db1", schema_tag=name,
-                physical_schema=name, owner="first-owner", reserved=reserved,
+                sqlite_db.connection,
+                database_config_name="db1",
+                schema_tag=name,
+                physical_schema=name,
+                owner="first-owner",
+                reserved=reserved,
             )
         _register_schema_claim(
-            sqlite_db.connection, database_config_name="db2", schema_tag=self._name(),
-            physical_schema=name, owner="second-owner",
+            sqlite_db.connection,
+            database_config_name="db2",
+            schema_tag=self._name(),
+            physical_schema=name,
+            owner="second-owner",
         )  # must not raise
 
     def test_reasserting_as_reserved_rejects_another_owners_use(self, sqlite_db):
         name = self._name()
         _register_schema_claim(
-            sqlite_db.connection, database_config_name="db1", schema_tag=name,
-            physical_schema=name, owner="first-owner",
+            sqlite_db.connection,
+            database_config_name="db1",
+            schema_tag=name,
+            physical_schema=name,
+            owner="first-owner",
         )
         _register_schema_claim(
-            sqlite_db.connection, database_config_name="db2", schema_tag=self._name(),
-            physical_schema=name, owner="second-owner",
+            sqlite_db.connection,
+            database_config_name="db2",
+            schema_tag=self._name(),
+            physical_schema=name,
+            owner="second-owner",
         )
-        with pytest.raises(SchemaOwnershipError, match=f"{name!r}.*already used by.*'second-owner'"):
+        with pytest.raises(
+            SchemaOwnershipError, match=f"{name!r}.*already used by.*'second-owner'"
+        ):
             _register_schema_claim(
-                sqlite_db.connection, database_config_name="db1", schema_tag=name,
-                physical_schema=name, owner="first-owner", reserved=True,
+                sqlite_db.connection,
+                database_config_name="db1",
+                schema_tag=name,
+                physical_schema=name,
+                owner="first-owner",
+                reserved=True,
             )
 
     def test_reserving_a_physical_schema_does_not_block_it_as_a_tag_claim(self, sqlite_db):
@@ -619,12 +716,19 @@ class TestReservation:
         the same literal string as some other tag's physical schema."""
         name = self._name()
         _register_schema_claim(
-            sqlite_db.connection, database_config_name="db1", schema_tag=name,
-            physical_schema=name, owner="test-owner", reserved=True,
+            sqlite_db.connection,
+            database_config_name="db1",
+            schema_tag=name,
+            physical_schema=name,
+            owner="test-owner",
+            reserved=True,
         )
         _register_schema_claim(
-            sqlite_db.connection, database_config_name="db1", schema_tag="unrelated_tag",
-            physical_schema=self._name(), owner="test-owner",
+            sqlite_db.connection,
+            database_config_name="db1",
+            schema_tag="unrelated_tag",
+            physical_schema=self._name(),
+            owner="test-owner",
         )  # must not raise
 
 
@@ -668,9 +772,7 @@ class TestFindTableInOtherSchemas:
         assert found == ()
 
     def test_excludes_postgres_system_schemas(self, pg_db):
-        found = find_table_in_other_schemas(
-            pg_db.connection, "pg_tables", physical_schema="public"
-        )
+        found = find_table_in_other_schemas(pg_db.connection, "pg_tables", physical_schema="public")
         assert "information_schema" not in found
         assert "pg_catalog" not in found
 
@@ -692,11 +794,17 @@ class TestGuardSchemaProvenance:
         schema = f"test_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection
         _register_schema_claim(
-            conn, database_config_name=db_name, schema_tag=tag, physical_schema=schema,
+            conn,
+            database_config_name=db_name,
+            schema_tag=tag,
+            physical_schema=schema,
         )
         with _guard_schema_provenance(
-            conn, database_config_name=db_name, test_only=False,
-            schema_tag=tag, physical_schema=schema,
+            conn,
+            database_config_name=db_name,
+            test_only=False,
+            schema_tag=tag,
+            physical_schema=schema,
         ):
             ensure_schema(conn, schema)
             conn.execute(sa.text(f'CREATE TABLE "{schema}".t (id int)'))
@@ -707,16 +815,25 @@ class TestGuardSchemaProvenance:
         schema = f"test_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection
         _register_schema_claim(
-            conn, database_config_name=db_name, schema_tag=tag, physical_schema=schema,
+            conn,
+            database_config_name=db_name,
+            schema_tag=tag,
+            physical_schema=schema,
         )
         with _guard_schema_provenance(
-            conn, database_config_name=db_name, test_only=False,
-            schema_tag=tag, physical_schema=schema,
+            conn,
+            database_config_name=db_name,
+            test_only=False,
+            schema_tag=tag,
+            physical_schema=schema,
         ):
             pass
         with _guard_schema_provenance(
-            conn, database_config_name=db_name, test_only=False,
-            schema_tag=tag, physical_schema=schema,
+            conn,
+            database_config_name=db_name,
+            test_only=False,
+            schema_tag=tag,
+            physical_schema=schema,
         ):
             pass  # must not raise: same resolved schema as before
 
@@ -727,11 +844,20 @@ class TestGuardSchemaProvenance:
         schema_b = f"test_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection
         _register_schema_claim(
-            conn, database_config_name=db_name, schema_tag=tag, physical_schema=schema_a,
+            conn,
+            database_config_name=db_name,
+            schema_tag=tag,
+            physical_schema=schema_a,
         )
-        with pytest.raises(SchemaDriftError, match=f"{schema_b!r}.*{schema_a!r}"), _guard_schema_provenance(
-            conn, database_config_name=db_name, test_only=False,
-            schema_tag=tag, physical_schema=schema_b,
+        with (
+            pytest.raises(SchemaDriftError, match=f"{schema_b!r}.*{schema_a!r}"),
+            _guard_schema_provenance(
+                conn,
+                database_config_name=db_name,
+                test_only=False,
+                schema_tag=tag,
+                physical_schema=schema_b,
+            ),
         ):
             pass
 
@@ -742,11 +868,17 @@ class TestGuardSchemaProvenance:
         schema_b = f"test_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection
         _register_schema_claim(
-            conn, database_config_name=db_name, schema_tag=tag, physical_schema=schema_a,
+            conn,
+            database_config_name=db_name,
+            schema_tag=tag,
+            physical_schema=schema_a,
         )
         with _guard_schema_provenance(
-            conn, database_config_name=db_name, test_only=True,
-            schema_tag=tag, physical_schema=schema_b,
+            conn,
+            database_config_name=db_name,
+            test_only=True,
+            schema_tag=tag,
+            physical_schema=schema_b,
         ):
             pass  # must not raise despite disagreeing with the recorded schema
 
@@ -759,9 +891,15 @@ class TestGuardSchemaProvenance:
         tag = f"tag_{uuid.uuid4().hex[:8]}"
         schema = f"test_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection
-        with pytest.raises(SchemaDriftError, match="No schema-registry baseline"), _guard_schema_provenance(
-            conn, database_config_name=db_name, test_only=False,
-            schema_tag=tag, physical_schema=schema,
+        with (
+            pytest.raises(SchemaDriftError, match="No schema-registry baseline"),
+            _guard_schema_provenance(
+                conn,
+                database_config_name=db_name,
+                test_only=False,
+                schema_tag=tag,
+                physical_schema=schema,
+            ),
         ):
             pass
 
@@ -771,17 +909,29 @@ class TestGuardSchemaProvenance:
         schema = f"test_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection
         _register_schema_claim(
-            conn, database_config_name=db_name, schema_tag=tag, physical_schema=schema,
+            conn,
+            database_config_name=db_name,
+            schema_tag=tag,
+            physical_schema=schema,
         )
-        with pytest.raises(ValueError, match="boom"), _guard_schema_provenance(
-            conn, database_config_name=db_name, test_only=False,
-            schema_tag=tag, physical_schema=schema,
+        with (
+            pytest.raises(ValueError, match="boom"),
+            _guard_schema_provenance(
+                conn,
+                database_config_name=db_name,
+                test_only=False,
+                schema_tag=tag,
+                physical_schema=schema,
+            ),
         ):
             raise ValueError("boom")
         # Baseline is untouched by the raise; a second, clean call still succeeds.
         with _guard_schema_provenance(
-            conn, database_config_name=db_name, test_only=False,
-            schema_tag=tag, physical_schema=schema,
+            conn,
+            database_config_name=db_name,
+            test_only=False,
+            schema_tag=tag,
+            physical_schema=schema,
         ):
             pass
 
@@ -789,10 +939,15 @@ class TestGuardSchemaProvenance:
         tag = f"tag_{uuid.uuid4().hex[:8]}"
         schema = f"test_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection
-        _register_schema_claim(conn, database_config_name="entry_a", schema_tag=tag, physical_schema=schema)
+        _register_schema_claim(
+            conn, database_config_name="entry_a", schema_tag=tag, physical_schema=schema
+        )
         with _guard_schema_provenance(
-            conn, database_config_name="entry_b", test_only=False,
-            schema_tag=tag, physical_schema=schema,
+            conn,
+            database_config_name="entry_b",
+            test_only=False,
+            schema_tag=tag,
+            physical_schema=schema,
         ):
             pass  # must not raise: the baseline belongs to the physical database
 
@@ -801,10 +956,20 @@ class TestGuardSchemaProvenance:
         schema_a = f"test_{uuid.uuid4().hex[:8]}"
         schema_b = f"test_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection
-        _register_schema_claim(conn, database_config_name="entry_a", schema_tag=tag, physical_schema=schema_a)
-        with pytest.raises(SchemaDriftError, match=f"'entry_b'.*{schema_b!r}.*'entry_a'.*{schema_a!r}"), _guard_schema_provenance(
-            conn, database_config_name="entry_b", test_only=False,
-            schema_tag=tag, physical_schema=schema_b,
+        _register_schema_claim(
+            conn, database_config_name="entry_a", schema_tag=tag, physical_schema=schema_a
+        )
+        with (
+            pytest.raises(
+                SchemaDriftError, match=f"'entry_b'.*{schema_b!r}.*'entry_a'.*{schema_a!r}"
+            ),
+            _guard_schema_provenance(
+                conn,
+                database_config_name="entry_b",
+                test_only=False,
+                schema_tag=tag,
+                physical_schema=schema_b,
+            ),
         ):
             pass
 
@@ -812,18 +977,26 @@ class TestGuardSchemaProvenance:
         tag = f"tag_{uuid.uuid4().hex[:8]}"
         schema = f"test_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection
-        _register_schema_claim(conn, database_config_name="entry_a", schema_tag=tag, physical_schema=schema)
-        _register_schema_claim(conn, database_config_name="entry_b", schema_tag=tag, physical_schema=schema)
+        _register_schema_claim(
+            conn, database_config_name="entry_a", schema_tag=tag, physical_schema=schema
+        )
+        _register_schema_claim(
+            conn, database_config_name="entry_b", schema_tag=tag, physical_schema=schema
+        )
         assert _registry_row(conn, tag).database_config_name == "entry_a"
 
     def test_a_differing_claim_raises_instead_of_silently_leaving_the_row_untouched(self, pg_db):
         tag = f"tag_{uuid.uuid4().hex[:8]}"
         schema_a = f"test_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection
-        _register_schema_claim(conn, database_config_name="entry_a", schema_tag=tag, physical_schema=schema_a)
+        _register_schema_claim(
+            conn, database_config_name="entry_a", schema_tag=tag, physical_schema=schema_a
+        )
         with pytest.raises(SchemaDriftError, match="entry_a"):
             _register_schema_claim(
-                conn, database_config_name="entry_b", schema_tag=tag,
+                conn,
+                database_config_name="entry_b",
+                schema_tag=tag,
                 physical_schema=f"test_{uuid.uuid4().hex[:8]}",
             )
         row = _registry_row(conn, tag)
@@ -837,9 +1010,15 @@ class TestGuardSchemaProvenanceSqlite:
 
     def test_no_baseline_is_a_noop_not_a_hard_error(self, sqlite_db):
         db_name = f"guard_{uuid.uuid4().hex[:8]}"
-        with sqlite_db.committing_engine.begin() as connection, _guard_schema_provenance(
-            connection, database_config_name=db_name, test_only=False,
-            schema_tag=Role.PRIMARY, physical_schema=None,
+        with (
+            sqlite_db.committing_engine.begin() as connection,
+            _guard_schema_provenance(
+                connection,
+                database_config_name=db_name,
+                test_only=False,
+                schema_tag=Role.PRIMARY,
+                physical_schema=None,
+            ),
         ):
             connection.execute(sa.text("CREATE TABLE t (id int)"))
 
@@ -847,9 +1026,15 @@ class TestGuardSchemaProvenanceSqlite:
         db_name = f"guard_{uuid.uuid4().hex[:8]}"
         with sqlite_db.committing_engine.begin() as connection:
             connection.execute(sa.text("CREATE TABLE preexisting (id int)"))
-        with sqlite_db.committing_engine.begin() as connection, _guard_schema_provenance(
-            connection, database_config_name=db_name, test_only=False,
-            schema_tag=Role.PRIMARY, physical_schema=None,
+        with (
+            sqlite_db.committing_engine.begin() as connection,
+            _guard_schema_provenance(
+                connection,
+                database_config_name=db_name,
+                test_only=False,
+                schema_tag=Role.PRIMARY,
+                physical_schema=None,
+            ),
         ):
             pass  # must not raise: nothing is tracked for this dialect at all
 
@@ -860,8 +1045,11 @@ class TestRecordSchemaProvenance:
         tag = f"tag_{uuid.uuid4().hex[:8]}"
         with pytest.raises(ValueError, match="reason"):
             _record_schema_provenance(
-                pg_db.connection, database_config_name=db_name, schema_tag=tag,
-                new_physical_schema="s", reason="  ",
+                pg_db.connection,
+                database_config_name=db_name,
+                schema_tag=tag,
+                new_physical_schema="s",
+                reason="  ",
             )
 
     def test_recording_resolves_prior_drift(self, pg_db):
@@ -872,22 +1060,34 @@ class TestRecordSchemaProvenance:
         schema_b = f"test_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection
         _register_schema_claim(
-            conn, database_config_name=db_name, schema_tag=tag, physical_schema=schema_a,
+            conn,
+            database_config_name=db_name,
+            schema_tag=tag,
+            physical_schema=schema_a,
         )
         with _guard_schema_provenance(
-            conn, database_config_name=db_name, test_only=False,
-            schema_tag=tag, physical_schema=schema_a,
+            conn,
+            database_config_name=db_name,
+            test_only=False,
+            schema_tag=tag,
+            physical_schema=schema_a,
         ):
             pass
 
         _record_schema_provenance(
-            conn, database_config_name=db_name, schema_tag=tag,
-            new_physical_schema=schema_b, reason="deliberate migration in a test",
+            conn,
+            database_config_name=db_name,
+            schema_tag=tag,
+            new_physical_schema=schema_b,
+            reason="deliberate migration in a test",
         )
 
         with _guard_schema_provenance(
-            conn, database_config_name=db_name, test_only=False,
-            schema_tag=tag, physical_schema=schema_b,
+            conn,
+            database_config_name=db_name,
+            test_only=False,
+            schema_tag=tag,
+            physical_schema=schema_b,
         ):
             pass  # must not raise: recorded as the new baseline
 
@@ -902,20 +1102,32 @@ class TestRecordSchemaProvenance:
         ensure_schema(conn, schema)
         conn.execute(sa.text(f'CREATE TABLE "{schema}".preexisting (id int)'))
 
-        with pytest.raises(SchemaDriftError), _guard_schema_provenance(
-            conn, database_config_name=db_name, test_only=False,
-            schema_tag=tag, physical_schema=schema,
+        with (
+            pytest.raises(SchemaDriftError),
+            _guard_schema_provenance(
+                conn,
+                database_config_name=db_name,
+                test_only=False,
+                schema_tag=tag,
+                physical_schema=schema,
+            ),
         ):
             pass
 
         _record_schema_provenance(
-            conn, database_config_name=db_name, schema_tag=tag,
-            new_physical_schema=schema, reason="retrofit baseline",
+            conn,
+            database_config_name=db_name,
+            schema_tag=tag,
+            new_physical_schema=schema,
+            reason="retrofit baseline",
         )
 
         with _guard_schema_provenance(
-            conn, database_config_name=db_name, test_only=False,
-            schema_tag=tag, physical_schema=schema,
+            conn,
+            database_config_name=db_name,
+            test_only=False,
+            schema_tag=tag,
+            physical_schema=schema,
         ):
             pass  # must not raise now
 
@@ -924,14 +1136,21 @@ class TestRecordSchemaProvenance:
         schema_a = f"test_{uuid.uuid4().hex[:8]}"
         schema_b = f"test_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection
-        _register_schema_claim(conn, database_config_name="entry_a", schema_tag=tag, physical_schema=schema_a)
+        _register_schema_claim(
+            conn, database_config_name="entry_a", schema_tag=tag, physical_schema=schema_a
+        )
         _record_schema_provenance(
-            conn, database_config_name="entry_b", schema_tag=tag,
-            new_physical_schema=schema_b, reason="entry_b takes over",
+            conn,
+            database_config_name="entry_b",
+            schema_tag=tag,
+            new_physical_schema=schema_b,
+            reason="entry_b takes over",
         )
         row = _registry_row(conn, tag)
         assert (row.database_config_name, row.physical_schema, row.previous_physical_schema) == (
-            "entry_b", schema_b, schema_a,
+            "entry_b",
+            schema_b,
+            schema_a,
         )
 
     def test_reacknowledging_a_reserved_tag_onto_its_own_schema(self, pg_db):
@@ -939,25 +1158,39 @@ class TestRecordSchemaProvenance:
         schema = f"test_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection
         _register_schema_claim(
-            conn, database_config_name="entry", schema_tag=tag, physical_schema=schema,
-            owner="pkg", reserved=True,
+            conn,
+            database_config_name="entry",
+            schema_tag=tag,
+            physical_schema=schema,
+            owner="pkg",
+            reserved=True,
         )
         for _ in range(2):
             _record_schema_provenance(
-                conn, database_config_name="entry", schema_tag=tag,
-                new_physical_schema=schema, reason="reserved baseline",
+                conn,
+                database_config_name="entry",
+                schema_tag=tag,
+                new_physical_schema=schema,
+                reason="reserved baseline",
             )  # must not raise
 
     def test_recording_keeps_reserved(self, pg_db):
         tag = f"tag_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection
         _register_schema_claim(
-            conn, database_config_name="entry", schema_tag=tag,
-            physical_schema=f"test_{uuid.uuid4().hex[:8]}", owner="pkg", reserved=True,
+            conn,
+            database_config_name="entry",
+            schema_tag=tag,
+            physical_schema=f"test_{uuid.uuid4().hex[:8]}",
+            owner="pkg",
+            reserved=True,
         )
         _record_schema_provenance(
-            conn, database_config_name="entry", schema_tag=tag,
-            new_physical_schema=f"test_{uuid.uuid4().hex[:8]}", reason="move it",
+            conn,
+            database_config_name="entry",
+            schema_tag=tag,
+            new_physical_schema=f"test_{uuid.uuid4().hex[:8]}",
+            reason="move it",
         )
         assert _registry_row(conn, tag).reserved is True
 
@@ -966,28 +1199,45 @@ class TestRecordSchemaProvenance:
         schema = f"test_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection
         _register_schema_claim(
-            conn, database_config_name="entry_b", schema_tag=tag,
-            physical_schema=f"test_{uuid.uuid4().hex[:8]}", owner="pkg-b", reserved=True,
+            conn,
+            database_config_name="entry_b",
+            schema_tag=tag,
+            physical_schema=f"test_{uuid.uuid4().hex[:8]}",
+            owner="pkg-b",
+            reserved=True,
         )
         _register_schema_claim(
-            conn, database_config_name="entry_a", schema_tag=f"tag_{uuid.uuid4().hex[:8]}",
-            physical_schema=schema, owner="pkg-a",
+            conn,
+            database_config_name="entry_a",
+            schema_tag=f"tag_{uuid.uuid4().hex[:8]}",
+            physical_schema=schema,
+            owner="pkg-a",
         )
         with pytest.raises(SchemaOwnershipError, match=f"{schema!r}.*already used by.*'pkg-a'"):
             _record_schema_provenance(
-                conn, database_config_name="entry_b", schema_tag=tag,
-                new_physical_schema=schema, reason="move it",
+                conn,
+                database_config_name="entry_b",
+                schema_tag=tag,
+                new_physical_schema=schema,
+                reason="move it",
             )
 
     def test_refuses_a_schema_another_tag_records(self, pg_db):
         other_tag = f"tag_{uuid.uuid4().hex[:8]}"
         schema = f"test_{uuid.uuid4().hex[:8]}"
         conn = pg_db.connection
-        _register_schema_claim(conn, database_config_name="entry_a", schema_tag=other_tag, physical_schema=schema)
-        with pytest.raises(SchemaDriftError, match=f"Refusing to acknowledge.*entry_a \\({other_tag}\\)"):
+        _register_schema_claim(
+            conn, database_config_name="entry_a", schema_tag=other_tag, physical_schema=schema
+        )
+        with pytest.raises(
+            SchemaDriftError, match=f"Refusing to acknowledge.*entry_a \\({other_tag}\\)"
+        ):
             _record_schema_provenance(
-                conn, database_config_name="entry_b", schema_tag=f"tag_{uuid.uuid4().hex[:8]}",
-                new_physical_schema=schema, reason="take it",
+                conn,
+                database_config_name="entry_b",
+                schema_tag=f"tag_{uuid.uuid4().hex[:8]}",
+                new_physical_schema=schema,
+                reason="take it",
             )
 
 
@@ -996,12 +1246,19 @@ class TestProvenanceClaimAfterAcknowledgment:
         conn = pg_db.connection
         conn.execute(sa.text("DROP TABLE oa_configurator_provenance.schema_registry"))
         _record_schema_provenance(
-            conn, database_config_name="entry", schema_tag=f"tag_{uuid.uuid4().hex[:8]}",
-            new_physical_schema=f"test_{uuid.uuid4().hex[:8]}", reason="acknowledged first",
+            conn,
+            database_config_name="entry",
+            schema_tag=f"tag_{uuid.uuid4().hex[:8]}",
+            new_physical_schema=f"test_{uuid.uuid4().hex[:8]}",
+            reason="acknowledged first",
         )
         _register_schema_claim(
-            conn, database_config_name="entry", schema_tag="oa_configurator_provenance",
-            physical_schema="oa_configurator_provenance", owner="oa_configurator", reserved=True,
+            conn,
+            database_config_name="entry",
+            schema_tag="oa_configurator_provenance",
+            physical_schema="oa_configurator_provenance",
+            owner="oa_configurator",
+            reserved=True,
         )  # must not raise
 
 
@@ -1028,8 +1285,12 @@ def _concurrent_claim_worker(
 
     made_url = sa.engine.make_url(url)
     connection_config = ConnectionConfig(
-        dialect=made_url.drivername, host=made_url.host, port=made_url.port,
-        user=made_url.username, password=made_url.password, database_name=made_url.database,
+        dialect=made_url.drivername,
+        host=made_url.host,
+        port=made_url.port,
+        user=made_url.username,
+        password=made_url.password,
+        database_name=made_url.database,
     )
     stack = StackConfig.for_session(
         connections={"c": connection_config},
@@ -1037,8 +1298,10 @@ def _concurrent_claim_worker(
     )
     execution_options = {"isolation_level": "AUTOCOMMIT"} if autocommit else None
     try:
-        primary, _ = Resolver(stack).resolve_database(database_config_name).create_engines(
-            execution_options=execution_options
+        primary, _ = (
+            Resolver(stack)
+            .resolve_database(database_config_name)
+            .create_engines(execution_options=execution_options)
         )
         primary.dispose()
     except sa.exc.SQLAlchemyError as exc:
@@ -1055,7 +1318,9 @@ class TestConcurrentBootstrap:
     wouldn't reproduce."""
 
     @pytest.mark.postgresql
-    def test_eight_concurrent_first_time_claims_all_succeed(self, pg_db, pg_connection_config, cleanup_after_test):
+    def test_eight_concurrent_first_time_claims_all_succeed(
+        self, pg_db, pg_connection_config, cleanup_after_test
+    ):
         import concurrent.futures
 
         url = pg_connection_config.build_url()
@@ -1064,13 +1329,17 @@ class TestConcurrentBootstrap:
         cleanup_after_test(lambda: drop_schema_if_exists(pg_db.committing_engine, schema))
         with concurrent.futures.ProcessPoolExecutor(max_workers=8) as pool:
             results = list(
-                pool.map(_concurrent_claim_worker, [url] * 8, [database_config_name] * 8, [schema] * 8)
+                pool.map(
+                    _concurrent_claim_worker, [url] * 8, [database_config_name] * 8, [schema] * 8
+                )
             )
         failures = [r for r in results if r is not None]
         assert failures == [], f"{len(failures)}/8 workers failed: {failures}"
 
     @pytest.mark.postgresql
-    def test_eight_concurrent_first_time_claims_all_succeed_with_autocommit(self, pg_db, pg_connection_config, cleanup_after_test):
+    def test_eight_concurrent_first_time_claims_all_succeed_with_autocommit(
+        self, pg_db, pg_connection_config, cleanup_after_test
+    ):
         """A caller-supplied AUTOCOMMIT isolation_level must not defeat
         the registration lock's atomicity."""
         import concurrent.futures
@@ -1083,7 +1352,10 @@ class TestConcurrentBootstrap:
             results = list(
                 pool.map(
                     _concurrent_claim_worker,
-                    [url] * 8, [database_config_name] * 8, [schema] * 8, [True] * 8,
+                    [url] * 8,
+                    [database_config_name] * 8,
+                    [schema] * 8,
+                    [True] * 8,
                 )
             )
         failures = [r for r in results if r is not None]
@@ -1094,12 +1366,16 @@ class TestOutdatedRegistryLayout:
     def test_a_registry_with_connection_key_raises(self, pg_db):
         conn = pg_db.connection
         conn.execute(sa.text("DROP TABLE oa_configurator_provenance.schema_registry"))
-        conn.execute(sa.text(
-            "CREATE TABLE oa_configurator_provenance.schema_registry "
-            "(id serial primary key, connection_key text, schema_tag text)"
-        ))
+        conn.execute(
+            sa.text(
+                "CREATE TABLE oa_configurator_provenance.schema_registry "
+                "(id serial primary key, connection_key text, schema_tag text)"
+            )
+        )
         with pytest.raises(SchemaRegistryOutdatedError, match="outdated layout"):
             _register_schema_claim(
-                conn, database_config_name="entry", schema_tag=f"tag_{uuid.uuid4().hex[:8]}",
+                conn,
+                database_config_name="entry",
+                schema_tag=f"tag_{uuid.uuid4().hex[:8]}",
                 physical_schema=f"test_{uuid.uuid4().hex[:8]}",
             )

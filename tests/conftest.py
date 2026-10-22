@@ -58,7 +58,9 @@ def registry_row(
     """
     if schema_tag in _ROLE_TAG_VALUES and database_config_name is None:
         raise ValueError(f"database_config_name is required for Role tag {schema_tag!r}.")
-    mapped = _with_provenance_translate_map(connection, physical_schema="oa_configurator_provenance")
+    mapped = _with_provenance_translate_map(
+        connection, physical_schema="oa_configurator_provenance"
+    )
     conditions = _row_conditions(schema_tag, database_config_name or "")
     return mapped.execute(sa.select(SchemaRegistry).where(*conditions)).one()
 
@@ -104,8 +106,12 @@ def pg_connection_config(pg_db) -> ConnectionConfig:
     """
     url = make_url(pg_db.connection.engine.url)
     return ConnectionConfig(
-        dialect=url.drivername, host=url.host, port=url.port,
-        user=url.username, password=url.password, database_name=url.database,
+        dialect=url.drivername,
+        host=url.host,
+        port=url.port,
+        user=url.username,
+        password=url.password,
+        database_name=url.database,
     )
 
 
@@ -151,10 +157,11 @@ def engine(request):
 
     """
     with isolated_test_database(
-        OAConfiguratorConfig, _FIELD_BY_DIALECT[request.param],
+        OAConfiguratorConfig,
+        _FIELD_BY_DIALECT[request.param],
         dialect=request.param,
         request=request,
-        schema_claims=()
+        schema_claims=(),
     ) as db:
         yield db.connection.engine.execution_options(
             schema_translate_map={Role.PRIMARY.value: "myschema"},
@@ -183,7 +190,7 @@ def pg_stack() -> StackConfig:
     return StackConfig.for_session(
         connections={
             "cdm": ConnectionConfig(
-                dialect=Dialect.POSTGRESQL+"+psycopg",
+                dialect=Dialect.POSTGRESQL + "+psycopg",
                 host="localhost",
                 port=5432,
                 user="omop",

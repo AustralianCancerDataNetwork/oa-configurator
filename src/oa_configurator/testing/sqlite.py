@@ -98,7 +98,11 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
             db_path = Path(tmp_dir) / "test.db"
             url = f"sqlite:///{db_path}"
             connection = ResolvedConnection(
-                name="sqlite-isolated", url=url, safe_url=url, _engine_url=sa.engine.make_url(url), test_only=True
+                name="sqlite-isolated",
+                url=url,
+                safe_url=url,
+                _engine_url=sa.engine.make_url(url),
+                test_only=True,
             )
             fresh = resolved or replace(self.resolve_without_config(), name="sqlite-isolated")
             if isinstance(fresh, ResolvedCDMDatabase):
@@ -107,14 +111,18 @@ class SQLiteTestStrategy(TestDatabaseStrategy):
                 fresh = replace(fresh, connection=connection)
             engine = fresh._build_engine(
                 Role.PRIMARY,
-                schema_claims=schema_claims, execution_options=execution_options, **engine_kwargs
+                schema_claims=schema_claims,
+                execution_options=execution_options,
+                **engine_kwargs,
             )
             try:
                 connection = engine.connect()
                 try:
                     session = so.Session(bind=connection)
                     try:
-                        yield IsolatedTestDatabase(connection=connection, session=session, resolved=fresh)
+                        yield IsolatedTestDatabase(
+                            connection=connection, session=session, resolved=fresh
+                        )
                     finally:
                         session.close()
                 finally:

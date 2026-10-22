@@ -17,7 +17,7 @@ from .base import IsolatedTestDatabase, TestDatabaseStrategy
 
 if TYPE_CHECKING:
     from ..domains.resources.schema import (
-        ResolvedConnection, 
+        ResolvedConnection,
         ResolvedDatabase,
         SchemaClaim,
     )
@@ -43,7 +43,7 @@ def drop_schema_if_exists(engine: "sa.Engine", schema: str) -> None:
     -----
 
     Prefer ``isolated_test_schema()``/``PostgresTestStrategy.temporary_schema()``
-    when the test also controls the schema's creation. Use this only to clean 
+    when the test also controls the schema's creation. Use this only to clean
     up a schema a test caused to exist indirectly, typically registered with
     ``cleanup_after_test``.
 
@@ -145,7 +145,9 @@ class PostgresTestStrategy(TestDatabaseStrategy):
 
         engine = resolved._build_engine(
             Role.PRIMARY,
-            schema_claims=schema_claims, execution_options=execution_options, **engine_kwargs
+            schema_claims=schema_claims,
+            execution_options=execution_options,
+            **engine_kwargs,
         )
         try:
             connection = engine.connect()
@@ -153,7 +155,9 @@ class PostgresTestStrategy(TestDatabaseStrategy):
             try:
                 session = so.Session(bind=connection, join_transaction_mode="create_savepoint")
                 try:
-                    yield IsolatedTestDatabase(connection=connection, session=session, resolved=resolved)
+                    yield IsolatedTestDatabase(
+                        connection=connection, session=session, resolved=resolved
+                    )
                 finally:
                     session.close()
             finally:
@@ -163,7 +167,9 @@ class PostgresTestStrategy(TestDatabaseStrategy):
             engine.dispose()
 
     @contextmanager
-    def temporary_schema(self, engine: sa.Engine, *, prefix: str = "test") -> Generator[str, None, None]:
+    def temporary_schema(
+        self, engine: sa.Engine, *, prefix: str = "test"
+    ) -> Generator[str, None, None]:
         self._require_test_only_engine(engine)
         schema = f"{prefix}_{uuid.uuid4().hex[:12]}"
         with engine.begin() as conn:
@@ -172,7 +178,9 @@ class PostgresTestStrategy(TestDatabaseStrategy):
             yield schema
         finally:
             with engine.begin() as conn:
-                conn.execute(sa.text(_pg_ddl("DROP SCHEMA IF EXISTS {} CASCADE", _pg_ident(schema))))
+                conn.execute(
+                    sa.text(_pg_ddl("DROP SCHEMA IF EXISTS {} CASCADE", _pg_ident(schema)))
+                )
 
     def drop_test_database(self, connection: "ResolvedConnection") -> bool:
         """Drop connection's database if it exists.
@@ -183,7 +191,9 @@ class PostgresTestStrategy(TestDatabaseStrategy):
             If connection isn't test_only, or names a system database.
         """
         if not connection.test_only:
-            raise ValueError(f"Refusing to drop database for non-test connection {connection.name!r}.")
+            raise ValueError(
+                f"Refusing to drop database for non-test connection {connection.name!r}."
+            )
         target = sa.engine.make_url(connection.url)
         if target.database in (None, "postgres", "template0", "template1"):
             raise ValueError(f"Refusing to drop database {target.database!r}.")

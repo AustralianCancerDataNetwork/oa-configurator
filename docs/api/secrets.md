@@ -10,6 +10,7 @@ Use `Secret` for the ordinary case: an optional string that holds a credential:
 from oa_configurator.refs import Secret
 from pydantic import BaseModel, Field
 
+
 class MyToolConfig(BaseModel):
     endpoint: str
     api_key: Secret = Field(default=None, description="Token for the upstream API.")
@@ -32,7 +33,7 @@ from oa_configurator import ConnectionConfig, is_sensitive
 
 for name, info in ConnectionConfig.model_fields.items():
     if is_sensitive(info):
-        print(name)   # -> password
+        print(name)  # -> password
 ```
 
 ## Scrubbing a URL for display
@@ -74,9 +75,12 @@ from oa_configurator import ConnectionConfig, StackConfig, assert_no_sensitive_v
 
 CANARY = "canary-8f21c0-do-not-render"
 
+
 def test_snapshot_redacts_secrets():
     stack = StackConfig.for_session(
-        connections={"cdm": ConnectionConfig(dialect="sqlite", database_name=":memory:", password=CANARY)},
+        connections={
+            "cdm": ConnectionConfig(dialect="sqlite", database_name=":memory:", password=CANARY)
+        },
     )
     assert_no_sensitive_values_leak(stack, my_package.snapshot(stack))
 ```

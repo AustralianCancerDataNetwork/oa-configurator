@@ -51,6 +51,7 @@ class Role(StrEnum):
     (connection_for_role, create_engine(role=...)); Role.RESULTS has no
     connection of its own and always resolves through Role.PRIMARY's.
     """
+
     PRIMARY = "primary"
     VOCAB = "vocab"
     RESULTS = "results"
@@ -124,6 +125,7 @@ _DIALECT_PROFILES: dict[str, DialectProfile] = {
     ),
 }
 
+
 def _profile_for(dialect_name: str) -> DialectProfile:
     """DialectProfile for dialect_name.
 
@@ -142,6 +144,7 @@ def _profile_for(dialect_name: str) -> DialectProfile:
             f"Unsupported dialect {dialect_name!r}. Supported: "
             f"{sorted(str(d) for d in _DIALECT_PROFILES)}."
         ) from None
+
 
 @overload
 def _as_bind(bindable: Engine) -> Engine: ...
@@ -192,10 +195,7 @@ def open_connection(bindable: Bindable) -> Generator[Connection, None, None]:
 
 
 def qualified(
-    bindable: Bindable | IdentifierPreparer,
-    name: str,
-    *,
-    physical_schema: str | None
+    bindable: Bindable | IdentifierPreparer, name: str, *, physical_schema: str | None
 ) -> str:
     """Quoted, schema-qualified identifier, for raw SQL that's genuinely unavoidable.
     Utilises IdentifierPreparer.format_table to quote the name according to the dialect's rules.
@@ -219,7 +219,8 @@ def qualified(
         ``None``, e.g. ``"myschema"."mytable"`` or ``"mytable"``.
     """
     preparer = (
-        bindable if isinstance(bindable, IdentifierPreparer)
+        bindable
+        if isinstance(bindable, IdentifierPreparer)
         else _as_bind(bindable).dialect.identifier_preparer
     )
     return preparer.format_table(sa.table(name, schema=physical_schema))

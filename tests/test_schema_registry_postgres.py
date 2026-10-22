@@ -42,7 +42,11 @@ from oa_configurator.testing import (
 )
 from oa_configurator.testing.postgres import PostgresTestStrategy
 
-pytestmark = [pytest.mark.postgresql, pytest.mark.db_dialect, pytest.mark.usefixtures("fresh_role_registry_rows")]
+pytestmark = [
+    pytest.mark.postgresql,
+    pytest.mark.db_dialect,
+    pytest.mark.usefixtures("fresh_role_registry_rows"),
+]
 
 
 def test_registry_identity_ignores_loopback_spelling_for_baselines_and_orphan_checks(
@@ -88,7 +92,9 @@ def test_registry_identity_ignores_loopback_spelling_for_baselines_and_orphan_ch
             engine.dispose()
 
 
-def test_create_engine_derives_owner_from_the_caller_without_being_told(pg_db, pg_connection_config, cleanup_after_test):
+def test_create_engine_derives_owner_from_the_caller_without_being_told(
+    pg_db, pg_connection_config, cleanup_after_test
+):
     """A resolver-owned Role claim (schema_name here) always records
     owner=None: the same tag string means something different on every
     database entry, so tying it to whichever package called create_engine()
@@ -115,9 +121,7 @@ def test_create_engine_derives_owner_from_the_caller_without_being_told(pg_db, p
     with pg_db.connection.engine.connect() as connection:
         rows = {
             row.schema_tag: row
-            for row in connection.execute(
-                table.select().where(table.c.physical_schema == schema)
-            )
+            for row in connection.execute(table.select().where(table.c.physical_schema == schema))
         }
     assert rows["primary"].owner is None
     # Called directly from this test module: owner derives to its own top-level module.
@@ -142,7 +146,8 @@ def test_reregistering_the_same_claim_from_a_new_engine_is_a_noop(
 
 
 def test_create_engine_raises_schema_drift_for_the_same_entry_on_a_production_connection(
-    pg_db, pg_connection_config,
+    pg_db,
+    pg_connection_config,
 ):
     """create_engines() raises SchemaDriftError directly on a second call
     with a differing schema for the same entry, on a production
@@ -192,14 +197,18 @@ def test_vocab_only_connection_does_not_register_primary_or_results(
 
         strategy = PostgresTestStrategy()
         strategy._ensure_test_db_exists(vocab_connection_config.build_url())
-        cleanup_after_test(lambda: strategy.drop_test_database(vocab_connection_config.resolve("vocab")))
+        cleanup_after_test(
+            lambda: strategy.drop_test_database(vocab_connection_config.resolve("vocab"))
+        )
 
         stack = StackConfig.for_session(
             connections={"primary": primary_connection_config, "vocab": vocab_connection_config},
             databases={
                 db_name: CDMDatabaseConfig(
-                    connection="primary", vocab_connection="vocab",
-                    cdm_schema=cdm_schema, vocab_schema=vocab_schema,
+                    connection="primary",
+                    vocab_connection="vocab",
+                    cdm_schema=cdm_schema,
+                    vocab_schema=vocab_schema,
                 )
             },
         )
@@ -209,12 +218,14 @@ def test_vocab_only_connection_does_not_register_primary_or_results(
         try:
             with vocab_engine.connect() as connection:
                 vocab_role_rows = {
-                    row.schema_tag for row in _list_registry_rows(connection)
+                    row.schema_tag
+                    for row in _list_registry_rows(connection)
                     if row.database_config_name == db_name
                 } & role_tags
             with primary_engine.connect() as connection:
                 primary_role_rows = {
-                    row.schema_tag for row in _list_registry_rows(connection)
+                    row.schema_tag
+                    for row in _list_registry_rows(connection)
                     if row.database_config_name == db_name
                 } & role_tags
             # Both connections still compile cross-schema references correctly,
@@ -249,13 +260,15 @@ def test_two_databases_reusing_one_tag_on_one_connection_with_different_schemas_
     resolved = Resolver(stack).resolve_database("default")
 
     engine_a = resolved.create_engine(
-        schema_claims=[SchemaClaim(schema_tag=tag, physical_schema=schema_a)], owner="owner-a",
+        schema_claims=[SchemaClaim(schema_tag=tag, physical_schema=schema_a)],
+        owner="owner-a",
     )
     engine_a.dispose()
 
     with pytest.raises(SchemaOwnershipError, match=f"{tag!r}.*owner-a"):
         resolved.create_engine(
-            schema_claims=[SchemaClaim(schema_tag=tag, physical_schema=schema_b)], owner="owner-b",
+            schema_claims=[SchemaClaim(schema_tag=tag, physical_schema=schema_b)],
+            owner="owner-b",
         )
 
 
@@ -290,7 +303,9 @@ def test_reserved_schema_collides_with_a_different_databases_configured_schema(
         colliding_resolved.create_engine()
 
 
-def test_cdm_database_reserved_vocab_schema_collision_raises(pg_db, pg_connection_config, cleanup_after_test):
+def test_cdm_database_reserved_vocab_schema_collision_raises(
+    pg_db, pg_connection_config, cleanup_after_test
+):
     """Defense in depth for a CDMDatabaseConfig: vocab_schema colliding with
     a reservation is caught the same way as GenericDatabaseConfig's
     schema_name, via ResolvedCDMDatabase.create_engines()."""
@@ -303,9 +318,15 @@ def test_cdm_database_reserved_vocab_schema_collision_raises(pg_db, pg_connectio
         connections={"c": pg_connection_config},
         databases={"owner_db": GenericDatabaseConfig(connection="c")},
     )
-    owner_engine = Resolver(owner_stack).resolve_database("owner_db").create_engine(
-        owner="reserving-pkg",
-        schema_claims=[SchemaClaim(schema_tag=reserved, physical_schema=reserved, reserved=True)],
+    owner_engine = (
+        Resolver(owner_stack)
+        .resolve_database("owner_db")
+        .create_engine(
+            owner="reserving-pkg",
+            schema_claims=[
+                SchemaClaim(schema_tag=reserved, physical_schema=reserved, reserved=True)
+            ],
+        )
     )
     owner_engine.dispose()
 
@@ -320,7 +341,9 @@ def test_cdm_database_reserved_vocab_schema_collision_raises(pg_db, pg_connectio
         colliding_resolved.create_engines()
 
 
-def test_create_engine_without_registering_claims_writes_no_rows(pg_db, pg_connection_config, cleanup_after_test):
+def test_create_engine_without_registering_claims_writes_no_rows(
+    pg_db, pg_connection_config, cleanup_after_test
+):
     """register_claims=False builds the same translate map but leaves the
     schema_registry untouched."""
     schema = f"test_{uuid.uuid4().hex[:8]}"
@@ -359,9 +382,15 @@ def test_create_engine_without_registering_claims_still_rejects_a_reserved_schem
             connections={"c": pg_connection_config},
             databases={"owner_db": GenericDatabaseConfig(connection="c")},
         )
-        owner_engine = Resolver(owner_stack).resolve_database("owner_db").create_engine(
-            owner="reserving-pkg",
-            schema_claims=[SchemaClaim(schema_tag=reserved, physical_schema=reserved, reserved=True)],
+        owner_engine = (
+            Resolver(owner_stack)
+            .resolve_database("owner_db")
+            .create_engine(
+                owner="reserving-pkg",
+                schema_claims=[
+                    SchemaClaim(schema_tag=reserved, physical_schema=reserved, reserved=True)
+                ],
+            )
         )
         owner_engine.dispose()
 
@@ -400,9 +429,7 @@ def test_role_tag_claim_is_rejected_on_a_generic_database_before_registration(
     assert rows == []
 
 
-def test_both_engines_agree_on_every_shared_tag(
-    pg_db, pg_connection_config, cleanup_after_test
-):
+def test_both_engines_agree_on_every_shared_tag(pg_db, pg_connection_config, cleanup_after_test):
     """With cdm_schema and vocab_schema both unset, each role's schema comes
     from its own connection's live default. Before the schemas were resolved
     once per database, each engine filled the other side's tags from its own
@@ -436,9 +463,7 @@ def test_both_engines_agree_on_every_shared_tag(
 
     stack = StackConfig.for_session(
         connections={"primary": primary_connection_config, "vocab": vocab_connection_config},
-        databases={
-            db_name: CDMDatabaseConfig(connection="primary", vocab_connection="vocab")
-        },
+        databases={db_name: CDMDatabaseConfig(connection="primary", vocab_connection="vocab")},
     )
     resolved = Resolver(stack).resolve_database(db_name)
     assert resolved.vocab_schema is None
@@ -457,9 +482,7 @@ def test_both_engines_agree_on_every_shared_tag(
         vocab_engine.dispose()
 
 
-def test_topology_capability_answers_per_tag_pair(
-    pg_db, pg_connection_config, cleanup_after_test
-):
+def test_topology_capability_answers_per_tag_pair(pg_db, pg_connection_config, cleanup_after_test):
     """foreign_key_can_span and tags_share_a_transaction answer from physical
     identity, so results (which has no connection of its own) pairs with
     primary while a genuinely remote vocabulary does not."""
@@ -477,10 +500,12 @@ def test_topology_capability_answers_per_tag_pair(
         lambda: strategy.drop_test_database(vocab_connection_config.resolve("vocab"))
     )
 
-    split = Resolver(StackConfig.for_session(
-        connections={"primary": primary_connection_config, "vocab": vocab_connection_config},
-        databases={db_name: CDMDatabaseConfig(connection="primary", vocab_connection="vocab")},
-    )).resolve_database(db_name)
+    split = Resolver(
+        StackConfig.for_session(
+            connections={"primary": primary_connection_config, "vocab": vocab_connection_config},
+            databases={db_name: CDMDatabaseConfig(connection="primary", vocab_connection="vocab")},
+        )
+    ).resolve_database(db_name)
     assert split.foreign_key_can_span(Role.PRIMARY, Role.RESULTS) is True
     assert split.foreign_key_can_span(Role.PRIMARY, Role.VOCAB) is False
     assert split.tags_share_a_transaction(Role.PRIMARY, Role.VOCAB) is False
@@ -490,10 +515,12 @@ def test_topology_capability_answers_per_tag_pair(
     assert split.foreign_key_can_span("cdm_ext", Role.PRIMARY) is True
     assert split.foreign_key_can_span("cdm_ext", Role.VOCAB) is False
 
-    colocated = Resolver(StackConfig.for_session(
-        connections={"primary": primary_connection_config},
-        databases={db_name: CDMDatabaseConfig(connection="primary")},
-    )).resolve_database(db_name)
+    colocated = Resolver(
+        StackConfig.for_session(
+            connections={"primary": primary_connection_config},
+            databases={db_name: CDMDatabaseConfig(connection="primary")},
+        )
+    ).resolve_database(db_name)
     assert colocated.foreign_key_can_span(Role.PRIMARY, Role.VOCAB) is True
     assert colocated.tags_share_a_transaction(Role.PRIMARY, Role.VOCAB, Role.RESULTS) is True
 
@@ -523,7 +550,9 @@ def test_role_hosted_on_a_schemaless_connection_stays_unqualified(
         },
         databases={
             db_name: CDMDatabaseConfig(
-                connection="primary", vocab_connection="vocab", cdm_schema=cdm_schema,
+                connection="primary",
+                vocab_connection="vocab",
+                cdm_schema=cdm_schema,
             )
         },
     )
@@ -551,7 +580,9 @@ def test_two_connection_entries_for_one_database_are_not_a_split(
     db_name = f"same_db_{uuid.uuid4().hex[:8]}"
     cdm_schema = f"test_{uuid.uuid4().hex[:8]}"
     vocab_schema = f"test_{uuid.uuid4().hex[:8]}"
-    reset_schema_registry_rows(cleanup_after_test, pg_db.committing_engine, ["primary", "vocab", "results"])
+    reset_schema_registry_rows(
+        cleanup_after_test, pg_db.committing_engine, ["primary", "vocab", "results"]
+    )
     for schema in (cdm_schema, vocab_schema):
         cleanup_after_test(lambda s=schema: drop_schema_if_exists(pg_db.committing_engine, s))
 
@@ -565,8 +596,10 @@ def test_two_connection_entries_for_one_database_are_not_a_split(
         connections={"primary": primary_connection_config, "vocab_alias": vocab_connection_config},
         databases={
             db_name: CDMDatabaseConfig(
-                connection="primary", vocab_connection="vocab_alias",
-                cdm_schema=cdm_schema, vocab_schema=vocab_schema,
+                connection="primary",
+                vocab_connection="vocab_alias",
+                cdm_schema=cdm_schema,
+                vocab_schema=vocab_schema,
             )
         },
     )
@@ -580,6 +613,10 @@ def test_two_connection_entries_for_one_database_are_not_a_split(
         translate_map = primary.get_execution_options()["schema_translate_map"]
         assert translate_map["primary"] == cdm_schema
         assert translate_map["vocab"] == vocab_schema
-        assert set(resolved.roles_on_connection(primary)) == {Role.PRIMARY, Role.VOCAB, Role.RESULTS}
+        assert set(resolved.roles_on_connection(primary)) == {
+            Role.PRIMARY,
+            Role.VOCAB,
+            Role.RESULTS,
+        }
     finally:
         primary.dispose()

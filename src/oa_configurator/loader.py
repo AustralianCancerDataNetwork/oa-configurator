@@ -79,9 +79,7 @@ def _resolve_config_path() -> Path:
         if not p.exists():
             raise FileNotFoundError(f"{ENV_CONFIG_PATH} points to a non-existent file: {raw!r}")
         if p.suffix != ".toml":
-            raise ValueError(
-                f"{ENV_CONFIG_PATH} must point to a .toml file, got: {raw!r}"
-            )
+            raise ValueError(f"{ENV_CONFIG_PATH} must point to a .toml file, got: {raw!r}")
         return p
     return DEFAULT_CONFIG_PATH
 
@@ -179,7 +177,9 @@ def _load_from_path(path: str | Path) -> StackConfig:
         logger.warning(
             "Config file %s has loose permissions (mode %04o). "
             "It may contain passwords. Run 'chmod 600 %s' to restrict access.",
-            resolved_path, file_mode, resolved_path,
+            resolved_path,
+            file_mode,
+            resolved_path,
         )
 
     cached = _ConfigCache.get(resolved_path, st)

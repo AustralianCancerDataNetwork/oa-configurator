@@ -62,13 +62,11 @@ def test_preview_count_error_isolated_from_following_tables(pg_db, cleanup_after
 
 
 def test_drop_orphan_schema_tables_refuses_a_dialect_with_no_schema_concept():
-    """"Orphan schema" doesn't apply to a dialect with no real schema
+    """ "Orphan schema" doesn't apply to a dialect with no real schema
     concept at all. Must fail clearly and early, before the cross-entry
     safety check or any DDL, rather than a raw error partway through."""
     engine = sa.create_engine("sqlite:///:memory:")
-    with engine.connect() as connection, pytest.raises(
-        ValueError, match="no real schema concept"
-    ):
+    with engine.connect() as connection, pytest.raises(ValueError, match="no real schema concept"):
         drop_orphan_schema_tables(
             connection,
             stack=_EMPTY_STACK,
@@ -115,12 +113,18 @@ def test_drop_orphan_schema_tables_does_not_touch_a_table_outside_the_orphan_sch
         connection.commit()
 
     with engine.connect() as connection:
-        assert connection.execute(
-            sa.text("SELECT to_regclass(:name)"), {"name": f"{live_schema}.parent"}
-        ).scalar() is not None, "table outside the orphan schema must not be dropped"
-        assert connection.execute(
-            sa.text("SELECT to_regclass(:name)"), {"name": f"{orphan_schema}.child"}
-        ).scalar() is None
+        assert (
+            connection.execute(
+                sa.text("SELECT to_regclass(:name)"), {"name": f"{live_schema}.parent"}
+            ).scalar()
+            is not None
+        ), "table outside the orphan schema must not be dropped"
+        assert (
+            connection.execute(
+                sa.text("SELECT to_regclass(:name)"), {"name": f"{orphan_schema}.child"}
+            ).scalar()
+            is None
+        )
 
 
 @pytest.mark.postgresql
@@ -148,13 +152,17 @@ def test_drop_orphan_schema_tables_does_not_translate_an_orphan_named_like_a_tag
 
     with pg_db.committing_engine.begin() as connection:
         connection.execute(sa.text(f'CREATE SCHEMA "{legacy_schema}"'))
-        connection.execute(sa.text(f'CREATE TABLE "{legacy_schema}".concept (id INTEGER PRIMARY KEY)'))
+        connection.execute(
+            sa.text(f'CREATE TABLE "{legacy_schema}".concept (id INTEGER PRIMARY KEY)')
+        )
 
     stack = StackConfig.for_session(
         connections={"orphan_tag_conn": pg_connection_config},
         databases={
             db_name: CDMDatabaseConfig(
-                connection="orphan_tag_conn", cdm_schema=configured_schema, vocab_schema=configured_schema,
+                connection="orphan_tag_conn",
+                cdm_schema=configured_schema,
+                vocab_schema=configured_schema,
             ),
         },
     )
@@ -165,31 +173,45 @@ def test_drop_orphan_schema_tables_does_not_translate_an_orphan_named_like_a_tag
     for engine in set(resolved.create_engines()):
         engine.dispose()
     with pg_db.committing_engine.begin() as connection:
-        connection.execute(sa.text(f'CREATE TABLE "{configured_schema}".concept (id INTEGER PRIMARY KEY)'))
+        connection.execute(
+            sa.text(f'CREATE TABLE "{configured_schema}".concept (id INTEGER PRIMARY KEY)')
+        )
 
-    engine, _ = resolved.create_engines()  # carries schema_translate_map, including {"vocab": configured_schema}
+    engine, _ = (
+        resolved.create_engines()
+    )  # carries schema_translate_map, including {"vocab": configured_schema}
     try:
         with engine.begin() as connection:
-            drop_orphan_schema_tables(connection, stack=stack, orphan_schema=legacy_schema, confirm=True)
+            drop_orphan_schema_tables(
+                connection, stack=stack, orphan_schema=legacy_schema, confirm=True
+            )
     finally:
         engine.dispose()
 
     with pg_db.committing_engine.connect() as connection:
-        assert connection.execute(
-            sa.text("SELECT to_regclass(:name)"), {"name": f"{legacy_schema}.concept"}
-        ).scalar() is None, "the orphan table itself must be dropped"
-        assert connection.execute(
-            sa.text("SELECT to_regclass(:name)"), {"name": f"{configured_schema}.concept"}
-        ).scalar() is not None, "the live, configured schema must survive untouched"
+        assert (
+            connection.execute(
+                sa.text("SELECT to_regclass(:name)"), {"name": f"{legacy_schema}.concept"}
+            ).scalar()
+            is None
+        ), "the orphan table itself must be dropped"
+        assert (
+            connection.execute(
+                sa.text("SELECT to_regclass(:name)"), {"name": f"{configured_schema}.concept"}
+            ).scalar()
+            is not None
+        ), "the live, configured schema must survive untouched"
 
 
 @pytest.mark.postgresql
 @pytest.mark.db_dialect
-def test_schema_is_a_current_target_never_leaks_a_role_from_a_different_server(pg_db, pg_connection_config):
+def test_schema_is_a_current_target_never_leaks_a_role_from_a_different_server(
+    pg_db, pg_connection_config
+):
     """A CDM database's vocab_schema must never be reported as a current
     target of a connection that is genuinely a different physical server
-    than vocab_connection. 
-    
+    than vocab_connection.
+
     This is a regression test for occupied_schemas()
     unconditionally including every role's schema regardless of which
     connection was actually passed in.

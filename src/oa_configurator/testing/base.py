@@ -126,10 +126,10 @@ class TestDatabaseStrategy(ABC):
 
     @staticmethod
     def _resolve_and_check(
-        config_cls: type["PackageConfigBase"], 
-        field_name: str, 
-        *, 
-        resolver: "Resolver | None" = None
+        config_cls: type["PackageConfigBase"],
+        field_name: str,
+        *,
+        resolver: "Resolver | None" = None,
     ) -> "ResolvedDatabase":
         """Resolve *field_name* off *config_cls* and enforce ``test_only``.
 
@@ -225,11 +225,7 @@ class TestDatabaseStrategy(ABC):
 
         target = connection_key(url)
         match = next(
-            (
-                name
-                for name, conn in config.connections.items()
-                if conn.physical_key() == target
-            ),
+            (name for name, conn in config.connections.items() if conn.physical_key() == target),
             None,
         )
         if match is None:

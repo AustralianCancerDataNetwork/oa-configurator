@@ -264,6 +264,7 @@ class MyPackageConfig(PackageConfigBase):
 from typing import Annotated, ClassVar
 from oa_configurator import CDMDatabaseConfig, PackageConfigBase, RefTo
 
+
 class MyPackageConfig(PackageConfigBase):
     tool_name: ClassVar[str] = "my_package"
     cdm_db: Annotated[str, RefTo(CDMDatabaseConfig)] = "cdm_db"

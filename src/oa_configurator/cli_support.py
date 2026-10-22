@@ -94,7 +94,10 @@ def _check_entry_refs(entry: BaseModel, config: StackConfig) -> None:
 # providers/models in domains/llm).
 # ------------------
 
-def _add_entry(target: type[BaseModel], section: str, name: str, flags: dict[str, Any] | None) -> None:
+
+def _add_entry(
+    target: type[BaseModel], section: str, name: str, flags: dict[str, Any] | None
+) -> None:
     """Shared body for every `<section> add <name>` command.
 
     Before saving, re-validates the whole config with the new entry
@@ -120,8 +123,12 @@ def _add_entry(target: type[BaseModel], section: str, name: str, flags: dict[str
     section_dict = getattr(config, section)
     existing = section_dict.get(name)
     missing_required: list[str] = []
-    entry = _resolve_named_entry(target, config, flags=flags, existing=existing, missing_required=missing_required)
-    _check_missing_required(f"{section[:-1]} {name!r}", missing_required, non_interactive=flags is not None)
+    entry = _resolve_named_entry(
+        target, config, flags=flags, existing=existing, missing_required=missing_required
+    )
+    _check_missing_required(
+        f"{section[:-1]} {name!r}", missing_required, non_interactive=flags is not None
+    )
     assert entry is not None  # guaranteed by the missing_required check above
     _check_entry_refs(entry, config)
 
@@ -132,18 +139,23 @@ def _add_entry(target: type[BaseModel], section: str, name: str, flags: dict[str
         )
 
     candidate_sections = {
-        s: dict(getattr(config, s)) for s in ("connections", "databases", "providers", "models", "vector_stores")
+        s: dict(getattr(config, s))
+        for s in ("connections", "databases", "providers", "models", "vector_stores")
     }
     candidate_sections[section][name] = entry
     try:
         StackConfig(**candidate_sections, tools=config.tools, logging=config.logging)
     except ValueError as exc:
-        err_console.print(f"[red bold]Saving {name!r} would break an existing reference:[/red bold] {exc}")
+        err_console.print(
+            f"[red bold]Saving {name!r} would break an existing reference:[/red bold] {exc}"
+        )
         raise typer.Exit(1)
 
     section_dict[name] = entry
     _save_stack_config_or_exit(config)
-    console.print(f"[green]✓[/green] Saved \\[{section}.{name}] to [dim]{active_config_path()}[/dim]")
+    console.print(
+        f"[green]✓[/green] Saved \\[{section}.{name}] to [dim]{active_config_path()}[/dim]"
+    )
 
 
 def _list_entries(target: type[BaseModel], section: str) -> None:
@@ -162,6 +174,7 @@ def _list_entries(target: type[BaseModel], section: str) -> None:
         config = load_stack_config()
     except FileNotFoundError:
         from .loader import active_config_path
+
         err_console.print(f"[red]Config file not found:[/red] {active_config_path()}")
         raise typer.Exit(1)
 

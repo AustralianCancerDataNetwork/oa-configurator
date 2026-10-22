@@ -11,8 +11,7 @@ from oa_configurator import (
     configure_logging,
     get_logger,
 )
-from oa_configurator.logging_config import RedactingFilter
-from oa_configurator.logging_config import LoggingConfig
+from oa_configurator.logging_config import LoggingConfig, RedactingFilter
 
 
 def _reset(*names: str) -> None:

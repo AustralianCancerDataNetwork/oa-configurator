@@ -13,13 +13,13 @@ from pydantic import BaseModel, Field
 from oa_configurator import (
     CDMDatabaseConfig,
     ConnectionConfig,
+    Dialect,
     ProviderConfig,
     SensitiveValueLeak,
     StackConfig,
     assert_no_sensitive_values_leak,
     is_sensitive,
     safe_endpoint,
-    Dialect,
 )
 from oa_configurator.refs import Secret
 

@@ -20,16 +20,15 @@ from typing import Annotated, Any
 import rich
 import sqlalchemy as sa
 import typer
-from typer.core import TyperGroup
 from rich.console import Console
 from rich.table import Table
+from typer.core import TyperGroup
 
 from .cli_support import _build_entry_params, _save_stack_config_or_exit
 from .domains.llm.cli import models_app, providers_app
 from .domains.resources.cli import connections_app, databases_app
 from .domains.resources.rectify import drop_orphan_schema_tables
 from .domains.resources.schema import ResolvedCDMDatabase, ResolvedDatabase, Role
-from .domains.resources.sql import Dialect, connection_key
 from .domains.resources.schema_registry import (
     SchemaDriftError,
     _guard_schema_provenance,
@@ -38,13 +37,14 @@ from .domains.resources.schema_registry import (
     _release_schema_claim,
     physical_schema_of,
 )
+from .domains.resources.sql import Dialect, connection_key
 from .domains.vector_stores.cli import vector_stores_app
 from .io import save_stack_config, write_env_file
 from .loader import active_config_path, load_stack_config
 from .logging_config import configure_logging
-from .stack_config import StackConfig
 from .package_base import PackageConfigBase
 from .resolver import Resolver
+from .stack_config import StackConfig
 
 app = typer.Typer(name="omop-config", no_args_is_help=True, add_completion=False)
 console = Console()

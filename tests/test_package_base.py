@@ -13,6 +13,7 @@ from oa_configurator import (
     CDMDatabaseConfig,
     ConfigurationError,
     ConnectionConfig,
+    Dialect,
     GenericDatabaseConfig,
     ModelConfig,
     PackageConfigBase,
@@ -26,7 +27,6 @@ from oa_configurator import (
     mismatched_kind_refs,
     plan_configure,
     unresolved_refs,
-    Dialect,
 )
 from oa_configurator.domains.resources.schema import DatabaseConfig
 from oa_configurator.refs import Sensitive

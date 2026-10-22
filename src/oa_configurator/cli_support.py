@@ -18,8 +18,8 @@ from typing import Annotated, Any
 from pydantic import BaseModel
 
 from .refs import MASK, is_sensitive
-from .stack_config import StackConfig, mismatched_kind_refs, unresolved_refs
 from .resolver import _check_missing_required, _flag_name, _is_flag_settable, _resolve_named_entry
+from .stack_config import StackConfig, mismatched_kind_refs, unresolved_refs
 
 
 def _save_stack_config_or_exit(

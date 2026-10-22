@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Callable, Generator, Iterable, Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import sqlalchemy as sa
@@ -36,7 +37,7 @@ def _pg_ddl(template: str, *parts: object) -> str:
     return SQL(template).format(*parts).as_string(None)  # ty: ignore[invalid-argument-type]
 
 
-def drop_schema_if_exists(engine: "sa.Engine", schema: str) -> None:
+def drop_schema_if_exists(engine: sa.Engine, schema: str) -> None:
     """Drop *schema* (CASCADE) on *engine* if it exists.
 
     Notes
@@ -134,9 +135,9 @@ class PostgresTestStrategy(TestDatabaseStrategy):
     @contextmanager
     def isolated_database(
         self,
-        resolved: "ResolvedDatabase",
+        resolved: ResolvedDatabase,
         *,
-        schema_claims: Iterable["SchemaClaim"] = (),
+        schema_claims: Iterable[SchemaClaim] = (),
         execution_options: dict[str, Any] | None = None,
         **engine_kwargs: Any,
     ) -> Generator[IsolatedTestDatabase, None, None]:
@@ -182,7 +183,7 @@ class PostgresTestStrategy(TestDatabaseStrategy):
                     sa.text(_pg_ddl("DROP SCHEMA IF EXISTS {} CASCADE", _pg_ident(schema)))
                 )
 
-    def drop_test_database(self, connection: "ResolvedConnection") -> bool:
+    def drop_test_database(self, connection: ResolvedConnection) -> bool:
         """Drop connection's database if it exists.
 
         Raises

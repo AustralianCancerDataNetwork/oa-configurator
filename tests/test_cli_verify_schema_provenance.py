@@ -15,14 +15,14 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from oa_configurator import CDMDatabaseConfig, ConnectionConfig, Role, StackConfig
-from oa_configurator.domains.resources.schema_registry import _record_schema_provenance
+from conftest import register_entry
 from typer.testing import CliRunner
 
+from oa_configurator import CDMDatabaseConfig, ConnectionConfig, Role, StackConfig
 from oa_configurator.cli import app
+from oa_configurator.domains.resources.schema_registry import _record_schema_provenance
 from oa_configurator.resolver import Resolver
 from oa_configurator.testing import isolated_test_schema
-from conftest import register_entry
 
 pytestmark = [
     pytest.mark.postgresql,

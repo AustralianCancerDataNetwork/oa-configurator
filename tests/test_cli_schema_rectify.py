@@ -13,13 +13,13 @@ import uuid
 
 import pytest
 import sqlalchemy as sa
-from oa_configurator import CDMDatabaseConfig, ConnectionConfig, GenericDatabaseConfig, StackConfig
-from oa_configurator.domains.resources.schema_registry import _record_schema_provenance
-from oa_configurator.testing import isolated_test_schema, reset_schema_registry_rows
+from conftest import register_entry, registry_row
 from typer.testing import CliRunner
 
+from oa_configurator import CDMDatabaseConfig, ConnectionConfig, GenericDatabaseConfig, StackConfig
 from oa_configurator.cli import app
-from conftest import register_entry, registry_row
+from oa_configurator.domains.resources.schema_registry import _record_schema_provenance
+from oa_configurator.testing import isolated_test_schema, reset_schema_registry_rows
 
 pytestmark = [
     pytest.mark.postgresql,

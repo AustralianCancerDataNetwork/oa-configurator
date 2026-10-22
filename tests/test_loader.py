@@ -16,6 +16,7 @@ from oa_configurator import (
     StackConfig,
     StackConfigInvalidError,
 )
+from oa_configurator.domains.resources.sql import Dialect
 from oa_configurator.io import save_stack_config
 from oa_configurator.loader import (
     DEFAULT_CONFIG_PATH,
@@ -26,7 +27,6 @@ from oa_configurator.loader import (
     invalidate_cache,
     load_stack_config,
 )
-from oa_configurator.domains.resources.sql import Dialect
 
 
 @pytest.fixture(autouse=True)

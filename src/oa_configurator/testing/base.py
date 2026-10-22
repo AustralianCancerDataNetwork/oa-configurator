@@ -8,9 +8,10 @@ table. No other code changes are needed.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Iterable, Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from sqlalchemy import Connection, Engine
@@ -67,7 +68,7 @@ class IsolatedTestDatabase:
 
     connection: Connection
     session: Session
-    resolved: "ResolvedDatabase | None" = None
+    resolved: ResolvedDatabase | None = None
 
     @property
     def committing_engine(self) -> Engine:
@@ -126,11 +127,11 @@ class TestDatabaseStrategy(ABC):
 
     @staticmethod
     def _resolve_and_check(
-        config_cls: type["PackageConfigBase"],
+        config_cls: type[PackageConfigBase],
         field_name: str,
         *,
-        resolver: "Resolver | None" = None,
-    ) -> "ResolvedDatabase":
+        resolver: Resolver | None = None,
+    ) -> ResolvedDatabase:
         """Resolve *field_name* off *config_cls* and enforce ``test_only``.
 
         Dialect-agnostic: resolving a config field and checking a
@@ -189,7 +190,7 @@ class TestDatabaseStrategy(ABC):
             pytest.fail(_not_test_only_message(name, connection_name))
         return resolved
 
-    def resolve_without_config(self) -> "ResolvedDatabase":
+    def resolve_without_config(self) -> ResolvedDatabase:
         """Build a ``ResolvedDatabase`` needing no real configuration.
 
         Raises :class:`TestDatabaseNotConfigured` for any strategy that requires a
@@ -236,9 +237,9 @@ class TestDatabaseStrategy(ABC):
     @abstractmethod
     def isolated_database(
         self,
-        resolved: "ResolvedDatabase",
+        resolved: ResolvedDatabase,
         *,
-        schema_claims: Iterable["SchemaClaim"] = (),
+        schema_claims: Iterable[SchemaClaim] = (),
         execution_options: dict[str, Any] | None = None,
         **engine_kwargs: Any,
     ) -> AbstractContextManager[IsolatedTestDatabase]:
@@ -273,7 +274,7 @@ class TestDatabaseStrategy(ABC):
         """
 
     @abstractmethod
-    def drop_test_database(self, connection: "ResolvedConnection") -> bool:
+    def drop_test_database(self, connection: ResolvedConnection) -> bool:
         """Drop connection's leftover test database, if this dialect has one.
 
         Only for connections marked ``test_only=true``. Returns True if a

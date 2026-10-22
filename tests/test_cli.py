@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Annotated, ClassVar
+
 import pytest
 import typer
 from pydantic import Field
 from typer.testing import CliRunner
 
-from typing import Annotated, ClassVar
-
-import oa_configurator.cli as cli
 from oa_configurator import (
     CDMDatabaseConfig,
     ConnectionConfig,
@@ -20,12 +19,13 @@ from oa_configurator import (
     StackConfig,
     VectorStoreConfig,
     assert_no_sensitive_values_leak,
+    cli,
 )
+from oa_configurator.domains.resources.sql import Dialect
 from oa_configurator.io import save_stack_config as _real_save_stack_config
 from oa_configurator.loader import load_stack_config
 from oa_configurator.package_base import PackageConfigBase
 from oa_configurator.resolver import _resolve_ref
-from oa_configurator.domains.resources.sql import Dialect
 from oa_configurator.testing.postgres import PostgresTestStrategy
 
 runner = CliRunner()
@@ -42,8 +42,8 @@ def isolated_config(tmp_path, monkeypatch):
     import oa_configurator.loader as loader_mod
 
     config_path = tmp_path / "config.toml"
-    load = lambda path=config_path: load_stack_config(path)  # noqa: E731
-    save = lambda config: _real_save_stack_config(config, path=config_path)  # noqa: E731
+    load = lambda path=config_path: load_stack_config(path)
+    save = lambda config: _real_save_stack_config(config, path=config_path)
 
     monkeypatch.setattr(cli, "load_stack_config", load)
     monkeypatch.setattr(cli, "save_stack_config", save)

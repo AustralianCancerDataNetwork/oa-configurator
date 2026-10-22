@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -82,11 +82,11 @@ class TestConnectionConfig:
 
     def test_dialect_required(self):
         with pytest.raises(ValidationError):
-            ConnectionConfig()  # type: ignore
+            ConnectionConfig.model_validate({})
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(ValidationError):
-            ConnectionConfig(dialect=Dialect.SQLITE, unknown_field="x")  # type: ignore
+            ConnectionConfig.model_validate({"dialect": Dialect.SQLITE, "unknown_field": "x"})
 
 
 class TestGenericDatabaseConfig:
@@ -97,11 +97,11 @@ class TestGenericDatabaseConfig:
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(ValidationError):
-            GenericDatabaseConfig(connection="db", vocab_schema="x")  # type: ignore
+            GenericDatabaseConfig.model_validate({"connection": "db", "vocab_schema": "x"})
 
     def test_kind_cannot_be_overridden(self):
         with pytest.raises(ValidationError):
-            GenericDatabaseConfig(connection="db", kind="cdm")  # type: ignore
+            GenericDatabaseConfig.model_validate({"connection": "db", "kind": "cdm"})
 
 
 class TestCDMDatabaseConfig:
@@ -118,11 +118,11 @@ class TestCDMDatabaseConfig:
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(ValidationError):
-            CDMDatabaseConfig(connection="db", unknown="x")  # type: ignore
+            CDMDatabaseConfig.model_validate({"connection": "db", "unknown": "x"})
 
     def test_legacy_schema_name_points_to_upgrade_path(self):
         with pytest.raises(ValidationError) as exc_info:
-            CDMDatabaseConfig(connection="db", schema_name="omop")  # type: ignore
+            CDMDatabaseConfig.model_validate({"connection": "db", "schema_name": "omop"})
         message = str(exc_info.value)
         assert "looks like a 1.x config" in message
         assert "schema_name" in message and "cdm_schema" in message
@@ -139,35 +139,35 @@ class TestCDMDatabaseConfig:
 
 class TestDatabaseKindDiscrimination:
     def test_missing_kind_rejected(self):
+        raw_databases: Any = {"r": {"connection": "c"}}
         with pytest.raises(Exception, match="kind"):
             StackConfig.for_session(
                 connections={
                     "c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
                 },
-                databases={"r": {"connection": "c"}},  # ty: ignore[invalid-argument-type]
+                databases=raw_databases,
             )
 
     def test_raw_dict_dispatches_by_kind(self):
+        raw_databases: Any = {
+            "g": {"kind": "generic", "connection": "c"},
+            "d": {"kind": "cdm", "connection": "c"},
+        }
         cfg = StackConfig.for_session(
             connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
-            databases=cast(
-                Any,
-                {
-                    "g": {"kind": "generic", "connection": "c"},
-                    "d": {"kind": "cdm", "connection": "c"},
-                },
-            ),
+            databases=raw_databases,
         )
         assert isinstance(cfg.databases["g"], GenericDatabaseConfig)
         assert isinstance(cfg.databases["d"], CDMDatabaseConfig)
 
     def test_unknown_kind_rejected(self):
+        raw_databases: Any = {"r": {"kind": "bogus", "connection": "c"}}
         with pytest.raises(ValidationError):
             StackConfig.for_session(
                 connections={
                     "c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
                 },
-                databases={"r": {"kind": "bogus", "connection": "c"}},  # ty: ignore[invalid-argument-type]
+                databases=raw_databases,
             )
 
 
@@ -211,9 +211,10 @@ class TestStackConfig:
 
     def test_for_session_accepts_raw_dicts(self):
         """Raw, TOML-table-shaped dicts (not DatabaseConfig instances) still coerce at validation time."""
+        raw_databases: Any = {"r": {"connection": "c", "kind": "cdm"}}
         cfg = StackConfig.for_session(
             connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
-            databases={"r": {"connection": "c", "kind": "cdm"}},  # ty: ignore[invalid-argument-type]
+            databases=raw_databases,
         )
         assert isinstance(cfg.connections["c"], ConnectionConfig)
         assert isinstance(cfg.databases["r"], DatabaseConfig)
@@ -241,7 +242,7 @@ class TestStackConfig:
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(ValidationError):
-            StackConfig(unknown_top_level="x")  # type: ignore
+            StackConfig.model_validate({"unknown_top_level": "x"})
 
     def test_cross_ref_validation_unknown_provider(self):
         with pytest.raises(ValueError, match="unknown provider"):
@@ -544,11 +545,11 @@ class TestProviderConfig:
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(ValidationError):
-            ProviderConfig(provider="ollama", unknown_field="x")  # type: ignore
+            ProviderConfig.model_validate({"provider": "ollama", "unknown_field": "x"})
 
     def test_provider_required(self):
         with pytest.raises(ValidationError):
-            ProviderConfig()  # type: ignore
+            ProviderConfig.model_validate({})
 
 
 class TestModelConfig:
@@ -595,4 +596,4 @@ class TestModelConfig:
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(ValidationError):
-            ModelConfig(provider="p", model="m", unknown_field="x")  # type: ignore
+            ModelConfig.model_validate({"provider": "p", "model": "m", "unknown_field": "x"})

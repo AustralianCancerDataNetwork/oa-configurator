@@ -59,7 +59,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Generator, Iterable, Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
-from typing import TYPE_CHECKING, Any, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import pytest
 import sqlalchemy as sa
@@ -610,7 +610,7 @@ def reset_schema_registry_rows(
 
     TestDatabaseStrategy._require_test_only_engine(engine)
 
-    table = cast(sa.Table, SchemaRegistry.__table__)
+    table = SchemaRegistry.table()
     condition = table.c.schema_tag.in_(list(schema_tags))
 
     with engine.begin() as connection:

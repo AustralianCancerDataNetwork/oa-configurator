@@ -17,7 +17,7 @@ import datetime
 import logging
 from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Any, NamedTuple, cast
+from typing import Any, NamedTuple
 
 import sqlalchemy as sa
 from sqlalchemy.engine import Connection
@@ -197,6 +197,19 @@ class SchemaRegistry(_SchemaRegistryBase):
     acknowledged_at: Mapped[datetime.datetime | None] = mapped_column()
     reason: Mapped[str | None] = mapped_column(sa.Text)
 
+    @classmethod
+    def table(cls) -> sa.Table:
+        """Return the table this class is mapped to.
+
+        Returns
+        -------
+        sqlalchemy.Table
+            The mapped table.
+        """
+        table = cls.__table__
+        assert isinstance(table, sa.Table)
+        return table
+
 
 class RegistryRow(NamedTuple):
     """One schema_registry row, as surfaced by :func:`_list_registry_rows`."""
@@ -245,7 +258,7 @@ def _ensure_schema_registry_table(connection: Connection) -> Connection:
     ensure_schema(connection, physical_schema)
     connection = _with_provenance_translate_map(connection, physical_schema=physical_schema)
     if not _has_schema_registry_table(connection):
-        cast(sa.Table, SchemaRegistry.__table__).create(bind=connection)
+        SchemaRegistry.table().create(bind=connection)
     return connection
 
 
@@ -916,7 +929,7 @@ def _has_schema_registry_table(connection: Connection) -> bool:
         column["name"]
         for column in inspector.get_columns(SCHEMA_REGISTRY_TABLE_NAME, schema=bookkeeping_schema)
     }
-    expected_columns = {column.name for column in SchemaRegistry.__table__.columns}
+    expected_columns = {column.name for column in SchemaRegistry.table().columns}
     if columns != expected_columns:
         table = (
             f"{bookkeeping_schema}.{SCHEMA_REGISTRY_TABLE_NAME}"

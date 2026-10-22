@@ -404,7 +404,7 @@ class TestResolveVectorStore:
 
     def test_database_required(self):
         with pytest.raises(ValidationError, match="database"):
-            VectorStoreConfig(backend_type="sqlitevec")  # ty: ignore[missing-argument]
+            VectorStoreConfig.model_validate({"backend_type": "sqlitevec"})
 
     def test_configuration_passthrough(self):
         cfg = StackConfig.for_session(

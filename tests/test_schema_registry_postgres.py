@@ -12,11 +12,9 @@ restores each test's own tags, and fresh_role_registry_rows the Role tags.
 from __future__ import annotations
 
 import uuid
-from typing import cast
 
 import pytest
 import sqlalchemy as sa
-from sqlalchemy import Table
 
 from oa_configurator import (
     CDMDatabaseConfig,
@@ -50,17 +48,17 @@ pytestmark = [
 ]
 
 
-def test_registry_identity_ignores_loopback_spelling_for_baselines_and_orphan_checks(
-    pg_db, pg_connection_config, cleanup_after_test
+def test_registry_identity_ignores_host_spelling_for_baselines_and_orphan_checks(
+    pg_db, pg_connection_config, pg_host_aliases, cleanup_after_test
 ):
-    """The in-database registry must see one claim through localhost aliases."""
+    """The in-database registry must see one claim through a host name and its IP."""
     tag = f"alias_{uuid.uuid4().hex[:8]}"
     schema = f"test_{uuid.uuid4().hex[:8]}"
     database_name = f"alias_entry_{uuid.uuid4().hex[:8]}"
     reset_schema_registry_rows(cleanup_after_test, pg_db.committing_engine, [tag])
     cleanup_after_test(lambda: drop_schema_if_exists(pg_db.committing_engine, schema))
     configs = []
-    for host in ("127.0.0.1", "localhost"):
+    for host in pg_host_aliases:
         connection_config = pg_connection_config.model_copy(
             update={"host": host, "port": pg_connection_config.port, "test_only": True}
         )
@@ -118,7 +116,7 @@ def test_create_engine_derives_owner_from_the_caller_without_being_told(
     )
     engine.dispose()
 
-    table = cast(Table, SchemaRegistry.__table__)
+    table = SchemaRegistry.table()
     with pg_db.connection.engine.connect() as connection:
         rows = {
             row.schema_tag: row
@@ -369,7 +367,7 @@ def test_create_engine_without_registering_claims_writes_no_rows(
     unregistered_map = unregistered.get_execution_options()["schema_translate_map"]
     unregistered.dispose()
 
-    table = cast(Table, SchemaRegistry.__table__)
+    table = SchemaRegistry.table()
     with pg_db.connection.engine.connect() as connection:
         rows = connection.execute(table.select().where(table.c.physical_schema == schema)).all()
     assert rows == []
@@ -426,7 +424,7 @@ def test_role_tag_claim_is_rejected_on_a_generic_database_before_registration(
             owner="owner-a",
         )
 
-    table = cast(Table, SchemaRegistry.__table__)
+    table = SchemaRegistry.table()
     with pg_db.connection.engine.connect() as connection:
         rows = connection.execute(
             table.select().where(
@@ -580,7 +578,7 @@ def test_role_hosted_on_a_schemaless_connection_stays_unqualified(
 
 
 def test_two_connection_entries_for_one_database_are_not_a_split(
-    pg_db, pg_connection_config, cleanup_after_test
+    pg_db, pg_connection_config, pg_host_aliases, cleanup_after_test
 ):
     """Split is decided by physical identity, not by which config entry a role
     names. Two entries addressing one database collapse to a single engine, so
@@ -595,11 +593,13 @@ def test_two_connection_entries_for_one_database_are_not_a_split(
     for schema in (cdm_schema, vocab_schema):
         cleanup_after_test(lambda s=schema: drop_schema_if_exists(pg_db.committing_engine, s))
 
-    # Deliberately two entries, same database, reached by different loopback
-    # spellings. Keep the review server's configured port on both URLs.
-    primary_connection_config = pg_connection_config.model_copy(update={"test_only": True})
+    # Deliberately two entries, same database, reached by a host name and its IP.
+    primary_host, vocab_host = pg_host_aliases
+    primary_connection_config = pg_connection_config.model_copy(
+        update={"test_only": True, "host": primary_host}
+    )
     vocab_connection_config = pg_connection_config.model_copy(
-        update={"test_only": True, "host": "localhost", "port": pg_connection_config.port}
+        update={"test_only": True, "host": vocab_host}
     )
     stack = StackConfig.for_session(
         connections={"primary": primary_connection_config, "vocab_alias": vocab_connection_config},

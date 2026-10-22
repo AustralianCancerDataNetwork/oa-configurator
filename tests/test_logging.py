@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -64,8 +65,9 @@ class TestConfigureLogging:
         assert logging.getLogger("oa_configurator").level == logging.INFO
 
     def test_invalid_config_type_raises(self):
+        not_a_config: Any = "not a config"
         with pytest.raises(TypeError):
-            configure_logging("not a config")  # type: ignore
+            configure_logging(not_a_config)
 
 
 class TestGetLogger:

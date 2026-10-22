@@ -6,6 +6,9 @@ All tests use StackConfig.for_session() or tmp_path.
 
 from __future__ import annotations
 
+import ipaddress
+import socket
+
 import pytest
 import sqlalchemy as sa
 import typer.rich_utils as _typer_rich_utils
@@ -113,6 +116,23 @@ def pg_connection_config(pg_db) -> ConnectionConfig:
         password=url.password,
         database_name=url.database,
     )
+
+
+@pytest.fixture
+def pg_host_aliases(pg_connection_config) -> tuple[str, str]:
+    """Two spellings of the host pg_db is reached at: its name and its IP.
+
+    A loopback IP pairs with ``localhost``. A server addressed by an
+    IP that is not loopback has no second spelling, so the test is skipped.
+    """
+    host = pg_connection_config.host
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return host, socket.gethostbyname(host)
+    if address.is_loopback:
+        return "localhost", host
+    pytest.skip(f"test_db_pg is addressed by the non-loopback IP {host}; no second spelling")
 
 
 @pytest.fixture

@@ -61,6 +61,9 @@ packages = ["src/oa_configurator"]
 [tool.uv]
 cache-keys = [{ file = "pyproject.toml" }, { git = { commit = true, tags = true } }]
 
+[tool.ruff]
+line-length = 100
+
 [tool.pytest.ini_options]
 addopts = "-m 'not db_dialect'"
 markers = [

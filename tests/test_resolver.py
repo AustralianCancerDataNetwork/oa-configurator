@@ -93,6 +93,7 @@ class TestResolveDatabase:
             databases={"cdm": CDMDatabaseConfig(connection="primary", vocab_connection="vocab")},
         )
         resolved = Resolver(stack).resolve_database("cdm")
+        assert isinstance(resolved, ResolvedCDMDatabase)
         assert not resolved.connection.addresses_same_database_as(resolved.vocab_connection)
         assert not resolved.tags_share_a_transaction(Role.PRIMARY, Role.VOCAB)
 
@@ -130,6 +131,7 @@ class TestResolveDatabase:
             databases={"cdm": CDMDatabaseConfig(connection="c")},
         )
         resolved = Resolver(stack).resolve_database("cdm")
+        assert isinstance(resolved, ResolvedCDMDatabase)
         with pytest.raises(ProbeAttempt):
             resolved.create_engines(creator=recording_creator)
         assert calls == ["creator"]
@@ -159,6 +161,7 @@ class TestResolveDatabase:
             databases={"cdm": CDMDatabaseConfig(connection="c")},
         )
         resolved = Resolver(stack).resolve_database("cdm")
+        assert isinstance(resolved, ResolvedCDMDatabase)
         with pytest.raises(ProbeAttempt):
             resolved.create_engines(connect_args={"application_name": "probe-test"})
         assert calls[0]["application_name"] == "probe-test"
@@ -567,6 +570,7 @@ class TestCreateEngine:
     def test_cdm_database_create_engines(self, minimal_stack):
         r = Resolver(minimal_stack)
         res = r.resolve_database("default")
+        assert isinstance(res, ResolvedCDMDatabase)
         primary, vocab = res.create_engines()
         assert primary.dialect.name == Dialect.SQLITE
         assert vocab is primary
@@ -582,6 +586,7 @@ class TestCreateEngine:
         to schema_translate_map, so a raw execution_options override is
         rejected unconditionally."""
         resolved = Resolver(minimal_stack).resolve_database("default")
+        assert isinstance(resolved, ResolvedCDMDatabase)
 
         with pytest.raises(ValueError, match="Utilise schema_claims instead"):
             resolved.create_engines(
@@ -590,6 +595,7 @@ class TestCreateEngine:
 
     def test_schema_claims_rejects_a_resolver_managed_tag(self, pg_stack):
         resolved = Resolver(pg_stack).resolve_database("default")
+        assert isinstance(resolved, ResolvedCDMDatabase)
 
         with pytest.raises(ValueError, match="resolver-managed schema_tag"):
             resolved.create_engines(
@@ -601,6 +607,7 @@ class TestCreateEngine:
         very first connection opened after create_engines() returns -- the exact
         timing gap a connect-event listener attached afterwards would miss."""
         resolved = Resolver(minimal_stack).resolve_database("default")
+        assert isinstance(resolved, ResolvedCDMDatabase)
         calls = []
         engine, _ = resolved.create_engines(extensions=[lambda conn, record: calls.append(1)])
 
@@ -621,6 +628,7 @@ class TestCreateEngine:
             databases={"default": CDMDatabaseConfig(connection="db")},
         )
         resolved = Resolver(stack).resolve_database("default")
+        assert isinstance(resolved, ResolvedCDMDatabase)
         calls = []
         engine, _ = resolved.create_engines(extensions=[lambda conn, record: calls.append(1)])
 

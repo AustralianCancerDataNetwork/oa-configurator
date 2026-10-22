@@ -192,6 +192,7 @@ class TestSQLiteStrategyResolvedTypes:
         resolved = Resolver(cfg).resolve_database("generic")
 
         with SQLiteTestStrategy().isolated_database(resolved) as isolated:
+            assert isolated.resolved is not None
             assert isolated.resolved.name == resolved.name
             engine = isolated.resolved.create_engine(register_claims=False)
             try:
@@ -217,6 +218,7 @@ class TestSQLiteStrategyResolvedTypes:
         resolved = Resolver(cfg).resolve_database("cdm")
 
         with SQLiteTestStrategy().isolated_database(resolved) as isolated:
+            assert isinstance(isolated.resolved, ResolvedCDMDatabase)
             assert isolated.resolved.name == resolved.name
             engines = isolated.resolved.create_engines(register_claims=False)
             try:
@@ -630,16 +632,18 @@ class TestScopedTestSchema:
             conn = _with_provenance_translate_map(
                 conn, physical_schema="oa_configurator_provenance"
             )
-            return conn.execute(
-                sa.select(
-                    SchemaRegistry.schema_tag,
-                    SchemaRegistry.physical_schema,
-                    SchemaRegistry.database_config_name,
-                    SchemaRegistry.owner,
-                )
-                .where(SchemaRegistry.schema_tag.in_(list(schema_tags)))
-                .order_by(SchemaRegistry.schema_tag)
-            ).all()
+            return list(
+                conn.execute(
+                    sa.select(
+                        SchemaRegistry.schema_tag,
+                        SchemaRegistry.physical_schema,
+                        SchemaRegistry.database_config_name,
+                        SchemaRegistry.owner,
+                    )
+                    .where(SchemaRegistry.schema_tag.in_(list(schema_tags)))
+                    .order_by(SchemaRegistry.schema_tag)
+                ).all()
+            )
 
     def test_roles_share_one_schema_that_is_dropped_on_exit(self, pg_db):
         from oa_configurator import Role
@@ -686,6 +690,7 @@ class TestScopedTestSchema:
         with scoped_test_schema(
             resolver.resolve_database(name), prefix="ttest_conn", resolver=resolver
         ) as scoped:
+            assert isinstance(scoped.resolved, ResolvedCDMDatabase)
             assert scoped.resolved.connection_for_role(Role.VOCAB).name == "ttest_vocab_connection"
             assert scoped.schemas[Role.VOCAB] != scoped.schemas[Role.PRIMARY]
             primary, vocab = scoped.resolved.create_engines()

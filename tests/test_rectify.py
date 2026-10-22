@@ -15,6 +15,7 @@ import sqlalchemy as sa
 from oa_configurator import (
     CDMDatabaseConfig,
     ConnectionConfig,
+    ResolvedCDMDatabase,
     Resolver,
     StackConfig,
 )
@@ -167,6 +168,7 @@ def test_drop_orphan_schema_tables_does_not_translate_an_orphan_named_like_a_tag
         },
     )
     resolved = Resolver(stack).resolve_database(db_name)
+    assert isinstance(resolved, ResolvedCDMDatabase)
     # Establish the baseline for configured_schema (still empty) first,
     # then populate it, mirroring how a real deployment's schema already
     # holds data by the time someone runs this command.

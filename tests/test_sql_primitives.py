@@ -20,10 +20,11 @@ import pytest
 import sqlalchemy as sa
 import sqlalchemy.orm as so
 from conftest import registry_row as _registry_row
-from sqlalchemy.exc import InvalidRequestError
+from sqlalchemy.exc import InvalidRequestError, SQLAlchemyError
 
 from oa_configurator import (
     Dialect,
+    ResolvedCDMDatabase,
     Role,
     SchemaDriftError,
     SchemaOwnershipError,
@@ -1298,13 +1299,11 @@ def _concurrent_claim_worker(
     )
     execution_options = {"isolation_level": "AUTOCOMMIT"} if autocommit else None
     try:
-        primary, _ = (
-            Resolver(stack)
-            .resolve_database(database_config_name)
-            .create_engines(execution_options=execution_options)
-        )
+        resolved = Resolver(stack).resolve_database(database_config_name)
+        assert isinstance(resolved, ResolvedCDMDatabase)
+        primary, _ = resolved.create_engines(execution_options=execution_options)
         primary.dispose()
-    except sa.exc.SQLAlchemyError as exc:
+    except SQLAlchemyError as exc:
         return f"{type(exc).__name__}: {exc}"
     return None
 

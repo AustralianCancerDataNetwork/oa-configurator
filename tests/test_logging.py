@@ -189,6 +189,7 @@ def _emit_through(console, message, args=None):
     else:
         configure_logging(verbosity=2, extra_namespaces=["probe"])
         handler = logging.getLogger("probe").handlers[0]
+        assert isinstance(handler, logging.StreamHandler)
         handler.stream = buffer
     logging.getLogger("probe").warning(message, *(args or ()))
     return buffer.getvalue()

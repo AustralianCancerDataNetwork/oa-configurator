@@ -23,6 +23,7 @@ from oa_configurator import (
     ConnectionConfig,
     Dialect,
     GenericDatabaseConfig,
+    ResolvedCDMDatabase,
     Resolver,
     Role,
     SchemaClaim,
@@ -161,15 +162,19 @@ def test_create_engine_raises_schema_drift_for_the_same_entry_on_a_production_co
             connections={"c": pg_connection_config},
             databases={db_name: CDMDatabaseConfig(connection="c", cdm_schema=schema_a)},
         )
-        engine_a, _ = Resolver(stack_a).resolve_database(db_name).create_engines()
+        resolved_a = Resolver(stack_a).resolve_database(db_name)
+        assert isinstance(resolved_a, ResolvedCDMDatabase)
+        engine_a, _ = resolved_a.create_engines()
         engine_a.dispose()
 
         stack_b = StackConfig.for_session(
             connections={"c": pg_connection_config},
             databases={db_name: CDMDatabaseConfig(connection="c", cdm_schema=schema_b)},
         )
+        resolved_b = Resolver(stack_b).resolve_database(db_name)
+        assert isinstance(resolved_b, ResolvedCDMDatabase)
         with pytest.raises(SchemaDriftError, match=f"{schema_b!r}.*{schema_a!r}"):
-            Resolver(stack_b).resolve_database(db_name).create_engines()
+            resolved_b.create_engines()
 
 
 def test_vocab_only_connection_does_not_register_primary_or_results(
@@ -213,6 +218,7 @@ def test_vocab_only_connection_does_not_register_primary_or_results(
             },
         )
         resolved = Resolver(stack).resolve_database(db_name)
+        assert isinstance(resolved, ResolvedCDMDatabase)
         primary_engine, vocab_engine = resolved.create_engines()
         role_tags = {"primary", "vocab", "results"}
         try:
@@ -337,6 +343,7 @@ def test_cdm_database_reserved_vocab_schema_collision_raises(
         },
     )
     colliding_resolved = Resolver(colliding_stack).resolve_database("cdm_db")
+    assert isinstance(colliding_resolved, ResolvedCDMDatabase)
     with pytest.raises(SchemaOwnershipError, match=f"{reserved!r}.*reserving-pkg"):
         colliding_resolved.create_engines()
 
@@ -466,6 +473,7 @@ def test_both_engines_agree_on_every_shared_tag(pg_db, pg_connection_config, cle
         databases={db_name: CDMDatabaseConfig(connection="primary", vocab_connection="vocab")},
     )
     resolved = Resolver(stack).resolve_database(db_name)
+    assert isinstance(resolved, ResolvedCDMDatabase)
     assert resolved.vocab_schema is None
     assert resolved.resolved_physical_schemas()["vocab"] == vocab_home
 
@@ -557,6 +565,7 @@ def test_role_hosted_on_a_schemaless_connection_stays_unqualified(
         },
     )
     resolved = Resolver(stack).resolve_database(db_name)
+    assert isinstance(resolved, ResolvedCDMDatabase)
     assert resolved.vocab_schema is None
 
     engine, vocab_engine = resolved.create_engines()
@@ -604,6 +613,7 @@ def test_two_connection_entries_for_one_database_are_not_a_split(
         },
     )
     resolved = Resolver(stack).resolve_database(db_name)
+    assert isinstance(resolved, ResolvedCDMDatabase)
     assert resolved.connection.name != resolved.vocab_connection.name
     assert resolved.connection.addresses_same_database_as(resolved.vocab_connection)
 

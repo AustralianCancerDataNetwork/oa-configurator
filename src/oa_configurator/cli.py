@@ -23,6 +23,7 @@ import sqlalchemy as sa
 import typer
 from rich.console import Console
 from rich.table import Table
+from sqlalchemy.exc import SQLAlchemyError
 from typer.core import TyperGroup
 
 from .cli_support import _build_entry_params, _save_stack_config_or_exit
@@ -53,6 +54,9 @@ console = Console()
 err_console = Console(stderr=True)
 
 ENTRY_POINT_GROUP = "omop.config"
+
+# Failures an operator can cause or fix are reported in the UI instead of exception logging
+_EXPECTED_ERRORS = (ValueError, RuntimeError, KeyError, OSError, ImportError, SQLAlchemyError)
 
 app.add_typer(connections_app, name="connections")
 app.add_typer(databases_app, name="databases")
@@ -253,7 +257,8 @@ def verify() -> None:
         try:
             target = resolver.resolve_connection(name)
         except Exception as exc:
-            logger.debug("Resolving connection %r failed", name, exc_info=True)
+            if not isinstance(exc, _EXPECTED_ERRORS):
+                logger.exception("Unexpected error resolving connection %r", name)
             table.add_row(name, "?", "[red]FAIL[/red]", str(exc)[:60])
             all_ok = False
             continue
@@ -265,7 +270,8 @@ def verify() -> None:
             elapsed = (time.monotonic() - t0) * 1000
             table.add_row(name, target.safe_url, "[green]OK[/green]", f"{elapsed:.0f} ms")
         except Exception as exc:
-            logger.debug("Connecting to %r failed", name, exc_info=True)
+            if not isinstance(exc, _EXPECTED_ERRORS):
+                logger.exception("Unexpected error connecting to %r", name)
             table.add_row(name, target.safe_url, "[red]FAIL[/red]", str(exc)[:60])
             all_ok = False
 
@@ -277,7 +283,8 @@ def verify() -> None:
         try:
             resolved = resolver.resolve_database(db_name)
         except Exception as exc:
-            logger.debug("Resolving database %r failed", db_name, exc_info=True)
+            if not isinstance(exc, _EXPECTED_ERRORS):
+                logger.exception("Unexpected error resolving database %r", db_name)
             schema_table.add_row(db_name, "-", "-", "[red]FAIL[/red]", str(exc)[:60])
             schema_ok = False
             continue
@@ -290,7 +297,8 @@ def verify() -> None:
         try:
             resolved_vs = resolver.resolve_vector_store(vs_name)
         except Exception as exc:
-            logger.debug("Resolving vector store %r failed", vs_name, exc_info=True)
+            if not isinstance(exc, _EXPECTED_ERRORS):
+                logger.exception("Unexpected error resolving vector store %r", vs_name)
             schema_table.add_row(vs_name, "-", "-", "[red]FAIL[/red]", str(exc)[:60])
             schema_ok = False
             continue
@@ -324,8 +332,10 @@ def _print_registry_rows(resolver: Resolver, config: StackConfig) -> None:
     for db_name in sorted(config.databases):
         try:
             resolved = resolver.resolve_database(db_name)
-        except Exception:
-            logger.debug("Skipping registry rows for database %r", db_name, exc_info=True)
+        except Exception as exc:
+            # Already reported as a FAIL row by the schema check above.
+            if not isinstance(exc, _EXPECTED_ERRORS):
+                logger.exception("Unexpected error resolving database %r", db_name)
             continue
         # Bare engines to avoid schema claim registration and drift errors
         roles = (
@@ -352,8 +362,11 @@ def _print_registry_rows(resolver: Resolver, config: StackConfig) -> None:
                             row.owner or "-",
                             str(row.reserved),
                         )
-            except Exception:
-                logger.debug("Reading registry rows for database %r failed", db_name, exc_info=True)
+            except Exception as exc:
+                if isinstance(exc, _EXPECTED_ERRORS):
+                    logger.warning("Could not read registry rows for database %r: %s", db_name, exc)
+                else:
+                    logger.exception("Unexpected error reading registry rows for %r", db_name)
                 continue
             finally:
                 engine.dispose()
@@ -403,7 +416,8 @@ def _verify_schema_provenance(
         )
         return False
     except Exception as exc:
-        logger.debug("Building engine for %r (%s) failed", label, schema_tag, exc_info=True)
+        if not isinstance(exc, _EXPECTED_ERRORS):
+            logger.exception("Unexpected error building engine for %r (%s)", label, schema_tag)
         table.add_row(label, schema_tag, "?", "[red]FAIL[/red]", str(exc)[:60])
         return False
     try:
@@ -422,7 +436,8 @@ def _verify_schema_provenance(
         table.add_row(label, schema_tag, "?", "[red]DRIFT[/red]", str(exc)[:80])
         return False
     except Exception as exc:
-        logger.debug("Provenance check for %r (%s) failed", label, schema_tag, exc_info=True)
+        if not isinstance(exc, _EXPECTED_ERRORS):
+            logger.exception("Unexpected error in provenance check for %r (%s)", label, schema_tag)
         table.add_row(label, schema_tag, "?", "[red]FAIL[/red]", str(exc)[:60])
         return False
     finally:
@@ -537,8 +552,7 @@ def acknowledge_schema_migration(
     except FileNotFoundError:
         err_console.print(f"[red]Config file not found:[/red] {active_config_path()}")
         raise typer.Exit(1)
-    except Exception as exc:
-        logger.debug("acknowledge-schema-migration failed", exc_info=True)
+    except _EXPECTED_ERRORS as exc:
         err_console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(1)
     for tag, new_schema in acknowledged:
@@ -617,8 +631,7 @@ def release_schema_claim(
     except FileNotFoundError:
         err_console.print(f"[red]Config file not found:[/red] {active_config_path()}")
         raise typer.Exit(1)
-    except Exception as exc:
-        logger.debug("release-schema-claim failed", exc_info=True)
+    except _EXPECTED_ERRORS as exc:
         err_console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(1)
     if existing_schema is None:
@@ -684,8 +697,7 @@ def drop_orphan_schema_tables_command(
     except FileNotFoundError:
         err_console.print(f"[red]Config file not found:[/red] {active_config_path()}")
         raise typer.Exit(1)
-    except Exception as exc:
-        logger.debug("drop-orphan-schema-tables failed", exc_info=True)
+    except _EXPECTED_ERRORS as exc:
         err_console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(1)
 

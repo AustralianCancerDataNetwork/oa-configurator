@@ -189,11 +189,15 @@ def _can_corrupt_shared_metadata(dialect: str) -> bool:
     dialect that can't ALTER (e.g. SQLite) can never trigger this itself.
 
     Loads the dialect class through SQLAlchemy's own plugin registry
-    rather than ``create_engine()``, so this needs no driver installed and
-    no real connection, since ``supports_alter`` is a database-level
-    capability, identical across every driver for the same dialect.
+    rather than ``create_engine()``, so this needs no real connection.
+    If an optional dialect is not installed, conservatively require the
+    database-only marker so importing this pytest plugin still works and
+    the default suite excludes tests for that unavailable dialect.
     """
-    return bool(registry.load(dialect).supports_alter)
+    try:
+        return bool(registry.load(dialect).supports_alter)
+    except sa.exc.NoSuchModuleError:
+        return True
 
 
 DIALECT_PARAMS = tuple(

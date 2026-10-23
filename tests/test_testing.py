@@ -16,6 +16,9 @@ silently pointing a destructive test suite at real data.
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import textwrap
 from typing import Annotated, ClassVar
 
 import pytest
@@ -45,6 +48,40 @@ from oa_configurator.testing import (
 from oa_configurator.testing.base import TestDatabaseNotConfigured, TestDatabaseStrategy
 from oa_configurator.testing.duckdb import DuckDBTestStrategy
 from oa_configurator.testing.sqlite import SQLiteTestStrategy
+
+
+def test_pytest_plugin_collects_without_optional_dialect(tmp_path):
+    test_file = tmp_path / "test_sqlite_only.py"
+    test_file.write_text(
+        "def test_sqlite_connection():\n"
+        "    import sqlalchemy as sa\n"
+        "    with sa.create_engine('sqlite://').connect() as connection:\n"
+        "        assert connection.exec_driver_sql('SELECT 1').scalar_one() == 1\n"
+    )
+    script = textwrap.dedent("""
+        import sys
+        from unittest.mock import patch
+        from sqlalchemy.dialects import registry
+
+        registry.impls.pop("duckdb", None)
+        with patch("sqlalchemy.util.compat.importlib_metadata_get", return_value=[]):
+            from oa_configurator.testing import DIALECT_PARAMS
+
+            duckdb_param = next(p for p in DIALECT_PARAMS if p.values[0] == "duckdb")
+            assert {mark.name for mark in duckdb_param.marks} == {"duckdb", "db_dialect"}
+            assert "duckdb_sqlalchemy" not in sys.modules
+
+            import pytest
+            raise SystemExit(pytest.main(["-q", sys.argv[1]]))
+    """)
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(test_file)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 class DemoTestConfig(PackageConfigBase):

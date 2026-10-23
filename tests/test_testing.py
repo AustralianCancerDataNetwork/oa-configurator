@@ -80,7 +80,10 @@ class TestIsolatedTestDatabase:
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
 
         with isolated_test_database(DemoTestConfig, "test_cdm_db") as db:
-            assert db.connection.execute(pytest.importorskip("sqlalchemy").text("SELECT 1")).scalar() == 1
+            assert (
+                db.connection.execute(pytest.importorskip("sqlalchemy").text("SELECT 1")).scalar()
+                == 1
+            )
             assert db.session.connection() is db.connection
             assert db.committing_engine is db.connection.engine
 
@@ -88,8 +91,9 @@ class TestIsolatedTestDatabase:
         cfg = _stack_config(test_only=False)
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
 
-        with pytest.raises(pytest.fail.Exception, match="SAFETY ABORT"), isolated_test_database(
-            DemoTestConfig, "test_cdm_db"
+        with (
+            pytest.raises(pytest.fail.Exception, match="SAFETY ABORT"),
+            isolated_test_database(DemoTestConfig, "test_cdm_db"),
         ):
             pass
 
@@ -97,10 +101,12 @@ class TestIsolatedTestDatabase:
         cfg = StackConfig.for_session()
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
 
-        with pytest.raises(pytest.skip.Exception), isolated_test_database(
-            DemoTestConfig, "test_cdm_db"
+        with (
+            pytest.raises(pytest.skip.Exception),
+            isolated_test_database(DemoTestConfig, "test_cdm_db"),
         ):
             pass
+
 
 class TestIsolatedTestDatabaseDialect:
     """The dialect= parameter: validates a resolved field against an
@@ -113,7 +119,10 @@ class TestIsolatedTestDatabaseDialect:
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
 
         with isolated_test_database(DemoTestConfig, "test_cdm_db", dialect=Dialect.SQLITE) as db:
-            assert db.connection.execute(pytest.importorskip("sqlalchemy").text("SELECT 1")).scalar() == 1
+            assert (
+                db.connection.execute(pytest.importorskip("sqlalchemy").text("SELECT 1")).scalar()
+                == 1
+            )
             assert isinstance(db.resolved, ResolvedCDMDatabase)
 
     def test_mismatched_dialect_raises_even_though_configured(self, monkeypatch):
@@ -124,8 +133,11 @@ class TestIsolatedTestDatabaseDialect:
         cfg = _stack_config(test_only=True)
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
 
-        with pytest.raises(ValueError, match=f"{Dialect.SQLITE.value!r}.*{Dialect.POSTGRESQL.value!r}"), isolated_test_database(
-            DemoTestConfig, "test_cdm_db", dialect=Dialect.POSTGRESQL
+        with (
+            pytest.raises(
+                ValueError, match=f"{Dialect.SQLITE.value!r}.*{Dialect.POSTGRESQL.value!r}"
+            ),
+            isolated_test_database(DemoTestConfig, "test_cdm_db", dialect=Dialect.POSTGRESQL),
         ):
             pass
 
@@ -134,14 +146,18 @@ class TestIsolatedTestDatabaseDialect:
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
 
         with isolated_test_database(DemoTestConfig, "test_cdm_db", dialect=Dialect.SQLITE) as db:
-            assert db.connection.execute(pytest.importorskip("sqlalchemy").text("SELECT 1")).scalar() == 1
+            assert (
+                db.connection.execute(pytest.importorskip("sqlalchemy").text("SELECT 1")).scalar()
+                == 1
+            )
 
     def test_unconfigured_field_still_skips_for_a_dialect_needing_real_config(self, monkeypatch):
         cfg = StackConfig.for_session()
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
 
-        with pytest.raises(pytest.skip.Exception), isolated_test_database(
-            DemoTestConfig, "test_cdm_db", dialect=Dialect.POSTGRESQL
+        with (
+            pytest.raises(pytest.skip.Exception),
+            isolated_test_database(DemoTestConfig, "test_cdm_db", dialect=Dialect.POSTGRESQL),
         ):
             pass
 
@@ -152,47 +168,68 @@ class TestIsolatedTestDatabaseDialect:
         cfg = _stack_config(test_only=True)
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
 
-        with pytest.raises(
-            ValueError, match=f"{Dialect.SQLITE.value!r}.*{Dialect.POSTGRESQL.value!r}"
-        ), isolated_test_database(DemoTestConfig, "test_cdm_db", dialect=Dialect.POSTGRESQL):
+        with (
+            pytest.raises(
+                ValueError, match=f"{Dialect.SQLITE.value!r}.*{Dialect.POSTGRESQL.value!r}"
+            ),
+            isolated_test_database(DemoTestConfig, "test_cdm_db", dialect=Dialect.POSTGRESQL),
+        ):
             pass
 
 
 class TestSQLiteStrategyResolvedTypes:
     def test_generic_resolved_database_keeps_create_engine(self, tmp_path):
         cfg = StackConfig.for_session(
-            connections={"test": ConnectionConfig(
-                dialect=Dialect.SQLITE, database_name=str(tmp_path / "generic.db"), test_only=True
-            )},
+            connections={
+                "test": ConnectionConfig(
+                    dialect=Dialect.SQLITE,
+                    database_name=str(tmp_path / "generic.db"),
+                    test_only=True,
+                )
+            },
             databases={"generic": GenericDatabaseConfig(connection="test")},
         )
         resolved = Resolver(cfg).resolve_database("generic")
 
         with SQLiteTestStrategy().isolated_database(resolved) as isolated:
+            assert isolated.resolved is not None
             assert isolated.resolved.name == resolved.name
             engine = isolated.resolved.create_engine(register_claims=False)
             try:
                 with engine.connect() as connection:
-                    assert connection.execute(pytest.importorskip("sqlalchemy").text("SELECT 1")).scalar() == 1
+                    assert (
+                        connection.execute(
+                            pytest.importorskip("sqlalchemy").text("SELECT 1")
+                        ).scalar()
+                        == 1
+                    )
             finally:
                 engine.dispose()
 
     def test_cdm_resolved_database_keeps_create_engines(self, tmp_path):
         cfg = StackConfig.for_session(
-            connections={"test": ConnectionConfig(
-                dialect=Dialect.SQLITE, database_name=str(tmp_path / "cdm.db"), test_only=True
-            )},
+            connections={
+                "test": ConnectionConfig(
+                    dialect=Dialect.SQLITE, database_name=str(tmp_path / "cdm.db"), test_only=True
+                )
+            },
             databases={"cdm": CDMDatabaseConfig(connection="test")},
         )
         resolved = Resolver(cfg).resolve_database("cdm")
 
         with SQLiteTestStrategy().isolated_database(resolved) as isolated:
+            assert isinstance(isolated.resolved, ResolvedCDMDatabase)
             assert isolated.resolved.name == resolved.name
             engines = isolated.resolved.create_engines(register_claims=False)
             try:
                 for engine in set(engines):
                     with engine.connect() as connection:
-                        assert connection.execute(pytest.importorskip("sqlalchemy").text("SELECT 1")).scalar() == 1
+                        assert (
+                            connection.execute(
+                                pytest.importorskip("sqlalchemy").text("SELECT 1")
+                            ).scalar()
+                            == 1
+                        )
             finally:
                 for engine in set(engines):
                     engine.dispose()
@@ -211,10 +248,15 @@ class TestIsolatedTestDatabaseExtensions:
         calls = []
 
         with isolated_test_database(
-            DemoTestConfig, "test_cdm_db", dialect=Dialect.SQLITE,
+            DemoTestConfig,
+            "test_cdm_db",
+            dialect=Dialect.SQLITE,
             extensions=[lambda conn, record: calls.append(1)],
         ) as db:
-            assert db.connection.execute(pytest.importorskip("sqlalchemy").text("SELECT 1")).scalar() == 1
+            assert (
+                db.connection.execute(pytest.importorskip("sqlalchemy").text("SELECT 1")).scalar()
+                == 1
+            )
 
         assert len(calls) == 1
 
@@ -292,7 +334,10 @@ class TestIsolatedTestSchema:
         )
 
         engine = sa.create_engine("postgresql+psycopg://user:pw@dbhost:5432/unknown_db")
-        with pytest.raises(pytest.fail.Exception, match="SAFETY ABORT"), isolated_test_schema(engine):
+        with (
+            pytest.raises(pytest.fail.Exception, match="SAFETY ABORT"),
+            isolated_test_schema(engine),
+        ):
             pass
 
     def test_refuses_an_engine_matching_a_non_test_only_connection(self, monkeypatch):
@@ -312,7 +357,10 @@ class TestIsolatedTestSchema:
         import sqlalchemy as sa
 
         engine = sa.create_engine("postgresql+psycopg://user:pw@dbhost:5432/prod_db")
-        with pytest.raises(pytest.fail.Exception, match="not marked test_only"), isolated_test_schema(engine):
+        with (
+            pytest.raises(pytest.fail.Exception, match="not marked test_only"),
+            isolated_test_schema(engine),
+        ):
             pass
 
     @pytest.mark.postgresql
@@ -336,18 +384,14 @@ class TestIsolatedTestSchema:
             with isolated_test_schema(engine, prefix="ttest") as schema:
                 with engine.connect() as conn:
                     exists = conn.execute(
-                        sa.text(
-                            "SELECT 1 FROM information_schema.schemata WHERE schema_name = :s"
-                        ),
+                        sa.text("SELECT 1 FROM information_schema.schemata WHERE schema_name = :s"),
                         {"s": schema},
                     ).scalar()
                 assert exists == 1
 
             with engine.connect() as conn:
                 exists_after = conn.execute(
-                    sa.text(
-                        "SELECT 1 FROM information_schema.schemata WHERE schema_name = :s"
-                    ),
+                    sa.text("SELECT 1 FROM information_schema.schemata WHERE schema_name = :s"),
                     {"s": schema},
                 ).scalar()
             assert exists_after is None
@@ -388,9 +432,7 @@ class TestResolveAndCheck:
         def _raise_not_found():
             raise FileNotFoundError("no config file")
 
-        monkeypatch.setattr(
-            "oa_configurator.loader.load_stack_config", _raise_not_found
-        )
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", _raise_not_found)
 
         with pytest.raises(TestDatabaseNotConfigured):
             TestDatabaseStrategy._resolve_and_check(DemoTestConfig, "test_cdm_db")
@@ -406,9 +448,7 @@ class TestResolveAndCheck:
                     dialect=Dialect.SQLITE, database_name=":memory:", test_only=True
                 )
             },
-            databases={
-                "my_custom_test_db": CDMDatabaseConfig(connection="custom_test_conn")
-            },
+            databases={"my_custom_test_db": CDMDatabaseConfig(connection="custom_test_conn")},
             tools={"demo_test_tool": {"test_cdm_db": "my_custom_test_db"}},
         )
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
@@ -427,15 +467,11 @@ class TestResolveAndCheck:
                     dialect=Dialect.SQLITE, database_name=":memory:", test_only=True
                 )
             },
-            databases={
-                "configured_default_db": CDMDatabaseConfig(connection="test_conn")
-            },
+            databases={"configured_default_db": CDMDatabaseConfig(connection="test_conn")},
         )
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
 
-        resolved = TestDatabaseStrategy._resolve_and_check(
-            DemoTestConfigWithDefault, "test_field"
-        )
+        resolved = TestDatabaseStrategy._resolve_and_check(DemoTestConfigWithDefault, "test_field")
 
         assert make_url(resolved.connection.url) == make_url("sqlite:///:memory:")
 
@@ -443,7 +479,9 @@ class TestResolveAndCheck:
         with pytest.raises(ValueError, match="test_typo"):
             TestDatabaseStrategy._resolve_and_check(DemoTestConfig, "test_typo")
 
-    def test_explicit_config_value_referencing_a_missing_database_raises_not_skips(self, monkeypatch):
+    def test_explicit_config_value_referencing_a_missing_database_raises_not_skips(
+        self, monkeypatch
+    ):
         """A config-typo (an explicitly-set value that references no
         [databases.*] entry) must fail loudly."""
         cfg = StackConfig.for_session(
@@ -497,7 +535,10 @@ class TestResetSchemaRegistryRowsSafety:
             connections={
                 "prod": ConnectionConfig(
                     dialect=Dialect.POSTGRESQL + "+psycopg",
-                    host="dbhost", port=5432, database_name="prod_db", test_only=False,
+                    host="dbhost",
+                    port=5432,
+                    database_name="prod_db",
+                    test_only=False,
                 )
             },
         )
@@ -512,7 +553,9 @@ class TestResetSchemaRegistryRowsSafety:
     def test_refuses_an_engine_matching_no_known_connection(self, monkeypatch):
         from oa_configurator.testing import reset_schema_registry_rows
 
-        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: StackConfig.for_session())
+        monkeypatch.setattr(
+            "oa_configurator.loader.load_stack_config", lambda: StackConfig.for_session()
+        )
 
         import sqlalchemy as sa
 
@@ -545,7 +588,9 @@ class TestResolveWithRoleSchemas:
             databases={name: GenericDatabaseConfig(connection=pg_db.resolved.connection.name)}
         )
         with pytest.raises(ValueError, match="VOCAB"):
-            resolve_with_role_schemas(resolver.resolve_database(name), {Role.VOCAB: "x"}, resolver=resolver)
+            resolve_with_role_schemas(
+                resolver.resolve_database(name), {Role.VOCAB: "x"}, resolver=resolver
+            )
 
 
 @pytest.mark.postgresql
@@ -582,18 +627,23 @@ class TestScopedTestSchema:
             SchemaRegistry,
             _with_provenance_translate_map,
         )
+
         with engine.connect() as conn:
-            conn = _with_provenance_translate_map(conn, physical_schema="oa_configurator_provenance")
-            return conn.execute(
-                sa.select(
-                    SchemaRegistry.schema_tag,
-                    SchemaRegistry.physical_schema,
-                    SchemaRegistry.database_config_name,
-                    SchemaRegistry.owner,
-                )
-                .where(SchemaRegistry.schema_tag.in_(list(schema_tags)))
-                .order_by(SchemaRegistry.schema_tag)
-            ).all()
+            conn = _with_provenance_translate_map(
+                conn, physical_schema="oa_configurator_provenance"
+            )
+            return list(
+                conn.execute(
+                    sa.select(
+                        SchemaRegistry.schema_tag,
+                        SchemaRegistry.physical_schema,
+                        SchemaRegistry.database_config_name,
+                        SchemaRegistry.owner,
+                    )
+                    .where(SchemaRegistry.schema_tag.in_(list(schema_tags)))
+                    .order_by(SchemaRegistry.schema_tag)
+                ).all()
+            )
 
     def test_roles_share_one_schema_that_is_dropped_on_exit(self, pg_db):
         from oa_configurator import Role
@@ -611,7 +661,9 @@ class TestScopedTestSchema:
     def test_split_role_gets_its_own_schema(self, pg_db):
         from oa_configurator import Role
 
-        with scoped_test_schema(pg_db.resolved, prefix="ttest_split", split_roles=[Role.VOCAB]) as scoped:
+        with scoped_test_schema(
+            pg_db.resolved, prefix="ttest_split", split_roles=[Role.VOCAB]
+        ) as scoped:
             assert scoped.schemas[Role.VOCAB] != scoped.schemas[Role.PRIMARY]
             assert scoped.schemas[Role.RESULTS] == scoped.schemas[Role.PRIMARY]
             translate_map = scoped.engine.get_execution_options()["schema_translate_map"]
@@ -624,12 +676,21 @@ class TestScopedTestSchema:
         resolver = Resolver.from_active_config()
         name = pg_db.resolved.name
         resolver = resolver.with_overrides(
-            connections={"ttest_vocab_connection": resolver.config.connections[pg_db.resolved.connection.name]},
+            connections={
+                "ttest_vocab_connection": resolver.config.connections[
+                    pg_db.resolved.connection.name
+                ]
+            },
             databases={
-                name: resolver.config.databases[name].model_copy(update={"vocab_connection": "ttest_vocab_connection"})
+                name: resolver.config.databases[name].model_copy(
+                    update={"vocab_connection": "ttest_vocab_connection"}
+                )
             },
         )
-        with scoped_test_schema(resolver.resolve_database(name), prefix="ttest_conn", resolver=resolver) as scoped:
+        with scoped_test_schema(
+            resolver.resolve_database(name), prefix="ttest_conn", resolver=resolver
+        ) as scoped:
+            assert isinstance(scoped.resolved, ResolvedCDMDatabase)
             assert scoped.resolved.connection_for_role(Role.VOCAB).name == "ttest_vocab_connection"
             assert scoped.schemas[Role.VOCAB] != scoped.schemas[Role.PRIMARY]
             primary, vocab = scoped.resolved.create_engines()
@@ -654,12 +715,14 @@ class TestScopedTestSchema:
         resolver = Resolver.from_active_config().with_overrides(
             databases={name: GenericDatabaseConfig(connection=pg_db.resolved.connection.name)}
         )
-        with scoped_test_schema(resolver.resolve_database(name), prefix="ttest_generic", resolver=resolver) as scoped:
+        with scoped_test_schema(
+            resolver.resolve_database(name), prefix="ttest_generic", resolver=resolver
+        ) as scoped:
             assert list(scoped.schemas) == [Role.PRIMARY]
             assert scoped.resolved.schema_name == scoped.schemas[Role.PRIMARY]
 
     def test_rebaselines_role_rows_to_the_scoped_schema_and_leaves_them_there(self, pg_db):
-        """test_only re-baselines on drift, so the row tracks the scoped 
+        """test_only re-baselines on drift, so the row tracks the scoped
         schema during the block and simply stays there once it exits."""
         from oa_configurator import Role
 
@@ -705,11 +768,15 @@ class TestScopedTestSchema:
         created_tag = f"ttest_created_{uuid.uuid4().hex[:8]}"
         kept_tag = f"ttest_kept_{uuid.uuid4().hex[:8]}"
         kept_schema = "oa_configurator_shared_staging"
-        reset_schema_registry_rows(cleanup_after_test, pg_db.committing_engine, [created_tag, kept_tag])
+        reset_schema_registry_rows(
+            cleanup_after_test, pg_db.committing_engine, [created_tag, kept_tag]
+        )
         with pg_db.committing_engine.begin() as connection:
             if kept_schema not in sa.inspect(connection).get_schema_names():
                 connection.execute(sa.schema.CreateSchema(kept_schema))
-                cleanup_after_test(lambda: drop_schema_if_exists(pg_db.committing_engine, kept_schema))
+                cleanup_after_test(
+                    lambda: drop_schema_if_exists(pg_db.committing_engine, kept_schema)
+                )
         claims = [
             SchemaClaim(schema_tag=created_tag, physical_schema=f"{created_tag}_schema"),
             SchemaClaim(schema_tag=kept_tag, physical_schema=kept_schema),
@@ -732,8 +799,11 @@ class TestScopedTestSchema:
         reset_schema_registry_rows(cleanup_after_test, pg_db.committing_engine, [tag])
         with pg_db.committing_engine.begin() as connection:
             _record_schema_provenance(
-                connection, database_config_name="ttest", schema_tag=tag,
-                new_physical_schema="ttest_schema", reason="reset test",
+                connection,
+                database_config_name="ttest",
+                schema_tag=tag,
+                new_physical_schema="ttest_schema",
+                reason="reset test",
             )
         before = self._registry_rows(pg_db.committing_engine, [tag])
 

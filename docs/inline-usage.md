@@ -81,6 +81,7 @@ StackConfig.for_session(
 ```python
 from oa_configurator import StackConfig, Resolver
 
+
 def test_something():
     cfg = StackConfig.for_session(
         connections={"db": {"dialect": "sqlite", "database_name": ":memory:"}},
@@ -108,12 +109,8 @@ from oa_configurator import load_stack_config, ConnectionConfig, CDMDatabaseConf
 primary, vocab = (
     Resolver(load_stack_config())
     .with_overrides(
-        connections={
-            "local": ConnectionConfig(dialect="sqlite", database_name=":memory:")
-        },
-        databases={
-            "cdm": CDMDatabaseConfig(connection="local")
-        },
+        connections={"local": ConnectionConfig(dialect="sqlite", database_name=":memory:")},
+        databases={"cdm": CDMDatabaseConfig(connection="local")},
     )
     .resolve_database("cdm")
     .create_engines()

@@ -35,17 +35,20 @@ def _cdm_tables() -> tuple[sa.MetaData, sa.Table, sa.Table, sa.Table]:
     with ``cond`` carrying one foreign key to each side."""
     metadata = sa.MetaData()
     concept = sa.Table(
-        "concept", metadata,
+        "concept",
+        metadata,
         sa.Column("concept_id", sa.Integer, primary_key=True),
         schema=Role.VOCAB.value,
     )
     person = sa.Table(
-        "person", metadata,
+        "person",
+        metadata,
         sa.Column("person_id", sa.Integer, primary_key=True),
         schema=Role.PRIMARY.value,
     )
     cond = sa.Table(
-        "cond", metadata,
+        "cond",
+        metadata,
         sa.Column("id", sa.Integer, primary_key=True),
         sa.Column("person_id", sa.Integer, sa.ForeignKey("primary.person.person_id")),
         sa.Column("concept_id", sa.Integer, sa.ForeignKey("vocab.concept.concept_id")),
@@ -71,8 +74,10 @@ def split_cdm(pg_connection_config, cleanup_after_test):
         connections={"primary": primary_connection_config, "vocab": vocab_connection_config},
         databases={
             name: CDMDatabaseConfig(
-                connection="primary", vocab_connection="vocab",
-                cdm_schema="public", vocab_schema="public",
+                connection="primary",
+                vocab_connection="vocab",
+                cdm_schema="public",
+                vocab_schema="public",
             )
         },
     )
@@ -87,18 +92,14 @@ def compile_split_cdm():
             "vocab": oa_connection(":memory:"),
         },
         databases={
-            "compile_split": CDMDatabaseConfig(
-                connection="primary", vocab_connection="vocab"
-            )
+            "compile_split": CDMDatabaseConfig(connection="primary", vocab_connection="vocab")
         },
     )
     return Resolver(stack).resolve_database("compile_split")
 
 
 def oa_connection(database_name: str):
-    return ConnectionConfig(
-        dialect="sqlite", database_name=database_name, test_only=True
-    )
+    return ConnectionConfig(dialect="sqlite", database_name=database_name, test_only=True)
 
 
 class TestForeignKeyDerivation:
@@ -117,9 +118,7 @@ class TestForeignKeyDerivation:
         assert [c.name for c in derived.columns] == [c.name for c in cond.columns]
         assert [str(c.type) for c in derived.columns] == [str(c.type) for c in cond.columns]
 
-    def test_nothing_is_dropped_on_a_colocated_deployment(
-        self
-    ):
+    def test_nothing_is_dropped_on_a_colocated_deployment(self):
         """Same models, one database: every foreign key is creatable, so the
         derivation must leave the table alone."""
         stack = StackConfig.for_session(
@@ -128,9 +127,7 @@ class TestForeignKeyDerivation:
         )
         resolved = Resolver(stack).resolve_database("colocated")
         _metadata, concept, person, cond = _cdm_tables()
-        *_, derived = without_cross_engine_foreign_keys(
-            (concept, person, cond), resolved=resolved
-        )
+        *_, derived = without_cross_engine_foreign_keys((concept, person, cond), resolved=resolved)
         dialect = postgresql.dialect()
         assert str(CreateTable(derived).compile(dialect=dialect)).count("FOREIGN KEY") == 2
 
@@ -151,21 +148,19 @@ class TestBoundaryGuard:
         _, concept, _, cond = _cdm_tables()
         primary, vocab = split_cdm.create_engines()
         try:
-            with primary.connect() as connection, pytest.raises(
-                CrossDatabaseStatementError, match="'vocab'.*'primary'"
+            with (
+                primary.connect() as connection,
+                pytest.raises(CrossDatabaseStatementError, match="'vocab'.*'primary'"),
             ):
                 connection.execute(
-                    sa.select(cond.c.id).join(
-                        concept, cond.c.concept_id == concept.c.concept_id
-                    )
+                    sa.select(cond.c.id).join(concept, cond.c.concept_id == concept.c.concept_id)
                 )
-            with vocab.connect() as connection, pytest.raises(
-                CrossDatabaseStatementError, match="'primary'.*'vocab'"
+            with (
+                vocab.connect() as connection,
+                pytest.raises(CrossDatabaseStatementError, match="'primary'.*'vocab'"),
             ):
                 connection.execute(
-                    sa.select(cond.c.id).join(
-                        concept, cond.c.concept_id == concept.c.concept_id
-                    )
+                    sa.select(cond.c.id).join(concept, cond.c.concept_id == concept.c.concept_id)
                 )
         finally:
             primary.dispose()
@@ -183,8 +178,9 @@ class TestBoundaryGuard:
                     connection.execute(
                         sa.text("CREATE TABLE concept (concept_id INTEGER PRIMARY KEY)")
                     )
-            with primary.connect() as connection, pytest.raises(
-                CrossDatabaseStatementError, match="'vocab'"
+            with (
+                primary.connect() as connection,
+                pytest.raises(CrossDatabaseStatementError, match="'vocab'"),
             ):
                 connection.execute(sa.select(concept.c.concept_id))
             with vocab.connect() as connection:
@@ -200,8 +196,10 @@ class TestBoundaryGuard:
         claimed it, so combining it with vocab on the vocab engine is allowed."""
         _, concept, _, _ = _cdm_tables()
         staging = sa.Table(
-            "staging_concept", sa.MetaData(),
-            sa.Column("concept_id", sa.Integer), schema="staging",
+            "staging_concept",
+            sa.MetaData(),
+            sa.Column("concept_id", sa.Integer),
+            schema="staging",
         )
         primary, vocab = split_cdm.create_engines(
             schema_claims=[SchemaClaim(schema_tag="staging", physical_schema="public")],
@@ -209,15 +207,16 @@ class TestBoundaryGuard:
         )
         try:
             with vocab.begin() as connection:
-                connection.execute(
-                    sa.text("CREATE TABLE concept (concept_id INTEGER PRIMARY KEY)")
-                )
+                connection.execute(sa.text("CREATE TABLE concept (concept_id INTEGER PRIMARY KEY)"))
                 connection.execute(sa.text("CREATE TABLE staging_concept (concept_id INTEGER)"))
-                assert connection.execute(
-                    sa.select(concept.c.concept_id).join(
-                        staging, staging.c.concept_id == concept.c.concept_id
-                    )
-                ).all() == []
+                assert (
+                    connection.execute(
+                        sa.select(concept.c.concept_id).join(
+                            staging, staging.c.concept_id == concept.c.concept_id
+                        )
+                    ).all()
+                    == []
+                )
                 connection.execute(sa.text("DROP TABLE staging_concept"))
                 connection.execute(sa.text("DROP TABLE concept"))
         finally:

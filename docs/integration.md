@@ -40,7 +40,7 @@ from oa_configurator import CDMDatabaseConfig, PackageConfigBase, RefTo
 
 
 class MyPackageConfig(PackageConfigBase):
-    tool_name: ClassVar[str] = "my_package"   # maps to [tools.my_package] in TOML
+    tool_name: ClassVar[str] = "my_package"  # maps to [tools.my_package] in TOML
 
     # A field naming an entry in [databases.*] of kind "cdm". `omop-config
     # configure` offers to reuse an existing one or create it on the spot.
@@ -146,6 +146,7 @@ Unit and mock-based tests must never touch `~/.config/omop/config.toml`. Use `St
 ```python
 from oa_configurator import StackConfig, Resolver
 
+
 def test_something(monkeypatch):
     cfg = StackConfig.for_session(
         connections={"db": {"dialect": "sqlite", "database_name": ":memory:"}},
@@ -190,7 +191,9 @@ Pass `dialect=` to pin the resolved connection to a specific dialect regardless 
 @pytest.fixture
 def empty_engine():
     with isolated_test_database(
-        MyPackageConfig, "test_cdm_db_sqlite", dialect="sqlite",
+        MyPackageConfig,
+        "test_cdm_db_sqlite",
+        dialect="sqlite",
     ) as db:
         yield db.connection.engine
 ```
@@ -312,7 +315,9 @@ from omop_alchemy.config import OmopAlchemyConfig
 config = OmopAlchemyConfig.get_config()
 resolver = Resolver.from_active_config()
 prod_primary, prod_vocab = resolver.resolve_database("cdm_db_prod").create_engines()
-dev_primary, dev_vocab = resolver.resolve_database(config.cdm_db).create_engines()  # whatever cdm_db currently resolves to
+dev_primary, dev_vocab = resolver.resolve_database(
+    config.cdm_db
+).create_engines()  # whatever cdm_db currently resolves to
 ```
 
 For switching between whole environments (dev vs. prod) rather than picking one database among several, use distinctly-named connections and databases per environment, and point each deployment's `omop-config configure` flags at the right ones. There is no profile/overlay mechanism; naming is the only axis.

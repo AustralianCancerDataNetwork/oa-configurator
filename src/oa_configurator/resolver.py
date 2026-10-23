@@ -26,6 +26,7 @@ from .domains.resources.schema import (
 )
 from .domains.resources.sql import connection_key, host_is_resolvable, is_ephemeral_url
 from .domains.vector_stores.schema import ResolvedVectorStore, VectorStoreConfig
+from .issues import ConfigIssue, ConfigIssuesError, IssueCode, issues_from_errors
 from .package_base import ConfigurationError, PackageConfigBase
 from .refs import RefTo, _iter_refs, is_sensitive, sanitized_errors
 from .stack_config import (
@@ -111,67 +112,78 @@ def _flag_name(name: str) -> str:
 
 
 def _check_missing_required(
-    display_name: str,
     missing_required: list[str],
     *,
     non_interactive: bool,
-    headless: bool = False,
+    package: str | None = None,
+    section: str | None = None,
+    entry: str | None = None,
 ) -> None:
-    """Abort with a clear error, naming exact CLI flags, if fields are missing.
+    """Raise one ``MISSING_REQUIRED`` issue per missing field.
 
     A dotted name (e.g. ``"cdm_db.connection"``, produced by the nested
     ``--set`` creation described in :func:`_resolve_nested_flag_value`)
-    is reported as a ``--set path=value`` hint instead of a plain flag,
-    since no such flag exists.
+    is a path into a nested entry. Does nothing when interactive, where
+    missing fields are prompted for.
+
+    Raises
+    ------
+    ConfigIssuesError
+        If *non_interactive* and *missing_required* is not empty.
     """
     if not non_interactive or not missing_required:
         return
-    if headless:
-        fields = ", ".join(missing_required)
-        raise ConfigurationError(f"Missing required field(s) for {display_name}: {fields}")
-    import typer
-    from rich.console import Console
-
-    err_console = Console(stderr=True)
-    hints = ", ".join(f"--set {k}=<value>" if "." in k else _flag_name(k) for k in missing_required)
-    err_console.print(
-        f"\n[red bold]Missing required field(s) for {display_name!r}:[/red bold] {hints}\n"
-        f"No flag or stored config is available for these. Pass them explicitly."
+    issues = [
+        ConfigIssue(
+            IssueCode.MISSING_REQUIRED,
+            f"Missing required field {name}",
+            package=package,
+            section=section,
+            entry=entry,
+            field_path=name,
+        )
+        for name in missing_required
+    ]
+    subject = issues[0].subject or "entry"
+    raise ConfigIssuesError(
+        f"Missing required field(s) for {subject}: {', '.join(missing_required)}", issues
     )
-    raise typer.Exit(1)
 
 
 def _check_unrecognized_keys(
-    display_name: str,
+    package: str,
     set_dict: Mapping[str, Any],
     valid_names: Collection[str],
-    *,
-    headless: bool = False,
 ) -> None:
-    """Abort if ``set_dict`` has a top-level key that isn't a real field name.
+    """Raise if ``set_dict`` has a top-level key that isn't a real field name.
 
     Catches a stale or misspelled ``--set``/flag target immediately. Without
     this, an unrecognized key is silently never consumed by the per-field
     loop in :func:`~oa_configurator.package_base.PackageConfigBase.resolve_fields`,
     producing an incomplete saved section with no error at all.
+
+    Raises
+    ------
+    ConfigIssuesError
+        With one ``UNKNOWN_FIELD`` issue per unrecognized key.
     """
     unrecognized = sorted(set(set_dict) - set(valid_names))
     if not unrecognized:
         return
-    if headless:
-        raise ConfigurationError(
-            f"Unrecognized field(s) for {display_name}: {', '.join(unrecognized)}"
+    valid = tuple(sorted(valid_names))
+    issues = [
+        ConfigIssue(
+            IssueCode.UNKNOWN_FIELD,
+            f"Unrecognized field {name}",
+            package=package,
+            field_path=name,
+            related=valid,
         )
-    import typer
-    from rich.console import Console
-
-    err_console = Console(stderr=True)
-    err_console.print(
-        f"\n[red bold]Unrecognized field(s) for {display_name!r}:[/red bold] "
-        f"{', '.join(unrecognized)}\n"
-        f"Valid fields: {', '.join(sorted(valid_names))}"
+        for name in unrecognized
+    ]
+    raise ConfigIssuesError(
+        f"Unrecognized field(s) for tool {package!r}: {', '.join(unrecognized)}", issues
     )
-    raise typer.Exit(1)
 
 
 def _is_test_marked(name: str, target: type[BaseModel], config: StackConfig) -> bool:
@@ -219,7 +231,6 @@ def _resolve_ref(
     from rich.markup import escape
 
     console = Console()
-    err_console = Console(stderr=True)
 
     section = _ref_section(target, field_name=field_name)
     section_dict: dict[str, Any] = getattr(config, section)
@@ -257,17 +268,25 @@ def _resolve_ref(
             is_test=is_test,
         )
     elif is_test != _is_test_marked(name, target, config):
-        if is_test:
-            err_console.print(
-                f"\n[red bold]DANGER[/red bold]: {name!r} is not marked test_only=true. "
-                f"Point test databases only to test_only connections.\n"
-            )
-        else:
-            err_console.print(
-                f"\n[red bold]DANGER[/red bold]: {name!r} is marked test_only=true. "
-                f"Point production fields only at non-test_only connections.\n"
-            )
-        raise typer.Exit(1)
+        message = (
+            f"{name!r} is not marked test_only=true. "
+            f"Point test databases only to test_only connections."
+            if is_test
+            else f"{name!r} is marked test_only=true. "
+            f"Point production fields only at non-test_only connections."
+        )
+        raise ConfigIssuesError(
+            message,
+            [
+                ConfigIssue(
+                    IssueCode.TEST_ONLY_MISMATCH,
+                    message,
+                    section=section,
+                    entry=name,
+                    field_path=field_name,
+                )
+            ],
+        )
     return name
 
 
@@ -321,84 +340,59 @@ def _find_production_collision(target: ConnectionConfig | URL, config: StackConf
     return None
 
 
-def _abort_on_invalid_entry(
-    target: type[BaseModel], exc: ValidationError, *, headless: bool = False
-) -> NoReturn:
-    """Abort with a clear error when a schema rejects the assembled entry.
+def _raise_invalid_entry(target: type[BaseModel], exc: ValidationError) -> NoReturn:
+    """Raise one ``INVALID_ENTRY`` issue per error when a schema rejects the entry.
 
     Constructing the entry is the last thing :func:`_resolve_named_entry`
     does, and a schema can still refuse it there: a field-level constraint,
     or a cross-field ``model_validator`` (e.g. ``ModelConfig`` rejecting
     ``embedding_dim`` on a model that doesn't declare ``embeddings``).
-    Pydantic's own ``str(exc)`` reports the whole input dict, the error
-    type, and a docs URL, which is a traceback aimed at a Python caller,
-    not at someone fixing a config entry. Each error becomes one line
-    naming the flag to change instead. Reads ``exc`` through
+    A model validator has no field location, so its issue has no
+    ``field_path``. Reads ``exc`` through
     :func:`~oa_configurator.refs.sanitized_errors` rather than calling
     ``exc.errors()`` directly, so a value like a database password can
-    never end up in the printed problem list.
+    never end up in an issue.
+
+    Raises
+    ------
+    ConfigIssuesError
+        Always.
     """
-    field_problems: list[tuple[str, str]] = []
-    for error in sanitized_errors(exc):
-        # A model_validator(mode="after") has no loc: the complaint is about
-        # the combination of fields, so there's no single flag to point at.
-        location = ".".join(str(part) for part in error["loc"])
-        message = error["msg"].removeprefix("Value error, ")
-        field_problems.append((location, message))
-
-    if headless:
-        problems = "; ".join(
-            f"{location}: {message}" if location else message
-            for location, message in field_problems
-        )
-        raise ConfigurationError(f"Invalid {target.__name__}: {problems}") from None
-
-    import typer
-    from rich.console import Console
-
-    problems = [
-        f"  {_flag_name(location)}: {message}" if location else f"  {message}"
-        for location, message in field_problems
-    ]
-
-    Console(stderr=True).print(
-        f"[red bold]Invalid {target.__name__}:[/red bold]\n" + "\n".join(problems)
+    issues = issues_from_errors(sanitized_errors(exc), schema=target.__name__)
+    problems = "; ".join(
+        f"{issue.field_path}: {issue.message}" if issue.field_path else issue.message
+        for issue in issues
     )
-    raise typer.Exit(1)
+    raise ConfigIssuesError(f"Invalid {target.__name__}: {problems}", issues) from None
 
 
-def _check_test_collision(
-    new_conn: ConnectionConfig, config: StackConfig, *, headless: bool = False
-) -> None:
-    """Abort if a new test-only connection's details match a real, non-test one.
+def _check_test_collision(new_conn: ConnectionConfig, config: StackConfig) -> None:
+    """Raise if a new test-only connection's details match a real, non-test one.
 
     Test databases run DROP SCHEMA CASCADE; pointing one at production data
     by mistake (e.g. copy-pasted host/database name) would destroy it.
+
+    Raises
+    ------
+    ConfigIssuesError
+        With ``TEST_COLLISION`` when a non-test connection matches, or
+        ``COLLISION_UNVERIFIABLE`` when production safety cannot be checked.
     """
     try:
         match = _find_production_collision(new_conn, config)
     except ValueError as exc:
-        if headless:
-            raise ConfigurationError(str(exc)) from exc
-        raise
+        message = str(exc)
+        raise ConfigIssuesError(
+            message, [ConfigIssue(IssueCode.COLLISION_UNVERIFIABLE, message)]
+        ) from exc
     if match is not None:
-        if headless:
-            raise ConfigurationError(
-                "Test-only connection details match non-test connection "
-                f"{match!r}; use a different host or database name"
-            )
-
-        import typer
-        from rich.console import Console
-
-        err_console = Console(stderr=True)
-        err_console.print(
-            f"\n[red bold]DANGER[/red bold]: these connection details match the"
-            f" non-test connection [bold]{match!r}[/bold] (same host, database name, and port).\n"
-            f"Tests run DROP SCHEMA CASCADE, which would destroy your data.\n"
-            f"Use a different [bold]host[/bold] or [bold]database name[/bold]."
+        message = (
+            f"Test-only connection details match non-test connection {match!r}; "
+            "use a different host or database name"
         )
-        raise typer.Exit(1)
+        raise ConfigIssuesError(
+            message, [ConfigIssue(IssueCode.TEST_COLLISION, message, related=(match,))]
+        )
 
 
 def _resolve_nested_flag_value(
@@ -411,7 +405,6 @@ def _resolve_nested_flag_value(
     name_hint: str | None,
     is_test: bool,
     missing_required: list[str],
-    headless: bool = False,
 ) -> str | None:
     """Resolve a RefTo field's nested ``--set field.subfield=value`` dict
     into a saved entry, returning the name it was saved under.
@@ -451,7 +444,6 @@ def _resolve_nested_flag_value(
         missing_required=nested_missing,
         name_hint=name,
         is_test=is_test,
-        headless=headless,
     )
     if nested_missing:
         missing_required.extend(f"{field_name}.{m}" for m in nested_missing)
@@ -469,7 +461,6 @@ def _resolve_named_entry(
     missing_required: list[str],
     name_hint: str | None = None,
     is_test: bool = False,
-    headless: bool = False,
 ) -> BaseModel | None:
     """Resolve one entry of *target*: flag, then stored value, then an
     interactive prompt, recursing into any RefTo field via
@@ -482,8 +473,8 @@ def _resolve_named_entry(
     test-only wizard's recursion flag.
 
     Returns None if a required field is missing non-interactively (check
-    *missing_required*), and aborts with ``typer.Exit(1)`` if *flags*
-    names a field *target* doesn't have.
+    *missing_required*), and raises :class:`ConfigIssuesError` if *flags*
+    names a field *target* doesn't have or the assembled entry is invalid.
     """
     import typer
 
@@ -520,7 +511,6 @@ def _resolve_named_entry(
                 name_hint=name_hint,
                 is_test=is_test,
                 missing_required=missing_required,
-                headless=headless,
             )
             if resolved_name is not None:
                 values[field_name] = resolved_name
@@ -610,32 +600,34 @@ def _resolve_named_entry(
         values[field_name] = raw_input if info.is_required() else (raw_input or None)
 
     if non_interactive:
-        unknown = set(flags) - set(target.model_fields)
+        unknown = sorted(set(flags) - set(target.model_fields))
         if unknown:
-            if headless:
-                names = ", ".join(sorted(unknown))
-                valid = ", ".join(target.model_fields)
-                raise ConfigurationError(
-                    f"{target.__name__} has no field(s): {names}. Valid fields: {valid}"
-                )
-            from rich.console import Console
-
-            Console(stderr=True).print(
-                f"[red bold]{target.__name__} has no field(s):[/red bold] {', '.join(sorted(unknown))}\n"
-                f"Valid fields: {', '.join(target.model_fields)}"
+            valid = tuple(target.model_fields)
+            raise ConfigIssuesError(
+                f"{target.__name__} has no field(s): {', '.join(unknown)}. "
+                f"Valid fields: {', '.join(valid)}",
+                [
+                    ConfigIssue(
+                        IssueCode.UNKNOWN_FIELD,
+                        f"{target.__name__} has no field {name}",
+                        schema=target.__name__,
+                        field_path=name,
+                        related=valid,
+                    )
+                    for name in unknown
+                ],
             )
-            raise typer.Exit(1)
 
     if non_interactive and missing_required:
         return None
     try:
         entry = target(**values)
     except ValidationError as exc:
-        _abort_on_invalid_entry(target, exc, headless=headless)
+        _raise_invalid_entry(target, exc)
     if is_test and isinstance(entry, ConnectionConfig):
         entry.test_only = True
     if isinstance(entry, ConnectionConfig) and entry.test_only:
-        _check_test_collision(entry, config, headless=headless)
+        _check_test_collision(entry, config)
     return entry
 
 

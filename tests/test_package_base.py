@@ -11,10 +11,12 @@ from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from oa_configurator import (
     CDMDatabaseConfig,
+    ConfigIssuesError,
     ConfigurationError,
     ConnectionConfig,
     Dialect,
     GenericDatabaseConfig,
+    IssueCode,
     ModelConfig,
     PackageConfigBase,
     PackageConfigInvalidError,
@@ -180,6 +182,7 @@ class TestPackageCandidateValidation:
         assert canary not in str(exc_info.value)
         assert canary not in repr(exc_info.value)
         assert all("input" not in detail for detail in exc_info.value.errors())
+        assert canary not in repr(exc_info.value.issues)
         assert not hasattr(exc_info.value, "validation_error")
         assert exc_info.value.__context__ is None
         assert canary not in "".join(traceback.format_exception(exc_info.value))
@@ -219,16 +222,114 @@ class TestPlanConfigure:
     def test_unknown_nested_field_raises_silent_library_error(self, capsys):
         cfg = StackConfig.for_session()
 
-        with pytest.raises(ConfigurationError, match="has no field"):
+        with pytest.raises(ConfigIssuesError, match="has no field") as exc_info:
             plan_configure(
                 DatabaseUserConfig,
                 cfg,
                 {"cdm_db": {"unknown": "value"}},
             )
 
+        (issue,) = exc_info.value.issues
+        assert issue.code is IssueCode.UNKNOWN_FIELD
+        assert issue.schema == "CDMDatabaseConfig"
+        assert issue.field_path == "unknown"
+        assert "cdm_schema" in issue.related
         captured = capsys.readouterr()
         assert captured.out == ""
         assert captured.err == ""
+
+    def test_missing_required_nested_field_reports_dotted_path(self):
+        cfg = StackConfig.for_session()
+
+        with pytest.raises(ConfigIssuesError) as exc_info:
+            plan_configure(DatabaseUserConfig, cfg, {"cdm_db": {"cdm_schema": "x"}})
+
+        (issue,) = exc_info.value.issues
+        assert issue.code is IssueCode.MISSING_REQUIRED
+        assert issue.package == "database_user_tool"
+        assert issue.field_path == "cdm_db.connection"
+
+    def test_cross_field_validator_failure_is_an_entry_level_issue(self):
+        cfg = StackConfig.for_session(providers={"provider": ProviderConfig(provider="ollama")})
+
+        with pytest.raises(ConfigIssuesError) as exc_info:
+            plan_configure(
+                EmbeddingConfig,
+                cfg,
+                {
+                    "embedding_model_name": {
+                        "provider": "provider",
+                        "model": "m",
+                        "embedding_dim": 8,
+                    }
+                },
+            )
+
+        (issue,) = exc_info.value.issues
+        assert issue.code is IssueCode.INVALID_ENTRY
+        assert issue.schema == "ModelConfig"
+        assert issue.field_path is None
+        assert "embedding_dim requires embeddings=true" in issue.message
+
+    def test_field_level_validation_failure_carries_dotted_path(self):
+        cfg = StackConfig.for_session(providers={"provider": ProviderConfig(provider="ollama")})
+
+        with pytest.raises(ConfigIssuesError) as exc_info:
+            plan_configure(
+                EmbeddingConfig,
+                cfg,
+                {
+                    "embedding_model_name": {
+                        "provider": "provider",
+                        "model": "m",
+                        "embeddings": "yes",
+                        "embedding_dim": "abc",
+                    }
+                },
+            )
+
+        issues = exc_info.value.issues
+        assert {i.code for i in issues} == {IssueCode.INVALID_ENTRY}
+        assert any(i.field_path is not None and i.error_type for i in issues)
+
+    def test_test_only_collision_is_a_structured_issue(self, capsys):
+        cfg = StackConfig.for_session(
+            connections={
+                "prod": ConnectionConfig(
+                    dialect=Dialect.POSTGRESQL + "+psycopg",
+                    host="localhost",
+                    port=5432,
+                    database_name="d",
+                )
+            },
+            databases={"existing": CDMDatabaseConfig(connection="prod")},
+        )
+
+        class CollidingConfig(PackageConfigBase):
+            tool_name: ClassVar[str] = "colliding_tool"
+            test_cdm_db: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = None
+
+        with pytest.raises(ConfigIssuesError) as exc_info:
+            plan_configure(
+                CollidingConfig,
+                cfg,
+                {
+                    "test_cdm_db": {
+                        "connection": {
+                            "dialect": Dialect.POSTGRESQL + "+psycopg",
+                            "host": "127.0.0.1",
+                            "port": 5432,
+                            "database_name": "d",
+                            "test_only": True,
+                        }
+                    }
+                },
+            )
+
+        (issue,) = exc_info.value.issues
+        assert issue.code is IssueCode.TEST_COLLISION
+        assert issue.related == ("prod",)
+        assert capsys.readouterr().err == ""
 
     def test_invalid_nested_entry_traceback_omits_rejected_secret(self):
         canary = "secret-model-canary"
@@ -250,6 +351,7 @@ class TestPlanConfigure:
         assert exc_info.value.__cause__ is None
         assert exc_info.value.__suppress_context__ is True
         assert canary not in "".join(traceback.format_exception(exc_info.value))
+        assert canary not in repr(exc_info.value.issues)
 
     def test_nested_refto_creation_is_confined_to_returned_candidate(self):
         cfg = StackConfig.for_session()
@@ -325,8 +427,15 @@ class TestPlanConfigure:
         cfg = _validated_stack({"cdm_db": "cdm_db", "port": 8000})
         before = cfg.model_dump(mode="python")
 
-        with pytest.raises(PackageConfigInvalidError):
+        with pytest.raises(PackageConfigInvalidError) as exc_info:
             plan_configure(ValidatedPackageConfig, cfg, {"port": 999999})
+
+        assert isinstance(exc_info.value, ConfigIssuesError)
+        (issue,) = exc_info.value.issues
+        assert issue.code is IssueCode.INVALID_ENTRY
+        assert issue.package == "validated_tool"
+        assert issue.field_path == "port"
+        assert issue.error_type
 
         assert cfg.model_dump(mode="python") == before
 
@@ -697,23 +806,21 @@ class TestResolveFieldsUnrecognizedKeys:
     produce an incomplete saved section (the pre-fix behavior: an
     unrecognized key was simply never consumed by the per-field loop)."""
 
-    def test_headless_raises_configuration_error(self):
-        with pytest.raises(ConfigurationError, match="stale_field_name"):
+    def test_raises_structured_issue_without_printing(self, capsys):
+        with pytest.raises(ConfigIssuesError, match="stale_field_name") as exc_info:
             MixedFieldConfig.resolve_fields(
                 StackConfig.for_session(),
                 set_dict={"stale_field_name": "value"},
                 interactive=False,
-                headless=True,
             )
-
-    def test_non_headless_raises_typer_exit(self):
-        with pytest.raises(typer.Exit):
-            MixedFieldConfig.resolve_fields(
-                StackConfig.for_session(),
-                set_dict={"stale_field_name": "value"},
-                interactive=False,
-                headless=False,
-            )
+        (issue,) = exc_info.value.issues
+        assert issue.code is IssueCode.UNKNOWN_FIELD
+        assert issue.package == MixedFieldConfig.tool_name
+        assert issue.field_path == "stale_field_name"
+        assert "backend" in issue.related
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""
 
     def test_a_real_field_name_is_unaffected(self):
         extra = MixedFieldConfig.resolve_fields(

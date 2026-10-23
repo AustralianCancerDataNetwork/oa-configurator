@@ -12,11 +12,13 @@ consumer that never touches the CLI doesn't pay to load them.
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
 from typing import Annotated, Any
 
 from pydantic import BaseModel
 
+from .issues import ConfigIssue, ConfigIssuesError, IssueCode
 from .refs import MASK, is_sensitive
 from .resolver import _check_missing_required, _flag_name, _is_flag_settable, _resolve_named_entry
 from .stack_config import StackConfig, mismatched_kind_refs, unresolved_refs
@@ -43,6 +45,67 @@ def _save_stack_config_or_exit(
         Console(stderr=True).print(
             f"[red bold]Could not save configuration:[/red bold] {escape(str(exc))}"
         )
+        raise typer.Exit(1) from None
+
+
+def _render_issues(issues: tuple[ConfigIssue, ...]) -> None:
+    """Print the issues of one :class:`ConfigIssuesError` to stderr as Rich output."""
+    from rich.console import Console
+    from rich.markup import escape
+
+    first = issues[0]
+    paths = [issue.field_path or "" for issue in issues]
+    err_console = Console(stderr=True)
+
+    match first.code:
+        case IssueCode.MISSING_REQUIRED:
+            hints = ", ".join(f"--set {p}=<value>" if "." in p else _flag_name(p) for p in paths)
+            err_console.print(
+                f"\n[red bold]Missing required field(s) for {escape(repr(first.subject))}:"
+                f"[/red bold] {escape(hints)}\n"
+                f"No flag or stored config is available for these. Pass them explicitly."
+            )
+        case IssueCode.UNKNOWN_FIELD:
+            if first.schema:
+                lead, heading = "", f"{first.schema} has no field(s):"
+            else:
+                lead, heading = "\n", f"Unrecognized field(s) for {first.subject!r}:"
+            err_console.print(
+                f"{lead}[red bold]{escape(heading)}[/red bold] {escape(', '.join(paths))}\n"
+                f"Valid fields: {escape(', '.join(first.related))}"
+            )
+        case IssueCode.INVALID_ENTRY:
+            problems = [
+                f"  {_flag_name(i.field_path)}: {i.message}" if i.field_path else f"  {i.message}"
+                for i in issues
+            ]
+            err_console.print(
+                f"[red bold]Invalid {escape(str(first.schema))}:[/red bold]\n"
+                + escape("\n".join(problems))
+            )
+        case IssueCode.TEST_COLLISION:
+            err_console.print(
+                f"\n[red bold]DANGER[/red bold]: these connection details match the"
+                f" non-test connection [bold]{escape(repr(first.related[0]))}[/bold]"
+                f" (same host, database name, and port).\n"
+                f"Tests run DROP SCHEMA CASCADE, which would destroy your data.\n"
+                f"Use a different [bold]host[/bold] or [bold]database name[/bold]."
+            )
+        case IssueCode.TEST_ONLY_MISMATCH:
+            err_console.print(f"\n[red bold]DANGER[/red bold]: {escape(first.message)}\n")
+        case _:
+            err_console.print(f"[red bold]Error:[/red bold] {escape(first.message)}")
+
+
+@contextmanager
+def _exit_on_config_issues() -> Generator[None]:
+    """Render a raised :class:`ConfigIssuesError` as CLI output and exit with status 1."""
+    import typer
+
+    try:
+        yield
+    except ConfigIssuesError as exc:
+        _render_issues(exc.issues)
         raise typer.Exit(1) from None
 
 
@@ -123,12 +186,13 @@ def _add_entry(
     section_dict = getattr(config, section)
     existing = section_dict.get(name)
     missing_required: list[str] = []
-    entry = _resolve_named_entry(
-        target, config, flags=flags, existing=existing, missing_required=missing_required
-    )
-    _check_missing_required(
-        f"{section[:-1]} {name!r}", missing_required, non_interactive=flags is not None
-    )
+    with _exit_on_config_issues():
+        entry = _resolve_named_entry(
+            target, config, flags=flags, existing=existing, missing_required=missing_required
+        )
+        _check_missing_required(
+            missing_required, non_interactive=flags is not None, section=section, entry=name
+        )
     assert entry is not None  # guaranteed by the missing_required check above
     _check_entry_refs(entry, config)
 

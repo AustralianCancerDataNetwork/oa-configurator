@@ -121,10 +121,10 @@ class TestResolveConfigPath:
         monkeypatch.setenv(ENV_CONFIG_PATH, "custom.toml")
         assert _resolve_config_path() == target.resolve()
 
-    def test_env_var_missing_file_raises(self, tmp_path, monkeypatch):
-        monkeypatch.setenv(ENV_CONFIG_PATH, str(tmp_path / "does_not_exist.toml"))
-        with pytest.raises(FileNotFoundError):
-            _resolve_config_path()
+    def test_env_var_missing_file_resolves(self, tmp_path, monkeypatch):
+        target = tmp_path / "nested" / "does_not_exist.toml"
+        monkeypatch.setenv(ENV_CONFIG_PATH, str(target))
+        assert _resolve_config_path() == target.resolve()
 
     def test_env_var_non_toml_suffix_raises(self, tmp_path, monkeypatch):
         target = tmp_path / "custom.json"

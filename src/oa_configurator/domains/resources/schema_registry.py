@@ -230,6 +230,7 @@ class SchemaRegistry(_SchemaRegistryBase):
             sqlite_where=sa.text(
                 "schema_tag IN (" + ", ".join(f"'{v}'" for v in sorted(_ROLE_TAG_VALUES)) + ")"
             ),
+            info={"duckdb_partial_index_policy": "application_enforced"},
         ),
         sa.Index(
             "uq_schema_registry_custom_tag",
@@ -241,6 +242,7 @@ class SchemaRegistry(_SchemaRegistryBase):
             sqlite_where=sa.text(
                 "schema_tag NOT IN (" + ", ".join(f"'{v}'" for v in sorted(_ROLE_TAG_VALUES)) + ")"
             ),
+            info={"duckdb_partial_index_policy": "application_enforced"},
         ),
         sa.Index(
             "uq_schema_registry_reserved_schema",
@@ -248,6 +250,7 @@ class SchemaRegistry(_SchemaRegistryBase):
             unique=True,
             postgresql_where=sa.text("reserved IS TRUE"),
             sqlite_where=sa.text("reserved IS TRUE"),
+            info={"duckdb_partial_index_policy": "application_enforced"},
         ),
         {"schema": _SCHEMA_PROVENANCE_SCHEMA},
     )

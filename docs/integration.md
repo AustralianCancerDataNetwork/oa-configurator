@@ -153,6 +153,14 @@ The connection's mapping includes custom tags registered when the engine was cre
 
 See the [foreign-key API reference](api/resources.md#foreign-key-feasibility-and-omission-reporting) for report reasons, including cyclic/deferred keys, and the limits of these checks.
 
+#### DuckDB DDL limits for indexes, decimals, and foreign keys
+
+DuckDB does not support partial indexes. Configurator recognizes both `postgresql_where` and `sqlite_where` predicates. It logs and omits partial non-unique indexes; a partial unique index raises `CompileError` by default so table creation cannot silently weaken uniqueness. An index may set `info={"duckdb_partial_index_policy": "application_enforced"}` only when the application has a tested alternative enforcement path. The schema registry uses that policy because its ownership checks run under DuckDB's serialized writer model. Other applications must provide their own equivalent checks before opting in.
+
+Specify precision for DuckDB decimals, for example `sa.Numeric(18, 6)`. Bare `sa.Numeric()`, `sa.NUMERIC()`, and `sa.DECIMAL()` raise `CompileError` because DuckDB's implicit default can round values unexpectedly. Explicit precision and scale are preserved. The rule also applies to `CAST(... AS NUMERIC)` expressions. Float columns are unaffected.
+
+DuckDB table creation also rejects foreign keys that declare `ON DELETE` or `ON UPDATE CASCADE`, `SET NULL`, or `SET DEFAULT`. Default, `NO ACTION`, and `RESTRICT` declarations remain supported. Remove the action or choose a database that supports it.
+
 ---
 
 ### 5. Logging

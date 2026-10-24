@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import functools
 import ipaddress
+import logging
 import socket
 from collections.abc import Generator, Iterable
 from contextlib import contextmanager
@@ -24,7 +25,7 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import CompileError, InvalidRequestError
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session
-from sqlalchemy.schema import AddConstraint, CreateIndex, DropConstraint
+from sqlalchemy.schema import AddConstraint, CreateIndex, CreateTable, DropConstraint
 from sqlalchemy.sql.compiler import IdentifierPreparer
 
 # Broader than a literal SQLAlchemy "bind" (Engine | Connection): a Session
@@ -38,6 +39,8 @@ SCHEMA_TRANSLATE_MAP_KEY = "schema_translate_map"
 # without threading through an entire resolved DB config.
 EXECUTION_OPTION_DATABASE_CONFIG_NAME = "oa_configurator_database_config_name"
 EXECUTION_OPTION_TEST_ONLY = "oa_configurator_test_only"
+
+logger = logging.getLogger(__name__)
 
 
 class Role(StrEnum):
@@ -208,11 +211,65 @@ def _skip_dropped_fk_on_duckdb(element: DropConstraint, compiler, **kw) -> str:
 
 @compiles(CreateIndex, Dialect.DUCKDB)
 def _skip_partial_index_on_duckdb(element: CreateIndex, compiler, **kw) -> str:
-    """No-op a partial (``WHERE``-filtered) index: DuckDB has no partial-index support."""
+    """Handle unsupported partial indexes without silently changing uniqueness."""
     index = element.element
-    if index.dialect_options["postgresql"]["where"] is not None:
+    predicates = (
+        index.dialect_options["postgresql"]["where"],
+        index.dialect_options["sqlite"]["where"],
+    )
+    if any(predicate is not None for predicate in predicates):
+        table_name = index.table.fullname if index.table is not None else "<unbound>"
+        if index.unique and index.info.get("duckdb_partial_index_policy") != "application_enforced":
+            raise CompileError(
+                f"DuckDB cannot create partial unique index {index.name!r} on "
+                f"{table_name!r}; provide an application-enforced "
+                "uniqueness policy or use a database that supports partial indexes."
+            )
+        if index.unique:
+            logger.info(
+                "Omitting DuckDB partial unique index %s on %s under its application-enforced policy",
+                index.name,
+                table_name,
+            )
+        else:
+            logger.warning(
+                "Omitting unsupported DuckDB partial index %s on %s",
+                index.name,
+                table_name,
+            )
         return "SELECT 1"
     return compiler.visit_create_index(element, **kw)
+
+
+@compiles(CreateTable, Dialect.DUCKDB)
+def _reject_unsupported_duckdb_fk_actions(element: CreateTable, compiler, **kw) -> str:
+    """Fail before DDL when a DuckDB FK requests an unsupported action."""
+    unsupported_actions = {"CASCADE", "SET NULL", "SET DEFAULT"}
+    for constraint in element.element.foreign_key_constraints:
+        for foreign_key in constraint.elements:
+            for event, action_value in (("DELETE", foreign_key.ondelete), ("UPDATE", foreign_key.onupdate)):
+                action = (action_value or "").upper()
+                if action in unsupported_actions:
+                    raise CompileError(
+                        f"DuckDB does not support ON {event} {action} on foreign key "
+                        f"{constraint.name or '<unnamed>'!r} in table "
+                        f"{element.element.fullname!r}. Remove the action or use a database "
+                        "that supports it."
+                    )
+    return compiler.visit_create_table(element, **kw)
+
+
+@compiles(sa.Numeric, Dialect.DUCKDB)
+@compiles(sa.NUMERIC, Dialect.DUCKDB)
+@compiles(sa.DECIMAL, Dialect.DUCKDB)
+def _require_duckdb_numeric_precision(type_: sa.Numeric, compiler, **kw) -> str:
+    """Require an explicit decimal precision so DuckDB cannot pick a lossy default."""
+    if type_.precision is None:
+        raise CompileError(
+            "DuckDB Numeric columns require explicit precision and scale, e.g. Numeric(18, 6); "
+            "bare Numeric() can silently round decimal values."
+        )
+    return compiler.visit_NUMERIC(type_, **kw)
 
 
 @compiles(sa.Computed, Dialect.DUCKDB)

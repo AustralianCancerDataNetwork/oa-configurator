@@ -15,6 +15,8 @@ Rule: no test reads from ~/.config/omop/ directly (see conftest.py).
 from __future__ import annotations
 
 import uuid
+import logging
+from decimal import Decimal
 
 import pytest
 import sqlalchemy as sa
@@ -54,8 +56,7 @@ def _duckdb_dialect() -> sa.engine.Dialect:
 
 
 class TestDuckDBDDLShims:
-    """The @compiles registrations in sql.py that paper over DuckDB's DDL gaps:
-    deferred-FK (Add/DropConstraint), partial indexes, and Computed columns."""
+    """The @compiles registrations in sql.py handle DuckDB's DDL gaps."""
 
     def test_add_constraint_no_ops_a_foreign_key(self):
         metadata = sa.MetaData()
@@ -99,12 +100,19 @@ class TestDuckDBDDLShims:
         assert "SELECT 1" not in ddl
         assert "DROP CONSTRAINT" in ddl.upper()
 
-    def test_partial_index_no_ops(self):
+    @pytest.mark.parametrize("predicate_dialects", ["postgresql", "sqlite", "both"])
+    def test_partial_index_no_ops(self, predicate_dialects, caplog):
         metadata = sa.MetaData()
         t = sa.Table("t", metadata, sa.Column("x", sa.Integer))
-        idx = sa.Index("ix_t_x", t.c.x, postgresql_where=t.c.x > 0)
+        idx = sa.Index(
+            "ix_t_x", t.c.x,
+            postgresql_where=t.c.x > 0 if predicate_dialects in {"postgresql", "both"} else None,
+            sqlite_where=t.c.x > 0 if predicate_dialects in {"sqlite", "both"} else None,
+        )
         ddl = str(CreateIndex(idx).compile(dialect=_duckdb_dialect()))
         assert ddl.strip() == "SELECT 1"
+        assert "Omitting unsupported DuckDB partial index ix_t_x on t" in caplog.text
+        assert any(record.levelno == logging.WARNING for record in caplog.records)
 
     def test_non_partial_index_creates_normally(self):
         metadata = sa.MetaData()
@@ -144,6 +152,129 @@ class TestDuckDBDDLShims:
         )
         with pytest.raises(CompileError, match="NOT NULL"):
             str(CreateTable(t).compile(dialect=_duckdb_dialect()))
+
+class TestDuckDBPartialIndexPolicy:
+    """DuckDB must not silently change partial-index semantics."""
+
+    @pytest.mark.parametrize("predicate_dialects", ["postgresql", "sqlite", "both"])
+    def test_partial_unique_index_requires_an_enforcement_policy(self, predicate_dialects, caplog):
+        caplog.set_level(logging.INFO)
+        metadata = sa.MetaData()
+        t = sa.Table("t", metadata, sa.Column("x", sa.Integer))
+        idx = sa.Index(
+            "uq_t_x_unchecked", t.c.x, unique=True,
+            postgresql_where=t.c.x > 0 if predicate_dialects in {"postgresql", "both"} else None,
+            sqlite_where=t.c.x > 0 if predicate_dialects in {"sqlite", "both"} else None,
+        )
+        with pytest.raises(CompileError, match="application-enforced uniqueness policy"):
+            str(CreateIndex(idx).compile(dialect=_duckdb_dialect()))
+        allowed = sa.Index(
+            "uq_t_x_allowed", t.c.x, unique=True,
+            postgresql_where=t.c.x > 0 if predicate_dialects in {"postgresql", "both"} else None,
+            sqlite_where=t.c.x > 0 if predicate_dialects in {"sqlite", "both"} else None,
+            info={"duckdb_partial_index_policy": "application_enforced"},
+        )
+        ddl = str(CreateIndex(allowed).compile(dialect=_duckdb_dialect()))
+        assert ddl.strip() == "SELECT 1"
+        assert "application-enforced policy" in caplog.text
+        assert any(record.levelno == logging.INFO for record in caplog.records)
+        assert not any(record.levelno == logging.WARNING for record in caplog.records)
+
+    @pytest.mark.parametrize("dialect_name", ["postgresql", "sqlite"])
+    def test_other_dialects_keep_numeric_and_partial_index_ddl(self, dialect_name):
+        dialect = registry.load(dialect_name)()
+        metadata = sa.MetaData()
+        t = sa.Table("t", metadata, sa.Column("amount", sa.Numeric()))
+        index = sa.Index("ix_t_amount", t.c.amount, sqlite_where=t.c.amount > 0,
+                         postgresql_where=t.c.amount > 0)
+        table_ddl = str(CreateTable(t).compile(dialect=dialect))
+        index_ddl = str(CreateIndex(index).compile(dialect=dialect))
+        assert "NUMERIC" in table_ddl.upper()
+        assert "WHERE" in index_ddl.upper()
+
+
+class TestDuckDBSemanticGuardrails:
+    """Reject DuckDB DDL that cannot preserve the declared data contract."""
+
+    @pytest.mark.parametrize("numeric_type", [sa.Numeric, sa.NUMERIC, sa.DECIMAL])
+    def test_numeric_requires_precision_without_changing_float(self, numeric_type):
+        t = sa.Table("t", sa.MetaData(), sa.Column("value", numeric_type()))
+        with pytest.raises(CompileError, match="require explicit precision and scale"):
+            str(CreateTable(t).compile(dialect=_duckdb_dialect()))
+        float_table = sa.Table("float_only", sa.MetaData(), sa.Column("value", sa.Float()))
+        assert "DOUBLE" in str(CreateTable(float_table).compile(dialect=_duckdb_dialect())).upper()
+
+    @pytest.mark.parametrize(
+        "event, action, supported",
+        [
+            (event, action, supported)
+            for event in ("delete", "update")
+            for action, supported in [
+                ("CASCADE", False),
+                ("SET NULL", False),
+                ("SET DEFAULT", False),
+                (None, True),
+                ("NO ACTION", True),
+                ("RESTRICT", True),
+            ]
+        ],
+    )
+    def test_foreign_key_action_compilation(self, event, action, supported):
+        metadata = sa.MetaData()
+        sa.Table("parent", metadata, sa.Column("id", sa.Integer, primary_key=True))
+        child = sa.Table(
+            "child", metadata,
+            sa.Column("parent_id", sa.Integer, sa.ForeignKey("parent.id", **{f"on{event}": action})),
+        )
+        if supported:
+            assert "CREATE TABLE" in str(CreateTable(child).compile(dialect=_duckdb_dialect()))
+        else:
+            with pytest.raises(CompileError, match=f"does not support ON {event.upper()} {action}"):
+                str(CreateTable(child).compile(dialect=_duckdb_dialect()))
+
+    @pytest.mark.duckdb
+    @pytest.mark.db_dialect
+    def test_duckdb_registry_policy_keeps_python_reservation_check(self, duckdb_db):
+        engine = duckdb_db.committing_engine
+        with engine.begin() as connection:
+            ensure_schema(connection, "reserved_for_registry_test")
+            ensure_schema(connection, "reserved_only_registry_test")
+            _register_schema_claim(
+                connection, database_config_name="entry_a", schema_tag="custom_a",
+                physical_schema="reserved_for_registry_test", owner="package_a",
+                test_only=True,
+            )
+            _register_schema_claim(
+                connection, database_config_name="entry_b", schema_tag="custom_b",
+                physical_schema="reserved_for_registry_test", owner="package_b",
+                test_only=True,
+            )
+            _register_schema_claim(
+                connection, database_config_name="entry_c", schema_tag="custom_c",
+                physical_schema="reserved_only_registry_test", owner="package_c", reserved=True,
+                test_only=True,
+            )
+            with pytest.raises(SchemaOwnershipError, match="already reserved"):
+                _register_schema_claim(
+                    connection, database_config_name="entry_d", schema_tag="custom_d",
+                    physical_schema="reserved_only_registry_test", owner="package_d",
+                    test_only=True,
+                )
+
+    @pytest.mark.duckdb
+    @pytest.mark.db_dialect
+    def test_explicit_numeric_scale_round_trips(self, duckdb_db):
+        metadata = sa.MetaData()
+        table = sa.Table(
+            "numeric_round_trip", metadata,
+            sa.Column("value", sa.Numeric(18, 9)),
+        )
+        engine = duckdb_db.committing_engine
+        metadata.create_all(engine)
+        value = Decimal("0.000123456")
+        with engine.begin() as connection:
+            connection.execute(table.insert(), {"value": value})
+            assert connection.scalar(sa.select(table.c.value)) == value
 
     @pytest.mark.duckdb
     @pytest.mark.db_dialect

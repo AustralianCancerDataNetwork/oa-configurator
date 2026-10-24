@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from enum import Enum
@@ -20,6 +20,7 @@ from ...refs import RefTo, Secret, SecretSafeBaseModel
 from .schema_registry import (
     _SCHEMA_PROVENANCE_SCHEMA,
     CrossDatabaseStatementError,
+    UnregisteredSchemaTagError,
     _check_schema_claim,
     _ensure_schema_registry_table,
     _guard_schema_provenance,
@@ -32,7 +33,9 @@ from .sql import (
     EXECUTION_OPTION_TEST_ONLY,
     SCHEMA_TRANSLATE_MAP_KEY,
     Bindable,
+    Dialect,
     Role,
+    _profile_for,
     connection_key,
     ensure_schema,
     is_ephemeral_url,
@@ -349,17 +352,94 @@ def referred_schema_tag(foreign_key: sa.ForeignKey, default: str) -> str:
     return parts[0] if len(parts) == 3 else default
 
 
+class UnenforcedForeignKey(NamedTuple):
+    """An original FK constraint and why it will not be enforced by the database.
+
+    ``cross_database`` and ``cross_schema`` identify keys removed from DDL
+    copies by :func:`without_cross_engine_foreign_keys`. ``deferred`` means
+    DuckDB cannot add a cyclic or explicitly deferred key after creation.
+    Inspecting this record does not change the original constraint.
+    """
+
+    constraint: sa.ForeignKeyConstraint
+    reason: Literal["cross_database", "cross_schema", "deferred"]
+
+
+def _foreign_key_boundary_reason(
+    constraint: sa.ForeignKeyConstraint,
+    resolved: ResolvedDatabase,
+    physical_schemas: Mapping[str, str | None] | None,
+) -> Literal["cross_database", "cross_schema"] | None:
+    own_tag = constraint.table.schema
+    if own_tag is None:
+        return None
+    for element in constraint.elements:
+        target = referred_schema_tag(element, own_tag)
+        if not resolved.tags_share_a_transaction(own_tag, target):
+            return "cross_database"
+        if not resolved.foreign_key_can_span(own_tag, target, physical_schemas=physical_schemas):
+            return "cross_schema"
+    return None
+
+
+def unenforced_foreign_keys(
+    tables: Iterable[sa.Table],
+    *,
+    resolved: ResolvedDatabase,
+    physical_schemas: Mapping[str, str | None] | None = None,
+) -> tuple[UnenforcedForeignKey, ...]:
+    """Report unenforced FKs without mutating tables or their constraints.
+
+    Pass the complete set of tables being created together: SQLAlchemy's
+    cyclic-FK deferral depends on that set. Boundary checks interpret table
+    schemas as logical tags, as :func:`without_cross_engine_foreign_keys`
+    does. ``physical_schemas`` supplies names for additional tags; ``None``
+    means the dialect's default schema, as in a schema translation map.
+    Results follow table input order, then local/referred column names.
+    """
+    tables = tuple(dict.fromkeys(tables))
+    boundaries = {
+        constraint: reason
+        for table in tables
+        for constraint in table.foreign_key_constraints
+        if (reason := _foreign_key_boundary_reason(constraint, resolved, physical_schemas))
+    }
+    duckdb_constraints = {
+        constraint
+        for table in tables
+        if resolved.connection_for_schema_tag(table.schema or Role.PRIMARY).dialect_name == Dialect.DUCKDB
+        for constraint in table.foreign_key_constraints
+    }
+    deferred = set()
+    if duckdb_constraints:
+        ordered = sa.schema.sort_tables_and_constraints(
+            tables, filter_fn=lambda fk: True if fk in boundaries else None
+        )
+        deferred = set(ordered[-1][1]) & duckdb_constraints
+    return tuple(
+        UnenforcedForeignKey(constraint, boundaries.get(constraint, "deferred"))
+        for table in tables
+        for constraint in sorted(
+            table.foreign_key_constraints,
+            key=lambda fk: (tuple(fk.columns.keys()), tuple(e.target_fullname for e in fk.elements)),
+        )
+        if constraint in boundaries or constraint in deferred
+    )
+
+
 def without_cross_engine_foreign_keys(
     tables: Iterable[sa.Table],
     *,
     resolved: ResolvedDatabase,
+    physical_schemas: Mapping[str, str | None] | None = None,
 ) -> list[sa.Table]:
-    """Copies of *tables* with foreign keys that cross a database boundary removed.
+    """Copies of *tables* with foreign keys crossing unsupported boundaries removed.
 
     Derived from the real tables so a column or type added to a model cannot
-    drift from its copy. Only constraints whose referred tag is hosted on
-    another connection are dropped; a composite key targeting the same tag
-    survives untouched.
+    drift from its copy. Keys crossing physical databases, or physical
+    schemas on dialects such as DuckDB that cannot enforce them, are
+    dropped. Same-schema keys survive even across different logical tags.
+    Deferred keys remain for SQLAlchemy's normal dialect-specific DDL path.
 
     This changes only the DDL emitted for a split deployment. The ORM models
     keep their own ``ForeignKey`` declarations, and SQLAlchemy infers join
@@ -373,6 +453,9 @@ def without_cross_engine_foreign_keys(
         own ``schema`` is the tag it belongs to.
     resolved : ResolvedDatabase
         Topology answering whether a foreign key can span two tags.
+    physical_schemas : Mapping[str, str | None], optional
+        Physical schema names for additional, caller-claimed tags.
+        ``None`` means the dialect's default schema.
 
     Returns
     -------
@@ -384,21 +467,8 @@ def without_cross_engine_foreign_keys(
     target = sa.MetaData()
     copies = [table.to_metadata(target) for table in tables]
     for copied in copies:
-        own_tag = copied.schema
-        if own_tag is None:
-            continue
-        for constraint in [
-            candidate
-            for candidate in copied.constraints
-            if isinstance(candidate, sa.ForeignKeyConstraint)
-        ]:
-            crosses = any(
-                not resolved.foreign_key_can_span(
-                    own_tag, referred_schema_tag(element, own_tag)
-                )
-                for element in constraint.elements
-            )
-            if not crosses:
+        for constraint in tuple(copied.foreign_key_constraints):
+            if _foreign_key_boundary_reason(constraint, resolved, physical_schemas) is None:
                 continue
             copied.constraints.discard(constraint)
             for element in constraint.elements:
@@ -1088,15 +1158,49 @@ class ResolvedDatabase:
             schema_tag, vocab=self.connection, primary=self.connection
         )
 
-    def foreign_key_can_span(self, from_tag: Role | str, to_tag: Role | str) -> bool:
+    def foreign_key_can_span(
+        self,
+        from_tag: Role | str,
+        to_tag: Role | str,
+        *,
+        physical_schemas: Mapping[str, str | None] | None = None,
+    ) -> bool:
         """Can a foreign key reference *to_tag*'s tables from *from_tag*'s?
 
-        False when the two tags live on different physical databases, where
-        no dialect can express the constraint. Ask this instead of deriving
-        a split flag, so the answer stays correct if a deployment later
-        colocates the two or federates them behind one connection.
+        False across physical databases and across physical schemas on a
+        dialect that cannot express those keys. Distinct logical tags may
+        share a physical schema. Unlike transaction sharing, FK feasibility
+        therefore also depends on the dialect and schema mapping.
+
+        ``physical_schemas`` accepts a connection's ``schema_translate_map``
+        including additional caller-claimed tags. ``None`` means the dialect's
+        default schema (``main`` on DuckDB). This predicate does not open a
+        connection. Supply explicit names when using a changed session default.
+        Unknown tags on a schema-restricted dialect raise
+        :class:`UnregisteredSchemaTagError` rather than guessing.
         """
-        return self.tags_share_a_transaction(from_tag, to_tag)
+        if not self.tags_share_a_transaction(from_tag, to_tag):
+            return False
+        profile = _profile_for(self.connection_for_schema_tag(from_tag).dialect_name)
+        if profile.supports_cross_schema_fks or not profile.supports_schemas or from_tag == to_tag:
+            return True
+        schemas = self.configured_internal_schema_translate_map()
+        schemas.update(physical_schemas or {})
+        missing = {from_tag, to_tag} - schemas.keys()
+        if missing:
+            raise UnregisteredSchemaTagError(
+                f"Cannot determine FK feasibility for schema tag(s) {sorted(missing)}; "
+                "supply their names in physical_schemas (or pass the connection's schema_translate_map)."
+            )
+        from_schema = schemas[from_tag] if schemas[from_tag] is not None else profile.default_schema
+        to_schema = schemas[to_tag] if schemas[to_tag] is not None else profile.default_schema
+        if from_schema is None or to_schema is None:
+            raise ValueError("FK feasibility requires explicit schema names for this dialect.")
+        if self.connection_for_schema_tag(from_tag).dialect_name == Dialect.DUCKDB:
+            # DuckDB identifiers fold ASCII letters only, including quoted names.
+            fold = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+            return from_schema.translate(fold) == to_schema.translate(fold)
+        return from_schema == to_schema
 
     def tags_share_a_transaction(self, *schema_tags: Role | str) -> bool:
         """Can one transaction cover statements against all of *schema_tags*?

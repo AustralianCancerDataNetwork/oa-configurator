@@ -116,6 +116,9 @@ class DialectProfile:
     schema_names_are_catalog_qualified : bool
         Whether ``Inspector.get_schema_names()`` returns names prefixed with
         a catalog (e.g. ``"mydb.main"``) rather than a bare schema name.
+    supports_cross_schema_fks : bool
+        Whether foreign keys may reference another physical schema in the
+        same database. Distinct logical tags may still share one schema.
     """
 
     system_schemas: frozenset[str]
@@ -127,6 +130,7 @@ class DialectProfile:
     reflects_text_as_varchar: bool = False
     reflects_float_as_double_precision: bool = False
     schema_names_are_catalog_qualified: bool = False
+    supports_cross_schema_fks: bool = True
 
 
 _DIALECT_PROFILES: dict[str, DialectProfile] = {
@@ -141,6 +145,7 @@ _DIALECT_PROFILES: dict[str, DialectProfile] = {
         system_schemas=frozenset(),
         supports_schemas=False,
         requires_host=False,
+        supports_cross_schema_fks=False,
     ),
     Dialect.DUCKDB: DialectProfile(
         # Catalog-qualified (see get_system_schemas() of DuckDBDialect)
@@ -151,6 +156,7 @@ _DIALECT_PROFILES: dict[str, DialectProfile] = {
         reflects_varchar_length=False,
         reflects_text_as_varchar=True,
         schema_names_are_catalog_qualified=True,
+        supports_cross_schema_fks=False,
     ),
 }
 

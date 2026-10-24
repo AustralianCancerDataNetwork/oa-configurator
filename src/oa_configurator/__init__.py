@@ -16,9 +16,11 @@ from .domains.resources.schema import (
     ResolvedDatabase,
     Role,
     SchemaClaim,
+    UnenforcedForeignKey,
     guard_schema_provenance_for,
     referred_schema_tag,
     statement_schema_tags,
+    unenforced_foreign_keys,
     without_cross_engine_foreign_keys,
 )
 from .domains.resources.schema_registry import (
@@ -115,6 +117,7 @@ __all__ = [
     "SensitiveValueLeak",
     "StackConfig",
     "StackConfigInvalidError",
+    "UnenforcedForeignKey",
     "UnknownRefTarget",
     "UnregisteredSchemaTagError",
     "VectorStoreConfig",
@@ -148,6 +151,7 @@ __all__ = [
     "schema_if_supported",
     "statement_schema_tags",
     "supports_schemas",
+    "unenforced_foreign_keys",
     "unresolved_refs",
     "without_cross_engine_foreign_keys",
     "write_env_file",

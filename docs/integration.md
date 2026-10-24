@@ -114,6 +114,45 @@ primary, vocab = Resolver.from_active_config().resolve_database(config.cdm_db).c
 
 Every engine `create_engines()` builds refuses a statement that references a table hosted on the other database (`CrossDatabaseStatementError`), so sending vocabulary work to the primary engine fails instead of reading a stale copy. Raw `text()` SQL carries no table metadata and is not checked.
 
+#### Creating tables with unenforced foreign keys
+
+Use this recipe when your models contain foreign keys that the database cannot enforce. For example, in a DuckDB database with CDM tables in `clinical` and vocabulary tables in `vocabulary`, a condition's reference to a vocabulary concept cannot be enforced. Its reference to a person in `clinical` can be.
+
+Calling `Base.metadata.create_all()` directly fails on the cross-schema key. Instead, inspect the unenforced keys and create copies with those keys removed. Your original models retain their foreign keys, so SQLAlchemy can still infer ORM joins.
+
+This example assumes `Base` is your SQLAlchemy declarative base, `resolved` is your resolved CDM database, and `primary, vocab = resolved.create_engines()` has already run. All tables in this example share one physical database; `vocab` and `primary` therefore refer to the same engine.
+
+```python
+from oa_configurator import (
+    unenforced_foreign_keys,
+    without_cross_engine_foreign_keys,
+)
+
+tables = list(Base.metadata.tables.values())
+with primary.begin() as connection:
+    schemas = connection.get_execution_options()["schema_translate_map"]
+    report = unenforced_foreign_keys(
+        tables, resolved=resolved, physical_schemas=schemas
+    )
+    for item in report:
+        print(item.constraint.table.fullname, item.reason)
+
+    ddl_tables = without_cross_engine_foreign_keys(
+        tables, resolved=resolved, physical_schemas=schemas
+    )
+    ddl_tables[0].metadata.create_all(connection, tables=ddl_tables)
+```
+
+For a table named `condition` in the logical `primary` schema, the example report includes `primary.condition cross_schema`. The copied condition table keeps its person foreign key and omits its vocabulary foreign key.
+
+**Omitting a foreign key removes database enforcement.** The report tells your loader which references need a separate validation step; it does not perform that validation. Do not treat successful table creation as proof that all references are valid.
+
+Pass the same table batch and schema mapping to both helpers. Include all tables being created together so cyclic keys are classified correctly. For tables on separate physical databases, create each database's batch on its own engine.
+
+The connection's mapping includes custom tags registered when the engine was created. Passing it avoids guessing where those tags live. A `None` value means the default `main` schema on DuckDB. If your session changes its default schema, replace the affected values with that schema's name before calling the helpers. Unknown DuckDB tags raise `UnregisteredSchemaTagError`.
+
+See the [foreign-key API reference](api/resources.md#foreign-key-feasibility-and-omission-reporting) for report reasons, including cyclic/deferred keys, and the limits of these checks.
+
 ---
 
 ### 5. Logging

@@ -138,7 +138,7 @@ def _add_entry(target: type[Sectioned], name: str, flags: dict[str, Any] | None)
             f"{type(entry).__name__}. Anything referencing it as the old type will break."
         )
 
-    candidate_sections = {s: dict(getattr(config, s)) for s in StackConfig.ENTRY_SECTIONS}
+    candidate_sections = {s: dict(getattr(config, s)) for s in StackConfig.entry_sections()}
     candidate_sections[section][name] = entry
     try:
         StackConfig(**candidate_sections, tools=config.tools, logging=config.logging)

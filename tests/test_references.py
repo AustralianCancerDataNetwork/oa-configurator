@@ -34,6 +34,7 @@ from oa_configurator.references import (
     collect_references,
     discover_package_configs,
 )
+from oa_configurator.stack_config import _entry_classes
 
 
 class DbTool(PackageConfigBase):
@@ -178,11 +179,26 @@ def test_forward_helpers_remain_importable_from_stack_config():
 
 
 class TestReferenceable:
-    def test_every_entry_section_has_a_referenceable_class_and_a_stack_field(self):
+    def test_entry_sections_are_the_fields_holding_entries(self):
+        assert StackConfig.entry_sections() == (
+            "connections",
+            "databases",
+            "providers",
+            "models",
+            "vector_stores",
+        )
+
+    def test_every_class_section_matches_the_field_that_holds_it(self):
         sections = {c.section for c in _referenceable_classes()}
 
-        assert sections == set(StackConfig.ENTRY_SECTIONS)
-        assert all(name in StackConfig.model_fields for name in StackConfig.ENTRY_SECTIONS)
+        assert sections == set(StackConfig.entry_sections())
+
+    @pytest.mark.parametrize("field", StackConfig.entry_sections())
+    def test_classes_in_a_field_declare_that_fields_name_as_their_section(self, field):
+        classes = _entry_classes(StackConfig.model_fields[field].annotation)
+
+        assert classes
+        assert {c.section for c in classes} == {field}
 
     def test_ref_section_reads_the_class_attribute(self):
         assert _ref_section(ConnectionConfig) == "connections"

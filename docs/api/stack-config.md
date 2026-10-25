@@ -8,7 +8,11 @@
 
 Every reference between sections (a database naming its connection, a model naming its provider, a vector store naming its database, a package's own field naming any of the above) uses the same generic marker instead of a hand-written validator per pair.
 
-::: oa_configurator.refs.RefTo
+::: oa_configurator.references.RefTo
+
+`RefTo` names an entry class, and that class says which section holds it. Entry classes derive from `Referenceable`, which carries the section name, so there is no separate table to keep in sync. A class that is not `Referenceable`, such as the abstract `DatabaseConfig`, is rejected as a `RefTo` target with `UnknownRefTarget`.
+
+::: oa_configurator.references.Referenceable
 
 ::: oa_configurator.references.unresolved_refs
 

@@ -25,7 +25,15 @@ from oa_configurator import (
     references_to,
     rename_entry,
 )
-from oa_configurator.references import collect_references, discover_package_configs
+from oa_configurator.references import (
+    Referenceable,
+    Sectioned,
+    UnknownRefTarget,
+    _ref_section,
+    _referenceable_classes,
+    collect_references,
+    discover_package_configs,
+)
 
 
 class DbTool(PackageConfigBase):
@@ -167,6 +175,34 @@ def test_forward_helpers_remain_importable_from_stack_config():
     assert stack_config.unresolved_refs is references.unresolved_refs
     assert stack_config.mismatched_kind_refs is references.mismatched_kind_refs
     assert stack_config.UnknownRefTarget is references.UnknownRefTarget
+
+
+class TestReferenceable:
+    def test_every_entry_section_has_a_referenceable_class_and_a_stack_field(self):
+        sections = {c.section for c in _referenceable_classes()}
+
+        assert sections == set(StackConfig.ENTRY_SECTIONS)
+        assert all(name in StackConfig.model_fields for name in StackConfig.ENTRY_SECTIONS)
+
+    def test_ref_section_reads_the_class_attribute(self):
+        assert _ref_section(ConnectionConfig) == "connections"
+        assert _ref_section(CDMDatabaseConfig) == "databases"
+        assert _ref_section(GenericDatabaseConfig) == "databases"
+        assert _ref_section(VectorStoreConfig) == "vector_stores"
+
+    def test_abstract_database_base_is_sectioned_but_not_referenceable(self):
+        from oa_configurator.domains.resources.schema import DatabaseConfig
+
+        assert issubclass(DatabaseConfig, Sectioned)
+        assert not issubclass(DatabaseConfig, Referenceable)
+        with pytest.raises(UnknownRefTarget, match="CDMDatabaseConfig"):
+            _ref_section(DatabaseConfig, field_name="cdm_db")
+
+    def test_section_is_not_part_of_the_serialised_entry(self):
+        dumped = _conn().model_dump()
+
+        assert "section" not in dumped
+        assert "section" not in ConnectionConfig.model_json_schema()["properties"]
 
 
 class TestToolReferences:

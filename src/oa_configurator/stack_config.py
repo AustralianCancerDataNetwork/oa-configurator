@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
@@ -33,7 +33,7 @@ from .domains.resources.sql import (
 from .domains.vector_stores.schema import VectorStoreConfig
 from .logging_config import LoggingConfig
 from .references import UnknownRefTarget, mismatched_kind_refs, unresolved_refs  # noqa: F401
-from .refs import SecretSafeBaseModel
+from .sensitive import SecretSafeBaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,14 @@ class StackConfig(SecretSafeBaseModel):
     constructed in memory via :meth:`for_session` for tests and scripts,
     with no file I/O.
     """
+
+    ENTRY_SECTIONS: ClassVar[tuple[str, ...]] = (
+        "connections",
+        "databases",
+        "providers",
+        "models",
+        "vector_stores",
+    )
 
     model_config = ConfigDict(extra="forbid")
 

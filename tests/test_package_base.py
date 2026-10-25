@@ -29,7 +29,7 @@ from oa_configurator import (
     unresolved_refs,
 )
 from oa_configurator.domains.resources.schema import DatabaseConfig
-from oa_configurator.refs import Sensitive
+from oa_configurator.sensitive import Sensitive
 
 
 class SampleConfig(PackageConfigBase):

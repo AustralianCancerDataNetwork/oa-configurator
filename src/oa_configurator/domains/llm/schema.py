@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar
 from urllib.parse import urlsplit
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
-from ...refs import RefTo, Secret, SecretSafeBaseModel
+from ...references import Referenceable, RefTo
+from ...sensitive import Secret, SecretSafeBaseModel
 
 if TYPE_CHECKING:
     from ...stack_config import StackConfig
 
 
-class ProviderConfig(SecretSafeBaseModel):
+class ProviderConfig(SecretSafeBaseModel, Referenceable):
     """Concrete connection to one LLM provider: which one, and how to reach it.
 
     Peer of :class:`~oa_configurator.domains.resources.schema.ConnectionConfig`
@@ -26,6 +27,8 @@ class ProviderConfig(SecretSafeBaseModel):
     limitation ``ConnectionConfig.password`` already carries; secret
     management support is planned for a future release for both.
     """
+
+    section: ClassVar[str] = "providers"
 
     model_config = ConfigDict(extra="forbid")
 
@@ -67,7 +70,7 @@ class ProviderConfig(SecretSafeBaseModel):
         )
 
 
-class ModelConfig(SecretSafeBaseModel):
+class ModelConfig(SecretSafeBaseModel, Referenceable):
     """A named, reusable, concretely-configured model.
 
     Peer of :class:`~oa_configurator.domains.resources.schema.DatabaseConfig`
@@ -76,6 +79,8 @@ class ModelConfig(SecretSafeBaseModel):
     field just names an entry here). Each entry under ``[models]`` in
     ``config.toml`` maps to one instance of this model.
     """
+
+    section: ClassVar[str] = "models"
 
     model_config = ConfigDict(extra="forbid")
 

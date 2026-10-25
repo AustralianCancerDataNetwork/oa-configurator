@@ -40,13 +40,13 @@ def providers_add(
         for k, v in {"provider": provider, "base_url": base_url, "api_key": api_key}.items()
         if v is not None
     } or None
-    _add_entry(ProviderConfig, "providers", name, flags)
+    _add_entry(ProviderConfig, name, flags)
 
 
 @providers_app.command("list")
 def providers_list() -> None:
     """List configured provider entries."""
-    _list_entries(ProviderConfig, "providers")
+    _list_entries(ProviderConfig)
 
 
 @models_app.command("add")
@@ -96,10 +96,10 @@ def models_add(
         }.items()
         if v is not None
     } or None
-    _add_entry(ModelConfig, "models", name, flags)
+    _add_entry(ModelConfig, name, flags)
 
 
 @models_app.command("list")
 def models_list() -> None:
     """List configured model entries."""
-    _list_entries(ModelConfig, "models")
+    _list_entries(ModelConfig)

@@ -21,7 +21,7 @@ from oa_configurator import (
     is_sensitive,
     safe_endpoint,
 )
-from oa_configurator.refs import Secret
+from oa_configurator.sensitive import Secret
 
 CANARY = "canary-8f21c0-do-not-render"
 

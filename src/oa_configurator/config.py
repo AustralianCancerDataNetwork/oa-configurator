@@ -12,7 +12,7 @@ from typing import Annotated, ClassVar
 
 from .domains.resources.schema import CDMDatabaseConfig
 from .package_base import PackageConfigBase
-from .refs import RefTo
+from .references import RefTo
 
 
 class OAConfiguratorConfig(PackageConfigBase):

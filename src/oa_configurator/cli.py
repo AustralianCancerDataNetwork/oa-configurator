@@ -15,7 +15,6 @@ from __future__ import annotations
 import inspect
 import logging
 import time
-from importlib.metadata import entry_points
 from typing import Annotated, Any
 
 import rich
@@ -44,7 +43,7 @@ from .domains.vector_stores.cli import vector_stores_app
 from .io import save_stack_config, write_env_file
 from .loader import active_config_path, load_stack_config
 from .logging_config import configure_logging
-from .package_base import PackageConfigBase
+from .package_base import ENTRY_POINT_GROUP, PackageConfigBase, package_entry_points
 from .resolver import Resolver
 from .stack_config import StackConfig
 
@@ -53,7 +52,6 @@ app = typer.Typer(name="omop-config", no_args_is_help=True, add_completion=False
 console = Console()
 err_console = Console(stderr=True)
 
-ENTRY_POINT_GROUP = "omop.config"
 
 # Failures an operator can cause or fix are reported in the UI instead of exception logging
 _EXPECTED_ERRORS = (ValueError, RuntimeError, KeyError, OSError, ImportError, SQLAlchemyError)
@@ -78,10 +76,10 @@ class _DynamicConfigureGroup(TyperGroup):
         super().__init__(**kwargs)
 
     def list_commands(self, ctx):
-        return sorted(ep.name for ep in entry_points(group=ENTRY_POINT_GROUP))
+        return sorted(ep.name for ep in package_entry_points())
 
     def get_command(self, ctx, cmd_name):
-        eps = {ep.name: ep for ep in entry_points(group=ENTRY_POINT_GROUP)}
+        eps = {ep.name: ep for ep in package_entry_points()}
         ep = eps.get(cmd_name)
         return _build_package_command(cmd_name, ep.load()) if ep else None
 
@@ -161,7 +159,7 @@ def _build_package_command(ep_name: str, cls: type[PackageConfigBase]) -> Any:
 
 
 def _list_packages() -> None:
-    eps = entry_points(group=ENTRY_POINT_GROUP)
+    eps = package_entry_points()
     registered = {ep.name: ep for ep in eps}
     if not registered:
         console.print("[yellow]No packages registered under 'omop.config' entry points.[/yellow]")
@@ -213,7 +211,7 @@ def init(
     _save_stack_config_or_exit(StackConfig(), save=save_stack_config)
     console.print(f"[green]✓[/green] Created [dim]{config_path}[/dim]")
 
-    eps = entry_points(group=ENTRY_POINT_GROUP)
+    eps = package_entry_points()
     if eps:
         console.print("\nRun configure for each installed package:")
         for ep in sorted(eps, key=lambda e: e.name):

@@ -313,7 +313,7 @@ def collect_references(
         inspected.
     """
     found: list[Reference] = []
-    for source_section in config.ENTRY_SECTIONS:
+    for source_section in config.entry_sections():
         for source_name, entry in getattr(config, source_section).items():
             for field, ref, value in _set_refs(type(entry), partial(getattr, entry)):
                 target_section = _ref_section(ref.target, field_name=field)
@@ -365,9 +365,9 @@ def references_to(
     ValueError
         If *section* is not a section that entries can be referenced in.
     """
-    if section not in config.ENTRY_SECTIONS:
+    if section not in config.entry_sections():
         raise ValueError(
-            f"Cannot reference into {section!r}. Valid sections: {', '.join(config.ENTRY_SECTIONS)}"
+            f"Cannot reference into {section!r}. Valid sections: {', '.join(config.entry_sections())}"
         )
     report = collect_references(config, package_configs=package_configs)
     matching = tuple(
@@ -501,9 +501,9 @@ def rename_entry(
     PackageConfigInvalidError
         If a repointed package section fails its schema.
     """
-    if section not in config.ENTRY_SECTIONS:
+    if section not in config.entry_sections():
         raise ConfigurationError(
-            f"Cannot rename in {section!r}. Valid sections: {', '.join(config.ENTRY_SECTIONS)}"
+            f"Cannot rename in {section!r}. Valid sections: {', '.join(config.entry_sections())}"
         )
     entries = getattr(config, section)
     if old not in entries:

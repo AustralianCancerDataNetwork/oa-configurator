@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
@@ -32,10 +32,23 @@ from .domains.resources.sql import (
 )
 from .domains.vector_stores.schema import VectorStoreConfig
 from .logging_config import LoggingConfig
-from .references import UnknownRefTarget, mismatched_kind_refs, unresolved_refs  # noqa: F401
+from .references import (
+    Sectioned,
+    # Re-exported so `from oa_configurator.stack_config import UnknownRefTarget` keeps working.
+    UnknownRefTarget,  # noqa: F401
+    mismatched_kind_refs,
+    unresolved_refs,
+)
 from .sensitive import SecretSafeBaseModel
 
 logger = logging.getLogger(__name__)
+
+
+def _entry_classes(annotation: Any) -> set[type[Sectioned]]:
+    """Every :class:`Sectioned` entry class mentioned in a field annotation."""
+    if isinstance(annotation, type):
+        return {annotation} if issubclass(annotation, Sectioned) else set()
+    return set().union(*(_entry_classes(arg) for arg in get_args(annotation)))
 
 
 class StackConfig(SecretSafeBaseModel):
@@ -47,14 +60,6 @@ class StackConfig(SecretSafeBaseModel):
     constructed in memory via :meth:`for_session` for tests and scripts,
     with no file I/O.
     """
-
-    ENTRY_SECTIONS: ClassVar[tuple[str, ...]] = (
-        "connections",
-        "databases",
-        "providers",
-        "models",
-        "vector_stores",
-    )
 
     model_config = ConfigDict(extra="forbid")
 
@@ -429,6 +434,13 @@ class StackConfig(SecretSafeBaseModel):
             models=models or {},
             vector_stores=vector_stores or {},
             tools=tools or {},
+        )
+
+    @classmethod
+    def entry_sections(cls) -> tuple[str, ...]:
+        """Names of the fields that hold named entries, in declaration order."""
+        return tuple(
+            name for name, info in cls.model_fields.items() if _entry_classes(info.annotation)
         )
 
     def bind_loaded_path(self, path: Path) -> None:

@@ -27,8 +27,8 @@ from .domains.resources.schema import (
 from .domains.resources.sql import connection_key, host_is_resolvable, is_ephemeral_url
 from .domains.vector_stores.schema import ResolvedVectorStore, VectorStoreConfig
 from .package_base import ConfigurationError, PackageConfigBase
-from .references import _ref_section, mismatched_kind_refs, unresolved_refs
-from .refs import RefTo, _iter_refs, is_sensitive, sanitized_errors
+from .references import RefTo, _iter_refs, _ref_section, mismatched_kind_refs, unresolved_refs
+from .sensitive import is_sensitive, sanitized_errors
 from .stack_config import StackConfig
 
 T = TypeVar("T")
@@ -330,7 +330,7 @@ def _abort_on_invalid_entry(
     type, and a docs URL, which is a traceback aimed at a Python caller,
     not at someone fixing a config entry. Each error becomes one line
     naming the flag to change instead. Reads ``exc`` through
-    :func:`~oa_configurator.refs.sanitized_errors` rather than calling
+    :func:`~oa_configurator.sensitive.sanitized_errors` rather than calling
     ``exc.errors()`` directly, so a value like a database password can
     never end up in the printed problem list.
     """

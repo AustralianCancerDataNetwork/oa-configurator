@@ -69,13 +69,13 @@ def connections_add(
         }.items()
         if v is not None
     } or None
-    _add_entry(ConnectionConfig, "connections", name, flags)
+    _add_entry(ConnectionConfig, name, flags)
 
 
 @connections_app.command("list")
 def connections_list() -> None:
     """List configured connection entries."""
-    _list_entries(ConnectionConfig, "connections")
+    _list_entries(ConnectionConfig)
 
 
 @databases_add_app.command("generic")
@@ -94,7 +94,7 @@ def databases_add_generic(
         for k, v in {"connection": connection, "schema_name": schema_name}.items()
         if v is not None
     }
-    _add_entry(GenericDatabaseConfig, "databases", name, other_flags or None)
+    _add_entry(GenericDatabaseConfig, name, other_flags or None)
 
 
 @databases_add_app.command("cdm")
@@ -129,10 +129,10 @@ def databases_add_cdm(
         }.items()
         if v is not None
     }
-    _add_entry(CDMDatabaseConfig, "databases", name, other_flags or None)
+    _add_entry(CDMDatabaseConfig, name, other_flags or None)
 
 
 @databases_app.command("list")
 def databases_list() -> None:
     """List configured database entries."""
-    _list_entries(DatabaseConfig, "databases")
+    _list_entries(DatabaseConfig)

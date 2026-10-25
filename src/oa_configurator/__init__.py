@@ -68,7 +68,9 @@ from .package_base import (
 from .references import (
     DiscoveryProblem,
     Reference,
+    Referenceable,
     ReferenceReport,
+    RefTo,
     UnknownRefTarget,
     find_references,
     mismatched_kind_refs,
@@ -76,12 +78,8 @@ from .references import (
     rename_entry,
     unresolved_refs,
 )
-from .refs import (
-    RefTo,
-    is_sensitive,
-    safe_endpoint,
-)
 from .resolver import ResolvedToolConfig, Resolver
+from .sensitive import Secret, Sensitive, is_sensitive, safe_endpoint
 from .stack_config import StackConfig
 
 __all__ = [
@@ -105,6 +103,7 @@ __all__ = [
     "RefTo",
     "Reference",
     "ReferenceReport",
+    "Referenceable",
     "ResolvedCDMDatabase",
     "ResolvedConnection",
     "ResolvedDatabase",
@@ -118,6 +117,8 @@ __all__ = [
     "SchemaDriftError",
     "SchemaOwnershipError",
     "SchemaRegistryOutdatedError",
+    "Secret",
+    "Sensitive",
     "SensitiveValueLeak",
     "StackConfig",
     "StackConfigInvalidError",

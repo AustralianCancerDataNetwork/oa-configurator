@@ -1,6 +1,6 @@
 """Cross-references between the entries of a stack config.
 
-Fields marked with :class:`~oa_configurator.refs.RefTo` name an entry in
+Fields marked with :class:`RefTo` name an entry in
 another section. This module reads those markers to answer the forward
 question (does a model's references resolve?), the reverse question (which
 fields name a given entry?), and to rename an entry together with every
@@ -18,38 +18,68 @@ from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from functools import partial
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel
 from pydantic_core import PydanticUndefined
 
-from .domains.llm.schema import ModelConfig, ProviderConfig
-from .domains.resources.schema import CDMDatabaseConfig, ConnectionConfig, GenericDatabaseConfig
-from .domains.vector_stores.schema import VectorStoreConfig
 from .package_base import ConfigurationError, PackageConfigBase, package_entry_points
-from .refs import RefTo, _iter_refs
 
 if TYPE_CHECKING:
     from .stack_config import StackConfig
 
-# Which StackConfig dict a RefTo(target) marker resolves against,
-# and is allowed to reference. Deliberately exclude abstract base classes
-# like DatabaseConfig, as they are not meant to be constructed directly.
 
-_REF_SECTIONS: dict[type[BaseModel], str] = {
-    ConnectionConfig: "connections",
-    ProviderConfig: "providers",
-    ModelConfig: "models",
-    GenericDatabaseConfig: "databases",
-    CDMDatabaseConfig: "databases",
-    VectorStoreConfig: "vector_stores",
-}
+class Sectioned(BaseModel):
+    """Base for models stored as entries of a StackConfig section.
 
-_ENTRY_SECTIONS = tuple(dict.fromkeys(_REF_SECTIONS.values()))
+    Attributes
+    ----------
+    section : ClassVar[str]
+        Name of the :class:`~oa_configurator.stack_config.StackConfig` section
+        that holds entries of this class, e.g. ``"connections"``.
+    """
+
+    section: ClassVar[str]
+
+
+class Referenceable(Sectioned):
+    """Marks a concrete entry class that a :class:`RefTo` may name.
+
+    Sectioned classes that are abstract, such as ``DatabaseConfig``, leave
+    this mixin out and so are rejected as ``RefTo`` targets.
+    """
+
+
+@dataclass(frozen=True)
+class RefTo:
+    """Marks a string field as naming an entry in another top-level section.
+
+    Applied via e.g. ``Annotated[str, RefTo(ConnectionConfig)]``. One generic
+    marker drives both cross-reference validation (:func:`unresolved_refs`)
+    and the CLI wizard's reuse-or-create recursion for a consuming package's
+    own fields (e.g. ``embedding_model_name: Annotated[str, RefTo(ModelConfig)]``).
+
+    Attributes
+    ----------
+    target : type[Referenceable]
+        The entry class this field's value should name; its ``section`` says
+        where the entry lives.
+    is_test : bool
+        Whether this field is expected to resolve to a ``test_only``
+        connection (for ``target=DatabaseConfig`` fields). Replaces a
+        previous, unreliable convention of inferring this from whether the
+        field's own Python name started with ``"test_"``. Drives both the
+        CLI wizard's "Test database (optional)" prompt and the symmetric
+        ``is_test``/``test_only`` match enforced by
+        :meth:`~oa_configurator.resolver.Resolver.resolve_package_config`.
+    """
+
+    target: type[Referenceable]
+    is_test: bool = False
 
 
 class UnknownRefTarget(TypeError):
-    """A RefTo marker names a class that isn't registered in _REF_SECTIONS.
+    """A RefTo marker names a class that is not :class:`Referenceable`.
 
     Indicates a bug in the declaring package's own schema (e.g. `RefTo`
     against an abstract base like `DatabaseConfig`, or a class that was
@@ -58,22 +88,43 @@ class UnknownRefTarget(TypeError):
     """
 
 
+def _iter_refs(cls: type[BaseModel]) -> Iterator[tuple[str, RefTo]]:
+    """Yield (field_name, RefTo) for every RefTo-marked field on *cls*.
+
+    At most one RefTo per field is meaningful, since a field names an entry
+    in exactly one section, so the first one found wins. A field carrying
+    more than one is a mistake, not a supported case.
+    """
+    for name, info in cls.model_fields.items():
+        refs = [m for m in info.metadata if isinstance(m, RefTo)]
+        assert len(refs) <= 1, f"{cls.__name__}.{name} has more than one RefTo marker"
+        if refs:
+            yield name, refs[0]
+
+
+def _referenceable_classes(base: type[Referenceable] = Referenceable) -> set[type[Referenceable]]:
+    """Every subclass of *base*."""
+    found: set[type[Referenceable]] = set()
+    for subclass in base.__subclasses__():
+        found.add(subclass)
+        found |= _referenceable_classes(subclass)
+    return found
+
+
 def _ref_section(target: type[BaseModel], *, field_name: str | None = None) -> str:
-    """Look up which StackConfig section a RefTo(target) resolves against.
+    """Return the StackConfig section a RefTo(target) resolves against.
 
     Raises :class:`UnknownRefTarget` with the field name (when known) and
-    the list of valid targets, instead of letting a bare ``KeyError``
-    surface a raw class repr.
+    the list of valid targets when *target* is not :class:`Referenceable`.
     """
-    try:
-        return _REF_SECTIONS[target]
-    except KeyError:
-        valid = ", ".join(sorted(t.__name__ for t in _REF_SECTIONS))
+    if not (isinstance(target, type) and issubclass(target, Referenceable)):
+        valid = ", ".join(sorted(c.__name__ for c in _referenceable_classes()))
         where = f"field {field_name!r} " if field_name else ""
         raise UnknownRefTarget(
-            f"RefTo {where}targets {target.__name__!r}, which isn't a registered "
-            f"RefTo section. Valid targets: {valid}."
+            f"RefTo {where}targets {target.__name__!r}, which isn't a Referenceable "
+            f"entry class. Valid targets: {valid}."
         ) from None
+    return target.section
 
 
 def _set_refs(
@@ -262,7 +313,7 @@ def collect_references(
         inspected.
     """
     found: list[Reference] = []
-    for source_section in _ENTRY_SECTIONS:
+    for source_section in config.ENTRY_SECTIONS:
         for source_name, entry in getattr(config, source_section).items():
             for field, ref, value in _set_refs(type(entry), partial(getattr, entry)):
                 target_section = _ref_section(ref.target, field_name=field)
@@ -314,9 +365,9 @@ def references_to(
     ValueError
         If *section* is not a section that entries can be referenced in.
     """
-    if section not in _ENTRY_SECTIONS:
+    if section not in config.ENTRY_SECTIONS:
         raise ValueError(
-            f"Cannot reference into {section!r}. Valid sections: {', '.join(_ENTRY_SECTIONS)}"
+            f"Cannot reference into {section!r}. Valid sections: {', '.join(config.ENTRY_SECTIONS)}"
         )
     report = collect_references(config, package_configs=package_configs)
     matching = tuple(
@@ -450,9 +501,9 @@ def rename_entry(
     PackageConfigInvalidError
         If a repointed package section fails its schema.
     """
-    if section not in _ENTRY_SECTIONS:
+    if section not in config.ENTRY_SECTIONS:
         raise ConfigurationError(
-            f"Cannot rename in {section!r}. Valid sections: {', '.join(_ENTRY_SECTIONS)}"
+            f"Cannot rename in {section!r}. Valid sections: {', '.join(config.ENTRY_SECTIONS)}"
         )
     entries = getattr(config, section)
     if old not in entries:

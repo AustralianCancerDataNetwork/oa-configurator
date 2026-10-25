@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from .refs import is_sensitive
+from .sensitive import is_sensitive
 
 
 class SensitiveValueLeak(AssertionError):

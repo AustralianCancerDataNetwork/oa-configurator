@@ -43,7 +43,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self
 from pydantic import ValidationError
 from pydantic_core import ErrorDetails, PydanticUndefined
 
-from .refs import SecretSafeBaseModel, describe_errors, sanitized_errors
+from .sensitive import SecretSafeBaseModel, describe_errors, sanitized_errors
 
 if TYPE_CHECKING:
     from .stack_config import StackConfig
@@ -81,7 +81,7 @@ class _SanitizedValidationErrorMixin:
     Both :class:`PackageConfigInvalidError` and
     :class:`StackConfigInvalidError` wrap a validation failure whose
     ``.errors()`` may be pasted into an issue or a CI log: both need the
-    input sanitized via :func:`~oa_configurator.refs.sanitized_errors`
+    input sanitized via :func:`~oa_configurator.sensitive.sanitized_errors`
     before it touches ``self`` or the exception message, and both expose it
     back the same way. Centralising the call means neither ``__init__`` can
     accidentally store or format the raw, un-sanitized errors instead.

@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar
 
 from pydantic import ConfigDict, Field
 
-from ...refs import RefTo, SecretSafeBaseModel
+from ...references import Referenceable, RefTo
+from ...sensitive import SecretSafeBaseModel
 from ..resources.schema import GenericDatabaseConfig, ResolvedDatabase
 
 if TYPE_CHECKING:
     from ...stack_config import StackConfig
 
 
-class VectorStoreConfig(SecretSafeBaseModel):
+class VectorStoreConfig(SecretSafeBaseModel, Referenceable):
     """Which storage backend an embedding-capable package should use.
 
     Peer of :class:`~oa_configurator.domains.resources.schema.DatabaseConfig`
@@ -30,6 +31,8 @@ class VectorStoreConfig(SecretSafeBaseModel):
     needs to know which LLM providers any-llm supports. Validation of the
     value happens in the owning package's own resolution code.
     """
+
+    section: ClassVar[str] = "vector_stores"
 
     model_config = ConfigDict(extra="forbid")
 

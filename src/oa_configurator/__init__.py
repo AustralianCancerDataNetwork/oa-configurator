@@ -65,18 +65,22 @@ from .package_base import (
     StackConfigInvalidError,
     plan_configure,
 )
-from .refs import (
+from .references import (
+    DiscoveryProblem,
+    Reference,
+    Referenceable,
+    ReferenceReport,
     RefTo,
-    is_sensitive,
-    safe_endpoint,
-)
-from .resolver import ResolvedToolConfig, Resolver
-from .stack_config import (
-    StackConfig,
     UnknownRefTarget,
+    find_references,
     mismatched_kind_refs,
+    references_to,
+    rename_entry,
     unresolved_refs,
 )
+from .resolver import ResolvedToolConfig, Resolver
+from .sensitive import Secret, Sensitive, is_sensitive, safe_endpoint
+from .stack_config import StackConfig
 
 __all__ = [
     "DEFAULT_CONFIG_PATH",
@@ -89,6 +93,7 @@ __all__ = [
     "ConnectionConfig",
     "CrossDatabaseStatementError",
     "Dialect",
+    "DiscoveryProblem",
     "GenericDatabaseConfig",
     "LoggingConfig",
     "ModelConfig",
@@ -96,6 +101,9 @@ __all__ = [
     "PackageConfigInvalidError",
     "ProviderConfig",
     "RefTo",
+    "Reference",
+    "ReferenceReport",
+    "Referenceable",
     "ResolvedCDMDatabase",
     "ResolvedConnection",
     "ResolvedDatabase",
@@ -109,6 +117,8 @@ __all__ = [
     "SchemaDriftError",
     "SchemaOwnershipError",
     "SchemaRegistryOutdatedError",
+    "Secret",
+    "Sensitive",
     "SensitiveValueLeak",
     "StackConfig",
     "StackConfigInvalidError",
@@ -124,6 +134,7 @@ __all__ = [
     "database_config_name_of",
     "declared_schema_tags",
     "ensure_schema",
+    "find_references",
     "find_table_in_other_schemas",
     "get_logger",
     "guard_schema_provenance_for",
@@ -135,7 +146,9 @@ __all__ = [
     "physical_schema_of",
     "plan_configure",
     "qualified",
+    "references_to",
     "referred_schema_tag",
+    "rename_entry",
     "requires_host",
     "safe_endpoint",
     "save_stack_config",

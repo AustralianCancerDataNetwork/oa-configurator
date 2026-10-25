@@ -7,7 +7,7 @@ Everything the stack knows about which values are secret comes from the `Sensiti
 Use `Secret` for the ordinary case: an optional string that holds a credential:
 
 ```python
-from oa_configurator.refs import Secret
+from oa_configurator import Secret
 from pydantic import BaseModel, Field
 
 
@@ -16,15 +16,15 @@ class MyToolConfig(BaseModel):
     api_key: Secret = Field(default=None, description="Token for the upstream API.")
 ```
 
-::: oa_configurator.refs.Secret
+::: oa_configurator.sensitive.Secret
 
-::: oa_configurator.refs.Sensitive
+::: oa_configurator.sensitive.Sensitive
 
 Spell out `Annotated[..., Sensitive()]` directly where the field is not an optional string: a required secret, or one that is not a `str`.
 
 ## Reading the declaration
 
-::: oa_configurator.refs.is_sensitive
+::: oa_configurator.sensitive.is_sensitive
 
 `is_sensitive()` takes a `FieldInfo`, so it works off any model:
 
@@ -38,17 +38,17 @@ for name, info in ConnectionConfig.model_fields.items():
 
 ## Scrubbing a URL for display
 
-::: oa_configurator.refs.safe_endpoint
+::: oa_configurator.sensitive.safe_endpoint
 
-::: oa_configurator.refs.MASK
+::: oa_configurator.sensitive.MASK
 
 ## Making your own models safe to render
 
 `PackageConfigBase` already inherits `SecretSafeBaseModel`, so a consuming package's config section is masked in `repr`/`str` without doing anything. Subclass it directly only for a *nested* model of your own that is not a `PackageConfigBase`.
 
-::: oa_configurator.refs.SecretSafeBaseModel
+::: oa_configurator.sensitive.SecretSafeBaseModel
 
-::: oa_configurator.refs.SecretSafeBaseModel.masked_json
+::: oa_configurator.sensitive.SecretSafeBaseModel.masked_json
 
 Use `safe_endpoint()` for any URL-shaped value, `ProviderConfig.base_url` above all. For a database connection, [`ConnectionConfig.safe_url()`](resources.md) is the SQLAlchemy-specific equivalent.
 

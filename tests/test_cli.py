@@ -1096,11 +1096,7 @@ class TestConfigureSetFlag:
             def load(self):
                 return DemoConfig
 
-        monkeypatch.setattr(
-            cli,
-            "entry_points",
-            lambda group=None: [FakeEP()] if group == cli.ENTRY_POINT_GROUP else [],
-        )
+        monkeypatch.setattr(cli, "package_entry_points", lambda: [FakeEP()])
         result = runner.invoke(
             cli.app,
             [
@@ -1129,11 +1125,7 @@ class TestConfigureSetFlag:
             def load(self):
                 return DemoConfig
 
-        monkeypatch.setattr(
-            cli,
-            "entry_points",
-            lambda group=None: [FakeEP()] if group == cli.ENTRY_POINT_GROUP else [],
-        )
+        monkeypatch.setattr(cli, "package_entry_points", lambda: [FakeEP()])
         result = runner.invoke(cli.app, ["configure", "demo_tool", "--help"])
         assert result.exit_code == 0, result.output
         assert result.exception is None or isinstance(result.exception, SystemExit)
@@ -1166,11 +1158,7 @@ class TestConfigureSetFlag:
             def load(self):
                 return DemoConfig
 
-        monkeypatch.setattr(
-            cli,
-            "entry_points",
-            lambda group=None: [FakeEP()] if group == cli.ENTRY_POINT_GROUP else [],
-        )
+        monkeypatch.setattr(cli, "package_entry_points", lambda: [FakeEP()])
         result = runner.invoke(
             cli.app,
             [
@@ -1203,11 +1191,7 @@ class TestConfigureSetFlag:
             def load(self):
                 return DemoConfig
 
-        monkeypatch.setattr(
-            cli,
-            "entry_points",
-            lambda group=None: [FakeEP()] if group == cli.ENTRY_POINT_GROUP else [],
-        )
+        monkeypatch.setattr(cli, "package_entry_points", lambda: [FakeEP()])
         result = runner.invoke(
             cli.app,
             [

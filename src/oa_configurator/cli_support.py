@@ -17,9 +17,10 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel
 
-from .refs import MASK, is_sensitive
+from .references import Sectioned, mismatched_kind_refs, unresolved_refs
 from .resolver import _check_missing_required, _flag_name, _is_flag_settable, _resolve_named_entry
-from .stack_config import StackConfig, mismatched_kind_refs, unresolved_refs
+from .sensitive import MASK, is_sensitive
+from .stack_config import StackConfig
 
 
 def _save_stack_config_or_exit(
@@ -95,9 +96,7 @@ def _check_entry_refs(entry: BaseModel, config: StackConfig) -> None:
 # ------------------
 
 
-def _add_entry(
-    target: type[BaseModel], section: str, name: str, flags: dict[str, Any] | None
-) -> None:
+def _add_entry(target: type[Sectioned], name: str, flags: dict[str, Any] | None) -> None:
     """Shared body for every `<section> add <name>` command.
 
     Before saving, re-validates the whole config with the new entry
@@ -113,6 +112,7 @@ def _add_entry(
 
     console = Console()
     err_console = Console(stderr=True)
+    section = target.section
 
     try:
         config = load_stack_config()
@@ -138,10 +138,7 @@ def _add_entry(
             f"{type(entry).__name__}. Anything referencing it as the old type will break."
         )
 
-    candidate_sections = {
-        s: dict(getattr(config, s))
-        for s in ("connections", "databases", "providers", "models", "vector_stores")
-    }
+    candidate_sections = {s: dict(getattr(config, s)) for s in StackConfig.entry_sections()}
     candidate_sections[section][name] = entry
     try:
         StackConfig(**candidate_sections, tools=config.tools, logging=config.logging)
@@ -158,7 +155,7 @@ def _add_entry(
     )
 
 
-def _list_entries(target: type[BaseModel], section: str) -> None:
+def _list_entries(target: type[Sectioned]) -> None:
     """Shared body for every `<section> list` command."""
     import typer
     from rich.console import Console
@@ -169,6 +166,7 @@ def _list_entries(target: type[BaseModel], section: str) -> None:
     # explicit width to prevent truncation
     console = Console(width=200)
     err_console = Console(stderr=True)
+    section = target.section
 
     try:
         config = load_stack_config()

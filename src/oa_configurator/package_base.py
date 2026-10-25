@@ -36,6 +36,7 @@ In ``pyproject.toml``::
 from __future__ import annotations
 
 from collections.abc import Mapping
+from importlib.metadata import EntryPoints, entry_points
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Self
 
@@ -46,6 +47,15 @@ from .refs import SecretSafeBaseModel, describe_errors, sanitized_errors
 
 if TYPE_CHECKING:
     from .stack_config import StackConfig
+
+
+ENTRY_POINT_GROUP = "omop.config"
+"""Entry-point group in which packages register their :class:`PackageConfigBase`."""
+
+
+def package_entry_points() -> EntryPoints:
+    """Return the entry points of every package registered under ``omop.config``."""
+    return entry_points(group=ENTRY_POINT_GROUP)
 
 
 class ConfigurationError(ValueError):

@@ -32,13 +32,9 @@ from .domains.resources.sql import (
 )
 from .domains.vector_stores.schema import ResolvedVectorStore, VectorStoreConfig
 from .package_base import ConfigurationError, PackageConfigBase
+from .references import _ref_section, mismatched_kind_refs, unresolved_refs
 from .refs import RefTo, _iter_refs, is_sensitive, sanitized_errors
-from .stack_config import (
-    StackConfig,
-    _ref_section,
-    mismatched_kind_refs,
-    unresolved_refs,
-)
+from .stack_config import StackConfig
 
 T = TypeVar("T")
 TConfig = TypeVar("TConfig", bound=PackageConfigBase)

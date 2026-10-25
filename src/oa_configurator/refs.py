@@ -15,7 +15,7 @@ class RefTo:
     """Marks a string field as naming an entry in another top-level section.
 
     Applied via e.g. ``Annotated[str, RefTo(ConnectionConfig)]``. One generic
-    marker drives both cross-reference validation (:func:`~oa_configurator.stack_config.unresolved_refs`)
+    marker drives both cross-reference validation (:func:`~oa_configurator.references.unresolved_refs`)
     and the CLI wizard's reuse-or-create recursion for a consuming package's
     own fields (e.g. ``embedding_model_name: Annotated[str, RefTo(ModelConfig)]``).
 

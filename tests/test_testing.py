@@ -47,6 +47,34 @@ from oa_configurator.testing.duckdb import DuckDBTestStrategy
 from oa_configurator.testing.sqlite import SQLiteTestStrategy
 
 
+def test_dialect_params_handles_missing_optional_driver(monkeypatch):
+    """DIALECT_PARAMS must not crash building its duckdb entry when
+    duckdb-sqlalchemy isn't installed. Patches registry.load() directly so
+    this holds regardless of whether the duckdb extra is installed here."""
+    import importlib
+
+    from sqlalchemy.dialects import registry
+    from sqlalchemy.exc import NoSuchModuleError
+
+    real_load = registry.load
+
+    def fake_load(name):
+        if name == "duckdb":
+            raise NoSuchModuleError(f"Can't load plugin: sqlalchemy.dialects:{name}")
+        return real_load(name)
+
+    monkeypatch.setattr(registry, "load", fake_load)
+
+    import oa_configurator.testing as testing_module
+
+    reloaded = importlib.reload(testing_module)
+    try:
+        duckdb_param = next(p for p in reloaded.DIALECT_PARAMS if p.values[0] == Dialect.DUCKDB)
+        assert {mark.name for mark in duckdb_param.marks} == {"duckdb", "db_dialect"}
+    finally:
+        importlib.reload(testing_module)
+
+
 class DemoTestConfig(PackageConfigBase):
     tool_name: ClassVar[str] = "demo_test_tool"
     test_cdm_db: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = None

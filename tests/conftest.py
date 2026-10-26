@@ -40,7 +40,11 @@ from oa_configurator.testing import (
 # uncolored output everywhere; real users still get colour in a real terminal.
 _typer_rich_utils.FORCE_TERMINAL = None
 
-_FIELD_BY_DIALECT = {Dialect.POSTGRESQL: "test_db_pg", Dialect.SQLITE: "test_db_sqlite"}
+_FIELD_BY_DIALECT = {
+    Dialect.POSTGRESQL: "test_db_pg",
+    Dialect.SQLITE: "test_db_sqlite",
+    Dialect.DUCKDB: "test_db_duckdb",
+}
 assert set(_FIELD_BY_DIALECT) == {param.values[0] for param in DIALECT_PARAMS}, (
     "_FIELD_BY_DIALECT is missing an entry for a dialect DIALECT_PARAMS now covers."
 )
@@ -124,6 +128,27 @@ def sqlite_db(request):
     """
     with isolated_test_database(
         OAConfiguratorConfig, "test_db_sqlite", dialect=Dialect.SQLITE, request=request
+    ) as db:
+        yield db
+
+
+@pytest.fixture
+def duckdb_db(request):
+    """Isolated, disposable DuckDB database, for a test that needs a real
+    DuckDB engine/connection with no Postgres counterpart (unlike the
+    dialect-parametrized ``engine`` fixture below). ``test_db_duckdb`` is
+    deliberately never configured, so this always falls back to
+    ``DuckDBTestStrategy``'s own disposable database, a fresh tempfile with
+    no rollback wrapping needed (DuckDB isolation is free per-call, same as
+    SQLite).
+
+    Use ``duckdb_db.connection`` where a ``Connection`` is needed,
+    ``duckdb_db.committing_engine`` where a real ``Engine`` is needed (e.g.
+    to open more than one connection/transaction in the same test, such as
+    ``DuckDBTestStrategy.temporary_schema()``'s cross-connection visibility).
+    """
+    with isolated_test_database(
+        OAConfiguratorConfig, "test_db_duckdb", dialect=Dialect.DUCKDB, request=request
     ) as db:
         yield db
 

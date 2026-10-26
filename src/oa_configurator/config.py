@@ -19,3 +19,4 @@ class OAConfiguratorConfig(PackageConfigBase):
     tool_name: ClassVar[str] = "oa_configurator"
     test_db_pg: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = None
     test_db_sqlite: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = None
+    test_db_duckdb: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = None

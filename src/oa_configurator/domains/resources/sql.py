@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import functools
 import ipaddress
+import logging
 import socket
 from collections.abc import Generator, Iterable
 from contextlib import contextmanager
@@ -21,8 +22,10 @@ from typing import overload
 
 import sqlalchemy as sa
 from sqlalchemy.engine import Connection, Engine
-from sqlalchemy.exc import InvalidRequestError
+from sqlalchemy.exc import CompileError, InvalidRequestError
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session
+from sqlalchemy.schema import AddConstraint, CreateIndex, DropConstraint
 from sqlalchemy.sql.compiler import IdentifierPreparer
 
 # Broader than a literal SQLAlchemy "bind" (Engine | Connection): a Session
@@ -36,6 +39,13 @@ SCHEMA_TRANSLATE_MAP_KEY = "schema_translate_map"
 # without threading through an entire resolved DB config.
 EXECUTION_OPTION_DATABASE_CONFIG_NAME = "oa_configurator_database_config_name"
 EXECUTION_OPTION_TEST_ONLY = "oa_configurator_test_only"
+
+logger = logging.getLogger(__name__)
+
+# sa.Index.info key acknowledging that something other than DuckDB
+# enforces a partial unique index's uniqueness.
+DUCKDB_PARTIAL_INDEX_POLICY_KEY = "duckdb_partial_index_policy"
+DUCKDB_PARTIAL_INDEX_POLICY_APPLICATION_ENFORCED = "application_enforced"
 
 
 class Role(StrEnum):
@@ -66,6 +76,7 @@ class Dialect(StrEnum):
 
     POSTGRESQL = "postgresql"
     SQLITE = "sqlite"
+    DUCKDB = "duckdb"
 
 
 @dataclass(frozen=True)
@@ -101,6 +112,23 @@ class DialectProfile:
         (e.g. libpq's 5432). None for a dialect that takes no port. Used to
         make an omitted port and an explicitly-stated default port compare
         as the same physical address.
+    reflects_varchar_length : bool
+        Whether reflecting a declared ``VARCHAR(n)`` column back from the
+        database preserves ``n``.
+    reflects_text_as_varchar : bool
+        Whether reflecting a declared ``TEXT`` column back from the
+        database returns ``VARCHAR`` instead.
+    reflects_float_as_double_precision : bool
+        Whether reflecting a declared unparameterized ``FLOAT`` column back
+        from the database returns ``DOUBLE PRECISION`` instead.
+    schema_names_are_catalog_qualified : bool
+        Whether ``Inspector.get_schema_names()`` returns names prefixed with
+        a catalog (e.g. ``"mydb.main"``) rather than a bare schema name.
+    supports_cross_schema_fks : bool
+        Whether a foreign key may reference another physical schema in the
+        same physical database. False for a dialect that rejects such a
+        key outright, even though two distinct logical tags may still
+        share one physical schema and need no cross-schema key at all.
     """
 
     system_schemas: frozenset[str]
@@ -108,6 +136,11 @@ class DialectProfile:
     requires_host: bool = True
     default_schema: str | None = None
     default_port: int | None = None
+    reflects_varchar_length: bool = True
+    reflects_text_as_varchar: bool = False
+    reflects_float_as_double_precision: bool = False
+    schema_names_are_catalog_qualified: bool = False
+    supports_cross_schema_fks: bool = True
 
 
 _DIALECT_PROFILES: dict[str, DialectProfile] = {
@@ -116,11 +149,24 @@ _DIALECT_PROFILES: dict[str, DialectProfile] = {
         supports_schemas=True,
         default_schema="public",
         default_port=5432,
+        reflects_float_as_double_precision=True,
     ),
     Dialect.SQLITE: DialectProfile(
         system_schemas=frozenset(),
         supports_schemas=False,
         requires_host=False,
+        supports_cross_schema_fks=False,
+    ),
+    Dialect.DUCKDB: DialectProfile(
+        # Catalog-qualified (see get_system_schemas() of DuckDBDialect)
+        system_schemas=frozenset({"system.information_schema", "system.main", "temp.main"}),
+        supports_schemas=True,
+        requires_host=False,
+        default_schema="main",
+        reflects_varchar_length=False,
+        reflects_text_as_varchar=True,
+        schema_names_are_catalog_qualified=True,
+        supports_cross_schema_fks=False,
     ),
 }
 
@@ -142,6 +188,123 @@ def _profile_for(dialect_name: str) -> DialectProfile:
             f"Unsupported dialect {dialect_name!r}. Supported: "
             f"{sorted(str(d) for d in _DIALECT_PROFILES)}."
         ) from None
+
+
+@compiles(AddConstraint, Dialect.DUCKDB)
+def _skip_deferred_fk_on_duckdb(element: AddConstraint, compiler, **kw) -> str:
+    """No-op a deferred ``ALTER TABLE ADD CONSTRAINT`` FK: DuckDB can't execute it.
+
+    Constructing ``AddConstraint`` already set the constraint's
+    ``_create_rule`` to permanently exclude it from any future inline
+    ``CREATE TABLE`` rendering. Has to be undone as otherwise a later 
+    ``create_all()`` against any dialect in the same process would
+    silently drop the constraint instead of deferring it again.
+    """
+    if isinstance(element.element, sa.ForeignKeyConstraint):
+        element.element._create_rule = None
+        return "SELECT 1"
+    return compiler.visit_add_constraint(element, **kw)
+
+
+@compiles(DropConstraint, Dialect.DUCKDB)
+def _skip_dropped_fk_on_duckdb(element: DropConstraint, compiler, **kw) -> str:
+    """No-op dropping a deferred FK: DuckDB can't execute ``ALTER TABLE DROP CONSTRAINT``.
+    Symmetric with :func:`_skip_deferred_fk_on_duckdb`
+    """
+    if isinstance(element.element, sa.ForeignKeyConstraint):
+        return "SELECT 1"
+    return compiler.visit_drop_constraint(element, **kw)
+
+
+@compiles(CreateIndex, Dialect.DUCKDB)
+def _skip_partial_index_on_duckdb(element: CreateIndex, compiler, **kw) -> str:
+    """No-op a partial (``WHERE``-filtered) index: DuckDB has no partial-index support.
+
+    Detects a ``postgresql_where`` or ``sqlite_where`` predicate on the
+    index. A non-unique match is skipped with a warning. A unique match is
+    skipped only with ``info={DUCKDB_PARTIAL_INDEX_POLICY_KEY:
+    DUCKDB_PARTIAL_INDEX_POLICY_APPLICATION_ENFORCED}`` set on the index;
+    otherwise it raises ``CompileError``.
+    """
+    index = element.element
+    is_partial = any(
+        index.dialect_options[dialect]["where"] is not None for dialect in ("postgresql", "sqlite")
+    )
+    if not is_partial:
+        return compiler.visit_create_index(element, **kw)
+
+    table_name = index.table.fullname if index.table is not None else "<unbound>"
+    if not index.unique:
+        logger.warning("Omitting unsupported partial index %s on %s for DuckDB", index.name, table_name)
+        return "SELECT 1"
+
+    policy = index.info.get(DUCKDB_PARTIAL_INDEX_POLICY_KEY)
+    if policy != DUCKDB_PARTIAL_INDEX_POLICY_APPLICATION_ENFORCED:
+        raise CompileError(
+            f"DuckDB cannot create partial unique index {index.name!r} on {table_name!r}. "
+            f"If something else enforces this uniqueness, set "
+            f"info={{{DUCKDB_PARTIAL_INDEX_POLICY_KEY!r}: "
+            f"{DUCKDB_PARTIAL_INDEX_POLICY_APPLICATION_ENFORCED!r}}} on the index to acknowledge "
+            "that and omit it for DuckDB; otherwise use a database that supports partial indexes."
+        )
+    logger.info(
+        "Omitting DuckDB partial unique index %s on %s under its application-enforced policy",
+        index.name,
+        table_name,
+    )
+    return "SELECT 1"
+
+
+@compiles(sa.Numeric, Dialect.DUCKDB)
+@compiles(sa.NUMERIC, Dialect.DUCKDB)
+@compiles(sa.DECIMAL, Dialect.DUCKDB)
+def _require_duckdb_numeric_precision(type_: sa.Numeric, compiler, **kw) -> str:
+    """Require an explicit precision/scale: DuckDB's bare NUMERIC is DECIMAL(18,3).
+
+    Rendering a reasonable default instead (e.g. DOUBLE) would still be
+    silently wrong for an exact-decimal use case (float imprecision instead
+    of decimal truncation); raising forces the caller to state what they
+    actually need.
+    """
+    if type_.precision is None:
+        raise CompileError(
+            "DuckDB Numeric columns require explicit precision and scale, e.g. "
+            "Numeric(18, 6); a bare Numeric() can silently round decimal values."
+        )
+    return compiler.visit_NUMERIC(type_, **kw)
+
+
+@compiles(sa.schema.CreateTable, Dialect.DUCKDB)
+def _reject_unsupported_duckdb_fk_actions(element: sa.schema.CreateTable, compiler, **kw) -> str:
+    """Raise before DDL if a foreign key requests an ON DELETE/UPDATE action DuckDB can't execute."""
+    unsupported = {"CASCADE", "SET NULL", "SET DEFAULT"}
+    for constraint in element.element.foreign_key_constraints:
+        for foreign_key in constraint.elements:
+            for event_name, action in (("DELETE", foreign_key.ondelete), ("UPDATE", foreign_key.onupdate)):
+                if (action or "").upper() in unsupported:
+                    raise CompileError(
+                        f"DuckDB does not support ON {event_name} {action} on foreign key "
+                        f"{constraint.name or '<unnamed>'!r} in table {element.element.fullname!r}. "
+                        "Remove the action or use a database that supports it."
+                    )
+    return compiler.visit_create_table(element, **kw)
+
+
+@compiles(sa.Computed, Dialect.DUCKDB)
+def _virtual_computed_column_on_duckdb(element: sa.Computed, compiler, **kw) -> str:
+    """Render a computed column as ``VIRTUAL``: DuckDB has no ``STORED`` support."""
+    if element.persisted is True:
+        raise CompileError(
+            "DuckDB computed columns do not support 'stored' persistence; "
+            "set the 'persisted' flag to None or False for DuckDB support."
+        )
+    if element.column is not None and element.column.nullable is False:
+        raise CompileError(
+            "DuckDB does not support constraints (e.g. NOT NULL) on a generated "
+            "column; set the column's 'nullable' flag to True for DuckDB support."
+        )
+    rendered = compiler.sql_compiler.process(element.sqltext, include_table=False, literal_binds=True)
+    return f"GENERATED ALWAYS AS ({rendered}) VIRTUAL"
 
 @overload
 def _as_bind(bindable: Engine) -> Engine: ...
@@ -341,12 +504,13 @@ def is_ephemeral_url(safe_url: str | sa.URL) -> bool:
     """True if *safe_url* names a database that cannot be shared across
     independently-built engines.
 
-    Only SQLite ``:memory:`` (plain, ``file::memory:`` shared-cache, or
-    ``mode=memory`` URI) databases are ephemeral this way: a second engine
-    pointed at the same URL gets its own, disconnected, empty database
-    rather than reconnecting to the first one's data. A caller that needs
-    two engines to see the same ephemeral database must instead share one
-    already-built engine or connection between them.
+    SQLite ``:memory:`` (plain, ``file::memory:`` shared-cache, or
+    ``mode=memory`` URI) and DuckDB ``:memory:`` databases are ephemeral
+    this way: a second engine pointed at the same URL gets its own,
+    disconnected, empty database rather than reconnecting to the first
+    one's data. A caller that needs two engines to see the same ephemeral
+    database must instead share one already-built engine or connection
+    between them.
 
     Parameters
     ----------
@@ -365,11 +529,14 @@ def is_ephemeral_url(safe_url: str | sa.URL) -> bool:
     recognising in-memory databases on that version.
     """
     url = safe_url if isinstance(safe_url, sa.URL) else sa.make_url(safe_url)
-    if url.get_backend_name() != Dialect.SQLITE:
+    backend = url.get_backend_name()
+    if backend not in (Dialect.SQLITE, Dialect.DUCKDB):
         return False
     database = url.database
     if database is None or database in ("", ":memory:"):
         return True
+    if backend == Dialect.DUCKDB:
+        return False  # no mode=memory URI variant; only the literal spelling above
     mode = url.query.get("mode")
     modes = (mode,) if isinstance(mode, str) else (mode or ())
     return ":memory:" in database or "memory" in modes
@@ -402,6 +569,42 @@ def requires_host(bindable: Bindable | str) -> bool:
     """
     dialect_name = bindable if isinstance(bindable, str) else _as_bind(bindable).dialect.name
     return _profile_for(dialect_name).requires_host
+
+
+def reflects_varchar_length(bindable: Bindable | str) -> bool:
+    """True if reflecting a declared ``VARCHAR(n)`` column preserves ``n``.
+
+    Parameters
+    ----------
+    bindable : Engine | Connection | Session | str
+        A live bindable, or a bare dialect name directly (e.g. "duckdb").
+    """
+    dialect_name = bindable if isinstance(bindable, str) else _as_bind(bindable).dialect.name
+    return _profile_for(dialect_name).reflects_varchar_length
+
+
+def reflects_text_as_varchar(bindable: Bindable | str) -> bool:
+    """True if reflecting a declared ``TEXT`` column returns ``VARCHAR`` instead.
+
+    Parameters
+    ----------
+    bindable : Engine | Connection | Session | str
+        A live bindable, or a bare dialect name directly (e.g. "duckdb").
+    """
+    dialect_name = bindable if isinstance(bindable, str) else _as_bind(bindable).dialect.name
+    return _profile_for(dialect_name).reflects_text_as_varchar
+
+
+def reflects_float_as_double_precision(bindable: Bindable | str) -> bool:
+    """True if reflecting a declared unparameterized ``FLOAT`` column returns ``DOUBLE PRECISION`` instead.
+
+    Parameters
+    ----------
+    bindable : Engine | Connection | Session | str
+        A live bindable, or a bare dialect name directly (e.g. "postgresql").
+    """
+    dialect_name = bindable if isinstance(bindable, str) else _as_bind(bindable).dialect.name
+    return _profile_for(dialect_name).reflects_float_as_double_precision
 
 
 def system_schemas(bindable: Bindable | str) -> frozenset[str]:

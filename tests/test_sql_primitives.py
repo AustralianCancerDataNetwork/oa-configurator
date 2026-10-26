@@ -14,13 +14,17 @@ Rule: no test reads from ~/.config/omop/ directly (see conftest.py).
 
 from __future__ import annotations
 
+import logging
 import uuid
+from decimal import Decimal
 
 import pytest
 import sqlalchemy as sa
 import sqlalchemy.orm as so
 from conftest import registry_row as _registry_row
-from sqlalchemy.exc import InvalidRequestError
+from sqlalchemy.dialects import registry
+from sqlalchemy.exc import CompileError, InvalidRequestError, SQLAlchemyError
+from sqlalchemy.schema import AddConstraint, CreateIndex, CreateTable, DropConstraint
 
 from oa_configurator import (
     Dialect,
@@ -43,8 +47,273 @@ from oa_configurator.domains.resources.schema_registry import (
     _register_schema_claim,
     _reject_reservation_conflict,
 )
-from oa_configurator.domains.resources.sql import _as_bind, _profile_for, connection_key
+from oa_configurator.domains.resources.sql import (
+    DUCKDB_PARTIAL_INDEX_POLICY_APPLICATION_ENFORCED,
+    DUCKDB_PARTIAL_INDEX_POLICY_KEY,
+    _as_bind,
+    _profile_for,
+    connection_key,
+)
 from oa_configurator.testing import drop_schema_if_exists
+
+
+def _duckdb_dialect() -> sa.engine.Dialect:
+    return registry.load(Dialect.DUCKDB)()
+
+
+class TestDuckDBDDLShims:
+    """The @compiles registrations in sql.py that paper over DuckDB's DDL gaps:
+    deferred-FK (Add/DropConstraint), partial indexes, and Computed columns."""
+
+    def test_add_constraint_no_ops_a_foreign_key(self):
+        metadata = sa.MetaData()
+        sa.Table("a", metadata, sa.Column("id", sa.Integer, primary_key=True))
+        b = sa.Table(
+            "b", metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("a_id", sa.ForeignKey("a.id", use_alter=True)),
+        )
+        fk = next(iter(b.foreign_key_constraints))
+        ddl = str(AddConstraint(fk).compile(dialect=_duckdb_dialect()))
+        assert ddl.strip() == "SELECT 1"
+
+    def test_add_constraint_passes_through_a_non_fk_constraint(self):
+        metadata = sa.MetaData()
+        t = sa.Table("t", metadata, sa.Column("x", sa.Integer))
+        check = sa.CheckConstraint("x > 0", name="ck_x")
+        t.append_constraint(check)
+        ddl = str(AddConstraint(check).compile(dialect=_duckdb_dialect()))
+        assert "SELECT 1" not in ddl
+        assert "CHECK" in ddl
+
+    def test_drop_constraint_no_ops_a_foreign_key(self):
+        metadata = sa.MetaData()
+        sa.Table("a", metadata, sa.Column("id", sa.Integer, primary_key=True))
+        b = sa.Table(
+            "b", metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("a_id", sa.ForeignKey("a.id", use_alter=True)),
+        )
+        fk = next(iter(b.foreign_key_constraints))
+        ddl = str(DropConstraint(fk).compile(dialect=_duckdb_dialect()))
+        assert ddl.strip() == "SELECT 1"
+
+    def test_drop_constraint_passes_through_a_non_fk_constraint(self):
+        metadata = sa.MetaData()
+        t = sa.Table("t", metadata, sa.Column("x", sa.Integer))
+        check = sa.CheckConstraint("x > 0", name="ck_x")
+        t.append_constraint(check)
+        ddl = str(DropConstraint(check).compile(dialect=_duckdb_dialect()))
+        assert "SELECT 1" not in ddl
+        assert "DROP CONSTRAINT" in ddl.upper()
+
+    @pytest.mark.parametrize("predicate_dialects", ["postgresql", "sqlite", "both"])
+    def test_partial_index_no_ops(self, predicate_dialects, caplog):
+        """A partial predicate declared via postgresql_where, sqlite_where, or
+        both must be caught the same way, not just the postgresql_where case."""
+        metadata = sa.MetaData()
+        t = sa.Table("t", metadata, sa.Column("x", sa.Integer))
+        idx = sa.Index(
+            "ix_t_x", t.c.x,
+            postgresql_where=t.c.x > 0 if predicate_dialects in {"postgresql", "both"} else None,
+            sqlite_where=t.c.x > 0 if predicate_dialects in {"sqlite", "both"} else None,
+        )
+        with caplog.at_level("WARNING"):
+            ddl = str(CreateIndex(idx).compile(dialect=_duckdb_dialect()))
+        assert ddl.strip() == "SELECT 1"
+        assert any("ix_t_x" in record.message for record in caplog.records)
+
+    def test_non_partial_index_creates_normally(self):
+        metadata = sa.MetaData()
+        t = sa.Table("t", metadata, sa.Column("x", sa.Integer))
+        idx = sa.Index("ix_t_x", t.c.x)
+        ddl = str(CreateIndex(idx).compile(dialect=_duckdb_dialect()))
+        assert "CREATE INDEX" in ddl.upper()
+
+    def test_computed_column_renders_virtual(self):
+        metadata = sa.MetaData()
+        t = sa.Table(
+            "t", metadata,
+            sa.Column("a", sa.Integer),
+            sa.Column("b", sa.Integer, sa.Computed("a + 1"), nullable=True),
+        )
+        ddl = str(CreateTable(t).compile(dialect=_duckdb_dialect()))
+        assert "GENERATED ALWAYS AS" in ddl
+        assert "VIRTUAL" in ddl
+        assert "STORED" not in ddl
+
+    def test_computed_column_rejects_stored(self):
+        metadata = sa.MetaData()
+        t = sa.Table(
+            "t", metadata,
+            sa.Column("a", sa.Integer),
+            sa.Column("b", sa.Integer, sa.Computed("a + 1", persisted=True)),
+        )
+        with pytest.raises(CompileError, match="stored"):
+            str(CreateTable(t).compile(dialect=_duckdb_dialect()))
+
+    def test_computed_column_rejects_not_null(self):
+        metadata = sa.MetaData()
+        t = sa.Table(
+            "t", metadata,
+            sa.Column("a", sa.Integer),
+            sa.Column("b", sa.Integer, sa.Computed("a + 1"), nullable=False),
+        )
+        with pytest.raises(CompileError, match="NOT NULL"):
+            str(CreateTable(t).compile(dialect=_duckdb_dialect()))
+
+    @pytest.mark.duckdb
+    @pytest.mark.db_dialect
+    def test_deferred_fk_cycle_creates_and_drops_end_to_end(self, duckdb_db):
+        """Real round trip on a committing engine: a two-table FK cycle
+        creates (the deferred FK silently skipped) and drops cleanly
+        (DropConstraint's twin shim, closing the drop_all() gap)."""
+        metadata = sa.MetaData()
+        a = sa.Table(
+            "ddl_shim_a", metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("b_id", sa.Integer),
+        )
+        sa.Table(
+            "ddl_shim_b", metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("a_id", sa.ForeignKey("ddl_shim_a.id", use_alter=True)),
+        )
+        a.append_constraint(sa.ForeignKeyConstraint(["b_id"], ["ddl_shim_b.id"], use_alter=True))
+
+        engine = duckdb_db.committing_engine
+        metadata.create_all(engine)
+        metadata.drop_all(engine)
+
+
+class TestDuckDBPartialIndexPolicy:
+    """A partial unique index must not silently lose its uniqueness
+    guarantee on DuckDB."""
+
+    @pytest.mark.parametrize("predicate_dialects", ["postgresql", "sqlite", "both"])
+    def test_partial_unique_index_requires_an_enforcement_policy(self, predicate_dialects, caplog):
+        caplog.set_level(logging.INFO)
+        metadata = sa.MetaData()
+        t = sa.Table("t", metadata, sa.Column("x", sa.Integer))
+        postgresql_where = t.c.x > 0 if predicate_dialects in {"postgresql", "both"} else None
+        sqlite_where = t.c.x > 0 if predicate_dialects in {"sqlite", "both"} else None
+        unchecked = sa.Index(
+            "uq_t_x_unchecked", t.c.x, unique=True,
+            postgresql_where=postgresql_where, sqlite_where=sqlite_where,
+        )
+        with pytest.raises(CompileError, match="cannot create partial unique index"):
+            str(CreateIndex(unchecked).compile(dialect=_duckdb_dialect()))
+
+        allowed = sa.Index(
+            "uq_t_x_allowed", t.c.x, unique=True,
+            postgresql_where=postgresql_where, sqlite_where=sqlite_where,
+            info={DUCKDB_PARTIAL_INDEX_POLICY_KEY: DUCKDB_PARTIAL_INDEX_POLICY_APPLICATION_ENFORCED},
+        )
+        ddl = str(CreateIndex(allowed).compile(dialect=_duckdb_dialect()))
+        assert ddl.strip() == "SELECT 1"
+        assert "application-enforced policy" in caplog.text
+        assert not any(record.levelno == logging.WARNING for record in caplog.records)
+
+    @pytest.mark.parametrize("dialect_name", ["postgresql", "sqlite"])
+    def test_other_dialects_keep_numeric_and_partial_index_ddl(self, dialect_name):
+        """DuckDB's guards must not leak into dialects that support both features."""
+        dialect = registry.load(dialect_name)()
+        metadata = sa.MetaData()
+        t = sa.Table("t", metadata, sa.Column("amount", sa.Numeric()))
+        index = sa.Index(
+            "ix_t_amount", t.c.amount, sqlite_where=t.c.amount > 0, postgresql_where=t.c.amount > 0
+        )
+        table_ddl = str(CreateTable(t).compile(dialect=dialect))
+        index_ddl = str(CreateIndex(index).compile(dialect=dialect))
+        assert "NUMERIC" in table_ddl.upper()
+        assert "WHERE" in index_ddl.upper()
+
+
+class TestDuckDBSemanticGuardrails:
+    """DuckDB DDL that cannot preserve the declared data contract must be
+    rejected rather than silently rendered with different semantics."""
+
+    @pytest.mark.parametrize("numeric_type", [sa.Numeric, sa.NUMERIC, sa.DECIMAL])
+    def test_numeric_requires_precision_without_changing_float(self, numeric_type):
+        t = sa.Table("t", sa.MetaData(), sa.Column("value", numeric_type()))
+        with pytest.raises(CompileError, match="require explicit precision and scale"):
+            str(CreateTable(t).compile(dialect=_duckdb_dialect()))
+
+        with_precision = sa.Table("t2", sa.MetaData(), sa.Column("value", numeric_type(18, 6)))
+        assert "18, 6" in str(CreateTable(with_precision).compile(dialect=_duckdb_dialect()))
+
+        float_table = sa.Table("float_only", sa.MetaData(), sa.Column("value", sa.Float()))
+        assert "DOUBLE" in str(CreateTable(float_table).compile(dialect=_duckdb_dialect())).upper()
+
+    @pytest.mark.parametrize(
+        "event, action, supported",
+        [
+            (event, action, supported)
+            for event in ("delete", "update")
+            for action, supported in [
+                ("CASCADE", False),
+                ("SET NULL", False),
+                ("SET DEFAULT", False),
+                (None, True),
+                ("NO ACTION", True),
+                ("RESTRICT", True),
+            ]
+        ],
+    )
+    def test_foreign_key_action_compilation(self, event, action, supported):
+        metadata = sa.MetaData()
+        sa.Table("parent", metadata, sa.Column("id", sa.Integer, primary_key=True))
+        child = sa.Table(
+            "child", metadata,
+            sa.Column("parent_id", sa.Integer, sa.ForeignKey("parent.id", **{f"on{event}": action})),
+        )
+        if supported:
+            assert "FOREIGN KEY" in str(CreateTable(child).compile(dialect=_duckdb_dialect())).upper()
+        else:
+            with pytest.raises(CompileError, match=f"does not support ON {event.upper()} {action}"):
+                str(CreateTable(child).compile(dialect=_duckdb_dialect()))
+
+    @pytest.mark.duckdb
+    @pytest.mark.db_dialect
+    def test_duckdb_registry_policy_keeps_python_reservation_check(self, duckdb_db):
+        """ensure_schema()/`_register_schema_claim()` run their reservation
+        check against a real DuckDB file, which serializes writers itself
+        instead of a database-level uniqueness constraint."""
+        engine = duckdb_db.committing_engine
+        with engine.begin() as connection:
+            ensure_schema(connection, "reserved_for_registry_test")
+            ensure_schema(connection, "reserved_only_registry_test")
+            _register_schema_claim(
+                connection, database_config_name="entry_a", schema_tag="custom_a",
+                physical_schema="reserved_for_registry_test", owner="package_a",
+            )
+            _register_schema_claim(
+                connection, database_config_name="entry_b", schema_tag="custom_b",
+                physical_schema="reserved_for_registry_test", owner="package_b",
+            )
+            _register_schema_claim(
+                connection, database_config_name="entry_c", schema_tag="custom_c",
+                physical_schema="reserved_only_registry_test", owner="package_c", reserved=True,
+            )
+            with pytest.raises(SchemaOwnershipError, match="already reserved"):
+                _register_schema_claim(
+                    connection, database_config_name="entry_d", schema_tag="custom_d",
+                    physical_schema="reserved_only_registry_test", owner="package_d",
+                )
+
+    @pytest.mark.duckdb
+    @pytest.mark.db_dialect
+    def test_explicit_numeric_scale_round_trips(self, duckdb_db):
+        """An explicit Numeric(18, 9) must round-trip a value the bare
+        Numeric() default (DECIMAL(18, 3)) would have truncated."""
+        metadata = sa.MetaData()
+        table = sa.Table("numeric_round_trip", metadata, sa.Column("value", sa.Numeric(18, 9)))
+        engine = duckdb_db.committing_engine
+        metadata.create_all(engine)
+        value = Decimal("0.000123456")
+        with engine.begin() as connection:
+            connection.execute(table.insert(), {"value": value})
+            assert connection.scalar(sa.select(table.c.value)) == value
 
 
 class TestConnectionKey:
@@ -320,12 +589,19 @@ class TestAutocommitConnection:
             conn.close()
 
     def test_restores_an_explicitly_set_isolation_level_not_just_the_driver_default(self, engine):
+        # No single non-AUTOCOMMIT level is valid on every dialect this fixture
+        # parametrizes over (e.g. SQLite has no READ COMMITTED, DuckDB has no
+        # SERIALIZABLE), so pick whichever one this engine's own dialect allows,
+        # rather than hardcoding one.
+        allowed = engine.dialect.get_isolation_level_values(None)
+        other_level = next(level for level in allowed if level != "AUTOCOMMIT")
+
         conn = engine.connect()
         try:
-            conn = conn.execution_options(isolation_level="SERIALIZABLE")
+            conn = conn.execution_options(isolation_level=other_level)
             with autocommit_connection(conn) as result:
                 assert result.get_execution_options()["isolation_level"] == "AUTOCOMMIT"
-            assert conn.get_execution_options()["isolation_level"] == "SERIALIZABLE"
+            assert conn.get_execution_options()["isolation_level"] == other_level
         finally:
             conn.close()
 
@@ -673,6 +949,42 @@ class TestFindTableInOtherSchemas:
         )
         assert "information_schema" not in found
         assert "pg_catalog" not in found
+
+    def test_finds_a_table_in_a_schema_whose_name_contains_a_literal_dot(self, pg_db):
+        """A quoted Postgres schema name with a literal dot (e.g. "a.b") must
+        not be mistaken for a DuckDB-style catalog-qualified name and have
+        its suffix wrongly compared against physical_schema."""
+        conn = pg_db.connection
+        dotted = f"a.test_{uuid.uuid4().hex[:8]}"
+        expected = f"test_{uuid.uuid4().hex[:8]}"
+        ensure_schema(conn, dotted)
+        ensure_schema(conn, expected)
+        conn.execute(sa.text(f'CREATE TABLE "{dotted}".orphan (id int)'))
+        found = find_table_in_other_schemas(conn, "orphan", physical_schema=expected)
+        assert found == (dotted,)
+
+    @pytest.mark.duckdb
+    @pytest.mark.db_dialect
+    def test_finds_a_table_relocated_to_another_schema_on_duckdb(self, duckdb_db):
+        """get_schema_names() on DuckDB returns catalog-qualified names
+        (e.g. "mydb.main"), so the current schema (bare "main") must not
+        be mistaken for an "other" one, and a genuinely other schema must
+        still be found despite its own catalog qualification."""
+        conn = duckdb_db.connection
+        conn.execute(sa.text("CREATE SCHEMA other"))
+        conn.execute(sa.text("CREATE TABLE other.orphan (id INTEGER)"))
+
+        found = find_table_in_other_schemas(conn, "orphan", physical_schema="main")
+        assert len(found) == 1
+        assert found[0].rsplit(".", 1)[-1] == "other"
+
+    @pytest.mark.duckdb
+    @pytest.mark.db_dialect
+    def test_excludes_duckdb_system_and_temp_catalogs(self, duckdb_db):
+        found = find_table_in_other_schemas(
+            duckdb_db.connection, "tables", physical_schema="main"
+        )
+        assert found == ()
 
 
 class TestGuardSchemaProvenance:
@@ -1085,6 +1397,55 @@ class TestConcurrentBootstrap:
                     _concurrent_claim_worker,
                     [url] * 8, [database_config_name] * 8, [schema] * 8, [True] * 8,
                 )
+            )
+        failures = [r for r in results if r is not None]
+        assert failures == [], f"{len(failures)}/8 workers failed: {failures}"
+
+
+def _concurrent_duckdb_claim_worker(url: str, database_config_name: str, schema: str) -> str | None:
+    """Prevents two threads racing create_engine() against the same DuckDB file from
+    both succeeding.
+    """
+    from oa_configurator import CDMDatabaseConfig
+    from oa_configurator.domains.resources.schema import ConnectionConfig
+    from oa_configurator.resolver import Resolver
+    from oa_configurator.stack_config import StackConfig
+
+    made_url = sa.engine.make_url(url)
+    connection_config = ConnectionConfig(dialect=made_url.drivername, database_name=made_url.database)
+    stack = StackConfig.for_session(
+        connections={"c": connection_config},
+        databases={database_config_name: CDMDatabaseConfig(connection="c", cdm_schema=schema)},
+    )
+    try:
+        primary, _ = Resolver(stack).resolve_database(database_config_name).create_engines()
+        primary.dispose()
+    except SQLAlchemyError as exc:
+        return f"{type(exc).__name__}: {exc}"
+    return None
+
+
+class TestIntraProcessRegistryLock:
+    """Regression for the same-process gap _lock_schema_registry's
+    intra-process lock closes.
+
+    Notes
+    -----
+    DuckDB serializes writers across processes via an OS-level exclusive file lock.
+    This does not prevent two threads in the same process from racing each other.
+    """
+
+    @pytest.mark.duckdb
+    @pytest.mark.db_dialect
+    def test_eight_concurrent_threads_claiming_against_one_duckdb_file_all_succeed(self, tmp_path):
+        import concurrent.futures
+
+        url = f"duckdb:///{tmp_path / 'race.duckdb'}"
+        database_config_name = f"concurrent_{uuid.uuid4().hex[:8]}"
+        schema = f"test_{uuid.uuid4().hex[:8]}"
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(
+                pool.map(_concurrent_duckdb_claim_worker, [url] * 8, [database_config_name] * 8, [schema] * 8)
             )
         failures = [r for r in results if r is not None]
         assert failures == [], f"{len(failures)}/8 workers failed: {failures}"

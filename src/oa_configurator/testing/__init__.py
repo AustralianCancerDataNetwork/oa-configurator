@@ -64,7 +64,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple, cast
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.dialects import registry
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, NoSuchModuleError
 
 from ..domains.resources.sql import Dialect, Role
 from .base import (
@@ -188,12 +188,20 @@ def _can_corrupt_shared_metadata(dialect: str) -> bool:
     same shared Base.metadata on any other dialect in the same process. A
     dialect that can't ALTER (e.g. SQLite) can never trigger this itself.
 
-    Loads the dialect class through SQLAlchemy's own plugin registry
-    rather than ``create_engine()``, so this needs no driver installed and
-    no real connection, since ``supports_alter`` is a database-level
-    capability, identical across every driver for the same dialect.
+    Loads the dialect class through SQLAlchemy's own plugin so this needs 
+    no real connection. If an optional dialect's driver isn't installed, 
+    conservatively treat it as capable of corrupting shared metadata.
+
+    Notes
+    -----
+    Its ``DIALECT_PARAMS`` entry still gets marked ``db_dialect`` and stays 
+    excluded from the default suite. The answer self-corrects once the driver 
+    actually is installed.
     """
-    return bool(registry.load(dialect).supports_alter)
+    try:
+        return bool(registry.load(dialect).supports_alter)
+    except NoSuchModuleError:
+        return True
 
 
 DIALECT_PARAMS = tuple(

@@ -15,6 +15,7 @@ from typing import ClassVar
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.schema import CreateTable
 
 from oa_configurator import (
@@ -39,17 +40,20 @@ def _cdm_tables() -> tuple[sa.MetaData, sa.Table, sa.Table, sa.Table]:
     with ``cond`` carrying one foreign key to each side."""
     metadata = sa.MetaData()
     concept = sa.Table(
-        "concept", metadata,
+        "concept",
+        metadata,
         sa.Column("concept_id", sa.Integer, primary_key=True),
         schema=Role.VOCAB.value,
     )
     person = sa.Table(
-        "person", metadata,
+        "person",
+        metadata,
         sa.Column("person_id", sa.Integer, primary_key=True),
         schema=Role.PRIMARY.value,
     )
     cond = sa.Table(
-        "cond", metadata,
+        "cond",
+        metadata,
         sa.Column("id", sa.Integer, primary_key=True),
         sa.Column("person_id", sa.Integer, sa.ForeignKey("primary.person.person_id")),
         sa.Column("concept_id", sa.Integer, sa.ForeignKey("vocab.concept.concept_id")),
@@ -75,8 +79,10 @@ def split_cdm(pg_connection_config, cleanup_after_test):
         connections={"primary": primary_connection_config, "vocab": vocab_connection_config},
         databases={
             name: CDMDatabaseConfig(
-                connection="primary", vocab_connection="vocab",
-                cdm_schema="public", vocab_schema="public",
+                connection="primary",
+                vocab_connection="vocab",
+                cdm_schema="public",
+                vocab_schema="public",
             )
         },
     )
@@ -91,18 +97,14 @@ def compile_split_cdm():
             "vocab": oa_connection(":memory:"),
         },
         databases={
-            "compile_split": CDMDatabaseConfig(
-                connection="primary", vocab_connection="vocab"
-            )
+            "compile_split": CDMDatabaseConfig(connection="primary", vocab_connection="vocab")
         },
     )
     return Resolver(stack).resolve_database("compile_split")
 
 
 def oa_connection(database_name: str):
-    return ConnectionConfig(
-        dialect="sqlite", database_name=database_name, test_only=True
-    )
+    return ConnectionConfig(dialect="sqlite", database_name=database_name, test_only=True)
 
 
 @pytest.fixture
@@ -117,7 +119,9 @@ def duckdb_cdm(tmp_path):
         },
         databases={
             "cdm": CDMDatabaseConfig(
-                connection="db", cdm_schema="clinical", vocab_schema="vocabulary",
+                connection="db",
+                cdm_schema="clinical",
+                vocab_schema="vocabulary",
                 results_schema="results",
             )
         },
@@ -141,9 +145,7 @@ class TestForeignKeyDerivation:
         assert [c.name for c in derived.columns] == [c.name for c in cond.columns]
         assert [str(c.type) for c in derived.columns] == [str(c.type) for c in cond.columns]
 
-    def test_nothing_is_dropped_on_a_colocated_deployment(
-        self
-    ):
+    def test_nothing_is_dropped_on_a_colocated_deployment(self):
         """Same models, one database: every foreign key is creatable, so the
         derivation must leave the table alone."""
         stack = StackConfig.for_session(
@@ -152,9 +154,7 @@ class TestForeignKeyDerivation:
         )
         resolved = Resolver(stack).resolve_database("colocated")
         _metadata, concept, person, cond = _cdm_tables()
-        *_, derived = without_cross_engine_foreign_keys(
-            (concept, person, cond), resolved=resolved
-        )
+        *_, derived = without_cross_engine_foreign_keys((concept, person, cond), resolved=resolved)
         dialect = postgresql.dialect()
         assert str(CreateTable(derived).compile(dialect=dialect)).count("FOREIGN KEY") == 2
 
@@ -175,21 +175,19 @@ class TestBoundaryGuard:
         _, concept, _, cond = _cdm_tables()
         primary, vocab = split_cdm.create_engines()
         try:
-            with primary.connect() as connection, pytest.raises(
-                CrossDatabaseStatementError, match="'vocab'.*'primary'"
+            with (
+                primary.connect() as connection,
+                pytest.raises(CrossDatabaseStatementError, match="'vocab'.*'primary'"),
             ):
                 connection.execute(
-                    sa.select(cond.c.id).join(
-                        concept, cond.c.concept_id == concept.c.concept_id
-                    )
+                    sa.select(cond.c.id).join(concept, cond.c.concept_id == concept.c.concept_id)
                 )
-            with vocab.connect() as connection, pytest.raises(
-                CrossDatabaseStatementError, match="'primary'.*'vocab'"
+            with (
+                vocab.connect() as connection,
+                pytest.raises(CrossDatabaseStatementError, match="'primary'.*'vocab'"),
             ):
                 connection.execute(
-                    sa.select(cond.c.id).join(
-                        concept, cond.c.concept_id == concept.c.concept_id
-                    )
+                    sa.select(cond.c.id).join(concept, cond.c.concept_id == concept.c.concept_id)
                 )
         finally:
             primary.dispose()
@@ -207,8 +205,9 @@ class TestBoundaryGuard:
                     connection.execute(
                         sa.text("CREATE TABLE concept (concept_id INTEGER PRIMARY KEY)")
                     )
-            with primary.connect() as connection, pytest.raises(
-                CrossDatabaseStatementError, match="'vocab'"
+            with (
+                primary.connect() as connection,
+                pytest.raises(CrossDatabaseStatementError, match="'vocab'"),
             ):
                 connection.execute(sa.select(concept.c.concept_id))
             with vocab.connect() as connection:
@@ -224,8 +223,10 @@ class TestBoundaryGuard:
         claimed it, so combining it with vocab on the vocab engine is allowed."""
         _, concept, _, _ = _cdm_tables()
         staging = sa.Table(
-            "staging_concept", sa.MetaData(),
-            sa.Column("concept_id", sa.Integer), schema="staging",
+            "staging_concept",
+            sa.MetaData(),
+            sa.Column("concept_id", sa.Integer),
+            schema="staging",
         )
         primary, vocab = split_cdm.create_engines(
             schema_claims=[SchemaClaim(schema_tag="staging", physical_schema="public")],
@@ -233,15 +234,16 @@ class TestBoundaryGuard:
         )
         try:
             with vocab.begin() as connection:
-                connection.execute(
-                    sa.text("CREATE TABLE concept (concept_id INTEGER PRIMARY KEY)")
-                )
+                connection.execute(sa.text("CREATE TABLE concept (concept_id INTEGER PRIMARY KEY)"))
                 connection.execute(sa.text("CREATE TABLE staging_concept (concept_id INTEGER)"))
-                assert connection.execute(
-                    sa.select(concept.c.concept_id).join(
-                        staging, staging.c.concept_id == concept.c.concept_id
-                    )
-                ).all() == []
+                assert (
+                    connection.execute(
+                        sa.select(concept.c.concept_id).join(
+                            staging, staging.c.concept_id == concept.c.concept_id
+                        )
+                    ).all()
+                    == []
+                )
                 connection.execute(sa.text("DROP TABLE staging_concept"))
                 connection.execute(sa.text("DROP TABLE concept"))
         finally:
@@ -303,7 +305,9 @@ class TestForeignKeyPolicy:
             ("sqlite", None, None, True),
         ],
     )
-    def test_feasibility_uses_physical_schemas(self, dialect, primary_schema, vocab_schema, expected):
+    def test_feasibility_uses_physical_schemas(
+        self, dialect, primary_schema, vocab_schema, expected
+    ):
         stack = StackConfig.for_session(
             connections={
                 "db": ConnectionConfig(
@@ -328,11 +332,15 @@ class TestForeignKeyPolicy:
         assert report == (UnenforcedForeignKey(constraint, "cross_schema"),)
 
         *_, copied = without_cross_engine_foreign_keys((concept, person, cond), resolved=duckdb_cdm)
-        assert [tuple(fk.columns.keys()) for fk in copied.foreign_key_constraints] == [("person_id",)]
+        assert [tuple(fk.columns.keys()) for fk in copied.foreign_key_constraints] == [
+            ("person_id",)
+        ]
         assert str(CreateTable(cond).compile(dialect=postgresql.dialect())) == original
         assert len(cond.foreign_keys) == 2
 
-    def test_cross_database_reason_does_not_require_referred_table_in_batch(self, compile_split_cdm):
+    def test_cross_database_reason_does_not_require_referred_table_in_batch(
+        self, compile_split_cdm
+    ):
         _, _, person, cond = _cdm_tables()
         report = unenforced_foreign_keys((person, cond), resolved=compile_split_cdm)
         assert len(report) == 1
@@ -349,11 +357,17 @@ class TestForeignKeyPolicy:
     def test_composite_key_is_reported_and_removed_as_one_constraint(self, duckdb_cdm):
         metadata = sa.MetaData()
         parent = sa.Table(
-            "parent", metadata, sa.Column("a", sa.Integer, primary_key=True),
-            sa.Column("b", sa.Integer, primary_key=True), schema="vocab",
+            "parent",
+            metadata,
+            sa.Column("a", sa.Integer, primary_key=True),
+            sa.Column("b", sa.Integer, primary_key=True),
+            schema="vocab",
         )
         child = sa.Table(
-            "child", metadata, sa.Column("a", sa.Integer), sa.Column("b", sa.Integer),
+            "child",
+            metadata,
+            sa.Column("a", sa.Integer),
+            sa.Column("b", sa.Integer),
             sa.ForeignKeyConstraint(["a", "b"], ["vocab.parent.a", "vocab.parent.b"]),
             schema="primary",
         )
@@ -388,13 +402,20 @@ class TestForeignKeyPolicy:
             "parent", metadata, sa.Column("id", sa.Integer, primary_key=True), schema="custom"
         )
         child = sa.Table(
-            "child", metadata, sa.Column("parent_id", sa.Integer, sa.ForeignKey("custom.parent.id")),
+            "child",
+            metadata,
+            sa.Column("parent_id", sa.Integer, sa.ForeignKey("custom.parent.id")),
             schema="primary",
         )
         for physical_schema in ("main", None):
             schemas = {"custom": physical_schema}
             assert resolved.foreign_key_can_span("custom", Role.PRIMARY, physical_schemas=schemas)
-            assert unenforced_foreign_keys((parent, child), resolved=resolved, physical_schemas=schemas) == ()
+            assert (
+                unenforced_foreign_keys(
+                    (parent, child), resolved=resolved, physical_schemas=schemas
+                )
+                == ()
+            )
             _, copied = without_cross_engine_foreign_keys(
                 (parent, child), resolved=resolved, physical_schemas=schemas
             )
@@ -404,7 +425,9 @@ class TestForeignKeyPolicy:
         "primary_schema, vocab_schema, expected",
         [("CDM", "cdm", True), ("Ä", "ä", False)],
     )
-    def test_duckdb_schema_comparison_uses_ascii_case_rules(self, duckdb_cdm, primary_schema, vocab_schema, expected):
+    def test_duckdb_schema_comparison_uses_ascii_case_rules(
+        self, duckdb_cdm, primary_schema, vocab_schema, expected
+    ):
         """DuckDB folds ASCII letters to lowercase, even in quoted
         identifiers, but non-ASCII letters are left as distinct schemas."""
         resolved = replace(duckdb_cdm, schema_name=primary_schema, vocab_schema=vocab_schema)
@@ -412,13 +435,19 @@ class TestForeignKeyPolicy:
 
     def test_custom_tag_mapping_is_shared_by_reporting_and_copying(self, duckdb_cdm):
         metadata = sa.MetaData()
-        parent = sa.Table("parent", metadata, sa.Column("id", sa.Integer, primary_key=True), schema="custom")
+        parent = sa.Table(
+            "parent", metadata, sa.Column("id", sa.Integer, primary_key=True), schema="custom"
+        )
         child = sa.Table(
-            "child", metadata, sa.Column("parent_id", sa.Integer, sa.ForeignKey("custom.parent.id")),
+            "child",
+            metadata,
+            sa.Column("parent_id", sa.Integer, sa.ForeignKey("custom.parent.id")),
             schema="primary",
         )
         schemas = {"custom": "another_schema"}
-        report = unenforced_foreign_keys((parent, child), resolved=duckdb_cdm, physical_schemas=schemas)
+        report = unenforced_foreign_keys(
+            (parent, child), resolved=duckdb_cdm, physical_schemas=schemas
+        )
         assert [item.reason for item in report] == ["cross_schema"]
         _, copied = without_cross_engine_foreign_keys(
             (parent, child), resolved=duckdb_cdm, physical_schemas=schemas
@@ -430,16 +459,26 @@ class TestForeignKeyPolicy:
         way round, and neither can an explicitly use_alter=True key."""
         metadata = sa.MetaData()
         a = sa.Table(
-            "a", metadata, sa.Column("id", sa.Integer, primary_key=True),
-            sa.Column("b_id", sa.Integer, sa.ForeignKey("primary.b.id")), schema="primary",
+            "a",
+            metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("b_id", sa.Integer, sa.ForeignKey("primary.b.id")),
+            schema="primary",
         )
         b = sa.Table(
-            "b", metadata, sa.Column("id", sa.Integer, primary_key=True),
-            sa.Column("a_id", sa.Integer, sa.ForeignKey("primary.a.id")), schema="primary",
+            "b",
+            metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("a_id", sa.Integer, sa.ForeignKey("primary.a.id")),
+            schema="primary",
         )
         self_ref = sa.Table(
-            "self_ref", metadata, sa.Column("id", sa.Integer, primary_key=True),
-            sa.Column("parent_id", sa.Integer, sa.ForeignKey("primary.self_ref.id", use_alter=True)),
+            "self_ref",
+            metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column(
+                "parent_id", sa.Integer, sa.ForeignKey("primary.self_ref.id", use_alter=True)
+            ),
             schema="primary",
         )
         report = unenforced_foreign_keys((a, b, self_ref), resolved=duckdb_cdm)
@@ -454,16 +493,25 @@ class TestForeignKeyPolicy:
         genuinely cross-schema constraints are reported, not a cycle."""
         metadata = sa.MetaData()
         a = sa.Table(
-            "a", metadata, sa.Column("id", sa.Integer, primary_key=True),
-            sa.Column("b_id", sa.Integer, sa.ForeignKey("primary.b.id")), schema="primary",
+            "a",
+            metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("b_id", sa.Integer, sa.ForeignKey("primary.b.id")),
+            schema="primary",
         )
         b = sa.Table(
-            "b", metadata, sa.Column("id", sa.Integer, primary_key=True),
-            sa.Column("v_id", sa.Integer, sa.ForeignKey("vocab.v.id")), schema="primary",
+            "b",
+            metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("v_id", sa.Integer, sa.ForeignKey("vocab.v.id")),
+            schema="primary",
         )
         v = sa.Table(
-            "v", metadata, sa.Column("id", sa.Integer, primary_key=True),
-            sa.Column("a_id", sa.Integer, sa.ForeignKey("primary.a.id")), schema="vocab",
+            "v",
+            metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("a_id", sa.Integer, sa.ForeignKey("primary.a.id")),
+            schema="vocab",
         )
         report = unenforced_foreign_keys((a, b, v), resolved=duckdb_cdm)
         assert [item.reason for item in report] == ["cross_schema", "cross_schema"]
@@ -472,14 +520,19 @@ class TestForeignKeyPolicy:
     @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
     def test_other_dialects_do_not_report_deferred_keys(self, dialect):
         stack = StackConfig.for_session(
-            connections={"db": ConnectionConfig(dialect=dialect, host="localhost", database_name="unused")},
+            connections={
+                "db": ConnectionConfig(dialect=dialect, host="localhost", database_name="unused")
+            },
             databases={"cdm": CDMDatabaseConfig(connection="db")},
         )
         resolved = Resolver(stack).resolve_database("cdm")
         metadata = sa.MetaData()
         table = sa.Table(
-            "t", metadata, sa.Column("id", sa.Integer, primary_key=True),
-            sa.Column("parent_id", sa.Integer, sa.ForeignKey("primary.t.id", use_alter=True)), schema="primary",
+            "t",
+            metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("parent_id", sa.Integer, sa.ForeignKey("primary.t.id", use_alter=True)),
+            schema="primary",
         )
         assert unenforced_foreign_keys((table,), resolved=resolved) == ()
 
@@ -502,7 +555,7 @@ class TestForeignKeyPolicy:
                 connection.execute(cond.insert(), {"id": 1, "person_id": 1, "concept_id": 1})
                 reflected = sa.inspect(connection).get_foreign_keys("cond", schema="clinical")
                 assert len(reflected) == (2 if vocab_schema.lower() == "clinical" else 1)
-            with pytest.raises(sa.exc.IntegrityError), engine.begin() as connection:
+            with pytest.raises(IntegrityError), engine.begin() as connection:
                 connection.execute(cond.insert(), {"id": 2, "person_id": 999, "concept_id": 1})
         finally:
             for owned in {engine, vocab_engine}:
@@ -523,8 +576,10 @@ class TestForeignKeyPolicy:
             connections={"db": pg_connection_config},
             databases={
                 "cdm": CDMDatabaseConfig(
-                    connection="db", cdm_schema=primary_schema,
-                    vocab_schema=vocab_schema, results_schema=primary_schema,
+                    connection="db",
+                    cdm_schema=primary_schema,
+                    vocab_schema=vocab_schema,
+                    results_schema=primary_schema,
                 )
             },
         )
@@ -544,5 +599,5 @@ class TestForeignKeyPolicy:
         connection.execute(person.insert(), {"person_id": 1})
         connection.execute(concept.insert(), {"concept_id": 1})
         connection.execute(cond.insert(), {"id": 1, "person_id": 1, "concept_id": 1})
-        with pytest.raises(sa.exc.IntegrityError), connection.begin_nested():
+        with pytest.raises(IntegrityError), connection.begin_nested():
             connection.execute(cond.insert(), {"id": 2, "person_id": 1, "concept_id": 999})

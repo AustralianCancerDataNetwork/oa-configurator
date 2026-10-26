@@ -39,9 +39,9 @@ class RedactingFilter(logging.Filter):
     A filter rather than a formatter, for two reasons.
 
     **It reaches handlers that do their own rendering.** e.g. ``RichHandler`` -
-    a formatter attached to it governs only part of the result; 
+    a formatter attached to it governs only part of the result;
     Handler filters run in ``Handler.handle()`` before ``emit()``, so concole
-    and stream paths are covered by one mechanism and neither needs its own code 
+    and stream paths are covered by one mechanism and neither needs its own code
     path.
 
     **It survives customisation.** Replacing a handler's formatter is an ordinary
@@ -59,9 +59,7 @@ class RedactingFilter(logging.Filter):
             # Caching a scrubbed traceback here is what keeps the exception path
             # covered: Formatter.format() appends record.exc_text verbatim when it
             # is already set, rather than re-deriving it from exc_info.
-            record.exc_text = _scrub_urls(
-                logging.Formatter().formatException(record.exc_info)
-            )
+            record.exc_text = _scrub_urls(logging.Formatter().formatException(record.exc_info))
         return True
 
 
@@ -149,7 +147,10 @@ def configure_logging(
 
     if console is not None:
         from rich.logging import RichHandler
-        handler: logging.Handler = RichHandler(console=console, show_path=False, rich_tracebacks=True)
+
+        handler: logging.Handler = RichHandler(
+            console=console, show_path=False, rich_tracebacks=True
+        )
     else:
         handler = logging.StreamHandler(sys.stderr)
         handler.setFormatter(logging.Formatter(_FORMAT, datefmt=_DATEFMT))

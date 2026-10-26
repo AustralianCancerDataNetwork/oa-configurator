@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import functools
 import ipaddress
+import logging
 import socket
 from collections.abc import Generator, Iterable
 from contextlib import contextmanager
@@ -38,6 +39,13 @@ SCHEMA_TRANSLATE_MAP_KEY = "schema_translate_map"
 # without threading through an entire resolved DB config.
 EXECUTION_OPTION_DATABASE_CONFIG_NAME = "oa_configurator_database_config_name"
 EXECUTION_OPTION_TEST_ONLY = "oa_configurator_test_only"
+
+logger = logging.getLogger(__name__)
+
+# sa.Index.info key acknowledging that something other than DuckDB
+# enforces a partial unique index's uniqueness.
+DUCKDB_PARTIAL_INDEX_POLICY_KEY = "duckdb_partial_index_policy"
+DUCKDB_PARTIAL_INDEX_POLICY_APPLICATION_ENFORCED = "application_enforced"
 
 
 class Role(StrEnum):
@@ -210,11 +218,76 @@ def _skip_dropped_fk_on_duckdb(element: DropConstraint, compiler, **kw) -> str:
 
 @compiles(CreateIndex, Dialect.DUCKDB)
 def _skip_partial_index_on_duckdb(element: CreateIndex, compiler, **kw) -> str:
-    """No-op a partial (``WHERE``-filtered) index: DuckDB has no partial-index support."""
+    """No-op a partial (``WHERE``-filtered) index: DuckDB has no partial-index support.
+
+    Detects a ``postgresql_where`` or ``sqlite_where`` predicate on the
+    index. A non-unique match is skipped with a warning. A unique match is
+    skipped only with ``info={DUCKDB_PARTIAL_INDEX_POLICY_KEY:
+    DUCKDB_PARTIAL_INDEX_POLICY_APPLICATION_ENFORCED}`` set on the index;
+    otherwise it raises ``CompileError``.
+    """
     index = element.element
-    if index.dialect_options["postgresql"]["where"] is not None:
+    is_partial = any(
+        index.dialect_options[dialect]["where"] is not None for dialect in ("postgresql", "sqlite")
+    )
+    if not is_partial:
+        return compiler.visit_create_index(element, **kw)
+
+    table_name = index.table.fullname if index.table is not None else "<unbound>"
+    if not index.unique:
+        logger.warning("Omitting unsupported partial index %s on %s for DuckDB", index.name, table_name)
         return "SELECT 1"
-    return compiler.visit_create_index(element, **kw)
+
+    policy = index.info.get(DUCKDB_PARTIAL_INDEX_POLICY_KEY)
+    if policy != DUCKDB_PARTIAL_INDEX_POLICY_APPLICATION_ENFORCED:
+        raise CompileError(
+            f"DuckDB cannot create partial unique index {index.name!r} on {table_name!r}. "
+            f"If something else enforces this uniqueness, set "
+            f"info={{{DUCKDB_PARTIAL_INDEX_POLICY_KEY!r}: "
+            f"{DUCKDB_PARTIAL_INDEX_POLICY_APPLICATION_ENFORCED!r}}} on the index to acknowledge "
+            "that and omit it for DuckDB; otherwise use a database that supports partial indexes."
+        )
+    logger.info(
+        "Omitting DuckDB partial unique index %s on %s under its application-enforced policy",
+        index.name,
+        table_name,
+    )
+    return "SELECT 1"
+
+
+@compiles(sa.Numeric, Dialect.DUCKDB)
+@compiles(sa.NUMERIC, Dialect.DUCKDB)
+@compiles(sa.DECIMAL, Dialect.DUCKDB)
+def _require_duckdb_numeric_precision(type_: sa.Numeric, compiler, **kw) -> str:
+    """Require an explicit precision/scale: DuckDB's bare NUMERIC is DECIMAL(18,3).
+
+    Rendering a reasonable default instead (e.g. DOUBLE) would still be
+    silently wrong for an exact-decimal use case (float imprecision instead
+    of decimal truncation); raising forces the caller to state what they
+    actually need.
+    """
+    if type_.precision is None:
+        raise CompileError(
+            "DuckDB Numeric columns require explicit precision and scale, e.g. "
+            "Numeric(18, 6); a bare Numeric() can silently round decimal values."
+        )
+    return compiler.visit_NUMERIC(type_, **kw)
+
+
+@compiles(sa.schema.CreateTable, Dialect.DUCKDB)
+def _reject_unsupported_duckdb_fk_actions(element: sa.schema.CreateTable, compiler, **kw) -> str:
+    """Raise before DDL if a foreign key requests an ON DELETE/UPDATE action DuckDB can't execute."""
+    unsupported = {"CASCADE", "SET NULL", "SET DEFAULT"}
+    for constraint in element.element.foreign_key_constraints:
+        for foreign_key in constraint.elements:
+            for event_name, action in (("DELETE", foreign_key.ondelete), ("UPDATE", foreign_key.onupdate)):
+                if (action or "").upper() in unsupported:
+                    raise CompileError(
+                        f"DuckDB does not support ON {event_name} {action} on foreign key "
+                        f"{constraint.name or '<unnamed>'!r} in table {element.element.fullname!r}. "
+                        "Remove the action or use a database that supports it."
+                    )
+    return compiler.visit_create_table(element, **kw)
 
 
 @compiles(sa.Computed, Dialect.DUCKDB)

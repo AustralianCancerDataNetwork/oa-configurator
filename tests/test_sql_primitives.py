@@ -45,7 +45,13 @@ from oa_configurator.domains.resources.schema_registry import (
     _register_schema_claim,
     _reject_reservation_conflict,
 )
-from oa_configurator.domains.resources.sql import _as_bind, _profile_for, connection_key
+from oa_configurator.domains.resources.sql import (
+    DUCKDB_PARTIAL_INDEX_POLICY_APPLICATION_ENFORCED,
+    DUCKDB_PARTIAL_INDEX_POLICY_KEY,
+    _as_bind,
+    _profile_for,
+    connection_key,
+)
 from oa_configurator.testing import drop_schema_if_exists
 
 
@@ -113,6 +119,42 @@ class TestDuckDBDDLShims:
         ddl = str(CreateIndex(idx).compile(dialect=_duckdb_dialect()))
         assert "CREATE INDEX" in ddl.upper()
 
+    def test_partial_index_detected_via_sqlite_where_alone(self):
+        """An index declared with only sqlite_where is still a partial index,
+        and must still be caught rather than rendered as a full index."""
+        metadata = sa.MetaData()
+        t = sa.Table("t", metadata, sa.Column("x", sa.Integer))
+        idx = sa.Index("ix_t_x", t.c.x, sqlite_where=t.c.x > 0)
+        ddl = str(CreateIndex(idx).compile(dialect=_duckdb_dialect()))
+        assert ddl.strip() == "SELECT 1"
+
+    def test_partial_non_unique_index_logs_a_warning(self, caplog):
+        metadata = sa.MetaData()
+        t = sa.Table("t", metadata, sa.Column("x", sa.Integer))
+        idx = sa.Index("ix_t_x", t.c.x, postgresql_where=t.c.x > 0)
+        with caplog.at_level("WARNING"):
+            str(CreateIndex(idx).compile(dialect=_duckdb_dialect()))
+        assert any("ix_t_x" in record.message for record in caplog.records)
+
+    def test_partial_unique_index_raises_without_opt_in(self):
+        metadata = sa.MetaData()
+        t = sa.Table("t", metadata, sa.Column("x", sa.Integer))
+        idx = sa.Index("uq_t_x", t.c.x, unique=True, postgresql_where=t.c.x > 0)
+        with pytest.raises(CompileError, match="uq_t_x"):
+            str(CreateIndex(idx).compile(dialect=_duckdb_dialect()))
+
+    def test_partial_unique_index_with_opt_in_no_ops_and_logs_info(self, caplog):
+        metadata = sa.MetaData()
+        t = sa.Table("t", metadata, sa.Column("x", sa.Integer))
+        idx = sa.Index(
+            "uq_t_x", t.c.x, unique=True, postgresql_where=t.c.x > 0,
+            info={DUCKDB_PARTIAL_INDEX_POLICY_KEY: DUCKDB_PARTIAL_INDEX_POLICY_APPLICATION_ENFORCED},
+        )
+        with caplog.at_level("INFO"):
+            ddl = str(CreateIndex(idx).compile(dialect=_duckdb_dialect()))
+        assert ddl.strip() == "SELECT 1"
+        assert any("uq_t_x" in record.message for record in caplog.records)
+
     def test_computed_column_renders_virtual(self):
         metadata = sa.MetaData()
         t = sa.Table(
@@ -144,6 +186,40 @@ class TestDuckDBDDLShims:
         )
         with pytest.raises(CompileError, match="NOT NULL"):
             str(CreateTable(t).compile(dialect=_duckdb_dialect()))
+
+    def test_bare_numeric_column_raises(self):
+        metadata = sa.MetaData()
+        t = sa.Table("t", metadata, sa.Column("x", sa.Numeric))
+        with pytest.raises(CompileError, match="precision"):
+            str(CreateTable(t).compile(dialect=_duckdb_dialect()))
+
+    def test_numeric_with_explicit_precision_renders_normally(self):
+        metadata = sa.MetaData()
+        t = sa.Table("t", metadata, sa.Column("x", sa.Numeric(18, 6)))
+        ddl = str(CreateTable(t).compile(dialect=_duckdb_dialect()))
+        assert "NUMERIC(18, 6)" in ddl.upper()
+
+    def test_fk_with_ondelete_cascade_raises(self):
+        metadata = sa.MetaData()
+        sa.Table("a", metadata, sa.Column("id", sa.Integer, primary_key=True))
+        b = sa.Table(
+            "b", metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("a_id", sa.ForeignKey("a.id", ondelete="CASCADE")),
+        )
+        with pytest.raises(CompileError, match="CASCADE"):
+            str(CreateTable(b).compile(dialect=_duckdb_dialect()))
+
+    def test_fk_with_no_action_renders_normally(self):
+        metadata = sa.MetaData()
+        sa.Table("a", metadata, sa.Column("id", sa.Integer, primary_key=True))
+        b = sa.Table(
+            "b", metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("a_id", sa.ForeignKey("a.id")),
+        )
+        ddl = str(CreateTable(b).compile(dialect=_duckdb_dialect()))
+        assert "FOREIGN KEY" in ddl.upper()
 
     @pytest.mark.duckdb
     @pytest.mark.db_dialect

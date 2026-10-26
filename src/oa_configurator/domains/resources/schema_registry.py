@@ -26,6 +26,8 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from .sql import (
+    DUCKDB_PARTIAL_INDEX_POLICY_APPLICATION_ENFORCED,
+    DUCKDB_PARTIAL_INDEX_POLICY_KEY,
     EXECUTION_OPTION_DATABASE_CONFIG_NAME,
     SCHEMA_TRANSLATE_MAP_KEY,
     Bindable,
@@ -209,9 +211,10 @@ class SchemaRegistry(_SchemaRegistryBase):
     reservation checks above as DB-level constraints, adding only
     concurrency protection against two transactions racing past those
     Python checks. DuckDB can't create partial indexes
-    (``_skip_partial_index_on_duckdb``, ``sql.py``), so it relies on the
-    Python checks alone there, safe because DuckDB's engine already
-    serializes writers itself.
+    (``_skip_partial_index_on_duckdb``, ``sql.py``), so each one carries
+    the ``DUCKDB_PARTIAL_INDEX_POLICY_KEY`` opt-in, acknowledging that it
+    relies on the Python checks alone there, safe because DuckDB's engine
+    already serializes writers itself.
     - Role-tag rows are scoped per entry: two different entries (e.g. 
     a CDM database and its own colocated vector store) may each claim 
     Role.PRIMARY on one connection without colliding.
@@ -230,6 +233,7 @@ class SchemaRegistry(_SchemaRegistryBase):
             sqlite_where=sa.text(
                 "schema_tag IN (" + ", ".join(f"'{v}'" for v in sorted(_ROLE_TAG_VALUES)) + ")"
             ),
+            info={DUCKDB_PARTIAL_INDEX_POLICY_KEY: DUCKDB_PARTIAL_INDEX_POLICY_APPLICATION_ENFORCED},
         ),
         sa.Index(
             "uq_schema_registry_custom_tag",
@@ -241,6 +245,7 @@ class SchemaRegistry(_SchemaRegistryBase):
             sqlite_where=sa.text(
                 "schema_tag NOT IN (" + ", ".join(f"'{v}'" for v in sorted(_ROLE_TAG_VALUES)) + ")"
             ),
+            info={DUCKDB_PARTIAL_INDEX_POLICY_KEY: DUCKDB_PARTIAL_INDEX_POLICY_APPLICATION_ENFORCED},
         ),
         sa.Index(
             "uq_schema_registry_reserved_schema",
@@ -248,6 +253,7 @@ class SchemaRegistry(_SchemaRegistryBase):
             unique=True,
             postgresql_where=sa.text("reserved IS TRUE"),
             sqlite_where=sa.text("reserved IS TRUE"),
+            info={DUCKDB_PARTIAL_INDEX_POLICY_KEY: DUCKDB_PARTIAL_INDEX_POLICY_APPLICATION_ENFORCED},
         ),
         {"schema": _SCHEMA_PROVENANCE_SCHEMA},
     )

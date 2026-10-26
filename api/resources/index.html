@@ -1371,6 +1371,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#foreign-key-feasibility-and-omission-reporting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Foreign-key feasibility and omission reporting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#schema-provenance" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2111,6 +2122,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#foreign-key-feasibility-and-omission-reporting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Foreign-key feasibility and omission reporting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#schema-provenance" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2799,7 +2821,7 @@ connection of its own and always resolves through Role.PRIMARY's.</p>
     </div>
 
 </div><h2 id="dialect">Dialect<a class="headerlink" href="#dialect" title="Permanent link">&para;</a></h2>
-<p>The SQLAlchemy backend names (<code>Engine.dialect.name</code> / <code>get_backend_name()</code>) this codebase recognizes: currently <code>postgresql</code> and <code>sqlite</code>. Distinct from <code>ConnectionConfig.dialect</code>, which stays a free-form string to carry a driver suffix such as <code>postgresql+psycopg</code>; <code>Dialect</code> is the plain backend-name axis every dialect-keyed dispatch in this codebase branches on. See <a href="../../architecture/#dialect-support-across-the-stack">Dialect support across the stack</a> for the convention every consuming repo follows to add a new one.</p>
+<p>The SQLAlchemy backend names (<code>Engine.dialect.name</code> / <code>get_backend_name()</code>) this codebase recognizes: <code>postgresql</code>, <code>sqlite</code>, and <code>duckdb</code>. Distinct from <code>ConnectionConfig.dialect</code>, which stays a free-form string to carry a driver suffix such as <code>postgresql+psycopg</code>; <code>Dialect</code> is the plain backend-name axis every dialect-keyed dispatch in this codebase branches on. See <a href="../../architecture/#dialect-support-across-the-stack">Dialect support across the stack</a> for the convention every consuming repo follows to add a new one.</p>
 
 
 <div class="doc doc-object doc-class">
@@ -3341,17 +3363,87 @@ the primary connection.</p>
 
 <a href="#oa_configurator.domains.resources.schema.ResolvedDatabase.foreign_key_can_span" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">foreign_key_can_span</span><span class="p">(</span>
-    <span class="n">from_tag</span><span class="p">:</span> <span class="n">Role</span> <span class="o">|</span> <span class="nb">str</span><span class="p">,</span> <span class="n">to_tag</span><span class="p">:</span> <span class="n">Role</span> <span class="o">|</span> <span class="nb">str</span>
+    <span class="n">from_tag</span><span class="p">:</span> <span class="n">Role</span> <span class="o">|</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">to_tag</span><span class="p">:</span> <span class="n">Role</span> <span class="o">|</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">physical_schemas</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]</span>
+    <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
         <p>Can a foreign key reference <em>to_tag</em>'s tables from <em>from_tag</em>'s?</p>
-<p>False when the two tags live on different physical databases, where
-no dialect can express the constraint. Ask this instead of deriving
-a split flag, so the answer stays correct if a deployment later
-colocates the two or federates them behind one connection.</p>
+<p>False for:
+- physical databases where no dialect can express the constraint
+- physical schemas on a dialect that cannot express a cross-schema key
+at all, even within one physical database (e.g. DuckDB)
+    - two distinct logical tags may still share one physical schema and 
+    need no cross-schema key</p>
+<p>Ask this instead of deriving a split flag, so the answer stays correct if a
+deployment later colocates, federates, or re-schemas either tag.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>physical_schemas</code>
+            </td>
+            <td>
+                  <code><span title="collections.abc.Mapping">Mapping</span>[<span title="str">str</span>, <span title="str">str</span> | None]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Physical schema names for tags beyond this database's own
+configured ones (e.g. a caller-claimed tag from
+<code>schema_claims</code>). <code>None</code> for a tag means the dialect's own
+default schema. Only consulted on a dialect that cannot cross
+schemas; opens no connection.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="oa_configurator.domains.resources.schema_registry.UnregisteredSchemaTagError">UnregisteredSchemaTagError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If <em>from_tag</em> or <em>to_tag</em> has no entry in this database's
+configured schema-translate map or in <em>physical_schemas</em>, on a
+dialect that cannot cross schemas. Failing loud here rather
+than guessing avoids silently treating two unresolved tags as
+the same schema.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
 
 
     </div>
@@ -4455,6 +4547,333 @@ than a missing default.</p>
 
     </div>
 
+</div><h2 id="foreign-key-feasibility-and-omission-reporting">Foreign-key feasibility and omission reporting<a class="headerlink" href="#foreign-key-feasibility-and-omission-reporting" title="Permanent link">&para;</a></h2>
+<p>DuckDB can enforce a foreign key within one schema, but not between schemas. PostgreSQL supports both within one database. Neither supports foreign keys between separate physical databases.</p>
+<p>For a worked table-creation example, see <a href="../../integration/#creating-tables-with-unenforced-foreign-keys">Creating tables with unenforced foreign keys</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Task</th>
+<th>API</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Check whether two schema tags can be linked</td>
+<td><code>resolved.foreign_key_can_span(from_tag, to_tag)</code></td>
+</tr>
+<tr>
+<td>Find keys the database will not enforce</td>
+<td><code>unenforced_foreign_keys(tables, resolved=resolved)</code></td>
+</tr>
+<tr>
+<td>Prepare table copies for creation</td>
+<td><code>without_cross_engine_foreign_keys(tables, resolved=resolved)</code></td>
+</tr>
+</tbody>
+</table>
+<p>The report is a tuple of <code>UnenforcedForeignKey</code> records: <code>.constraint</code> is the original constraint, <code>.reason</code> is one of:</p>
+<table>
+<thead>
+<tr>
+<th>Reason</th>
+<th>Meaning</th>
+<th>What happens during creation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cross_database</code></td>
+<td>Source and target are in separate databases</td>
+<td>Removed from the table copies</td>
+</tr>
+<tr>
+<td><code>cross_schema</code></td>
+<td>The dialect cannot enforce this key between these schemas</td>
+<td>Removed from the table copies</td>
+</tr>
+<tr>
+<td><code>deferred</code></td>
+<td>Cyclic, or declared with <code>use_alter=True</code>, on DuckDB</td>
+<td>Kept in the copies, but the <code>ALTER TABLE</code> DuckDB would need to add it afterwards is itself unsupported; the DuckDB compile shim no-ops it, so the key is never actually created</td>
+</tr>
+</tbody>
+</table>
+<p>Pass the complete set of tables being created together to the report and copying functions, since cycle classification depends on that set. The original tables and their ORM join information are never mutated; creating the originals directly does not apply the filtering.</p>
+<p>All three APIs accept <code>physical_schemas</code>, a mapping from schema tags to physical schema names, for tags beyond the database's own configured ones (e.g. claimed via <code>schema_claims</code>). <code>None</code> for a tag means the dialect's own default schema. Unknown tags raise <code>UnregisteredSchemaTagError</code> rather than guessing. Comparisons on DuckDB ignore ASCII letter case, matching its own identifier folding. The check opens no connection.</p>
+<p><strong>An empty report is not a general table-creation compatibility check.</strong> DuckDB still rejects, for example, <code>ON DELETE CASCADE</code>/<code>SET NULL</code>/<code>SET DEFAULT</code>. These helpers also don't check existing rows: an omitted key still needs its own validation if your loader is to catch a dangling reference.</p>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="typing.NamedTuple">NamedTuple</span></code></p>
+
+
+
+        <p>An original FK constraint and why the database will not enforce it.</p>
+<p><code>cross_database</code> and <code>cross_schema</code> identify keys
+:func:<code>without_cross_engine_foreign_keys</code> removes from DDL copies.
+<code>deferred</code> means the constraint survives in the DDL as a cyclic or
+<code>use_alter=True</code> dependency. It only ever applies on DuckDB. There,
+the later <code>ALTER TABLE ADD CONSTRAINT</code> SQLAlchemy would use to add
+it is itself unsupported, and the DuckDB compile shim no-ops that
+statement instead of raising. The key is therefore never actually
+created, the same practical outcome as
+<code>cross_database</code>/<code>cross_schema</code>, just reached by a different
+path. Inspecting this record does not change the original
+constraint.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+
+    <div class="doc doc-contents first">
+
+        <p>Report every FK in <em>tables</em> the database will not enforce, and why.</p>
+<p>A read-only counterpart to :func:<code>without_cross_engine_foreign_keys</code>: it
+classifies the same boundary cases plus deferred keys, without copying
+or mutating anything. Cllers that need their own reporting (e.g. a
+schema-reconciliation report) have one shared source of truth instead
+of each maintaining an independent list.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>tables</code>
+            </td>
+            <td>
+                  <code><span title="collections.abc.Iterable">Iterable</span>[<span title="sqlalchemy.Table">Table</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Tables to classify. Pass the complete set being created together:
+a cyclic dependency is only visible across the whole set.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>resolved</code>
+            </td>
+            <td>
+                  <code><span title="oa_configurator.domains.resources.schema.ResolvedDatabase">ResolvedDatabase</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Topology answering whether a foreign key can span two tags.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>physical_schemas</code>
+            </td>
+            <td>
+                  <code><span title="collections.abc.Mapping">Mapping</span>[<span title="str">str</span>, <span title="str">str</span> | None]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Forwarded to :meth:<code>ResolvedDatabase.foreign_key_can_span</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="tuple">tuple</span>[<span title="oa_configurator.domains.resources.schema.UnenforcedForeignKey">UnenforcedForeignKey</span>, ...]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>One entry per unenforced constraint, in table input order.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+
+
+    <div class="doc doc-contents first">
+
+        <p>Copies of <em>tables</em> with foreign keys crossing an unsupported boundary removed.</p>
+<p>Derived from the real tables so a column or type added to a model cannot
+drift from its copy. Only constraints whose referred tag cannot be
+enforced from the owning tag (another physical database, or another
+physical schema on a dialect that cannot express cross-schema keys) are
+dropped; a composite key targeting an enforceable tag survives untouched.</p>
+<p>This changes only the DDL emitted for a split deployment. The ORM models
+keep their own <code>ForeignKey</code> declarations, and SQLAlchemy infers join
+conditions from those in-Python, so relationship loading does not depend
+on the physical constraint existing.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>tables</code>
+            </td>
+            <td>
+                  <code><span title="collections.abc.Iterable">Iterable</span>[<span title="sqlalchemy.Table">Table</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Tables to copy, typically everything one engine creates. Each table's
+own <code>schema</code> is the tag it belongs to.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>resolved</code>
+            </td>
+            <td>
+                  <code><span title="oa_configurator.domains.resources.schema.ResolvedDatabase">ResolvedDatabase</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Topology answering whether a foreign key can span two tags.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>physical_schemas</code>
+            </td>
+            <td>
+                  <code><span title="collections.abc.Mapping">Mapping</span>[<span title="str">str</span>, <span title="str">str</span> | None]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Physical schema names for tags beyond <em>resolved</em>'s own configured
+ones, forwarded to :meth:<code>ResolvedDatabase.foreign_key_can_span</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="list">list</span>[<span title="sqlalchemy.Table">Table</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The copies, in input order, all in one fresh MetaData so a surviving
+foreign key resolves its target at DDL compilation. The originals
+and their MetaData are never mutated.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
 </div><h2 id="schema-provenance">Schema provenance<a class="headerlink" href="#schema-provenance" title="Permanent link">&para;</a></h2>
 <p>See <a href="../../architecture/#schema-provenance-guard">Schema provenance guard</a>
 for the full explanation of what this guards against and when it no-ops.</p>
@@ -4694,6 +5113,22 @@ happened to collide with some other tag's physical name.</p>
         <p>Schemas, other than physical_schema, that already have a table
 named table_name. Excludes the dialect's own system schemas.</p>
 
+
+<details class="note" open>
+  <summary>Notes</summary>
+  <ul>
+<li>DuckDB uses catalog-qualified names in get_schema_names() (e.g. "mydb.main")</li>
+<li>Physical_schema is always bare (e.g. "main")</li>
+<li>The catalog prefix is only stripped for dialects whose profile declares
+  schema_names_are_catalog_qualified; otherwise a schema name is compared
+  as-is, so a quoted name that happens to contain a literal dot (e.g.
+  Postgres's "a.b") is never mistaken for a catalog-qualified name.</li>
+<li>No code path in this codebase ever ATTACHes a second DuckDB catalog
+  today, so a schema sharing a name across two attached catalogs is not
+  disambiguated here. A future feature that does attach a second
+  catalog would need to revisit this function.</li>
+</ul>
+</details>
 
     </div>
 

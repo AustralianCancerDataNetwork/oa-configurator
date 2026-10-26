@@ -715,6 +715,34 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="4. Engine creation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#creating-tables-with-unenforced-foreign-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creating tables with unenforced foreign keys
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#duckdb-ddl-limits-for-indexes-decimals-and-foreign-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DuckDB DDL limits for indexes, decimals, and foreign keys
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
           <li class="md-nav__item">
@@ -1409,6 +1437,34 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="4. Engine creation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#creating-tables-with-unenforced-foreign-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creating tables with unenforced foreign keys
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#duckdb-ddl-limits-for-indexes-decimals-and-foreign-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DuckDB DDL limits for indexes, decimals, and foreign keys
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
           <li class="md-nav__item">
@@ -1793,6 +1849,37 @@
 </code></pre></div>
 <p><code>vocab</code> is the same object as <code>primary</code> when the vocabulary shares the primary database. Both engines apply the <code>schema_translate_map</code>, so OMOP ORM models route to the right schemas without changes. <code>create_engine()</code> and <code>Resolver.resolve_engine()</code> raise <code>TypeError</code> on a CDM entry.</p>
 <p>Every engine <code>create_engines()</code> builds refuses a statement that references a table hosted on the other database (<code>CrossDatabaseStatementError</code>), so sending vocabulary work to the primary engine fails instead of reading a stale copy. Raw <code>text()</code> SQL carries no table metadata and is not checked.</p>
+<h4 id="creating-tables-with-unenforced-foreign-keys">Creating tables with unenforced foreign keys<a class="headerlink" href="#creating-tables-with-unenforced-foreign-keys" title="Permanent link">&para;</a></h4>
+<p>Use this recipe when your models declare a foreign key the target database cannot enforce, such as DuckDB's rejection of keys crossing schemas. For a DuckDB database with CDM tables in <code>clinical</code> and vocabulary tables in <code>vocabulary</code>, a condition's reference to a vocabulary concept can't be enforced; its reference to a person in <code>clinical</code> can.</p>
+<p>Calling <code>Base.metadata.create_all()</code> directly fails on the cross-schema key. Inspect the unenforced keys instead, and create copies with those keys removed. The original models keep their foreign keys, so SQLAlchemy can still infer ORM joins from them.</p>
+<p>This assumes <code>Base</code> is your declarative base, <code>resolved</code> is your resolved CDM database, and <code>primary, vocab = resolved.create_engines()</code> has already run. All tables below share one physical database, so <code>vocab</code> and <code>primary</code> are the same engine:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">oa_configurator</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">claimed_schema_tags</span><span class="p">,</span>
+    <span class="n">physical_schema_of</span><span class="p">,</span>
+    <span class="n">unenforced_foreign_keys</span><span class="p">,</span>
+    <span class="n">without_cross_engine_foreign_keys</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">tables</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">Base</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">tables</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+<span class="k">with</span> <span class="n">primary</span><span class="o">.</span><span class="n">begin</span><span class="p">()</span> <span class="k">as</span> <span class="n">connection</span><span class="p">:</span>
+    <span class="n">physical_schemas</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="n">tag</span><span class="p">:</span> <span class="n">physical_schema_of</span><span class="p">(</span><span class="n">connection</span><span class="p">,</span> <span class="n">schema_tag</span><span class="o">=</span><span class="n">tag</span><span class="p">)</span> <span class="k">for</span> <span class="n">tag</span> <span class="ow">in</span> <span class="n">claimed_schema_tags</span><span class="p">(</span><span class="n">connection</span><span class="p">)</span>
+    <span class="p">}</span>
+    <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">unenforced_foreign_keys</span><span class="p">(</span><span class="n">tables</span><span class="p">,</span> <span class="n">resolved</span><span class="o">=</span><span class="n">resolved</span><span class="p">,</span> <span class="n">physical_schemas</span><span class="o">=</span><span class="n">physical_schemas</span><span class="p">):</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">constraint</span><span class="o">.</span><span class="n">table</span><span class="o">.</span><span class="n">fullname</span><span class="p">,</span> <span class="n">item</span><span class="o">.</span><span class="n">reason</span><span class="p">)</span>
+
+    <span class="n">ddl_tables</span> <span class="o">=</span> <span class="n">without_cross_engine_foreign_keys</span><span class="p">(</span>
+        <span class="n">tables</span><span class="p">,</span> <span class="n">resolved</span><span class="o">=</span><span class="n">resolved</span><span class="p">,</span> <span class="n">physical_schemas</span><span class="o">=</span><span class="n">physical_schemas</span>
+    <span class="p">)</span>
+    <span class="n">ddl_tables</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">create_all</span><span class="p">(</span><span class="n">connection</span><span class="p">,</span> <span class="n">tables</span><span class="o">=</span><span class="n">ddl_tables</span><span class="p">)</span>
+</code></pre></div>
+<p>For a <code>condition</code> table in the <code>primary</code> tag, the report includes <code>primary.condition cross_schema</code>; the copy keeps its <code>person</code> foreign key and drops its vocabulary one.</p>
+<p><strong>Omitting a foreign key removes database enforcement.</strong> The report only tells you which references need a separate validation step; it doesn't perform one. Pass the same table batch and <code>physical_schemas</code> to both calls, including every table being created together, since cyclic keys are only classified correctly across the whole set. For tables split across physical databases, create each database's batch on its own engine.</p>
+<p>See the <a href="../api/resources/#foreign-key-feasibility-and-omission-reporting">foreign-key API reference</a> for the other <code>reason</code> values and the limits of these checks.</p>
+<h4 id="duckdb-ddl-limits-for-indexes-decimals-and-foreign-keys">DuckDB DDL limits for indexes, decimals, and foreign keys<a class="headerlink" href="#duckdb-ddl-limits-for-indexes-decimals-and-foreign-keys" title="Permanent link">&para;</a></h4>
+<p>DuckDB has no partial-index support. A partial non-unique index (<code>postgresql_where</code> or <code>sqlite_where</code>) is logged and omitted. A partial <em>unique</em> index raises <code>CompileError</code> instead, so table creation can't silently weaken a uniqueness guarantee; set <code>info={"duckdb_partial_index_policy": "application_enforced"}</code> on the index only when something else already enforces it.</p>
+<p>DuckDB also needs an explicit precision and scale for decimal columns, e.g. <code>sa.Numeric(18, 6)</code>; a bare <code>sa.Numeric()</code>/<code>sa.NUMERIC()</code>/<code>sa.DECIMAL()</code> raises <code>CompileError</code> rather than silently rounding on DuckDB's implicit default. <code>sa.Float</code> is unaffected.</p>
+<p>A foreign key declaring <code>ON DELETE</code>/<code>ON UPDATE</code> <code>CASCADE</code>, <code>SET NULL</code>, or <code>SET DEFAULT</code> raises <code>CompileError</code> on <code>CREATE TABLE</code>; DuckDB doesn't support those actions. <code>NO ACTION</code> and <code>RESTRICT</code> are unaffected.</p>
 <hr />
 <h3 id="5-logging">5. Logging<a class="headerlink" href="#5-logging" title="Permanent link">&para;</a></h3>
 <p>At your package's CLI entry point or startup:</p>

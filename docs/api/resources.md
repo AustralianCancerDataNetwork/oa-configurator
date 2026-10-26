@@ -43,7 +43,7 @@ Selects among a *CDM* database's several connections at resolve time. Not relate
 
 ## Dialect
 
-The SQLAlchemy backend names (`Engine.dialect.name` / `get_backend_name()`) this codebase recognizes: currently `postgresql` and `sqlite`. Distinct from `ConnectionConfig.dialect`, which stays a free-form string to carry a driver suffix such as `postgresql+psycopg`; `Dialect` is the plain backend-name axis every dialect-keyed dispatch in this codebase branches on. See [Dialect support across the stack](../architecture.md#dialect-support-across-the-stack) for the convention every consuming repo follows to add a new one.
+The SQLAlchemy backend names (`Engine.dialect.name` / `get_backend_name()`) this codebase recognizes: `postgresql`, `sqlite`, and `duckdb`. Distinct from `ConnectionConfig.dialect`, which stays a free-form string to carry a driver suffix such as `postgresql+psycopg`; `Dialect` is the plain backend-name axis every dialect-keyed dispatch in this codebase branches on. See [Dialect support across the stack](../architecture.md#dialect-support-across-the-stack) for the convention every consuming repo follows to add a new one.
 
 ::: oa_configurator.domains.resources.sql.Dialect
 
@@ -71,6 +71,38 @@ and a *physical* schema (an actual, literal database schema name).
 ::: oa_configurator.domains.resources.sql.autocommit_connection
 
 ::: oa_configurator.domains.resources.sql.ensure_schema
+
+## Foreign-key feasibility and omission reporting
+
+DuckDB can enforce a foreign key within one schema, but not between schemas. PostgreSQL supports both within one database. Neither supports foreign keys between separate physical databases.
+
+For a worked table-creation example, see [Creating tables with unenforced foreign keys](../integration.md#creating-tables-with-unenforced-foreign-keys).
+
+| Task | API |
+|---|---|
+| Check whether two schema tags can be linked | `resolved.foreign_key_can_span(from_tag, to_tag)` |
+| Find keys the database will not enforce | `unenforced_foreign_keys(tables, resolved=resolved)` |
+| Prepare table copies for creation | `without_cross_engine_foreign_keys(tables, resolved=resolved)` |
+
+The report is a tuple of `UnenforcedForeignKey` records: `.constraint` is the original constraint, `.reason` is one of:
+
+| Reason | Meaning | What happens during creation |
+|---|---|---|
+| `cross_database` | Source and target are in separate databases | Removed from the table copies |
+| `cross_schema` | The dialect cannot enforce this key between these schemas | Removed from the table copies |
+| `deferred` | Cyclic, or declared with `use_alter=True` | Kept in the copies; added via SQLAlchemy's own deferred-constraint handling |
+
+Pass the complete set of tables being created together to the report and copying functions, since cycle classification depends on that set. The original tables and their ORM join information are never mutated; creating the originals directly does not apply the filtering.
+
+All three APIs accept `physical_schemas`, a mapping from schema tags to physical schema names, for tags beyond the database's own configured ones (e.g. claimed via `schema_claims`). `None` for a tag means the dialect's own default schema. Unknown tags raise `UnregisteredSchemaTagError` rather than guessing. Comparisons on DuckDB ignore ASCII letter case, matching its own identifier folding. The check opens no connection.
+
+**An empty report is not a general table-creation compatibility check.** DuckDB still rejects, for example, `ON DELETE CASCADE`/`SET NULL`/`SET DEFAULT`. These helpers also don't check existing rows: an omitted key still needs its own validation if your loader is to catch a dangling reference.
+
+::: oa_configurator.domains.resources.schema.UnenforcedForeignKey
+
+::: oa_configurator.domains.resources.schema.unenforced_foreign_keys
+
+::: oa_configurator.domains.resources.schema.without_cross_engine_foreign_keys
 
 ## Schema provenance
 

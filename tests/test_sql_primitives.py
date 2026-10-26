@@ -14,7 +14,9 @@ Rule: no test reads from ~/.config/omop/ directly (see conftest.py).
 
 from __future__ import annotations
 
+import logging
 import uuid
+from decimal import Decimal
 
 import pytest
 import sqlalchemy as sa
@@ -105,12 +107,21 @@ class TestDuckDBDDLShims:
         assert "SELECT 1" not in ddl
         assert "DROP CONSTRAINT" in ddl.upper()
 
-    def test_partial_index_no_ops(self):
+    @pytest.mark.parametrize("predicate_dialects", ["postgresql", "sqlite", "both"])
+    def test_partial_index_no_ops(self, predicate_dialects, caplog):
+        """A partial predicate declared via postgresql_where, sqlite_where, or
+        both must be caught the same way, not just the postgresql_where case."""
         metadata = sa.MetaData()
         t = sa.Table("t", metadata, sa.Column("x", sa.Integer))
-        idx = sa.Index("ix_t_x", t.c.x, postgresql_where=t.c.x > 0)
-        ddl = str(CreateIndex(idx).compile(dialect=_duckdb_dialect()))
+        idx = sa.Index(
+            "ix_t_x", t.c.x,
+            postgresql_where=t.c.x > 0 if predicate_dialects in {"postgresql", "both"} else None,
+            sqlite_where=t.c.x > 0 if predicate_dialects in {"sqlite", "both"} else None,
+        )
+        with caplog.at_level("WARNING"):
+            ddl = str(CreateIndex(idx).compile(dialect=_duckdb_dialect()))
         assert ddl.strip() == "SELECT 1"
+        assert any("ix_t_x" in record.message for record in caplog.records)
 
     def test_non_partial_index_creates_normally(self):
         metadata = sa.MetaData()
@@ -118,42 +129,6 @@ class TestDuckDBDDLShims:
         idx = sa.Index("ix_t_x", t.c.x)
         ddl = str(CreateIndex(idx).compile(dialect=_duckdb_dialect()))
         assert "CREATE INDEX" in ddl.upper()
-
-    def test_partial_index_detected_via_sqlite_where_alone(self):
-        """An index declared with only sqlite_where is still a partial index,
-        and must still be caught rather than rendered as a full index."""
-        metadata = sa.MetaData()
-        t = sa.Table("t", metadata, sa.Column("x", sa.Integer))
-        idx = sa.Index("ix_t_x", t.c.x, sqlite_where=t.c.x > 0)
-        ddl = str(CreateIndex(idx).compile(dialect=_duckdb_dialect()))
-        assert ddl.strip() == "SELECT 1"
-
-    def test_partial_non_unique_index_logs_a_warning(self, caplog):
-        metadata = sa.MetaData()
-        t = sa.Table("t", metadata, sa.Column("x", sa.Integer))
-        idx = sa.Index("ix_t_x", t.c.x, postgresql_where=t.c.x > 0)
-        with caplog.at_level("WARNING"):
-            str(CreateIndex(idx).compile(dialect=_duckdb_dialect()))
-        assert any("ix_t_x" in record.message for record in caplog.records)
-
-    def test_partial_unique_index_raises_without_opt_in(self):
-        metadata = sa.MetaData()
-        t = sa.Table("t", metadata, sa.Column("x", sa.Integer))
-        idx = sa.Index("uq_t_x", t.c.x, unique=True, postgresql_where=t.c.x > 0)
-        with pytest.raises(CompileError, match="uq_t_x"):
-            str(CreateIndex(idx).compile(dialect=_duckdb_dialect()))
-
-    def test_partial_unique_index_with_opt_in_no_ops_and_logs_info(self, caplog):
-        metadata = sa.MetaData()
-        t = sa.Table("t", metadata, sa.Column("x", sa.Integer))
-        idx = sa.Index(
-            "uq_t_x", t.c.x, unique=True, postgresql_where=t.c.x > 0,
-            info={DUCKDB_PARTIAL_INDEX_POLICY_KEY: DUCKDB_PARTIAL_INDEX_POLICY_APPLICATION_ENFORCED},
-        )
-        with caplog.at_level("INFO"):
-            ddl = str(CreateIndex(idx).compile(dialect=_duckdb_dialect()))
-        assert ddl.strip() == "SELECT 1"
-        assert any("uq_t_x" in record.message for record in caplog.records)
 
     def test_computed_column_renders_virtual(self):
         metadata = sa.MetaData()
@@ -187,40 +162,6 @@ class TestDuckDBDDLShims:
         with pytest.raises(CompileError, match="NOT NULL"):
             str(CreateTable(t).compile(dialect=_duckdb_dialect()))
 
-    def test_bare_numeric_column_raises(self):
-        metadata = sa.MetaData()
-        t = sa.Table("t", metadata, sa.Column("x", sa.Numeric))
-        with pytest.raises(CompileError, match="precision"):
-            str(CreateTable(t).compile(dialect=_duckdb_dialect()))
-
-    def test_numeric_with_explicit_precision_renders_normally(self):
-        metadata = sa.MetaData()
-        t = sa.Table("t", metadata, sa.Column("x", sa.Numeric(18, 6)))
-        ddl = str(CreateTable(t).compile(dialect=_duckdb_dialect()))
-        assert "NUMERIC(18, 6)" in ddl.upper()
-
-    def test_fk_with_ondelete_cascade_raises(self):
-        metadata = sa.MetaData()
-        sa.Table("a", metadata, sa.Column("id", sa.Integer, primary_key=True))
-        b = sa.Table(
-            "b", metadata,
-            sa.Column("id", sa.Integer, primary_key=True),
-            sa.Column("a_id", sa.ForeignKey("a.id", ondelete="CASCADE")),
-        )
-        with pytest.raises(CompileError, match="CASCADE"):
-            str(CreateTable(b).compile(dialect=_duckdb_dialect()))
-
-    def test_fk_with_no_action_renders_normally(self):
-        metadata = sa.MetaData()
-        sa.Table("a", metadata, sa.Column("id", sa.Integer, primary_key=True))
-        b = sa.Table(
-            "b", metadata,
-            sa.Column("id", sa.Integer, primary_key=True),
-            sa.Column("a_id", sa.ForeignKey("a.id")),
-        )
-        ddl = str(CreateTable(b).compile(dialect=_duckdb_dialect()))
-        assert "FOREIGN KEY" in ddl.upper()
-
     @pytest.mark.duckdb
     @pytest.mark.db_dialect
     def test_deferred_fk_cycle_creates_and_drops_end_to_end(self, duckdb_db):
@@ -243,6 +184,136 @@ class TestDuckDBDDLShims:
         engine = duckdb_db.committing_engine
         metadata.create_all(engine)
         metadata.drop_all(engine)
+
+
+class TestDuckDBPartialIndexPolicy:
+    """A partial unique index must not silently lose its uniqueness
+    guarantee on DuckDB."""
+
+    @pytest.mark.parametrize("predicate_dialects", ["postgresql", "sqlite", "both"])
+    def test_partial_unique_index_requires_an_enforcement_policy(self, predicate_dialects, caplog):
+        caplog.set_level(logging.INFO)
+        metadata = sa.MetaData()
+        t = sa.Table("t", metadata, sa.Column("x", sa.Integer))
+        postgresql_where = t.c.x > 0 if predicate_dialects in {"postgresql", "both"} else None
+        sqlite_where = t.c.x > 0 if predicate_dialects in {"sqlite", "both"} else None
+        unchecked = sa.Index(
+            "uq_t_x_unchecked", t.c.x, unique=True,
+            postgresql_where=postgresql_where, sqlite_where=sqlite_where,
+        )
+        with pytest.raises(CompileError, match="cannot create partial unique index"):
+            str(CreateIndex(unchecked).compile(dialect=_duckdb_dialect()))
+
+        allowed = sa.Index(
+            "uq_t_x_allowed", t.c.x, unique=True,
+            postgresql_where=postgresql_where, sqlite_where=sqlite_where,
+            info={DUCKDB_PARTIAL_INDEX_POLICY_KEY: DUCKDB_PARTIAL_INDEX_POLICY_APPLICATION_ENFORCED},
+        )
+        ddl = str(CreateIndex(allowed).compile(dialect=_duckdb_dialect()))
+        assert ddl.strip() == "SELECT 1"
+        assert "application-enforced policy" in caplog.text
+        assert not any(record.levelno == logging.WARNING for record in caplog.records)
+
+    @pytest.mark.parametrize("dialect_name", ["postgresql", "sqlite"])
+    def test_other_dialects_keep_numeric_and_partial_index_ddl(self, dialect_name):
+        """DuckDB's guards must not leak into dialects that support both features."""
+        dialect = registry.load(dialect_name)()
+        metadata = sa.MetaData()
+        t = sa.Table("t", metadata, sa.Column("amount", sa.Numeric()))
+        index = sa.Index(
+            "ix_t_amount", t.c.amount, sqlite_where=t.c.amount > 0, postgresql_where=t.c.amount > 0
+        )
+        table_ddl = str(CreateTable(t).compile(dialect=dialect))
+        index_ddl = str(CreateIndex(index).compile(dialect=dialect))
+        assert "NUMERIC" in table_ddl.upper()
+        assert "WHERE" in index_ddl.upper()
+
+
+class TestDuckDBSemanticGuardrails:
+    """DuckDB DDL that cannot preserve the declared data contract must be
+    rejected rather than silently rendered with different semantics."""
+
+    @pytest.mark.parametrize("numeric_type", [sa.Numeric, sa.NUMERIC, sa.DECIMAL])
+    def test_numeric_requires_precision_without_changing_float(self, numeric_type):
+        t = sa.Table("t", sa.MetaData(), sa.Column("value", numeric_type()))
+        with pytest.raises(CompileError, match="require explicit precision and scale"):
+            str(CreateTable(t).compile(dialect=_duckdb_dialect()))
+
+        with_precision = sa.Table("t2", sa.MetaData(), sa.Column("value", numeric_type(18, 6)))
+        assert "18, 6" in str(CreateTable(with_precision).compile(dialect=_duckdb_dialect()))
+
+        float_table = sa.Table("float_only", sa.MetaData(), sa.Column("value", sa.Float()))
+        assert "DOUBLE" in str(CreateTable(float_table).compile(dialect=_duckdb_dialect())).upper()
+
+    @pytest.mark.parametrize(
+        "event, action, supported",
+        [
+            (event, action, supported)
+            for event in ("delete", "update")
+            for action, supported in [
+                ("CASCADE", False),
+                ("SET NULL", False),
+                ("SET DEFAULT", False),
+                (None, True),
+                ("NO ACTION", True),
+                ("RESTRICT", True),
+            ]
+        ],
+    )
+    def test_foreign_key_action_compilation(self, event, action, supported):
+        metadata = sa.MetaData()
+        sa.Table("parent", metadata, sa.Column("id", sa.Integer, primary_key=True))
+        child = sa.Table(
+            "child", metadata,
+            sa.Column("parent_id", sa.Integer, sa.ForeignKey("parent.id", **{f"on{event}": action})),
+        )
+        if supported:
+            assert "FOREIGN KEY" in str(CreateTable(child).compile(dialect=_duckdb_dialect())).upper()
+        else:
+            with pytest.raises(CompileError, match=f"does not support ON {event.upper()} {action}"):
+                str(CreateTable(child).compile(dialect=_duckdb_dialect()))
+
+    @pytest.mark.duckdb
+    @pytest.mark.db_dialect
+    def test_duckdb_registry_policy_keeps_python_reservation_check(self, duckdb_db):
+        """ensure_schema()/`_register_schema_claim()` run their reservation
+        check against a real DuckDB file, which serializes writers itself
+        instead of a database-level uniqueness constraint."""
+        engine = duckdb_db.committing_engine
+        with engine.begin() as connection:
+            ensure_schema(connection, "reserved_for_registry_test")
+            ensure_schema(connection, "reserved_only_registry_test")
+            _register_schema_claim(
+                connection, database_config_name="entry_a", schema_tag="custom_a",
+                physical_schema="reserved_for_registry_test", owner="package_a",
+            )
+            _register_schema_claim(
+                connection, database_config_name="entry_b", schema_tag="custom_b",
+                physical_schema="reserved_for_registry_test", owner="package_b",
+            )
+            _register_schema_claim(
+                connection, database_config_name="entry_c", schema_tag="custom_c",
+                physical_schema="reserved_only_registry_test", owner="package_c", reserved=True,
+            )
+            with pytest.raises(SchemaOwnershipError, match="already reserved"):
+                _register_schema_claim(
+                    connection, database_config_name="entry_d", schema_tag="custom_d",
+                    physical_schema="reserved_only_registry_test", owner="package_d",
+                )
+
+    @pytest.mark.duckdb
+    @pytest.mark.db_dialect
+    def test_explicit_numeric_scale_round_trips(self, duckdb_db):
+        """An explicit Numeric(18, 9) must round-trip a value the bare
+        Numeric() default (DECIMAL(18, 3)) would have truncated."""
+        metadata = sa.MetaData()
+        table = sa.Table("numeric_round_trip", metadata, sa.Column("value", sa.Numeric(18, 9)))
+        engine = duckdb_db.committing_engine
+        metadata.create_all(engine)
+        value = Decimal("0.000123456")
+        with engine.begin() as connection:
+            connection.execute(table.insert(), {"value": value})
+            assert connection.scalar(sa.select(table.c.value)) == value
 
 
 class TestConnectionKey:

@@ -20,11 +20,14 @@ from oa_configurator import (
     CDMDatabaseConfig,
     ConnectionConfig,
     CrossDatabaseStatementError,
+    Dialect,
     GenericDatabaseConfig,
     Resolver,
     Role,
     SchemaClaim,
     StackConfig,
+    UnregisteredSchemaTagError,
+    unenforced_foreign_keys,
     without_cross_engine_foreign_keys,
 )
 from oa_configurator.testing.postgres import PostgresTestStrategy
@@ -99,6 +102,19 @@ def oa_connection(database_name: str):
     return ConnectionConfig(
         dialect="sqlite", database_name=database_name, test_only=True
     )
+
+
+def _duckdb_cdm(*, cdm_schema: str | None, vocab_schema: str | None):
+    """A single DuckDB connection with PRIMARY/VOCAB set to the given schemas."""
+    stack = StackConfig.for_session(
+        connections={"main": ConnectionConfig(dialect=Dialect.DUCKDB, database_name=":memory:")},
+        databases={
+            "duckdb_cdm": CDMDatabaseConfig(
+                connection="main", cdm_schema=cdm_schema, vocab_schema=vocab_schema
+            )
+        },
+    )
+    return Resolver(stack).resolve_database("duckdb_cdm")
 
 
 class TestForeignKeyDerivation:
@@ -262,3 +278,94 @@ class TestBoundaryGuard:
                 assert connection.execute(sa.select(sa.literal(1))).scalar() == 1
         finally:
             engine.dispose()
+
+
+class TestDuckDBCrossSchemaForeignKeys:
+    """DuckDB rejects a foreign key across physical schemas, even within one file."""
+
+    def test_cross_schema_fk_is_dropped(self):
+        resolved = _duckdb_cdm(cdm_schema="cdm", vocab_schema="vocab")
+        assert resolved.foreign_key_can_span(Role.PRIMARY, Role.VOCAB) is False
+
+        _, _, person, cond = _cdm_tables()
+        _, derived = without_cross_engine_foreign_keys((person, cond), resolved=resolved)
+        assert len(derived.foreign_keys) == 1
+        assert {fk.column.table.name for fk in derived.foreign_keys} == {"person"}
+
+    def test_same_schema_fk_is_kept(self):
+        """PRIMARY and VOCAB sharing one physical schema need no cross-schema key."""
+        resolved = _duckdb_cdm(cdm_schema="shared", vocab_schema="shared")
+        assert resolved.foreign_key_can_span(Role.PRIMARY, Role.VOCAB) is True
+
+        _metadata, concept, person, cond = _cdm_tables()
+        *_, derived = without_cross_engine_foreign_keys((concept, person, cond), resolved=resolved)
+        assert len(derived.foreign_keys) == 2
+
+    def test_case_folded_schema_names_are_treated_as_the_same_schema(self):
+        """DuckDB folds ASCII letters to lowercase, even in quoted identifiers."""
+        resolved = _duckdb_cdm(cdm_schema="Vocab", vocab_schema="vocab")
+        assert resolved.foreign_key_can_span(Role.PRIMARY, Role.VOCAB) is True
+
+    def test_unregistered_tag_raises_instead_of_guessing(self):
+        resolved = _duckdb_cdm(cdm_schema="cdm", vocab_schema="vocab")
+        with pytest.raises(UnregisteredSchemaTagError, match="unclaimed_tag"):
+            resolved.foreign_key_can_span(Role.PRIMARY, "unclaimed_tag")
+
+    def test_physical_schemas_override_resolves_an_unregistered_tag(self):
+        resolved = _duckdb_cdm(cdm_schema="cdm", vocab_schema="vocab")
+        assert resolved.foreign_key_can_span(
+            Role.PRIMARY, "staging", physical_schemas={"staging": "cdm"}
+        ) is True
+        assert resolved.foreign_key_can_span(
+            Role.PRIMARY, "staging", physical_schemas={"staging": "vocab"}
+        ) is False
+
+
+class TestUnenforcedForeignKeys:
+    def test_reports_cross_schema_boundary(self):
+        resolved = _duckdb_cdm(cdm_schema="cdm", vocab_schema="vocab")
+        _metadata, _concept, person, cond = _cdm_tables()
+        report = unenforced_foreign_keys((person, cond), resolved=resolved)
+
+        assert len(report) == 1
+        assert report[0].reason == "cross_schema"
+        assert {e.target_fullname for e in report[0].constraint.elements} == {
+            "vocab.concept.concept_id"
+        }
+
+    def test_reports_cross_database_boundary(self, compile_split_cdm):
+        _, _, person, cond = _cdm_tables()
+        report = unenforced_foreign_keys((person, cond), resolved=compile_split_cdm)
+
+        assert len(report) == 1
+        assert report[0].reason == "cross_database"
+
+    def test_reports_nothing_when_every_key_is_enforceable(self):
+        resolved = _duckdb_cdm(cdm_schema="shared", vocab_schema="shared")
+        _metadata, concept, person, cond = _cdm_tables()
+        assert unenforced_foreign_keys((concept, person, cond), resolved=resolved) == ()
+
+    def test_reports_a_deferred_duckdb_cycle(self):
+        """A same-schema FK cycle on DuckDB can't be created inline either way round."""
+        resolved = _duckdb_cdm(cdm_schema="shared", vocab_schema="shared")
+        metadata = sa.MetaData()
+        a = sa.Table(
+            "cycle_a", metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("b_id", sa.Integer),
+            schema=Role.PRIMARY.value,
+        )
+        b = sa.Table(
+            "cycle_b", metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("a_id", sa.ForeignKey("primary.cycle_a.id", use_alter=True)),
+            schema=Role.PRIMARY.value,
+        )
+        a.append_constraint(
+            sa.ForeignKeyConstraint(["b_id"], ["primary.cycle_b.id"], use_alter=True)
+        )
+
+        report = unenforced_foreign_keys((a, b), resolved=resolved)
+
+        assert len(report) == 2
+        assert {entry.reason for entry in report} == {"deferred"}

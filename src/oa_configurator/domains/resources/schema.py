@@ -424,10 +424,15 @@ class UnenforcedForeignKey(NamedTuple):
 
     ``cross_database`` and ``cross_schema`` identify keys
     :func:`without_cross_engine_foreign_keys` removes from DDL copies.
-    ``deferred`` means the dialect can add the key later but not inline
-    (e.g. a cyclic dependency), so it stays in the DDL and SQLAlchemy's own
-    dialect-specific deferral handles it instead. Inspecting this record
-    does not change the original constraint.
+    ``deferred`` means the constraint survives in the DDL as a cyclic or
+    ``use_alter=True`` dependency. It only ever applies on DuckDB. There,
+    the later ``ALTER TABLE ADD CONSTRAINT`` SQLAlchemy would use to add
+    it is itself unsupported, and the DuckDB compile shim no-ops that
+    statement instead of raising. The key is therefore never actually
+    created, the same practical outcome as
+    ``cross_database``/``cross_schema``, just reached by a different
+    path. Inspecting this record does not change the original
+    constraint.
     """
 
     constraint: sa.ForeignKeyConstraint

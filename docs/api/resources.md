@@ -90,7 +90,7 @@ The report is a tuple of `UnenforcedForeignKey` records: `.constraint` is the or
 |---|---|---|
 | `cross_database` | Source and target are in separate databases | Removed from the table copies |
 | `cross_schema` | The dialect cannot enforce this key between these schemas | Removed from the table copies |
-| `deferred` | Cyclic, or declared with `use_alter=True` | Kept in the copies; added via SQLAlchemy's own deferred-constraint handling |
+| `deferred` | Cyclic, or declared with `use_alter=True`, on DuckDB | Kept in the copies, but the `ALTER TABLE` DuckDB would need to add it afterwards is itself unsupported; the DuckDB compile shim no-ops it, so the key is never actually created |
 
 Pass the complete set of tables being created together to the report and copying functions, since cycle classification depends on that set. The original tables and their ORM join information are never mutated; creating the originals directly does not apply the filtering.
 

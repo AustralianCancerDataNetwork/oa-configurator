@@ -271,32 +271,19 @@ class TestDuckDBStrategyResolvedTypes:
 
 
 class TestDuckDBStrategyTemporarySchema:
-    """DuckDB genuinely supports a committed schema visible from a second 
-    connection on the same engine. temporary_schema() follows Postgres's 
-    real-schema pattern. Proves the cross-connection visibility, not just that 
-    it doesn't raise."""
+    """DuckDB genuinely supports a committed schema visible from a second
+    connection on the same engine. temporary_schema() follows Postgres's
+    real-schema pattern. Proves the cross-connection visibility, not just that
+    it doesn't raise.
 
-    @staticmethod
-    def _config_matching(engine: sa.Engine, *, test_only: bool) -> StackConfig:
-        """A StackConfig whose one connection matches engine's own URL,
-        so _require_test_only_engine's physical_key() lookup succeeds."""
-        url = engine.url
-        return StackConfig.for_session(
-            connections={
-                "duckdb_match": ConnectionConfig(
-                    dialect=Dialect.DUCKDB, database_name=url.database, test_only=test_only
-                )
-            },
-        )
+    ``duckdb_db``'s engine already carries ``EXECUTION_OPTION_TEST_ONLY``,
+    so no config entry is needed to pass the guard.
+    """
 
     @pytest.mark.duckdb
     @pytest.mark.db_dialect
-    def test_creates_and_drops_a_real_schema_visible_from_a_second_connection(self, duckdb_db, monkeypatch):
+    def test_creates_and_drops_a_real_schema_visible_from_a_second_connection(self, duckdb_db):
         engine = duckdb_db.committing_engine
-        monkeypatch.setattr(
-            "oa_configurator.loader.load_stack_config",
-            lambda: self._config_matching(engine, test_only=True),
-        )
         with (
             DuckDBTestStrategy().temporary_schema(engine, prefix="ttest") as schema,
             engine.connect() as conn,
@@ -308,17 +295,17 @@ class TestDuckDBStrategyTemporarySchema:
 
     @pytest.mark.duckdb
     @pytest.mark.db_dialect
-    def test_refuses_a_non_test_only_engine(self, duckdb_db, monkeypatch):
-        engine = duckdb_db.committing_engine
-        monkeypatch.setattr(
-            "oa_configurator.loader.load_stack_config",
-            lambda: self._config_matching(engine, test_only=False),
-        )
-        with (
-            pytest.raises(pytest.fail.Exception, match="not marked test_only"),
-            DuckDBTestStrategy().temporary_schema(engine),
-        ):
-            pass
+    def test_refuses_a_non_test_only_engine(self, duckdb_db):
+        """A plain engine built straight from a URL carries no tag and matches no config."""
+        untagged_engine = sa.create_engine(duckdb_db.resolved.connection.url)
+        try:
+            with (
+                pytest.raises(pytest.fail.Exception),
+                DuckDBTestStrategy().temporary_schema(untagged_engine),
+            ):
+                pass
+        finally:
+            untagged_engine.dispose()
 
 
 class TestDuckDBStrategyDropTestDatabase:

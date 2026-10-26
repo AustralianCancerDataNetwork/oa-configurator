@@ -114,6 +114,53 @@ primary, vocab = Resolver.from_active_config().resolve_database(config.cdm_db).c
 
 Every engine `create_engines()` builds refuses a statement that references a table hosted on the other database (`CrossDatabaseStatementError`), so sending vocabulary work to the primary engine fails instead of reading a stale copy. Raw `text()` SQL carries no table metadata and is not checked.
 
+#### Creating tables with unenforced foreign keys
+
+Use this recipe when your models declare a foreign key the target database cannot enforce, such as DuckDB's rejection of keys crossing schemas. For a DuckDB database with CDM tables in `clinical` and vocabulary tables in `vocabulary`, a condition's reference to a vocabulary concept can't be enforced; its reference to a person in `clinical` can.
+
+Calling `Base.metadata.create_all()` directly fails on the cross-schema key. Inspect the unenforced keys instead, and create copies with those keys removed. The original models keep their foreign keys, so SQLAlchemy can still infer ORM joins from them.
+
+This assumes `Base` is your declarative base, `resolved` is your resolved CDM database, and `primary, vocab = resolved.create_engines()` has already run. All tables below share one physical database, so `vocab` and `primary` are the same engine:
+
+```python
+from oa_configurator import (
+    claimed_schema_tags,
+    physical_schema_of,
+    unenforced_foreign_keys,
+    without_cross_engine_foreign_keys,
+)
+
+tables = list(Base.metadata.tables.values())
+with primary.begin() as connection:
+    physical_schemas = {
+        tag: physical_schema_of(connection, schema_tag=tag)
+        for tag in claimed_schema_tags(connection)
+    }
+    for item in unenforced_foreign_keys(
+        tables, resolved=resolved, physical_schemas=physical_schemas
+    ):
+        print(item.constraint.table.fullname, item.reason)
+
+    ddl_tables = without_cross_engine_foreign_keys(
+        tables, resolved=resolved, physical_schemas=physical_schemas
+    )
+    ddl_tables[0].metadata.create_all(connection, tables=ddl_tables)
+```
+
+For a `condition` table in the `primary` tag, the report includes `primary.condition cross_schema`; the copy keeps its `person` foreign key and drops its vocabulary one.
+
+**Omitting a foreign key removes database enforcement.** The report only tells you which references need a separate validation step; it doesn't perform one. Pass the same table batch and `physical_schemas` to both calls, including every table being created together, since cyclic keys are only classified correctly across the whole set. For tables split across physical databases, create each database's batch on its own engine.
+
+See the [foreign-key API reference](api/resources.md#foreign-key-feasibility-and-omission-reporting) for the other `reason` values and the limits of these checks.
+
+#### DuckDB DDL limits for indexes, decimals, and foreign keys
+
+DuckDB has no partial-index support. A partial non-unique index (`postgresql_where` or `sqlite_where`) is logged and omitted. A partial *unique* index raises `CompileError` instead, so table creation can't silently weaken a uniqueness guarantee; set `info={"duckdb_partial_index_policy": "application_enforced"}` on the index only when something else already enforces it.
+
+DuckDB also needs an explicit precision and scale for decimal columns, e.g. `sa.Numeric(18, 6)`; a bare `sa.Numeric()`/`sa.NUMERIC()`/`sa.DECIMAL()` raises `CompileError` rather than silently rounding on DuckDB's implicit default. `sa.Float` is unaffected.
+
+A foreign key declaring `ON DELETE`/`ON UPDATE` `CASCADE`, `SET NULL`, or `SET DEFAULT` raises `CompileError` on `CREATE TABLE`; DuckDB doesn't support those actions. `NO ACTION` and `RESTRICT` are unaffected.
+
 ---
 
 ### 5. Logging

@@ -945,3 +945,50 @@ class TestHostlessSQLiteProductionCollision:
         )
 
         _check_test_collision(target, cfg)
+
+
+def _duckdb_production_and_test_connections(tmp_path, test_path):
+    config = StackConfig.for_session(
+        connections={
+            "prod": ConnectionConfig(
+                dialect=Dialect.DUCKDB, database_name=str(tmp_path / "production.duckdb")
+            )
+        }
+    )
+    target = ConnectionConfig(dialect=Dialect.DUCKDB, database_name=str(test_path), test_only=True)
+    return target, config
+
+
+class TestHostlessDuckDBProductionCollision:
+    """Mirrors TestHostlessSQLiteProductionCollision: _find_production_collision's
+    path-canonicalization branch now covers any hostless/file-based dialect
+    (via requires_host()), not just a hardcoded sqlite check."""
+
+    def test_distinct_test_only_duckdb_file_is_allowed(self, tmp_path):
+        target, config = _duckdb_production_and_test_connections(tmp_path, tmp_path / "test.duckdb")
+
+        _check_test_collision(target, config)
+
+    def test_same_normalized_duckdb_file_is_refused(self, tmp_path):
+        alias_path = tmp_path / "alias.duckdb"
+        alias_path.symlink_to(tmp_path / "production.duckdb")
+        target, config = _duckdb_production_and_test_connections(tmp_path, alias_path)
+
+        with pytest.raises(typer.Exit):
+            _check_test_collision(target, config)
+
+    def test_duckdb_target_does_not_collide_with_a_same_named_sqlite_file(self, tmp_path):
+        """Two different file-based dialects sharing a path string are not
+        the same physical database: the canonical key is backend-prefixed."""
+        cfg = StackConfig.for_session(
+            connections={
+                "prod_sqlite": ConnectionConfig(
+                    dialect=Dialect.SQLITE, database_name=str(tmp_path / "shared_name")
+                )
+            }
+        )
+        target = ConnectionConfig(
+            dialect=Dialect.DUCKDB, database_name=str(tmp_path / "shared_name"), test_only=True
+        )
+
+        _check_test_collision(target, cfg)

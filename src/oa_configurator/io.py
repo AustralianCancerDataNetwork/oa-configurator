@@ -6,12 +6,20 @@ import errno
 import logging
 import os
 import tempfile
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, BinaryIO
 
 import tomli_w
+from filelock import FileLock, Timeout
 
-from .loader import _normalize_path, active_config_path, invalidate_cache
+from .loader import (
+    _normalize_path,
+    active_config_path,
+    invalidate_cache,
+    stack_config_revision,
+)
 from .resolver import Resolver
 from .stack_config import StackConfig
 
@@ -20,6 +28,10 @@ logger = logging.getLogger(__name__)
 
 class ConfigSaveError(OSError):
     """Raised when a config replacement or its recovery cannot complete."""
+
+
+class StaleConfigRevisionError(ConfigSaveError):
+    """Raised when a conditional save finds the file changed since it was read."""
 
 
 _UNSUPPORTED_DIRECTORY_FSYNC_ERRNOS = {
@@ -96,7 +108,13 @@ def write_env_file(resolver: Resolver, path: Path | None = None) -> Path:
     return path
 
 
-def save_stack_config(config: StackConfig, path: Path | None = None) -> Path:
+def save_stack_config(
+    config: StackConfig,
+    path: Path | None = None,
+    *,
+    expected_revision: str | None = None,
+    lock_timeout: float = 10.0,
+) -> Path:
     """Validate and atomically replace a stack TOML file.
 
     Defaults to :func:`~oa_configurator.loader.active_config_path`.
@@ -113,8 +131,41 @@ def save_stack_config(config: StackConfig, path: Path | None = None) -> Path:
     a failed first save removes the new destination. The backup and destination
     are separate atomic replacements, not one multi-file transaction.
 
-    This function does not lock out concurrent writers. Callers that need
-    compare-and-swap semantics must provide external coordination.
+    Writers using this function take an exclusive lock on ``<path>.lock`` for
+    the destination reread, revision check, backup refresh, replacement and
+    verification, so two of them never interleave. The lock is released when
+    the save ends and is never held while a caller edits a draft. The lock
+    file stays beside the config, empty and ``0600``. Editors that do not use
+    this function are not excluded.
+
+    Parameters
+    ----------
+    config : StackConfig
+        The configuration to write.
+    path : pathlib.Path, optional
+        Destination. Omitted uses the active config path.
+    expected_revision : str, optional
+        Revision of the file the caller read, from
+        :func:`~oa_configurator.loader.load_stack_config_with_revision` or
+        :func:`~oa_configurator.loader.stack_config_revision`. When given, the
+        save happens only if the destination still has that revision. Omitted
+        replaces the destination unconditionally.
+    lock_timeout : float, default 10.0
+        Seconds to wait for another writer's lock before giving up.
+
+    Returns
+    -------
+    pathlib.Path
+        The destination written.
+
+    Raises
+    ------
+    StaleConfigRevisionError
+        If *expected_revision* no longer matches the destination. Nothing is
+        written.
+    ConfigSaveError
+        If the lock could not be acquired within *lock_timeout*, or the
+        replacement or its recovery failed.
 
     TODO: adopt ``tomlkit`` for round-trip serialisation that preserves comments
     and original ordering.
@@ -126,50 +177,78 @@ def save_stack_config(config: StackConfig, path: Path | None = None) -> Path:
     candidate_temp: Path | None = _write_secure_temp(path, serialized)
     backup_path = path.with_name(f"{path.name}.bak")
     backup_temp: Path | None = None
-    previous_exists = path.exists()
-    destination_replaced = False
 
     try:
-        if previous_exists:
-            backup_temp = _copy_secure_temp(path, backup_path)
-            os.replace(backup_temp, backup_path)
-            backup_temp = None
-            _fsync_directory(path.parent)
-
-        os.replace(candidate_temp, path)
-        candidate_temp = None
-        destination_replaced = True
-        _fsync_directory(path.parent)
-
-        # A cache entry is valid until, and only until, the destination swap
-        # succeeds. Verification must parse the bytes that were just installed.
-        invalidate_cache()
-        _verify_saved_config(path, persisted)
-        # Verification uses the normal loader, which fills the cache. Leave
-        # the cache empty so save retains its established invalidation contract.
-        invalidate_cache()
-    except Exception as save_error:
-        if destination_replaced:
+        with _config_lock(path, lock_timeout):
+            if expected_revision is not None and stack_config_revision(path) != expected_revision:
+                raise StaleConfigRevisionError(
+                    f"{path} changed after it was read. Reload it and try again."
+                )
+            previous_exists = path.exists()
+            destination_replaced = False
             try:
-                _restore_previous(path, backup_path, previous_exists=previous_exists)
+                if previous_exists:
+                    backup_temp = _copy_secure_temp(path, backup_path)
+                    os.replace(backup_temp, backup_path)
+                    backup_temp = None
+                    _fsync_directory(path.parent)
+
+                os.replace(candidate_temp, path)
+                candidate_temp = None
+                destination_replaced = True
+                _fsync_directory(path.parent)
+
+                # A cache entry is valid until, and only until, the destination swap
+                # succeeds. Verification must parse the bytes that were just installed.
                 invalidate_cache()
-            except Exception as rollback_error:
-                logger.exception("Rollback after failed save of %s also failed", path)
-                raise ConfigSaveError(
-                    f"Failed to save {path}: {save_error}; recovery also failed: {rollback_error}"
-                ) from save_error
-            recovery = (
-                "the previous state was restored"
-                if previous_exists
-                else "the new destination was removed"
-            )
-            raise ConfigSaveError(f"Failed to save {path}; {recovery}") from save_error
-        raise
+                _verify_saved_config(path, persisted)
+                # Verification uses the normal loader, which fills the cache. Leave
+                # the cache empty so save retains its established invalidation contract.
+                invalidate_cache()
+            except Exception as save_error:
+                if destination_replaced:
+                    try:
+                        _restore_previous(path, backup_path, previous_exists=previous_exists)
+                        invalidate_cache()
+                    except Exception as rollback_error:
+                        logger.exception("Rollback after failed save of %s also failed", path)
+                        raise ConfigSaveError(
+                            f"Failed to save {path}: {save_error}; "
+                            f"recovery also failed: {rollback_error}"
+                        ) from save_error
+                    recovery = (
+                        "the previous state was restored"
+                        if previous_exists
+                        else "the new destination was removed"
+                    )
+                    raise ConfigSaveError(f"Failed to save {path}; {recovery}") from save_error
+                raise
     finally:
         _remove_temp(candidate_temp)
         _remove_temp(backup_temp)
 
     return path
+
+
+@contextmanager
+def _config_lock(path: Path, timeout: float) -> Generator[None]:
+    """Hold an exclusive lock on ``<path>.lock`` for the duration of the block.
+
+    The lock file is separate from *path* because every save replaces *path*,
+    which would orphan a lock held on it. It is never deleted, since removing
+    it while another writer waits would let two writers hold different files.
+    """
+    lock = FileLock(path.with_name(f"{path.name}.lock"), timeout=timeout, mode=0o600)
+    try:
+        lock.acquire()
+    except Timeout as exc:
+        raise ConfigSaveError(
+            f"Could not save {path}: another process is saving it (waited {timeout:g}s)"
+        ) from exc
+    try:
+        yield
+    finally:
+        lock.release()
 
 
 def _serialize_stack_config(config: StackConfig) -> tuple[StackConfig, bytes]:

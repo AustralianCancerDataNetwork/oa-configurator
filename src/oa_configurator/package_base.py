@@ -413,17 +413,12 @@ class PackageConfigBase(SecretSafeBaseModel):
         """
         from rich.console import Console
 
-        from .cli_support import _save_stack_config_or_exit
-        from .loader import active_config_path, load_stack_config
-        from .stack_config import StackConfig
+        from .cli_support import _load_draft, _save_stack_config_or_exit
+        from .loader import active_config_path
 
         console = Console()
 
-        try:
-            config = load_stack_config()
-        except FileNotFoundError:
-            active_config_path().parent.mkdir(parents=True, exist_ok=True)
-            config = StackConfig()
+        config, revision = _load_draft()
 
         tool_name = cls.tool_name
         console.print(f"\n[bold]Configuring [cyan]{tool_name}[/cyan][/bold]")
@@ -445,7 +440,7 @@ class PackageConfigBase(SecretSafeBaseModel):
 
         # Save pydantic-normalized values, not raw CLI strings.
         config.tools[tool_name] = validated.to_extra_dict()
-        _save_stack_config_or_exit(config)
+        _save_stack_config_or_exit(config, expected_revision=revision)
         console.print(
             f"\n[green]✓[/green] Saved \\[tools.{tool_name}] to [dim]{active_config_path()}[/dim]"
         )

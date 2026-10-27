@@ -21,8 +21,11 @@ from oa_configurator import (
     RefTo,
     StackConfig,
     VectorStoreConfig,
+    clone_entry,
+    delete_entry,
     find_references,
     references_to,
+    remove_tool_section,
     rename_entry,
 )
 from oa_configurator.references import (
@@ -533,3 +536,240 @@ class TestRenameRefusals:
             rename_entry(cfg, "databases", "cdm_db", "bad_name", package_configs=RENAME_REGISTRY)
 
         assert cfg.model_dump(mode="python") == before
+
+
+_CANARY = "edit-canary-pw"
+
+
+def _pg(database_name: str = "d", **kwargs) -> ConnectionConfig:
+    return ConnectionConfig(
+        dialect="postgresql+psycopg",
+        host="h",
+        port=5432,
+        user="u",
+        password=_CANARY,
+        database_name=database_name,
+        **kwargs,
+    )
+
+
+def _pg_stack(**kwargs) -> StackConfig:
+    base = {
+        "connections": {"prod": _pg()},
+        "databases": {"cdm_db": CDMDatabaseConfig(connection="prod", cdm_schema="cdm")},
+        "providers": {"p": ProviderConfig(provider="ollama", api_key=_CANARY)},
+        "models": {"m": ModelConfig(provider="p", model="x")},
+    }
+    return StackConfig.for_session(**{**base, **kwargs})
+
+
+class TestCloneEntry:
+    def test_provider_clone_without_overrides_is_appended_and_source_kept(self):
+        cfg = _pg_stack()
+
+        planned = clone_entry(cfg, "providers", "p", "p2")
+
+        assert list(planned.providers) == ["p", "p2"]
+        assert planned.providers["p2"] == planned.providers["p"]
+        assert planned.providers["p2"].api_key == _CANARY
+        assert list(cfg.providers) == ["p"]
+
+    def test_clone_keeps_the_loaded_path(self, tmp_path):
+        cfg = _pg_stack()
+        cfg.bind_loaded_path(tmp_path / "config.toml")
+
+        planned = clone_entry(cfg, "providers", "p", "p2")
+
+        assert planned.loaded_path == cfg.loaded_path
+
+    def test_nothing_is_repointed_to_the_copy(self):
+        cfg = _pg_stack(tools={"db_tool": {"cdm_db": "cdm_db"}})
+
+        planned = clone_entry(
+            cfg, "connections", "prod", "other", overrides={"database_name": "d2"}
+        )
+
+        assert planned.databases["cdm_db"].connection == "prod"
+        assert planned.tools["db_tool"] == {"cdm_db": "cdm_db"}
+        assert planned.connections["other"].database_name == "d2"
+
+    def test_database_clone_unchanged_is_refused_by_validation(self):
+        cfg = _pg_stack()
+
+        with pytest.raises(ConfigurationError, match="same physical connection"):
+            clone_entry(cfg, "databases", "cdm_db", "cdm_copy")
+
+    def test_test_database_use_case_is_two_pure_calls(self):
+        cfg = _pg_stack()
+
+        with_connection = clone_entry(
+            cfg,
+            "connections",
+            "prod",
+            "test",
+            overrides={"database_name": "d_test", "test_only": True},
+        )
+        planned = clone_entry(
+            with_connection, "databases", "cdm_db", "cdm_test", overrides={"connection": "test"}
+        )
+
+        assert planned.databases["cdm_test"].connection == "test"
+        assert planned.databases["cdm_test"].cdm_schema == "cdm"
+        assert planned.databases["cdm_db"].connection == "prod"
+        assert planned.connections["test"].password == _CANARY
+        assert _CANARY not in repr(planned)
+
+    def test_connection_clone_unchanged_is_refused_without_leaking_the_password(self):
+        with pytest.raises(ConfigurationError) as exc_info:
+            clone_entry(_pg_stack(), "connections", "prod", "prod2")
+
+        assert "same connection" in str(exc_info.value)
+        assert _CANARY not in str(exc_info.value)
+
+    def test_unknown_override_is_refused_without_the_value(self):
+        with pytest.raises(ConfigurationError) as exc_info:
+            clone_entry(_pg_stack(), "providers", "p", "p2", overrides={"nope": _CANARY})
+
+        assert "nope" in str(exc_info.value)
+        assert _CANARY not in str(exc_info.value)
+
+    def test_bad_override_value_is_refused_without_the_value(self):
+        with pytest.raises(ConfigurationError) as exc_info:
+            clone_entry(_pg_stack(), "connections", "prod", "c2", overrides={"port": _CANARY})
+
+        assert "port" in str(exc_info.value)
+        assert _CANARY not in str(exc_info.value)
+
+    def test_database_kind_cannot_be_overridden(self):
+        with pytest.raises(ConfigurationError, match="kind"):
+            clone_entry(_pg_stack(), "databases", "cdm_db", "other", overrides={"kind": "generic"})
+
+    def test_override_pointing_at_a_missing_target_is_refused(self):
+        with pytest.raises(ConfigurationError, match="unknown connection"):
+            clone_entry(
+                _pg_stack(), "databases", "cdm_db", "other", overrides={"connection": "ghost"}
+            )
+
+    @pytest.mark.parametrize(
+        ("section", "source", "new", "message"),
+        [
+            ("tools", "p", "p2", "Cannot clone in"),
+            ("providers", "missing", "p2", "No provider named 'missing'"),
+            ("providers", "p", "p", "already exists"),
+            ("providers", "p", "", "not a valid provider name"),
+            ("providers", "p", " p2", "not a valid provider name"),
+        ],
+    )
+    def test_refusals(self, section, source, new, message):
+        with pytest.raises(ConfigurationError, match=message):
+            clone_entry(_pg_stack(), section, source, new)
+
+
+class TestDeleteEntry:
+    def test_unreferenced_entry_is_removed_and_input_kept(self):
+        cfg = _pg_stack(
+            providers={
+                "p": ProviderConfig(provider="ollama"),
+                "spare": ProviderConfig(provider="ollama"),
+            }
+        )
+
+        planned = delete_entry(cfg, "providers", "spare", package_configs=REGISTRY)
+
+        assert list(planned.providers) == ["p"]
+        assert list(cfg.providers) == ["p", "spare"]
+
+    def test_delete_keeps_the_loaded_path(self, tmp_path):
+        cfg = _pg_stack(
+            providers={
+                "p": ProviderConfig(provider="ollama"),
+                "spare": ProviderConfig(provider="ollama"),
+            }
+        )
+        cfg.bind_loaded_path(tmp_path / "config.toml")
+
+        planned = delete_entry(cfg, "providers", "spare", package_configs=REGISTRY)
+
+        assert planned.loaded_path == cfg.loaded_path
+
+    def test_referenced_entry_is_refused_and_references_are_listed(self):
+        with pytest.raises(ConfigurationError) as exc_info:
+            delete_entry(_pg_stack(), "connections", "prod", package_configs=REGISTRY)
+
+        assert "databases.cdm_db.connection" in str(exc_info.value)
+
+    def test_tool_field_with_an_explicit_value_blocks_delete(self):
+        cfg = _pg_stack(tools={"db_tool": {"cdm_db": "cdm_db"}})
+
+        with pytest.raises(ConfigurationError, match="tools.db_tool.cdm_db"):
+            delete_entry(cfg, "databases", "cdm_db", package_configs=REGISTRY)
+
+    def test_tool_field_resolving_through_its_default_blocks_delete(self):
+        cfg = _pg_stack(tools={"db_tool": {}})
+
+        with pytest.raises(ConfigurationError, match="tools.db_tool.cdm_db"):
+            delete_entry(cfg, "databases", "cdm_db", package_configs=REGISTRY)
+
+    def test_tool_field_pointing_elsewhere_does_not_block_delete(self):
+        cfg = _pg_stack(
+            databases={
+                "cdm_db": CDMDatabaseConfig(connection="prod"),
+                "other": GenericDatabaseConfig(connection="prod"),
+            },
+            tools={"db_tool": {"cdm_db": "other"}},
+        )
+
+        planned = delete_entry(cfg, "databases", "cdm_db", package_configs=REGISTRY)
+
+        assert list(planned.databases) == ["other"]
+
+    def test_unknown_tool_schema_blocks_delete(self):
+        cfg = _pg_stack(
+            providers={
+                "p": ProviderConfig(provider="ollama"),
+                "spare": ProviderConfig(provider="ollama"),
+            },
+            tools={"mystery": {"x": 1}},
+        )
+
+        with pytest.raises(ConfigurationError, match=r"Cannot delete safely.*\[tools.mystery\]"):
+            delete_entry(cfg, "providers", "spare", package_configs=REGISTRY)
+
+    @pytest.mark.parametrize(
+        ("section", "name", "message"),
+        [
+            ("tools", "db_tool", "Cannot delete in"),
+            ("providers", "missing", "No provider named 'missing'"),
+        ],
+    )
+    def test_refusals(self, section, name, message):
+        with pytest.raises(ConfigurationError, match=message):
+            delete_entry(_pg_stack(), section, name, package_configs=REGISTRY)
+
+
+class TestRemoveToolSection:
+    def test_section_is_removed_and_others_and_input_are_kept(self):
+        cfg = _pg_stack(tools={"db_tool": {"cdm_db": "cdm_db"}, "mystery": {"x": 1}})
+
+        planned = remove_tool_section(cfg, "mystery")
+
+        assert planned.tools == {"db_tool": {"cdm_db": "cdm_db"}}
+        assert set(cfg.tools) == {"db_tool", "mystery"}
+
+    def test_removal_unblocks_a_delete_that_an_unknown_section_prevented(self):
+        cfg = _pg_stack(
+            providers={
+                "p": ProviderConfig(provider="ollama"),
+                "spare": ProviderConfig(provider="ollama"),
+            },
+            tools={"stale_pkg": {"x": 1}},
+        )
+
+        cleaned = remove_tool_section(cfg, "stale_pkg")
+        planned = delete_entry(cleaned, "providers", "spare", package_configs=REGISTRY)
+
+        assert list(planned.providers) == ["p"]
+
+    def test_missing_section_is_refused(self):
+        with pytest.raises(ConfigurationError, match="No tool section named 'nope'"):
+            remove_tool_section(_pg_stack(), "nope")

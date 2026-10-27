@@ -20,6 +20,7 @@ from oa_configurator import (
     VectorStoreConfig,
     assert_no_sensitive_values_leak,
     cli,
+    cli_support,
 )
 from oa_configurator.domains.resources.sql import Dialect
 from oa_configurator.io import save_stack_config as _real_save_stack_config
@@ -1411,3 +1412,270 @@ class TestCleanupTestDatabases:
         assert len(dropped) == 1
         assert "test_db" in dropped[0]
         assert "dropped" in result.output
+
+
+_PASSWORD = "clone-canary-pw"
+
+
+def _two_connection_stack(**extra) -> StackConfig:
+    return StackConfig.for_session(
+        connections={
+            "c1": ConnectionConfig(
+                dialect=Dialect.SQLITE, database_name="a.db", password=_PASSWORD
+            ),
+            "c2": ConnectionConfig(dialect=Dialect.SQLITE, database_name="b.db"),
+        },
+        databases={"cdm_db": CDMDatabaseConfig(connection="c1")},
+        providers={
+            "p": ProviderConfig(provider="ollama"),
+            "spare": ProviderConfig(provider="ollama"),
+        },
+        **extra,
+    )
+
+
+@pytest.fixture
+def known_packages(monkeypatch):
+    """Make package discovery deterministic: only DemoConfig is usable."""
+    monkeypatch.setattr(
+        cli_support, "discover_package_configs", lambda: ({"demo_tool": DemoConfig}, ())
+    )
+
+
+class TestClone:
+    def test_connection_clone_with_flags_keeps_the_source_and_copies_the_rest(
+        self, isolated_config
+    ):
+        _seed(isolated_config, _two_connection_stack())
+
+        result = runner.invoke(
+            cli.app, ["connections", "clone", "c1", "c3", "--database-name", "c.db"]
+        )
+
+        assert result.exit_code == 0, result.output
+        config = load_stack_config(isolated_config)
+        assert config.connections["c1"].database_name == "a.db"
+        assert config.connections["c3"].database_name == "c.db"
+        assert config.connections["c3"].password == _PASSWORD
+        assert _PASSWORD not in result.output
+
+    def test_cdm_database_clone_onto_another_connection(self, isolated_config):
+        _seed(isolated_config, _two_connection_stack())
+
+        result = runner.invoke(
+            cli.app, ["databases", "clone", "cdm", "cdm_db", "cdm_two", "--connection", "c2"]
+        )
+
+        assert result.exit_code == 0, result.output
+        config = load_stack_config(isolated_config)
+        assert config.databases["cdm_two"].connection == "c2"
+        assert config.databases["cdm_db"].connection == "c1"
+
+    def test_clone_rejected_by_validation_writes_nothing(self, isolated_config):
+        _seed(isolated_config, _two_connection_stack())
+        before = isolated_config.read_bytes()
+
+        result = runner.invoke(
+            cli.app, ["databases", "clone", "cdm", "cdm_db", "cdm_bad", "--connection", "c1"]
+        )
+
+        assert result.exit_code == 1
+        output = " ".join(result.output.split())
+        assert "would be invalid" in output
+        assert "same physical connection" in output
+        assert isolated_config.read_bytes() == before
+
+    def test_clone_to_a_missing_connection_names_the_remedy(self, isolated_config):
+        _seed(isolated_config, _two_connection_stack())
+        before = isolated_config.read_bytes()
+
+        result = runner.invoke(
+            cli.app, ["databases", "clone", "cdm", "cdm_db", "cdm_x", "--connection", "ghost"]
+        )
+
+        assert result.exit_code == 1
+        assert "Unknown connection" in result.output
+        assert isolated_config.read_bytes() == before
+
+    def test_clone_command_for_the_wrong_kind_is_refused(self, isolated_config):
+        _seed(isolated_config, _two_connection_stack())
+
+        result = runner.invoke(cli.app, ["databases", "clone", "generic", "cdm_db", "other"])
+
+        assert result.exit_code == 1
+        assert "not a GenericDatabaseConfig" in " ".join(result.output.split())
+
+    @pytest.mark.parametrize(
+        ("args", "message"),
+        [
+            (["connections", "clone", "nope", "x"], "No connection named 'nope'"),
+            (["connections", "clone", "c1", "c2"], "already exists"),
+        ],
+    )
+    def test_missing_source_and_taken_name_are_refused(self, isolated_config, args, message):
+        _seed(isolated_config, _two_connection_stack())
+
+        result = runner.invoke(cli.app, args)
+
+        assert result.exit_code == 1
+        assert message in result.output
+
+    def test_interactive_clone_offers_the_source_values_as_defaults(self, isolated_config):
+        _seed(isolated_config, _two_connection_stack())
+
+        result = runner.invoke(cli.app, ["providers", "clone", "p", "p2"], input="\n\n\n")
+
+        assert result.exit_code == 0, result.output
+        config = load_stack_config(isolated_config)
+        assert config.providers["p2"] == config.providers["p"]
+
+
+class TestStoredSecretsAreNotEchoed:
+    def test_updating_an_entry_interactively_keeps_the_password_without_showing_it(
+        self, isolated_config
+    ):
+        _seed(isolated_config, _two_connection_stack())
+
+        result = runner.invoke(cli.app, ["connections", "add", "c1"], input="\n" * 7)
+
+        assert result.exit_code == 0, result.output
+        assert _PASSWORD not in result.output
+        assert load_stack_config(isolated_config).connections["c1"].password == _PASSWORD
+
+    def test_cloning_a_connection_interactively_keeps_the_password_without_showing_it(
+        self, isolated_config
+    ):
+        _seed(isolated_config, _two_connection_stack())
+
+        result = runner.invoke(
+            cli.app, ["connections", "clone", "c1", "c3"], input="\n\n\n\n\nc.db\n\n"
+        )
+
+        assert result.exit_code == 0, result.output
+        assert _PASSWORD not in result.output
+        assert load_stack_config(isolated_config).connections["c3"].password == _PASSWORD
+
+
+class TestDelete:
+    def test_unreferenced_entry_is_deleted_with_yes(self, isolated_config, known_packages):
+        _seed(isolated_config, _two_connection_stack())
+
+        result = runner.invoke(cli.app, ["providers", "delete", "spare", "--yes"])
+
+        assert result.exit_code == 0, result.output
+        assert list(load_stack_config(isolated_config).providers) == ["p"]
+
+    def test_declining_the_prompt_keeps_the_entry(self, isolated_config, known_packages):
+        _seed(isolated_config, _two_connection_stack())
+        before = isolated_config.read_bytes()
+
+        result = runner.invoke(cli.app, ["providers", "delete", "spare"], input="n\n")
+
+        assert result.exit_code == 1
+        assert isolated_config.read_bytes() == before
+
+    def test_accepting_the_prompt_deletes_the_entry(self, isolated_config, known_packages):
+        _seed(isolated_config, _two_connection_stack())
+
+        result = runner.invoke(cli.app, ["providers", "delete", "spare"], input="y\n")
+
+        assert result.exit_code == 0, result.output
+        assert "spare" not in load_stack_config(isolated_config).providers
+
+    def test_referenced_entry_is_refused_with_the_referencing_fields(
+        self, isolated_config, known_packages
+    ):
+        _seed(isolated_config, _two_connection_stack())
+        before = isolated_config.read_bytes()
+
+        result = runner.invoke(cli.app, ["connections", "delete", "c1", "--yes"])
+
+        assert result.exit_code == 1
+        assert "databases.cdm_db.connection" in result.output
+        assert isolated_config.read_bytes() == before
+
+    def test_unusable_tool_package_blocks_delete_and_explains_the_remedy(
+        self, isolated_config, monkeypatch
+    ):
+        _seed(isolated_config, _two_connection_stack(tools={"stale_pkg": {"x": 1}}))
+        from oa_configurator.references import DiscoveryProblem, DiscoveryProblemKind
+
+        monkeypatch.setattr(
+            cli_support,
+            "discover_package_configs",
+            lambda: (
+                {},
+                (DiscoveryProblem(DiscoveryProblemKind.BROKEN_IMPORT, "stale_pkg", "ImportError"),),
+            ),
+        )
+
+        result = runner.invoke(cli.app, ["providers", "delete", "spare", "--yes"])
+
+        assert result.exit_code == 1
+        assert "[tools.stale_pkg]" in result.output
+        assert "ImportError" in result.output
+        assert "omop-config tools remove" in result.output
+        assert "spare" in load_stack_config(isolated_config).providers
+
+    def test_missing_config_file_is_reported(self, isolated_config, known_packages):
+        result = runner.invoke(cli.app, ["providers", "delete", "p", "--yes"])
+
+        assert result.exit_code == 1
+        assert "Config file not found" in result.output
+
+
+class TestTools:
+    def test_list_shows_whether_each_package_is_available(self, isolated_config, known_packages):
+        _seed(
+            isolated_config,
+            _two_connection_stack(tools={"demo_tool": {"backend": "x"}, "stale_pkg": {"x": 1}}),
+        )
+
+        result = runner.invoke(cli.app, ["tools", "list"])
+
+        assert result.exit_code == 0, result.output
+        assert "demo_tool" in result.output
+        assert "installed" in result.output
+        assert "stale_pkg" in result.output
+        assert "not available" in result.output
+
+    def test_list_with_no_tool_sections(self, isolated_config, known_packages):
+        _seed(isolated_config, _two_connection_stack())
+
+        result = runner.invoke(cli.app, ["tools", "list"])
+
+        assert "No tool sections configured" in result.output
+
+    def test_remove_deletes_a_section_for_a_missing_package(self, isolated_config):
+        _seed(isolated_config, _two_connection_stack(tools={"stale_pkg": {"x": 1}}))
+
+        result = runner.invoke(cli.app, ["tools", "remove", "stale_pkg", "--yes"])
+
+        assert result.exit_code == 0, result.output
+        assert load_stack_config(isolated_config).tools == {}
+
+    def test_declining_the_prompt_keeps_the_section(self, isolated_config):
+        _seed(isolated_config, _two_connection_stack(tools={"stale_pkg": {"x": 1}}))
+
+        result = runner.invoke(cli.app, ["tools", "remove", "stale_pkg"], input="n\n")
+
+        assert result.exit_code == 1
+        assert "stale_pkg" in load_stack_config(isolated_config).tools
+
+    def test_unknown_section_is_refused(self, isolated_config):
+        _seed(isolated_config, _two_connection_stack())
+
+        result = runner.invoke(cli.app, ["tools", "remove", "nope", "--yes"])
+
+        assert result.exit_code == 1
+        assert "No tool section named 'nope'" in result.output
+
+    def test_removing_the_stale_section_unblocks_delete(self, isolated_config, known_packages):
+        _seed(isolated_config, _two_connection_stack(tools={"stale_pkg": {"x": 1}}))
+        assert runner.invoke(cli.app, ["providers", "delete", "spare", "--yes"]).exit_code == 1
+
+        runner.invoke(cli.app, ["tools", "remove", "stale_pkg", "--yes"])
+        result = runner.invoke(cli.app, ["providers", "delete", "spare", "--yes"])
+
+        assert result.exit_code == 0, result.output
+        assert "spare" not in load_stack_config(isolated_config).providers

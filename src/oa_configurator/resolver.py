@@ -598,10 +598,12 @@ def _resolve_named_entry(
         default_value = (
             str(stored) if stored is not None else (str(info.default) if has_default else "")
         )
+        sensitive = is_sensitive(info)
         raw_input = typer.prompt(
             info.description or field_name,
             default=default_value,
-            hide_input=is_sensitive(info),
+            hide_input=sensitive,
+            show_default=not sensitive,
         )
         values[field_name] = raw_input if info.is_required() else (raw_input or None)
 

@@ -4,7 +4,7 @@ Fields marked with :class:`RefTo` name an entry in
 another section. This module reads those markers to answer the forward
 question (does a model's references resolve?), the reverse question (which
 fields name a given entry?), and to rename an entry together with every
-reference to it.
+reference to it. It also clones and deletes entries with the same checks.
 
 ``[tools.*]`` values are untyped dictionaries, so finding their ``RefTo``
 fields needs the matching :class:`~oa_configurator.package_base.PackageConfigBase`
@@ -20,10 +20,11 @@ from enum import StrEnum
 from functools import partial
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from pydantic_core import PydanticUndefined
 
 from .package_base import ConfigurationError, PackageConfigBase, package_entry_points
+from .sensitive import describe_errors, sanitized_errors
 
 if TYPE_CHECKING:
     from .stack_config import StackConfig
@@ -454,6 +455,53 @@ def find_references(config: StackConfig, section: str, name: str) -> ReferenceRe
     return replace(report, discovery_problems=problems)
 
 
+def _entries_for(config: StackConfig, section: str, action: str) -> dict[str, Any]:
+    """Return the entries of *section*, or raise if it holds no named entries."""
+    if section not in config.entry_sections():
+        raise ConfigurationError(
+            f"Cannot {action} in {section!r}. Valid sections: {', '.join(config.entry_sections())}"
+        )
+    return getattr(config, section)
+
+
+def _require_new_name(entries: Mapping[str, Any], section: str, new: str) -> None:
+    """Raise unless *new* is a usable, unused entry name for *section*."""
+    if not new.strip() or new != new.strip():
+        raise ConfigurationError(f"{new!r} is not a valid {section[:-1]} name")
+    if new in entries:
+        raise ConfigurationError(f"A {section[:-1]} named {new!r} already exists")
+
+
+def _require_known_tool_schemas(report: ReferenceReport, action: str) -> None:
+    """Raise if any tool section could not be inspected for references."""
+    if report.unknown_tool_schemas:
+        raise ConfigurationError(
+            f"Cannot {action} safely: no known package class for "
+            + ", ".join(f"[tools.{name}]" for name in report.unknown_tool_schemas)
+        )
+
+
+def _validated_copy(config: StackConfig, candidate: StackConfig) -> StackConfig:
+    """Revalidate *candidate* as a whole, keeping the loaded path of *config*.
+
+    A rejection is reported from the sanitized errors, so a rejected value such
+    as a password never appears in the message.
+    """
+    try:
+        planned = type(config).model_validate(candidate.model_dump(mode="python"))
+    except ValidationError as exc:
+        raise ConfigurationError(
+            "; ".join(
+                (f"{'.'.join(str(part) for part in error['loc'])}: " if error["loc"] else "")
+                + error["msg"].removeprefix("Value error, ")
+                for error in sanitized_errors(exc)
+            )
+        ) from None
+    if config.loaded_path is not None:
+        planned.bind_loaded_path(config.loaded_path)
+    return planned
+
+
 def rename_entry(
     config: StackConfig,
     section: str,
@@ -501,26 +549,15 @@ def rename_entry(
     PackageConfigInvalidError
         If a repointed package section fails its schema.
     """
-    if section not in config.entry_sections():
-        raise ConfigurationError(
-            f"Cannot rename in {section!r}. Valid sections: {', '.join(config.entry_sections())}"
-        )
-    entries = getattr(config, section)
+    entries = _entries_for(config, section, "rename")
     if old not in entries:
         raise ConfigurationError(f"No {section[:-1]} named {old!r} to rename")
-    if not new.strip() or new != new.strip():
-        raise ConfigurationError(f"{new!r} is not a valid {section[:-1]} name")
     if new == old:
         raise ConfigurationError(f"{section[:-1].capitalize()} {old!r} already has that name")
-    if new in entries:
-        raise ConfigurationError(f"A {section[:-1]} named {new!r} already exists")
+    _require_new_name(entries, section, new)
 
     report = references_to(config, section, old, package_configs=package_configs)
-    if report.unknown_tool_schemas:
-        raise ConfigurationError(
-            "Cannot rename safely: no known package class for "
-            + ", ".join(f"[tools.{name}]" for name in report.unknown_tool_schemas)
-        )
+    _require_known_tool_schemas(report, "rename")
 
     candidate = config.model_copy(deep=True)
     candidate_entries = getattr(candidate, section)
@@ -539,9 +576,160 @@ def rename_entry(
         )
         setattr(getattr(candidate, ref.source_section)[source_name], ref.field, new)
 
-    planned = type(config).model_validate(candidate.model_dump(mode="python"))
+    planned = _validated_copy(config, candidate)
     for tool_name in sorted(repointed_tools):
         package_configs[tool_name].validate_candidate(planned)
-    if config.loaded_path is not None:
-        planned.bind_loaded_path(config.loaded_path)
     return planned
+
+
+def clone_entry(
+    config: StackConfig,
+    section: str,
+    source: str,
+    new: str,
+    *,
+    overrides: Mapping[str, Any] | None = None,
+) -> StackConfig:
+    """Return a validated copy with ``section.source`` copied to ``section.new``.
+
+    Pure: no file I/O, and *config* is not modified. The source entry is kept
+    and nothing is repointed: references to *source* stay on *source*, and the
+    copy points at the same targets as the source unless *overrides* change
+    that. The copy is added at the end of the section. Many entries cannot
+    coexist unchanged with their source, for example two CDM databases on one
+    connection or two identical connections, so *overrides* names the fields
+    to change. The whole candidate is validated, so a copy that conflicts with
+    the rest of the stack is refused.
+
+    Parameters
+    ----------
+    config : StackConfig
+        The stack to clone in.
+    section : str
+        Section holding the entry, e.g. ``"databases"``.
+    source : str
+        Name of the entry to copy.
+    new : str
+        Name of the copy.
+    overrides : Mapping[str, Any], optional
+        Field values for the copy, keyed by the entry's own field names.
+        Validated by the entry's class, so an unknown field or a bad value is
+        refused.
+
+    Returns
+    -------
+    StackConfig
+        The complete candidate, with the input's ``loaded_path``.
+
+    Raises
+    ------
+    ConfigurationError
+        If *section* holds no named entries, *source* does not exist, *new* is
+        empty or already taken, an override is invalid, or the candidate fails
+        validation. Messages never include rejected values.
+    """
+    entries = _entries_for(config, section, "clone")
+    if source not in entries:
+        raise ConfigurationError(f"No {section[:-1]} named {source!r} to clone")
+    _require_new_name(entries, section, new)
+
+    original = entries[source]
+    try:
+        entry = type(original).model_validate(
+            {**original.model_dump(mode="python"), **(overrides or {})}
+        )
+    except ValidationError as exc:
+        raise ConfigurationError(
+            f"Invalid override for {section[:-1]} {new!r}: "
+            + describe_errors(sanitized_errors(exc))
+        ) from None
+
+    candidate = config.model_copy(deep=True)
+    getattr(candidate, section)[new] = entry
+    return _validated_copy(config, candidate)
+
+
+def delete_entry(
+    config: StackConfig,
+    section: str,
+    name: str,
+    *,
+    package_configs: Mapping[str, type[PackageConfigBase]],
+) -> StackConfig:
+    """Return a validated copy without ``section.name``, if nothing references it.
+
+    Pure: no file I/O, and *config* is not modified. There is no way to force
+    a deletion that leaves dangling references.
+
+    Parameters
+    ----------
+    config : StackConfig
+        The stack to delete from.
+    section : str
+        Section holding the entry, e.g. ``"connections"``.
+    name : str
+        Name of the entry to delete.
+    package_configs : Mapping[str, type[PackageConfigBase]]
+        Known package classes keyed by ``tool_name``, used to find references
+        inside ``[tools.*]``.
+
+    Returns
+    -------
+    StackConfig
+        The candidate without the entry, with the input's ``loaded_path``.
+
+    Raises
+    ------
+    ConfigurationError
+        If *section* holds no named entries, *name* does not exist, any field
+        still references the entry (listed in the message), or any
+        ``[tools.*]`` section has no known package class and so cannot be
+        shown to be free of references. A package field that omits its value
+        and refers to the entry through its default counts as a reference.
+    """
+    entries = _entries_for(config, section, "delete")
+    if name not in entries:
+        raise ConfigurationError(f"No {section[:-1]} named {name!r} to delete")
+
+    report = references_to(config, section, name, package_configs=package_configs)
+    _require_known_tool_schemas(report, "delete")
+    if report.references:
+        raise ConfigurationError(
+            f"Cannot delete {section[:-1]} {name!r}: still referenced by "
+            + ", ".join(f"{r.source_section}.{r.source_name}.{r.field}" for r in report.references)
+        )
+
+    candidate = config.model_copy(deep=True)
+    del getattr(candidate, section)[name]
+    return _validated_copy(config, candidate)
+
+
+def remove_tool_section(config: StackConfig, tool_name: str) -> StackConfig:
+    """Return a validated copy without the ``[tools.<tool_name>]`` section.
+
+    Pure: no file I/O, and *config* is not modified. Nothing refers to a tool
+    section, so removal needs no package class and works for a section whose
+    package is broken or no longer installed.
+
+    Parameters
+    ----------
+    config : StackConfig
+        The stack to remove the section from.
+    tool_name : str
+        Name of the tool section.
+
+    Returns
+    -------
+    StackConfig
+        The candidate without the section, with the input's ``loaded_path``.
+
+    Raises
+    ------
+    ConfigurationError
+        If the stack has no such tool section.
+    """
+    if tool_name not in config.tools:
+        raise ConfigurationError(f"No tool section named {tool_name!r} to remove")
+    candidate = config.model_copy(deep=True)
+    del candidate.tools[tool_name]
+    return _validated_copy(config, candidate)

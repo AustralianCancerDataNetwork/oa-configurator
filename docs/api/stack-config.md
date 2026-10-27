@@ -64,6 +64,6 @@ All three are pure like `rename_entry()`: no file I/O, input unchanged, and an e
 
 The CLI wraps them:
 
-- `omop-config <section> clone SOURCE NEW` copies an entry. Flags change fields of the copy. Without flags every field is prompted, with the source's value as the default, and a reference can point at a new entry that is created in the same flow. `databases` has one subcommand per kind, `databases clone cdm` and `databases clone generic`, and refuses a source of the other kind.
+- `omop-config <section> clone SOURCE NEW` copies an entry. Flags change fields of the copy. Without flags every field is prompted, with the source's value as the default, and a reference can point at a new entry that is created in the same flow. That new entry starts from the one the source currently points at, so only the fields that differ need changing. `databases` has one subcommand per kind, `databases clone cdm` and `databases clone generic`, and refuses a source of the other kind.
 - `omop-config <section> delete NAME` confirms before deleting, or skips the prompt with `--yes`. When a tool section's package is not usable it prints why.
 - `omop-config tools list` shows each tool section and whether its package is available. `omop-config tools remove NAME` removes a section, with the same confirmation.

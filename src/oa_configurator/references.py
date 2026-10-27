@@ -592,14 +592,14 @@ def clone_entry(
 ) -> StackConfig:
     """Return a validated copy with ``section.source`` copied to ``section.new``.
 
-    Pure: no file I/O, and *config* is not modified. The source entry is kept
-    and nothing is repointed: references to *source* stay on *source*, and the
-    copy points at the same targets as the source unless *overrides* change
-    that. The copy is added at the end of the section. Many entries cannot
-    coexist unchanged with their source, for example two CDM databases on one
-    connection or two identical connections, so *overrides* names the fields
-    to change. The whole candidate is validated, so a copy that conflicts with
-    the rest of the stack is refused.
+    Pure: no file I/O, and *config* is not modified. The copy is added at the
+    end of the section. The source is left unchanged, and nothing that points
+    at it is repointed.
+
+    An unchanged copy is often invalid, for example two CDM databases on one
+    connection or two identical connections. Use *overrides* to change fields
+    of the copy. The whole stack is validated, so a copy that conflicts with
+    another entry is refused.
 
     Parameters
     ----------

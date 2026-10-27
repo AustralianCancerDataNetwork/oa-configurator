@@ -1556,6 +1556,35 @@ class TestStoredSecretsAreNotEchoed:
         assert load_stack_config(isolated_config).connections["c3"].password == _PASSWORD
 
 
+class TestCloneWithNewReference:
+    def test_new_connection_starts_from_the_one_the_source_points_at(self, isolated_config):
+        _seed(isolated_config, _two_connection_stack())
+        # connection: new, name, then the connection's seven prompts, then the three schemas
+        prompts = "new\nc3\n\n\n\n\n\nc.db\n\n\n\n\n"
+
+        result = runner.invoke(
+            cli.app, ["databases", "clone", "cdm", "cdm_db", "cdm_new"], input=prompts
+        )
+
+        assert result.exit_code == 0, result.output
+        config = load_stack_config(isolated_config)
+        assert config.databases["cdm_new"].connection == "c3"
+        assert config.connections["c3"].dialect == "sqlite"
+        assert config.connections["c3"].database_name == "c.db"
+        assert config.connections["c3"].password == _PASSWORD
+        assert _PASSWORD not in result.output
+
+    def test_add_still_starts_a_new_connection_from_blank_prompts(self, isolated_config):
+        _seed(isolated_config, _two_connection_stack())
+        prompts = "new\nc3\nsqlite\n\n\n\n\nc.db\n\n\n\n\n"
+
+        result = runner.invoke(cli.app, ["databases", "add", "cdm", "cdm_db"], input=prompts)
+
+        assert result.exit_code == 0, result.output
+        config = load_stack_config(isolated_config)
+        assert config.connections["c3"].password is None
+
+
 class TestDelete:
     def test_unreferenced_entry_is_deleted_with_yes(self, isolated_config, known_packages):
         _seed(isolated_config, _two_connection_stack())

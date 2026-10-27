@@ -205,10 +205,14 @@ def _resolve_ref(
     *,
     default_name: str,
     is_test: bool = False,
+    template: BaseModel | None = None,
 ) -> str | None:
     """Resolve a RefTo(target)-marked field interactively: offer reuse of an
     existing entry in target's section, or create one on the spot, recursing
     into any RefTo fields *target* itself has.
+
+    A new entry is prompted from scratch unless *template* is given, in which
+    case its values are offered as the defaults.
     """
     import typer
     from rich.console import Console
@@ -247,10 +251,11 @@ def _resolve_ref(
             target,
             config,
             flags=None,
-            existing=None,
+            existing=template,
             missing_required=[],
             name_hint=name,
             is_test=is_test,
+            prefill_new_refs=template is not None,
         )
     elif is_test != _is_test_marked(name, target, config):
         if is_test:
@@ -466,6 +471,7 @@ def _resolve_named_entry(
     name_hint: str | None = None,
     is_test: bool = False,
     headless: bool = False,
+    prefill_new_refs: bool = False,
 ) -> BaseModel | None:
     """Resolve one entry of *target*: flag, then stored value, then an
     interactive prompt, recursing into any RefTo field via
@@ -476,6 +482,10 @@ def _resolve_named_entry(
     *name_hint*/*is_test* only apply to the brand-new-entry path (no
     *flags*, no *existing*): the nested-ref default name, and the
     test-only wizard's recursion flag.
+
+    With *prefill_new_refs*, a RefTo field the user points at a new entry
+    starts that entry from the one the stored value currently names, instead
+    of from blank prompts.
 
     Returns None if a required field is missing non-interactively (check
     *missing_required*), and aborts with ``typer.Exit(1)`` if *flags*
@@ -574,6 +584,10 @@ def _resolve_named_entry(
                     if stored is not None
                     else (str(info.default) if has_default else (name_hint or ""))
                 )
+                template = None
+                if prefill_new_refs and stored is not None:
+                    named = getattr(config, _ref_section(nested.target)).get(stored)
+                    template = named if isinstance(named, nested.target) else None
                 values[field_name] = _resolve_ref(
                     field_name,
                     info.description or "",
@@ -581,6 +595,7 @@ def _resolve_named_entry(
                     config,
                     default_name=default_name,
                     is_test=is_test,
+                    template=template,
                 )
             continue
 

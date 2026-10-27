@@ -301,7 +301,12 @@ def _clone_entry(
 
     missing_required: list[str] = []
     entry = _resolve_named_entry(
-        target, config, flags=flags, existing=source, missing_required=missing_required
+        target,
+        config,
+        flags=flags,
+        existing=source,
+        missing_required=missing_required,
+        prefill_new_refs=True,
     )
     _check_missing_required(
         f"{singular} {new_name!r}", missing_required, non_interactive=flags is not None

@@ -44,7 +44,7 @@ from .domains.vector_stores.cli import vector_stores_app
 from .io import save_stack_config, write_env_file
 from .loader import active_config_path, load_stack_config
 from .logging_config import configure_logging
-from .package_base import PackageConfigBase
+from .package_base import PackageConfigBase, prune_unknown_keys
 from .resolver import Resolver
 from .stack_config import StackConfig
 
@@ -234,6 +234,48 @@ def show() -> None:
         err_console.print("Run [bold]omop-config init[/bold] to create it.")
         raise typer.Exit(1)
     rich.print_json(config.masked_json(exclude_none=True, indent=2))
+
+
+def _installed_package_configs() -> list[type[PackageConfigBase]]:
+    """Load every registered package class, warning about ones that fail to load."""
+    classes: list[type[PackageConfigBase]] = []
+    for ep in sorted(entry_points(group=ENTRY_POINT_GROUP), key=lambda e: e.name):
+        try:
+            classes.append(ep.load())
+        except (ImportError, AttributeError) as exc:
+            err_console.print(f"[yellow]Skipping package {ep.name!r}:[/yellow] {exc}")
+    return classes
+
+
+@app.command()
+def prune(
+    apply: Annotated[
+        bool,
+        typer.Option("--apply", help="Remove the listed keys. Without it nothing is changed."),
+    ] = False,
+) -> None:
+    """List [tools.*] keys that no installed package declares, and remove them with --apply."""
+    try:
+        config = load_stack_config()
+    except FileNotFoundError:
+        err_console.print(f"[red]Config file not found:[/red] {active_config_path()}")
+        raise typer.Exit(1)
+
+    report = prune_unknown_keys(config, _installed_package_configs())
+    if not report.removed:
+        console.print("Nothing to prune.")
+        return
+
+    for tool_name, keys in sorted(report.removed.items()):
+        console.print(f"[bold]\\[tools.{tool_name}][/bold] {', '.join(keys)}")
+    if not apply:
+        console.print(
+            "\n[yellow]Not changed.[/yellow] A key unknown to the installed version may belong "
+            "to a newer one sharing this file. Run with --apply to remove them."
+        )
+        return
+    _save_stack_config_or_exit(report.config)
+    console.print(f"\n[green]✓[/green] Removed from [dim]{active_config_path()}[/dim]")
 
 
 @app.command()

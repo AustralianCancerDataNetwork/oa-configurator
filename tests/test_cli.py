@@ -984,18 +984,18 @@ class TestRunConfigurePackage:
         )
         DemoConfig.run_configure({"cdm_db": "cdm_db", "backend": "first_value"}, interactive=False)
 
-        seen_defaults: dict[str, str] = {}
+        seen_labels: list[str] = []
 
         def prompt(text, default="", **kwargs):
-            seen_defaults[text] = default
-            return "second_value" if text == "backend" else default
+            seen_labels.append(text)
+            return "second_value" if text.startswith("backend") else default
 
         monkeypatch.setattr(cli.typer, "prompt", prompt)
         monkeypatch.setattr(cli.typer, "confirm", lambda *a, **k: False)
 
         DemoConfig.run_configure({}, interactive=True)
 
-        assert seen_defaults["backend"] == "first_value"
+        assert any(label.endswith("[Enter = first_value]") for label in seen_labels)
         config = load_stack_config(isolated_config)
         assert config.tools["demo_tool"]["backend"] == "second_value"
 
@@ -1471,3 +1471,58 @@ class TestExitOnConfigIssues:
     def test_unrelated_exceptions_pass_through(self):
         with pytest.raises(ValueError, match="boom"), _exit_on_config_issues():
             raise ValueError("boom")
+
+
+class TestConfigureKeepsUnknownKeys:
+    def test_configure_keeps_unrecognised_keys_and_names_them(self, isolated_config, capsys):
+        _seed(
+            isolated_config,
+            StackConfig.for_session(
+                connections={
+                    "db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
+                },
+                databases={"cdm_db": CDMDatabaseConfig(connection="db")},
+                tools={"demo_tool": {"legacy": "x", "api_secret": _CANARY}},
+            ),
+        )
+        DemoConfig.run_configure({"cdm_db": "cdm_db", "backend": "b"}, interactive=False)
+        output = capsys.readouterr().out
+        section = load_stack_config(isolated_config).tools["demo_tool"]
+        assert section["legacy"] == "x"
+        assert section["api_secret"] == _CANARY
+        assert "legacy" in output
+        assert _CANARY not in output
+
+
+class TestPrune:
+    @pytest.fixture
+    def seeded(self, isolated_config, monkeypatch):
+        monkeypatch.setattr(cli, "_installed_package_configs", lambda: [DemoConfig])
+        _seed(
+            isolated_config,
+            StackConfig.for_session(
+                tools={"demo_tool": {"backend": "b", "legacy": "x", "api_secret": _CANARY}}
+            ),
+        )
+        return isolated_config
+
+    def test_lists_without_changing_the_file(self, seeded):
+        before = seeded.read_bytes()
+        result = runner.invoke(cli.app, ["prune"])
+        assert result.exit_code == 0, result.output
+        assert "legacy" in result.output
+        assert "api_secret" in result.output
+        assert _CANARY not in result.output
+        assert seeded.read_bytes() == before
+
+    def test_apply_removes_the_keys(self, seeded):
+        result = runner.invoke(cli.app, ["prune", "--apply"])
+        assert result.exit_code == 0, result.output
+        assert load_stack_config(seeded).tools["demo_tool"] == {"backend": "b"}
+
+    def test_nothing_to_prune(self, isolated_config, monkeypatch):
+        monkeypatch.setattr(cli, "_installed_package_configs", lambda: [DemoConfig])
+        _seed(isolated_config, StackConfig.for_session(tools={"demo_tool": {"backend": "b"}}))
+        result = runner.invoke(cli.app, ["prune", "--apply"])
+        assert result.exit_code == 0
+        assert "Nothing to prune" in result.output

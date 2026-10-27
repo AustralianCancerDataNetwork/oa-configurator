@@ -6,7 +6,7 @@ from typing import Annotated
 
 import typer
 
-from ...cli_support import _add_entry, _list_entries
+from ...cli_support import _add_entry, _list_entries, _register_clone, _register_delete
 from .schema import VectorStoreConfig
 
 vector_stores_app = typer.Typer(
@@ -46,3 +46,15 @@ def vector_stores_add(
 def vector_stores_list() -> None:
     """List configured vector store entries."""
     _list_entries(VectorStoreConfig)
+
+
+_register_clone(
+    vector_stores_app,
+    VectorStoreConfig,
+    help=r"Copy a \[vector_stores] entry under a new name. Flags change the copy; without flags every field is prompted.",
+)
+_register_delete(
+    vector_stores_app,
+    VectorStoreConfig,
+    help=r"Delete a \[vector_stores] entry that nothing references.",
+)

@@ -6,7 +6,7 @@ from typing import Annotated
 
 import typer
 
-from ...cli_support import _add_entry, _list_entries
+from ...cli_support import _add_entry, _list_entries, _register_clone, _register_delete
 from .schema import CDMDatabaseConfig, ConnectionConfig, DatabaseConfig, GenericDatabaseConfig
 
 connections_app = typer.Typer(
@@ -25,6 +25,12 @@ databases_add_app = typer.Typer(
     help=r"Add or update a \[databases.<name>] entry. Pick the subcommand matching the kind you want.",
 )
 databases_app.add_typer(databases_add_app)
+databases_clone_app = typer.Typer(
+    name="clone",
+    no_args_is_help=True,
+    help=r"Copy a \[databases.<name>] entry under a new name. Pick the subcommand matching the source's kind.",
+)
+databases_app.add_typer(databases_clone_app)
 
 
 @connections_app.command("add")
@@ -136,3 +142,30 @@ def databases_add_cdm(
 def databases_list() -> None:
     """List configured database entries."""
     _list_entries(DatabaseConfig)
+
+
+_register_clone(
+    connections_app,
+    ConnectionConfig,
+    help=r"Copy a \[connections] entry under a new name. Flags change the copy; without flags every field is prompted.",
+)
+_register_delete(
+    connections_app,
+    ConnectionConfig,
+    help=r"Delete a \[connections] entry that nothing references.",
+)
+_register_clone(
+    databases_clone_app,
+    GenericDatabaseConfig,
+    name="generic",
+    help=r"Copy a generic \[databases] entry. Flags change the copy; without flags every field is prompted.",
+)
+_register_clone(
+    databases_clone_app,
+    CDMDatabaseConfig,
+    name="cdm",
+    help=r"Copy a CDM \[databases] entry. Flags change the copy; without flags every field is prompted.",
+)
+_register_delete(
+    databases_app, DatabaseConfig, help=r"Delete a \[databases] entry that nothing references."
+)

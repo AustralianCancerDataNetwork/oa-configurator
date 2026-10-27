@@ -35,15 +35,17 @@ In ``pyproject.toml``::
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 from pydantic import ValidationError
+from pydantic.fields import FieldInfo
 from pydantic_core import ErrorDetails, PydanticUndefined
 
 from .issues import ConfigIssuesError, ConfigurationError, issues_from_errors
-from .refs import SecretSafeBaseModel, describe_errors, sanitized_errors
+from .refs import SecretSafeBaseModel, describe_errors, is_sensitive, sanitized_errors
 
 if TYPE_CHECKING:
     from .stack_config import StackConfig
@@ -114,6 +116,37 @@ class StackConfigInvalidError(_SanitizedValidationErrorMixin, ConfigurationError
     def __init__(self, path: Path, validation_error: ValidationError) -> None:
         self.path = path
         super().__init__(f"Invalid stack config {path}: " + self._sanitize(validation_error))
+
+
+def _enter_hint(stored: object, info: FieldInfo) -> str:
+    """Return the prompt suffix naming what Enter leaves in effect.
+
+    A sensitive field never shows its value.
+    """
+    if stored is not None:
+        value = stored
+    elif info.default is not PydanticUndefined and info.default is not None:
+        value = info.default
+    else:
+        return ""
+    if is_sensitive(info):
+        return "  [Enter = keep]"
+    return f"  [Enter = {value}]"
+
+
+def _prompt_optional_bool(label: str, hint: str) -> bool | None:
+    """Ask a yes/no question where Enter answers ``None`` (leave unchanged)."""
+    import click
+    import typer
+
+    while True:
+        raw = typer.prompt(f"{label} (y/n){hint}", default="", show_default=False).strip()
+        if not raw:
+            return None
+        try:
+            return bool(click.BOOL.convert(raw, None, None))
+        except click.BadParameter:
+            typer.echo("Answer y or n, or press Enter to leave it unchanged.")
 
 
 class PackageConfigBase(SecretSafeBaseModel):
@@ -189,6 +222,31 @@ class PackageConfigBase(SecretSafeBaseModel):
         """Serialize back to the dict stored under ``[tools.<tool_name>]``."""
         return self.model_dump(exclude_none=True)
 
+    def to_explicit_dict(self) -> dict[str, Any]:
+        """Serialize only the fields that were supplied, not ones filled by defaults."""
+        return self.model_dump(exclude_none=True, include=set(self.model_fields_set))
+
+    @classmethod
+    def unknown_keys(cls, config: StackConfig) -> tuple[str, ...]:
+        """Return the stored ``[tools.<tool_name>]`` keys this class has no field for."""
+        section = config.tools.get(cls.tool_name, {})
+        return tuple(sorted(set(section) - set(cls.model_fields)))
+
+    @classmethod
+    def commit_section(cls, config: StackConfig, values: Mapping[str, Any]) -> Self:
+        """Store *values* in *config* and validate, keeping unknown stored keys.
+
+        Known fields are replaced by the normalized explicit values. Keys the
+        class does not declare are carried over unchanged. *config* is
+        modified in place.
+        """
+        section = config.tools.get(cls.tool_name, {})
+        unknown = {key: section[key] for key in cls.unknown_keys(config)}
+        config.tools[cls.tool_name] = {**unknown, **values}
+        validated = cls.validate_candidate(config)
+        config.tools[cls.tool_name] = {**unknown, **validated.to_explicit_dict()}
+        return validated
+
     @classmethod
     def validate_candidate(cls, config: StackConfig) -> Self:
         """Validate this package's section and references in *config*.
@@ -217,10 +275,14 @@ class PackageConfigBase(SecretSafeBaseModel):
         interactive: bool,
     ) -> dict[str, Any]:
         """Resolve this package's own fields: flag (``--set`` or the field's
-        own auto-generated flag), then stored, then an interactive prompt
-        (seeded with the stored value as its default when one exists),
+        own auto-generated flag), then stored, then an interactive prompt,
         recursing into any ``RefTo``-marked field via the generic resolver
         machinery in :mod:`~oa_configurator.resolver`.
+
+        Only values that are flagged, already stored, or entered at a prompt
+        are returned. At a prompt, Enter keeps the stored value and leaves an
+        unset field unset; any typed value, including the default, is
+        returned.
 
         A ``RefTo``-marked field's ``set_dict`` value may also be a nested
         ``dict`` instead of a plain string, built from repeated
@@ -237,12 +299,12 @@ class PackageConfigBase(SecretSafeBaseModel):
             either the field's plain string value, or (for a ``RefTo``
             field only) a nested ``dict`` of the target's own field values.
         interactive : bool
-            Whether to prompt for fields not covered by set_dict or stored
-            config, and whether an already-stored value is offered as a
-            re-promptable default rather than reused silently.
-            Non-interactively, fields covered by neither are simply omitted
-            (they fall back to the field's own pydantic default when the
-            config class is loaded).
+            Whether to prompt for fields not covered by set_dict, and
+            whether an already-stored value is offered for change rather than
+            reused silently. Non-interactively, fields covered by neither are
+            omitted and take the field's own pydantic default when the config
+            class is loaded.
+
         Returns
         -------
         dict[str, Any]
@@ -258,7 +320,6 @@ class PackageConfigBase(SecretSafeBaseModel):
         from rich.console import Console
 
         from .resolver import (
-            Resolver,
             _check_missing_required,
             _check_unrecognized_keys,
             _is_flag_settable,
@@ -271,17 +332,13 @@ class PackageConfigBase(SecretSafeBaseModel):
 
         _check_unrecognized_keys(cls.tool_name, set_dict, cls.model_fields.keys())
 
-        try:
-            current = Resolver(config).resolve_package_config(cls)
-            current_dict = current.to_extra_dict()
-        except ValueError:
-            current_dict = dict(config.tools.get(cls.tool_name, {}))
+        section = config.tools.get(cls.tool_name, {})
 
         extra: dict[str, Any] = {}
         missing_required: list[str] = []
         for field_name, info in cls.model_fields.items():
             nested = _nested_ref(info)
-            stored = current_dict.get(field_name)
+            stored = section.get(field_name)
             raw_set = set_dict.get(field_name)
 
             if isinstance(raw_set, dict) and nested is not None:
@@ -346,31 +403,22 @@ class PackageConfigBase(SecretSafeBaseModel):
                 if stored is not None:
                     extra[field_name] = stored
             elif info.annotation is bool:
-                default_bool = (
-                    bool(stored)
-                    if stored is not None
-                    else (
-                        bool(info.default)
-                        if info.default not in (None, PydanticUndefined)
-                        else False
-                    )
+                answer = _prompt_optional_bool(
+                    info.description or field_name, _enter_hint(stored, info)
                 )
-                extra[field_name] = typer.confirm(
-                    info.description or field_name, default=default_bool
-                )
+                if answer is not None:
+                    extra[field_name] = answer
+                elif stored is not None:
+                    extra[field_name] = stored
             else:
                 desc = info.description or ""
                 label = f"{field_name}" + (f"  ({desc})" if desc else "")
-                default_value = (
-                    stored
-                    if stored is not None
-                    else (
-                        str(info.default) if info.default not in (None, PydanticUndefined) else ""
-                    )
-                )
-                raw = typer.prompt(label, default=default_value)
-                if raw and raw != "None":
+                hint = _enter_hint(stored, info)
+                raw = typer.prompt(label + hint, default="", show_default=False)
+                if raw:
                     extra[field_name] = raw
+                elif stored is not None:
+                    extra[field_name] = stored
 
         _check_missing_required(
             missing_required, non_interactive=not interactive, package=cls.tool_name
@@ -404,9 +452,9 @@ class PackageConfigBase(SecretSafeBaseModel):
         with _exit_on_config_issues():
             extra = cls.resolve_fields(config, set_dict=set_dict, interactive=interactive)
 
-        config.tools[tool_name] = extra
+        unknown = cls.unknown_keys(config)
         try:
-            validated = cls.validate_candidate(config)
+            cls.commit_section(config, extra)
         except ConfigurationError as exc:
             import typer
             from rich.markup import escape
@@ -416,26 +464,55 @@ class PackageConfigBase(SecretSafeBaseModel):
             )
             raise typer.Exit(1) from exc
 
-        # Save pydantic-normalized values, not raw CLI strings.
-        config.tools[tool_name] = validated.to_extra_dict()
         _save_stack_config_or_exit(config)
         console.print(
             f"\n[green]✓[/green] Saved \\[tools.{tool_name}] to [dim]{active_config_path()}[/dim]"
         )
+        if unknown:
+            console.print(
+                f"[yellow]Kept unrecognised keys:[/yellow] {', '.join(unknown)}. "
+                "Run 'omop-config prune' to review them."
+            )
 
 
-def plan_configure(
+@dataclass(frozen=True)
+class PackagePlan:
+    """A planned package section together with how its values were obtained.
+
+    Attributes
+    ----------
+    config : StackConfig
+        The complete validated candidate stack. Left out of the repr because
+        tool sections may hold secrets.
+    defaulted_fields : tuple[str, ...]
+        Fields of the package that are not stored in the candidate and take
+        their value from the class default.
+    unknown_fields : tuple[str, ...]
+        Stored keys the package has no field for. They are kept as they are.
+        Only names are reported, never values.
+    """
+
+    config: StackConfig = field(repr=False)
+    defaulted_fields: tuple[str, ...]
+    unknown_fields: tuple[str, ...]
+
+
+def plan_package_config(
     package_config: type[PackageConfigBase],
     config: StackConfig,
     set_dict: Mapping[str, object],
-) -> StackConfig:
-    """Return a complete validated package candidate without file I/O.
+) -> PackagePlan:
+    """Return a validated package candidate and how its values were obtained.
+
+    Only values already stored, passed in *set_dict*, or reached through
+    ``RefTo`` fields are written to the section. Defaults used for validation
+    are reported in ``defaulted_fields`` and not stored. Stored keys the
+    package does not declare are kept and reported in ``unknown_fields``.
 
     The input stack is deep-copied before field resolution, including nested
-    ``RefTo`` creation or updates. The returned stack contains pydantic-
-    normalized package values and preserves the input's ``loaded_path`` as
-    provenance. The caller's stack remains unchanged on success and failure.
-    Nothing is printed.
+    ``RefTo`` creation or updates. The returned stack preserves the input's
+    ``loaded_path`` as provenance and the caller's stack remains unchanged on
+    success and failure. Nothing is printed.
 
     Raises
     ------
@@ -447,14 +524,71 @@ def plan_configure(
     from .stack_config import StackConfig
 
     candidate = config.model_copy(deep=True)
+    unknown = package_config.unknown_keys(candidate)
     values = package_config.resolve_fields(candidate, set_dict=dict(set_dict), interactive=False)
-    candidate.tools[package_config.tool_name] = values
-    validated = package_config.validate_candidate(candidate)
-    candidate.tools[package_config.tool_name] = validated.to_extra_dict()
+    validated = package_config.commit_section(candidate, values)
 
     # Reconstruct the full root after nested resolution so all core section
     # references are checked too, without carrying any accidental shared state.
     planned = StackConfig.model_validate(candidate.model_dump(mode="python"))
     if config.loaded_path is not None:
         planned.bind_loaded_path(config.loaded_path)
-    return planned
+    defaulted = tuple(
+        name for name in package_config.model_fields if name not in validated.model_fields_set
+    )
+    return PackagePlan(planned, defaulted, unknown)
+
+
+def plan_configure(
+    package_config: type[PackageConfigBase],
+    config: StackConfig,
+    set_dict: Mapping[str, object],
+) -> StackConfig:
+    """Return the candidate stack of :func:`plan_package_config`."""
+    return plan_package_config(package_config, config, set_dict).config
+
+
+@dataclass(frozen=True)
+class PruneReport:
+    """The result of :func:`prune_unknown_keys`.
+
+    Attributes
+    ----------
+    config : StackConfig
+        A validated copy of the stack with the unknown keys removed. Left out
+        of the repr because tool sections may hold secrets.
+    removed : dict[str, tuple[str, ...]]
+        Removed key names per tool name. Values are never reported.
+    """
+
+    config: StackConfig = field(repr=False)
+    removed: dict[str, tuple[str, ...]]
+
+
+def prune_unknown_keys(
+    config: StackConfig, package_configs: Iterable[type[PackageConfigBase]]
+) -> PruneReport:
+    """Remove stored keys that the given package classes do not declare.
+
+    Only ``[tools.*]`` sections that have a class in *package_configs* are
+    touched, and only keys with no matching field. The input is left
+    unchanged and nothing is written to disk. A key unknown to this version
+    may belong to a newer one that shares the file.
+    """
+    from .stack_config import StackConfig
+
+    pruned = config.model_copy(deep=True)
+    removed: dict[str, tuple[str, ...]] = {}
+    for package_config in package_configs:
+        unknown = package_config.unknown_keys(pruned)
+        if not unknown:
+            continue
+        section = pruned.tools[package_config.tool_name]
+        pruned.tools[package_config.tool_name] = {
+            key: value for key, value in section.items() if key not in unknown
+        }
+        removed[package_config.tool_name] = unknown
+    result = StackConfig.model_validate(pruned.model_dump(mode="python"))
+    if config.loaded_path is not None:
+        result.bind_loaded_path(config.loaded_path)
+    return PruneReport(result, removed)

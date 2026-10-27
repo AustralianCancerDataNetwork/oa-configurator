@@ -742,8 +742,8 @@ class TestResolveFieldsPlainFieldHandling:
     over or left to their own default -- matching what _resolve_named_entry
     already does for RefTo-target schemas."""
 
-    def test_bool_field_uses_confirm_and_stores_a_real_bool(self, monkeypatch):
-        monkeypatch.setattr(typer, "confirm", lambda *a, **k: True)
+    def test_bool_field_stores_a_real_bool(self, monkeypatch):
+        monkeypatch.setattr(typer, "prompt", lambda *a, **k: "y")
         extra = BoolFieldConfig.resolve_fields(
             StackConfig.for_session(), set_dict={}, interactive=True
         )

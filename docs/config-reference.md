@@ -227,6 +227,12 @@ embedding_model_name = "embedding-model"
 vector_store_name    = "vector_store"
 ```
 
+### What is stored
+
+A section holds the values you set, not the package's defaults. A field that is absent takes the package's current default, so a package upgrade that changes a default reaches your installation. `omop-config configure` and `plan_configure()` write a field only if it was already stored, was passed as a flag or value, or was entered at a prompt. Pressing Enter at a prompt leaves the field as it is, and typing a value (even one equal to the default) stores it. To pin a default, enter it explicitly.
+
+Keys that the installed package does not declare are kept when the section is rewritten, because another environment or a newer package version may use them. `omop-config configure` names them after saving. `omop-config prune` lists them for every installed package, and `omop-config prune --apply` removes them. Pruning with an older package version removes keys that a newer version uses, so check the list first.
+
 ---
 
 ## `[logging]`

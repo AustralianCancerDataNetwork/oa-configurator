@@ -434,14 +434,14 @@ def _register_clone(app: Any, target: type[Sectioned], *, name: str = "clone", h
             "source_name",
             inspect.Parameter.POSITIONAL_OR_KEYWORD,
             annotation=Annotated[
-                str, typer.Argument(metavar="SOURCE", help=f"Existing {singular} to copy.")
+                str, typer.Argument(metavar="NAME", help=f"Existing {singular} to copy.")
             ],
         ),
         inspect.Parameter(
             "new_name",
             inspect.Parameter.POSITIONAL_OR_KEYWORD,
             annotation=Annotated[
-                str, typer.Argument(metavar="NEW", help=f"Name of the new {singular}.")
+                str, typer.Argument(metavar="NEW_NAME", help=f"Name of the new {singular}.")
             ],
         ),
     ]

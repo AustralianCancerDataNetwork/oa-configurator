@@ -512,9 +512,9 @@ def rename_entry(
 ) -> StackConfig:
     """Return a validated copy with ``section.old`` renamed and every reference repointed.
 
-    Pure: no file I/O, and *config* is not modified. Persisting the result is
-    a separate :func:`~oa_configurator.io.save_stack_config` call. The entry
-    keeps its position in the section. A package field that omitted its value
+    The original *config* is not altered in place or on disk. Save the result
+    with :func:`~oa_configurator.io.save_stack_config`. The entry keeps its
+    position in the section. A package field that omitted its value
     and so referred to *old* through its default gets an explicit *new* value,
     because the default would otherwise no longer resolve. The candidate is
     validated as a whole: forward references, database kinds, and the package
@@ -592,9 +592,9 @@ def clone_entry(
 ) -> StackConfig:
     """Return a validated copy with ``section.source`` copied to ``section.new``.
 
-    Pure: no file I/O, and *config* is not modified. The copy is added at the
-    end of the section. The source is left unchanged, and nothing that points
-    at it is repointed.
+    The original *config* is not altered in place or on disk. The copy is added
+    at the end of the section, the source entry is kept, and nothing that points
+    at the source is repointed.
 
     An unchanged copy is often invalid, for example two CDM databases on one
     connection or two identical connections. Use *overrides* to change fields
@@ -658,8 +658,8 @@ def delete_entry(
 ) -> StackConfig:
     """Return a validated copy without ``section.name``, if nothing references it.
 
-    Pure: no file I/O, and *config* is not modified. There is no way to force
-    a deletion that leaves dangling references.
+    The original *config* is not altered in place or on disk. There is no way
+    to force a deletion that leaves dangling references.
 
     Parameters
     ----------
@@ -707,8 +707,8 @@ def delete_entry(
 def remove_tool_section(config: StackConfig, tool_name: str) -> StackConfig:
     """Return a validated copy without the ``[tools.<tool_name>]`` section.
 
-    Pure: no file I/O, and *config* is not modified. Nothing refers to a tool
-    section, so removal needs no package class and works for a section whose
+    The original *config* is not altered in place or on disk. Nothing refers to a
+    tool section, so removal needs no package class and works for a section whose
     package is broken or no longer installed.
 
     Parameters

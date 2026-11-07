@@ -38,6 +38,10 @@ postgres = [
   "psycopg[binary]>=3.1",
 ]
 
+duckdb = [
+  "duckdb-sqlalchemy>=1.5",
+]
+
 [project.scripts]
 omop-config = "oa_configurator.cli:app"
 

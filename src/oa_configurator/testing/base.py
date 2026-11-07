@@ -16,7 +16,7 @@ import pytest
 from sqlalchemy import Connection, Engine
 from sqlalchemy.orm import Session
 
-from ..domains.resources.sql import connection_key
+from ..domains.resources.sql import EXECUTION_OPTION_TEST_ONLY, connection_key
 
 if TYPE_CHECKING:
     from ..domains.resources.schema import (
@@ -204,16 +204,16 @@ class TestDatabaseStrategy(ABC):
     @staticmethod
     def _require_test_only_engine(engine: Engine) -> None:
         """Refuse to use *engine* with ``isolated_test_schema()`` unless it
-        matches a ``test_only=true`` connection in the active config.
+        is known to be test-only.
 
-        Unlike ``isolated_database()``, this path is handed an already-built
-        engine directly, not a config field name, so there's nothing to
-        resolve through ``_resolve_and_check()``. The engine's own URL is
-        matched against ``config.connections`` by host/database/port
-        instead, applying the same safety posture: refuse by default,
-        require a positive, known, test_only match before creating a real,
-        committed schema.
+        Accepts an engine already carrying ``EXECUTION_OPTION_TEST_ONLY``
+        in its execution options. Otherwise matches it against a
+        ``test_only=true`` connection in the active config by physical
+        identity, failing if none matches.
         """
+        if engine.get_execution_options().get(EXECUTION_OPTION_TEST_ONLY):
+            return
+
         from ..loader import load_stack_config
 
         url = engine.url

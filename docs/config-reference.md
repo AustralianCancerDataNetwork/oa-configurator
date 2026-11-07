@@ -29,12 +29,13 @@ One section per named physical connection: server address, credentials, target d
 
 As the project is built on [SQLAlchemy](https://www.sqlalchemy.org/), support is inherently
 limited to dialects [SQLAlchemy itself supports](https://docs.sqlalchemy.org/en/20/dialects/).
-Only two are implemented today:
+Three are implemented today:
 
 | SQLAlchemy Dialect | Supported |
 | :----------------- | :-------: |
 | PostgreSQL (9.6+) | :white_check_mark: |
 | SQLite (3.12+) | :white_check_mark: |
+| DuckDB (1.0+) | :white_check_mark: |
 | Microsoft SQL Server (2012+) | :x: |
 | MySQL / MariaDB (5.6+ / 10+) | :x: |
 | Oracle Database (11+) | :x: |

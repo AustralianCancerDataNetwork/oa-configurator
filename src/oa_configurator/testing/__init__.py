@@ -64,7 +64,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple, cast
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.dialects import registry
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, NoSuchModuleError
 
 from ..domains.resources.sql import Dialect, Role
 from .base import (
@@ -73,6 +73,7 @@ from .base import (
     TestDatabaseStrategy,
     _skip_message,
 )
+from .duckdb import DuckDBTestStrategy
 from .postgres import (
     PostgresTestStrategy,
     drop_schema_if_exists,
@@ -89,6 +90,7 @@ __all__ = [
     "DIALECT_PARAMS",
     "IsolatedTestDatabase",
     "ScopedTestSchema",
+    "assert_compiles_for_every_dialect",
     "cleanup_after_test",
     "delete_rows_on_cleanup",
     "drop_schema_if_exists",
@@ -100,6 +102,39 @@ __all__ = [
     "resolve_with_role_schemas",
     "scoped_test_schema",
 ]
+
+
+def assert_compiles_for_every_dialect(
+    construct_cls: type, *, dialects: Iterable[Dialect] = Dialect
+) -> None:
+    """Assert construct_cls has an ``@compiles`` registration for every dialect.
+    Catches wthether a @compiles was registered for every dialect. 
+    
+    Parameters
+    ----------
+    construct_cls : type
+        A SQLAlchemy construct class (e.g. a ``ColumnElement``/``DDLElement``
+        subclass) that has at least one ``@compiles`` registration.
+    dialects : Iterable[Dialect], optional
+        Dialects that must each have their own registration. Defaults to
+        every member of :class:`Dialect`.
+
+    Raises
+    ------
+    AssertionError
+        If construct_cls has no ``@compiles`` registrations at all, or is
+        missing one for any of dialects.
+    """
+    dispatcher = getattr(construct_cls, "_compiler_dispatcher", None)
+    if dispatcher is None:
+        raise AssertionError(
+            f"{construct_cls.__name__} has no @compiles registrations at all."
+        )
+    missing = [dialect.value for dialect in dialects if dialect.value not in dispatcher.specs]
+    if missing:
+        raise AssertionError(
+            f"{construct_cls.__name__} has no @compiles registration for: {missing}."
+        )
 
 def pytest_configure(config: pytest.Config) -> None:
     # See _can_corrupt_shared_metadata() for what "corrupting" means here.
@@ -139,6 +174,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 _STRATEGIES: dict[Dialect, type[TestDatabaseStrategy]] = {
     Dialect.POSTGRESQL: PostgresTestStrategy,
     Dialect.SQLITE: SQLiteTestStrategy,
+    Dialect.DUCKDB: DuckDBTestStrategy,
 }
 
 
@@ -152,12 +188,20 @@ def _can_corrupt_shared_metadata(dialect: str) -> bool:
     same shared Base.metadata on any other dialect in the same process. A
     dialect that can't ALTER (e.g. SQLite) can never trigger this itself.
 
-    Loads the dialect class through SQLAlchemy's own plugin registry
-    rather than ``create_engine()``, so this needs no driver installed and
-    no real connection, since ``supports_alter`` is a database-level
-    capability, identical across every driver for the same dialect.
+    Loads the dialect class through SQLAlchemy's own plugin so this needs 
+    no real connection. If an optional dialect's driver isn't installed, 
+    conservatively treat it as capable of corrupting shared metadata.
+
+    Notes
+    -----
+    Its ``DIALECT_PARAMS`` entry still gets marked ``db_dialect`` and stays 
+    excluded from the default suite. The answer self-corrects once the driver 
+    actually is installed.
     """
-    return bool(registry.load(dialect).supports_alter)
+    try:
+        return bool(registry.load(dialect).supports_alter)
+    except NoSuchModuleError:
+        return True
 
 
 DIALECT_PARAMS = tuple(

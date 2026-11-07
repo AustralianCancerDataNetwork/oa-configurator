@@ -407,7 +407,21 @@ def without_cross_engine_foreign_keys(
         and their MetaData are never mutated.
     """
     target = sa.MetaData()
+    tables = list(tables)
     copies = [table.to_metadata(target) for table in tables]
+    for original, copied in zip(tables, copies):
+        # to_metadata() drops a column type's with_variant() dialect
+        # overrides, so restore the original (immutable, safely shared) type
+        # object. It also skips type-bound constraints (e.g. Enum's
+        # create_constraint CHECK) entirely, expecting the column copy's own
+        # type to regenerate them on attach -- which never happens for a
+        # variant-wrapped type, since its generic impl has no constraint to
+        # generate. Re-copy them explicitly instead of relying on that.
+        for column in copied.columns:
+            column.type = original.columns[column.name].type
+        for constraint in original.constraints:
+            if constraint._type_bound:
+                copied.append_constraint(constraint._copy(schema=copied.schema, target_table=copied))
     for copied in copies:
         for constraint in tuple(copied.foreign_key_constraints):
             if not _crosses_fk_boundary(constraint, resolved, physical_schemas):

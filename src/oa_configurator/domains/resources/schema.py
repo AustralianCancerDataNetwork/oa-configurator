@@ -92,12 +92,9 @@ def reject_claimed_tags(
 ) -> None:
     """Raise if any of *extras* claims a schema_tag already in *defaults*.
 
-    Shared by every layer that merges its own always-claimed defaults with
-    a caller's additional ``schema_claims``: ``create_engine()`` itself
-    (defaults are the resolver-owned Role/provenance tags) and any package
-    wrapper built on top of it with its own fixed defaults (e.g.
-    omop-alchemy's ``create_cdm_engines()``, whose defaults are its
-    maintenance/auxiliary/staging claims).
+    Used wherever a fixed set of default schema claims is merged with
+    caller-supplied ones, to catch a caller reclaiming a tag that is
+    already spoken for.
 
     Parameters
     ----------

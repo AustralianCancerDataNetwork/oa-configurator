@@ -44,8 +44,7 @@ class ProviderConfig(SecretSafeBaseModel):
     @field_validator("base_url")
     @classmethod
     def _reject_userinfo(cls, v: str | None) -> str | None:
-        """Reject a URL carrying userinfo (``https://user:pw@host/v1``).
-        """
+        """Reject a URL carrying userinfo (``https://user:pw@host/v1``)."""
         if v is None:
             return v
         try:
@@ -63,7 +62,9 @@ class ProviderConfig(SecretSafeBaseModel):
 
     def resolve(self, name: str) -> ResolvedProvider:
         """Resolve this provider to a concrete, backend-ready connection."""
-        return ResolvedProvider(name=name, provider=self.provider, base_url=self.base_url, api_key=self.api_key)
+        return ResolvedProvider(
+            name=name, provider=self.provider, base_url=self.base_url, api_key=self.api_key
+        )
 
 
 class ModelConfig(SecretSafeBaseModel):
@@ -81,9 +82,7 @@ class ModelConfig(SecretSafeBaseModel):
     provider: Annotated[str, RefTo(ProviderConfig)] = Field(
         description="Name of the provider entry (from [providers]) this model is served through."
     )
-    model: str = Field(
-        description="Model name or identifier passed to the provider."
-    )
+    model: str = Field(description="Model name or identifier passed to the provider.")
     embedding_dim: int | None = Field(
         default=None,
         description="Embedding dimension override. Unset lets the provider's own discovery (fast path or live probe) determine it.",

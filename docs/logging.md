@@ -14,6 +14,7 @@ configure_logging(extra_namespaces=["my_package"])
 
 # From a loaded config file (uses [logging] block)
 from oa_configurator import load_stack_config
+
 configure_logging(load_stack_config(), extra_namespaces=["my_package"])
 ```
 

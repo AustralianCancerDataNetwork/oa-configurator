@@ -24,11 +24,11 @@ A shared configuration layer for the OMOP-oriented Python stack.
     ```python
     from oa_configurator import load_stack_config, Resolver
 
-    config = load_stack_config()                        # reads the active config path (default ~/.config/omop/config.toml)
+    config = load_stack_config()  # reads the active config path (default ~/.config/omop/config.toml)
     resolver = Resolver(config)
 
     database = resolver.resolve_database("cdm")
-    primary, vocab = database.create_engines()          # SQLAlchemy Engines, schema_translate_map applied
+    primary, vocab = database.create_engines()  # SQLAlchemy Engines, schema_translate_map applied
     ```
 
 === "Inline (no file)"
@@ -37,8 +37,11 @@ A shared configuration layer for the OMOP-oriented Python stack.
     from oa_configurator import StackConfig, ConnectionConfig, CDMDatabaseConfig, Resolver
 
     config = StackConfig.for_session(
-        connections={"local": ConnectionConfig(dialect="postgresql+psycopg", host="localhost",
-                                                database_name="omop", password="omop")},
+        connections={
+            "local": ConnectionConfig(
+                dialect="postgresql+psycopg", host="localhost", database_name="omop", password="omop"
+            )
+        },
         databases={"cdm": CDMDatabaseConfig(connection="local", cdm_schema="omop")},
     )
     primary, vocab = Resolver(config).resolve_database("cdm").create_engines()

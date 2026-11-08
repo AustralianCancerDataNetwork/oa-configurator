@@ -121,12 +121,8 @@ class TestWriteEnvFile:
 
     def test_tool_extra_scalars_exported(self, tmp_path):
         cfg = StackConfig.for_session(
-            connections={
-                "db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
-            },
-            databases={
-                "default": CDMDatabaseConfig(connection="db")
-            },
+            connections={"db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
+            databases={"default": CDMDatabaseConfig(connection="db")},
             tools={"my_pkg": {"foo": "bar", "count": 3}},
         )
         out = tmp_path / "config.env"
@@ -154,12 +150,8 @@ class TestSaveStackConfig:
 
     def test_creates_file(self, tmp_path):
         cfg = StackConfig.for_session(
-            connections={
-                "db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
-            },
-            databases={
-                "default": CDMDatabaseConfig(connection="db")
-            },
+            connections={"db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
+            databases={"default": CDMDatabaseConfig(connection="db")},
         )
         out = tmp_path / "config.toml"
         save_stack_config(cfg, out)
@@ -177,9 +169,7 @@ class TestSaveStackConfig:
                     database_name="omop_cdm",
                 )
             },
-            databases={
-                "default": CDMDatabaseConfig(connection="cdm", cdm_schema="omop")
-            },
+            databases={"default": CDMDatabaseConfig(connection="cdm", cdm_schema="omop")},
         )
         out = tmp_path / "config.toml"
         save_stack_config(cfg, out)
@@ -215,9 +205,7 @@ class TestSaveStackConfig:
     def test_none_values_stripped(self, tmp_path):
         cfg = StackConfig.for_session(
             connections={"db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
-            databases={
-                "default": CDMDatabaseConfig(connection="db")
-            },
+            databases={"default": CDMDatabaseConfig(connection="db")},
         )
         out = tmp_path / "config.toml"
         save_stack_config(cfg, out)
@@ -236,22 +224,16 @@ class TestSaveStackConfig:
 
     def test_existing_file_is_refreshed_as_secure_backup(self, tmp_path):
         out = tmp_path / "config.toml"
-        save_stack_config(
-            StackConfig.for_session(tools={"demo": {"value": "old"}}), out
-        )
+        save_stack_config(StackConfig.for_session(tools={"demo": {"value": "old"}}), out)
         old_bytes = out.read_bytes()
 
-        save_stack_config(
-            StackConfig.for_session(tools={"demo": {"value": "new"}}), out
-        )
+        save_stack_config(StackConfig.for_session(tools={"demo": {"value": "new"}}), out)
 
         backup = tmp_path / "config.toml.bak"
         assert backup.read_bytes() == old_bytes
         assert stat.S_IMODE(backup.stat().st_mode) == 0o600
 
-    def test_serialization_failure_does_not_touch_destination(
-        self, tmp_path, monkeypatch
-    ):
+    def test_serialization_failure_does_not_touch_destination(self, tmp_path, monkeypatch):
         out = tmp_path / "config.toml"
         out.write_text("original", encoding="utf-8")
         monkeypatch.setattr(
@@ -371,9 +353,7 @@ class TestSaveStackConfig:
         assert out.read_text(encoding="utf-8") == "original"
         assert list(tmp_path.glob(".*.tmp")) == []
 
-    def test_destination_replace_failure_leaves_original_and_backup(
-        self, tmp_path, monkeypatch
-    ):
+    def test_destination_replace_failure_leaves_original_and_backup(self, tmp_path, monkeypatch):
         out = tmp_path / "config.toml"
         out.write_text("original", encoding="utf-8")
         real_replace = os.replace
@@ -407,13 +387,9 @@ class TestSaveStackConfig:
 
         assert out.read_text(encoding="utf-8") == "original"
 
-    def test_post_swap_sync_failure_rolls_back_existing_destination(
-        self, tmp_path, monkeypatch
-    ):
+    def test_post_swap_sync_failure_rolls_back_existing_destination(self, tmp_path, monkeypatch):
         out = tmp_path / "config.toml"
-        save_stack_config(
-            StackConfig.for_session(tools={"demo": {"value": "old"}}), out
-        )
+        save_stack_config(StackConfig.for_session(tools={"demo": {"value": "old"}}), out)
         old_bytes = out.read_bytes()
         calls = 0
 
@@ -425,16 +401,12 @@ class TestSaveStackConfig:
 
         monkeypatch.setattr(io_module, "_fsync_directory", fail_destination_sync)
         with pytest.raises(ConfigSaveError, match="previous state was restored"):
-            save_stack_config(
-                StackConfig.for_session(tools={"demo": {"value": "new"}}), out
-            )
+            save_stack_config(StackConfig.for_session(tools={"demo": {"value": "new"}}), out)
 
         assert out.read_bytes() == old_bytes
         assert (tmp_path / "config.toml.bak").read_bytes() == old_bytes
 
-    def test_post_swap_sync_failure_removes_first_destination(
-        self, tmp_path, monkeypatch
-    ):
+    def test_post_swap_sync_failure_removes_first_destination(self, tmp_path, monkeypatch):
         out = tmp_path / "config.toml"
         calls = 0
 
@@ -450,9 +422,7 @@ class TestSaveStackConfig:
 
         assert not out.exists()
 
-    def test_cache_invalidation_happens_only_after_destination_swap(
-        self, tmp_path, monkeypatch
-    ):
+    def test_cache_invalidation_happens_only_after_destination_swap(self, tmp_path, monkeypatch):
         out = tmp_path / "config.toml"
         events: list[str] = []
         real_replace = os.replace
@@ -463,9 +433,7 @@ class TestSaveStackConfig:
                 events.append("replace")
 
         monkeypatch.setattr(io_module.os, "replace", record_replace)
-        monkeypatch.setattr(
-            io_module, "invalidate_cache", lambda: events.append("invalidate")
-        )
+        monkeypatch.setattr(io_module, "invalidate_cache", lambda: events.append("invalidate"))
         monkeypatch.setattr(
             io_module,
             "_verify_saved_config",
@@ -476,39 +444,27 @@ class TestSaveStackConfig:
 
         assert events == ["replace", "invalidate", "verify", "invalidate"]
 
-    def test_reload_verification_failure_restores_existing_destination(
-        self, tmp_path, monkeypatch
-    ):
+    def test_reload_verification_failure_restores_existing_destination(self, tmp_path, monkeypatch):
         out = tmp_path / "config.toml"
-        save_stack_config(
-            StackConfig.for_session(tools={"demo": {"value": "old"}}), out
-        )
+        save_stack_config(StackConfig.for_session(tools={"demo": {"value": "old"}}), out)
         old_bytes = out.read_bytes()
         monkeypatch.setattr(
             io_module,
             "_verify_saved_config",
-            lambda path, expected: (_ for _ in ()).throw(
-                ValueError("verification failed")
-            ),
+            lambda path, expected: (_ for _ in ()).throw(ValueError("verification failed")),
         )
 
         with pytest.raises(ConfigSaveError, match="previous state was restored"):
-            save_stack_config(
-                StackConfig.for_session(tools={"demo": {"value": "new"}}), out
-            )
+            save_stack_config(StackConfig.for_session(tools={"demo": {"value": "new"}}), out)
 
         assert out.read_bytes() == old_bytes
 
-    def test_reload_verification_failure_removes_new_destination(
-        self, tmp_path, monkeypatch
-    ):
+    def test_reload_verification_failure_removes_new_destination(self, tmp_path, monkeypatch):
         out = tmp_path / "config.toml"
         monkeypatch.setattr(
             io_module,
             "_verify_saved_config",
-            lambda path, expected: (_ for _ in ()).throw(
-                ValueError("verification failed")
-            ),
+            lambda path, expected: (_ for _ in ()).throw(ValueError("verification failed")),
         )
 
         with pytest.raises(ConfigSaveError, match="new destination was removed"):
@@ -522,9 +478,7 @@ class TestSaveStackConfig:
         monkeypatch.setattr(
             io_module,
             "_verify_saved_config",
-            lambda path, expected: (_ for _ in ()).throw(
-                ValueError("verification failed")
-            ),
+            lambda path, expected: (_ for _ in ()).throw(ValueError("verification failed")),
         )
         monkeypatch.setattr(
             io_module,
@@ -534,12 +488,8 @@ class TestSaveStackConfig:
             ),
         )
 
-        with pytest.raises(
-            ConfigSaveError, match="recovery also failed: rollback failed"
-        ):
-            save_stack_config(
-                StackConfig.for_session(tools={"demo": {"value": "new"}}), out
-            )
+        with pytest.raises(ConfigSaveError, match="recovery also failed: rollback failed"):
+            save_stack_config(StackConfig.for_session(tools={"demo": {"value": "new"}}), out)
 
         assert list(tmp_path.glob(".*.tmp")) == []
 
@@ -559,17 +509,13 @@ class TestSaveStackConfig:
                 "generic": GenericDatabaseConfig(connection="primary"),
             },
             providers={
-                "provider": ProviderConfig(
-                    provider="openai", api_key="provider-secret"
-                ),
+                "provider": ProviderConfig(provider="openai", api_key="provider-secret"),
             },
             models={
                 "embedding": ModelConfig(provider="provider", model="embedding-model"),
             },
             vector_stores={
-                "vectors": VectorStoreConfig(
-                    backend_type="pgvector", database="generic"
-                ),
+                "vectors": VectorStoreConfig(backend_type="pgvector", database="generic"),
             },
             tools={"demo": {"enabled": True, "nested": {"count": 2}}},
         )

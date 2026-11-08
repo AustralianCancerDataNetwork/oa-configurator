@@ -53,6 +53,7 @@ The whole design rests on implementers declaring their secrets.
 Prefer this over the equivalent  ``Annotated[str | None, Sensitive()]``
 """
 
+
 def _iter_refs(cls: type[BaseModel]) -> Iterator[tuple[str, RefTo]]:
     """Yield (field_name, RefTo) for every RefTo-marked field on *cls*.
 
@@ -73,8 +74,8 @@ def is_sensitive(info: Any) -> bool:
     The stack's only runtime sensitivity predicate: masking a field in anything,
     rendering configuration, and :class:`SecretSafeBaseModel`'s repr all consult this.
 
-    What it cannot reach is free text, which has no field to look up. 
-    
+    What it cannot reach is free text, which has no field to look up.
+
     :class:`~oa_configurator.logging_config.RedactingFilter` is scoped to URLs
     written by other libraries rather than trying to guess.
 
@@ -163,8 +164,8 @@ def safe_endpoint(url: str | None) -> str | None:
     - **Fragment** (``https://host/v1#access_token=abc``): masked whole, to
       ``#***``. A fragment is never sent to the server, so nothing in an
       endpoint's fragment is operationally meaningful, but the OAuth implicit
-      flow delivers access tokens like this, and a fragment has no guaranteed 
-      ``key=value`` structure to mask value-by-value. 
+      flow delivers access tokens like this, and a fragment has no guaranteed
+      ``key=value`` structure to mask value-by-value.
 
     Parameters
     ----------

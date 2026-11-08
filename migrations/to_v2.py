@@ -5,7 +5,9 @@
 
 import sys
 
-UPGRADING_GUIDE_URL = "https://AustralianCancerDataNetwork.github.io/oa-configurator/upgrading-from-1.x/"
+UPGRADING_GUIDE_URL = (
+    "https://AustralianCancerDataNetwork.github.io/oa-configurator/upgrading-from-1.x/"
+)
 TRACKING_ISSUE_URL = "https://github.com/AustralianCancerDataNetwork/oa-configurator/issues/40"
 
 

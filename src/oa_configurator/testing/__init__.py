@@ -37,8 +37,8 @@ whichever ones are capable of corrupting shared ORM metadata across
 dialects in one process (see ``_can_corrupt_shared_metadata`` for the
 mechanism). A consuming repo's ``addopts = "-m 'not db_dialect'"`` excludes
 those by default; ``pytest -m <dialect>`` runs just one. Parametrize a
-fixture across dialects with ``DIALECT_PARAMS`` since each param already 
-carries the right marks. It also auto-applies to any test whose fixture 
+fixture across dialects with ``DIALECT_PARAMS`` since each param already
+carries the right marks. It also auto-applies to any test whose fixture
 closure includes ``pg_db``.
 
 That auto-detection is static and name-based, so it silently misses a
@@ -59,7 +59,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Generator, Iterable, Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
-from typing import TYPE_CHECKING, Any, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import pytest
 import sqlalchemy as sa
@@ -108,8 +108,8 @@ def assert_compiles_for_every_dialect(
     construct_cls: type, *, dialects: Iterable[Dialect] = Dialect
 ) -> None:
     """Assert construct_cls has an ``@compiles`` registration for every dialect.
-    Catches wthether a @compiles was registered for every dialect. 
-    
+    Catches wthether a @compiles was registered for every dialect.
+
     Parameters
     ----------
     construct_cls : type
@@ -127,14 +127,13 @@ def assert_compiles_for_every_dialect(
     """
     dispatcher = getattr(construct_cls, "_compiler_dispatcher", None)
     if dispatcher is None:
-        raise AssertionError(
-            f"{construct_cls.__name__} has no @compiles registrations at all."
-        )
+        raise AssertionError(f"{construct_cls.__name__} has no @compiles registrations at all.")
     missing = [dialect.value for dialect in dialects if dialect.value not in dispatcher.specs]
     if missing:
         raise AssertionError(
             f"{construct_cls.__name__} has no @compiles registration for: {missing}."
         )
+
 
 def pytest_configure(config: pytest.Config) -> None:
     # See _can_corrupt_shared_metadata() for what "corrupting" means here.
@@ -188,14 +187,14 @@ def _can_corrupt_shared_metadata(dialect: str) -> bool:
     same shared Base.metadata on any other dialect in the same process. A
     dialect that can't ALTER (e.g. SQLite) can never trigger this itself.
 
-    Loads the dialect class through SQLAlchemy's own plugin so this needs 
-    no real connection. If an optional dialect's driver isn't installed, 
+    Loads the dialect class through SQLAlchemy's own plugin so this needs
+    no real connection. If an optional dialect's driver isn't installed,
     conservatively treat it as capable of corrupting shared metadata.
 
     Notes
     -----
-    Its ``DIALECT_PARAMS`` entry still gets marked ``db_dialect`` and stays 
-    excluded from the default suite. The answer self-corrects once the driver 
+    Its ``DIALECT_PARAMS`` entry still gets marked ``db_dialect`` and stays
+    excluded from the default suite. The answer self-corrects once the driver
     actually is installed.
     """
     try:
@@ -228,7 +227,9 @@ def _strategy_for(dialect_name: str) -> TestDatabaseStrategy:
     return _STRATEGIES[dialect]()
 
 
-def _require_db_dialect_mark(request: pytest.FixtureRequest, field_name: str, dialect_name: str) -> None:
+def _require_db_dialect_mark(
+    request: pytest.FixtureRequest, field_name: str, dialect_name: str
+) -> None:
     """Raise if *request*'s test can corrupt shared metadata but isn't marked for it.
 
     ``pytest_collection_modifyitems``'s ``pg_db``-name detection is static
@@ -299,7 +300,9 @@ def isolated_test_database(
         one for a named Postgres extension).
     """
     if dialect is not None and dialect not in _STRATEGIES:
-        raise ValueError(f"Unknown dialect {dialect!r}. Registered: {sorted(d.value for d in _STRATEGIES)}.")
+        raise ValueError(
+            f"Unknown dialect {dialect!r}. Registered: {sorted(d.value for d in _STRATEGIES)}."
+        )
 
     try:
         resolved: ResolvedDatabase = TestDatabaseStrategy._resolve_and_check(
@@ -385,11 +388,16 @@ def guarded_resolver(resolved: ResolvedDatabase, *, resolver: Resolver | None = 
 
     resolver = resolver if resolver is not None else Resolver.from_active_config()
     names = {
-        resolved.connection_for_role(resolved.route_for_schema_tag(tag, vocab=Role.VOCAB, primary=Role.PRIMARY)).name
+        resolved.connection_for_role(
+            resolved.route_for_schema_tag(tag, vocab=Role.VOCAB, primary=Role.PRIMARY)
+        ).name
         for tag in resolved.schema_tags()
     }
     return resolver.with_overrides(
-        connections={name: resolver.config.connections[name].model_copy(update={"test_only": False}) for name in names}
+        connections={
+            name: resolver.config.connections[name].model_copy(update={"test_only": False})
+            for name in names
+        }
     )
 
 
@@ -434,7 +442,9 @@ def resolve_with_role_schemas(
     overridden = type(entry).model_validate(
         {**entry.model_dump(), **{field_by_role[role]: schema for role, schema in schemas.items()}}
     )
-    return resolver.with_overrides(databases={resolved.name: overridden}).resolve_database(resolved.name)
+    return resolver.with_overrides(databases={resolved.name: overridden}).resolve_database(
+        resolved.name
+    )
 
 
 def _scoped_role_schemas(
@@ -526,7 +536,10 @@ def scoped_test_schema(
                 stack.callback(drop_schema_if_exists, primary_ddl_engine, claim.physical_schema)
         engine = scoped._build_engine(
             Role.PRIMARY,
-            schema_claims=schema_claims, extensions=extensions, owner=owner, **engine_kwargs
+            schema_claims=schema_claims,
+            extensions=extensions,
+            owner=owner,
+            **engine_kwargs,
         )
         stack.callback(engine.dispose)
         yield ScopedTestSchema(resolved=scoped, engine=engine, schemas=schemas)
@@ -636,9 +649,10 @@ def reset_schema_registry_rows(
         when exercising non-``test_only`` claim behavior against it.
     """
     from ..domains.resources.schema_registry import SchemaRegistry, _registry_connection
+
     TestDatabaseStrategy._require_test_only_engine(engine)
 
-    table = cast(sa.Table, SchemaRegistry.__table__)
+    table = SchemaRegistry.table()
     condition = table.c.schema_tag.in_(list(schema_tags))
 
     with engine.begin() as connection:

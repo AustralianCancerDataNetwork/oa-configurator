@@ -52,13 +52,13 @@ class ConfigurationError(ValueError):
     """General-purpose config-error type for this package.
 
     Raised across many distinct situations, not just a missing database or
-    connection: 
-    - malformed stack-config TOML, 
+    connection:
+    - malformed stack-config TOML,
     - a missing required CLI field,
-    - an unrecognized ``--set``/flag key, 
-    - a failed entry validation, 
-    -a test/production connection collision, 
-    - an unresolved or kind-mismatched ref, 
+    - an unrecognized ``--set``/flag key,
+    - a failed entry validation,
+    -a test/production connection collision,
+    - an unresolved or kind-mismatched ref,
     - an ``is_test``/``test_only`` mismatch, and a headless ``plan_configure`` failure,
     - ...
     """
@@ -107,9 +107,7 @@ class PackageConfigInvalidError(_SanitizedValidationErrorMixin, ConfigurationErr
 
     def __init__(self, tool_name: str, validation_error: ValidationError) -> None:
         self.tool_name = tool_name
-        super().__init__(
-            f"Invalid [tools.{tool_name}]: " + self._sanitize(validation_error)
-        )
+        super().__init__(f"Invalid [tools.{tool_name}]: " + self._sanitize(validation_error))
 
 
 class StackConfigInvalidError(_SanitizedValidationErrorMixin, ConfigurationError):
@@ -128,9 +126,7 @@ class StackConfigInvalidError(_SanitizedValidationErrorMixin, ConfigurationError
 
     def __init__(self, path: Path, validation_error: ValidationError) -> None:
         self.path = path
-        super().__init__(
-            f"Invalid stack config {path}: " + self._sanitize(validation_error)
-        )
+        super().__init__(f"Invalid stack config {path}: " + self._sanitize(validation_error))
 
 
 class PackageConfigBase(SecretSafeBaseModel):
@@ -170,9 +166,7 @@ class PackageConfigBase(SecretSafeBaseModel):
         return Resolver.from_active_config().resolve_package_config(cls)
 
     @classmethod
-    def configure_logging(
-        cls, config=None, *, verbosity: int = 0, console=None
-    ) -> None:
+    def configure_logging(cls, config=None, *, verbosity: int = 0, console=None) -> None:
         """Configure logging for this package and its declared transitive dependencies."""
         from .logging_config import configure_logging as _configure_logging
 
@@ -396,9 +390,7 @@ class PackageConfigBase(SecretSafeBaseModel):
                     stored
                     if stored is not None
                     else (
-                        str(info.default)
-                        if info.default not in (None, PydanticUndefined)
-                        else ""
+                        str(info.default) if info.default not in (None, PydanticUndefined) else ""
                     )
                 )
                 raw = typer.prompt(label, default=default_value)
@@ -486,9 +478,7 @@ def plan_configure(
     except typer.Exit as exc:
         # Keep this public headless boundary free of CLI control-flow errors,
         # including any future resolver path that accidentally raises one.
-        raise ConfigurationError(
-            f"Could not plan [tools.{package_config.tool_name}]"
-        ) from exc
+        raise ConfigurationError(f"Could not plan [tools.{package_config.tool_name}]") from exc
     candidate.tools[package_config.tool_name] = values
     validated = package_config.validate_candidate(candidate)
     candidate.tools[package_config.tool_name] = validated.to_extra_dict()

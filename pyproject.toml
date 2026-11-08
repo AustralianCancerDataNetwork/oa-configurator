@@ -74,3 +74,7 @@ markers = [
     "db_dialect: requires a live database connection for a specific dialect (excluded by default, see addopts)",
     "postgresql: requires a live Postgres connection",
 ]
+
+[tool.ty.rules]
+# raises on stale suppressions
+unused-ignore-comment = "error"

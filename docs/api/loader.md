@@ -16,5 +16,7 @@ It raises `ConfigurationError` for a file that is present but unusable: malforme
     options:
       members:
         - load_stack_config
+        - load_stack_config_with_revision
+        - stack_config_revision
         - active_config_path
         - invalidate_cache

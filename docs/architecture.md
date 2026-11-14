@@ -264,7 +264,7 @@ chmod 600 ~/.config/omop/config.toml
 
 `RedactingFilter` (installed by `configure_logging()`) scrubs both `key=value` patterns and `://user:password@host` URL patterns from log output.
 
-`save_stack_config()` validates and serializes before changing the destination, protects candidate and backup files before writing credentials, and verifies the result after an atomic replacement. See [Saving configuration safely](api/persistence.md) for recovery behaviour. Atomic replacement protects file integrity but does not coordinate concurrent writers, which remain last-writer-wins in this release.
+`save_stack_config()` validates and serializes before changing the destination, protects candidate and backup files before writing credentials, and verifies the result after an atomic replacement. See [Saving configuration safely](api/persistence.md) for recovery behaviour. Saves are serialized by a lock file, and a save can refuse a draft read before another writer's save by passing the revision it read.
 
 **Future work**: `secret_source` support (`env:VAR`, `file:path`, Vault, cloud secret managers) is planned but not implemented in this version.
 

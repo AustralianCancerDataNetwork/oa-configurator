@@ -25,6 +25,28 @@ Temporary files are removed on handled success and failure paths. The destinatio
 
 After a successful update, `config.toml.bak` remains available as the previous complete configuration. It may contain plaintext credentials, so analysts and applications must protect it just like the active file. See [Secrets](../secrets.md#backup-copies) before resetting credentials or saving through a symbolic link.
 
-## Concurrency boundary
+## Detecting stale drafts
 
-Atomic replacement prevents readers from seeing a partly written file, but it does not prevent two editors from overwriting each other's complete changes. If your application can have more than one active editor or worker, allow only one save at a time and reject stale drafts before calling `save_stack_config()`; successful overlapping saves are otherwise last-writer-wins in this release.
+Atomic replacement prevents readers from seeing a partly written file, but it does not stop an editor from overwriting changes saved after it read the file. An editor that holds a draft between reading and saving can pass a revision token to refuse that.
+
+1. Read the config and its token together with `load_stack_config_with_revision()`. Both come from the same bytes, so the token cannot describe a newer file than the config.
+2. Edit the draft. Nothing is locked while the draft is open.
+3. Save with `save_stack_config(draft, expected_revision=token)`. If the file changed since step 1, it raises `StaleConfigRevisionError` and writes nothing. Reload and retry.
+
+For a file that is missing or cannot be parsed, `stack_config_revision()` returns a token directly. A missing file has a stable token, so a save that expects an absent file is refused if the file appears first. Tokens are opaque: compare them for equality only, and do not store them with the config.
+
+`omop-config configure` and the `add` commands use this, so they refuse to save over changes made while they were running.
+
+::: oa_configurator.loader.load_stack_config_with_revision
+
+::: oa_configurator.loader.stack_config_revision
+
+::: oa_configurator.io.StaleConfigRevisionError
+
+## Concurrent writers
+
+`save_stack_config()` takes an exclusive lock on `config.toml.lock` while it rereads the destination, checks the revision, refreshes the backup, replaces the file and verifies it. Two saves therefore never interleave, and exactly one of several saves that expect the same revision succeeds. A save waits up to `lock_timeout` seconds (10 by default) for another writer and then raises `ConfigSaveError`. The lock is held for the save only, never while a draft is being edited.
+
+`config.toml.lock` is an empty file with mode `0600` that stays beside the config. It is safe to delete when no save is running. The operating system releases the lock if a process dies, so a leftover file never blocks a save.
+
+The guarantee covers writers that use `save_stack_config()`. A text editor or script that writes `config.toml` directly is not excluded.

@@ -72,6 +72,25 @@ class TestInit:
         assert "Traceback" not in result.output
 
 
+class TestInitEnvPath:
+    def test_init_creates_file_and_parents_at_missing_env_path(self, tmp_path):
+        import os
+        import subprocess
+        import sys
+
+        target = tmp_path / "nested" / "config.toml"
+        result = subprocess.run(
+            [sys.executable, "-c", "from oa_configurator.cli import app; app()", "init"],
+            env={**os.environ, "OA_CONFIG_PATH": str(target)},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert target.is_file()
+
+
 class TestConnectionsAdd:
     def test_non_interactive_creates_connection(self, isolated_config):
         result = runner.invoke(

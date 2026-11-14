@@ -11,8 +11,10 @@ from typer.testing import CliRunner
 
 from oa_configurator import (
     CDMDatabaseConfig,
+    ConfigIssuesError,
     ConnectionConfig,
     GenericDatabaseConfig,
+    IssueCode,
     ModelConfig,
     ProviderConfig,
     RefTo,
@@ -21,6 +23,7 @@ from oa_configurator import (
     assert_no_sensitive_values_leak,
     cli,
 )
+from oa_configurator.cli_support import _exit_on_config_issues
 from oa_configurator.domains.resources.sql import Dialect
 from oa_configurator.io import save_stack_config as _real_save_stack_config
 from oa_configurator.loader import load_stack_config
@@ -722,7 +725,7 @@ class TestResolveRef:
 
     def test_danger_message_test_field_pointed_at_prod_entry(self, monkeypatch, capsys):
         """is_test=True field named at an existing non-test entry: the
-        DANGER message must say the entry isn't test_only."""
+        issue must say the entry isn't test_only, and nothing is printed."""
         monkeypatch.setattr(cli.typer, "prompt", lambda *a, **k: "prod_db")
         config = StackConfig.for_session(
             connections={
@@ -730,7 +733,7 @@ class TestResolveRef:
             },
             databases={"prod_db": CDMDatabaseConfig(connection="prod")},
         )
-        with pytest.raises(typer.Exit):
+        with pytest.raises(ConfigIssuesError) as exc_info:
             _resolve_ref(
                 "test_cdm_db",
                 "desc",
@@ -739,9 +742,12 @@ class TestResolveRef:
                 default_name="prod_db",
                 is_test=True,
             )
-        err = capsys.readouterr().err
-        assert "prod_db" in err
-        assert "is not marked test_only=true" in err
+        (issue,) = exc_info.value.issues
+        assert issue.code is IssueCode.TEST_ONLY_MISMATCH
+        assert issue.entry == "prod_db"
+        assert issue.field_path == "test_cdm_db"
+        assert "is not marked test_only=true" in issue.message
+        assert capsys.readouterr().err == ""
 
     def test_danger_message_prod_field_pointed_at_test_entry(self, monkeypatch, capsys):
         """is_test=False field named at an existing test-only entry: the
@@ -756,7 +762,7 @@ class TestResolveRef:
             },
             databases={"test_db": CDMDatabaseConfig(connection="test_conn")},
         )
-        with pytest.raises(typer.Exit):
+        with pytest.raises(ConfigIssuesError) as exc_info:
             _resolve_ref(
                 "cdm_db",
                 "desc",
@@ -765,10 +771,11 @@ class TestResolveRef:
                 default_name="test_db",
                 is_test=False,
             )
-        err = capsys.readouterr().err
-        assert "test_db" in err
-        assert "is marked test_only=true" in err
-        assert "is not marked test_only=true" not in err
+        (issue,) = exc_info.value.issues
+        assert issue.entry == "test_db"
+        assert "is marked test_only=true" in issue.message
+        assert "is not marked test_only=true" not in issue.message
+        assert capsys.readouterr().err == ""
 
 
 class DemoConfig(PackageConfigBase):
@@ -1427,3 +1434,40 @@ class TestCleanupTestDatabases:
         assert len(dropped) == 1
         assert "test_db" in dropped[0]
         assert "dropped" in result.output
+
+
+class TestExitOnConfigIssues:
+    """The CLI layer renders structured issues and exits with status 1."""
+
+    def test_test_only_mismatch_renders_danger_and_exits(self, monkeypatch, capsys):
+        monkeypatch.setattr(cli.typer, "prompt", lambda *a, **k: "test_db")
+        config = StackConfig.for_session(
+            connections={
+                "test_conn": ConnectionConfig(
+                    dialect=Dialect.SQLITE, database_name=":memory:", test_only=True
+                )
+            },
+            databases={"test_db": CDMDatabaseConfig(connection="test_conn")},
+        )
+        with pytest.raises(typer.Exit) as exc_info, _exit_on_config_issues():
+            _resolve_ref("cdm_db", "d", CDMDatabaseConfig, config, default_name="test_db")
+        assert exc_info.value.exit_code == 1
+        err = capsys.readouterr().err
+        assert "DANGER" in err
+        assert "is marked test_only=true" in err
+
+    def test_missing_required_renders_set_hint_for_dotted_path(self, capsys):
+        from oa_configurator.resolver import _check_missing_required
+
+        with pytest.raises(typer.Exit), _exit_on_config_issues():
+            _check_missing_required(
+                ["cdm_db.connection", "port"], non_interactive=True, package="my_tool"
+            )
+        err = capsys.readouterr().err
+        assert "tool 'my_tool'" in err
+        assert "--set cdm_db.connection=<value>" in err
+        assert "--port" in err
+
+    def test_unrelated_exceptions_pass_through(self):
+        with pytest.raises(ValueError, match="boom"), _exit_on_config_issues():
+            raise ValueError("boom")

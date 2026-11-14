@@ -69,7 +69,7 @@ from oa_configurator import plan_configure
 candidate = plan_configure(MyPackageConfig, current_config, proposed_values)
 ```
 
-The result is a new complete stack; `current_config` is unchanged. Submitted nested dictionaries can create or update the entries behind `RefTo` fields, while omitted fields continue to use their stored values. Use `PackageConfigInvalidError.errors()` to place schema messages beside the relevant inputs, and present `ConfigurationError` as a reference problem. Once the user has reviewed the result, persist it with a separate `save_stack_config(candidate)` call. The library functions raise exceptions without printing CLI text or raising `typer.Exit`.
+The result is a new complete stack; `current_config` is unchanged. Submitted nested dictionaries can create or update the entries behind `RefTo` fields, while omitted fields continue to use their stored values. Resolution and schema failures raise `ConfigIssuesError` (`PackageConfigInvalidError` is one), whose `issues` are `ConfigIssue` values with a stable `IssueCode`, an optional dotted `field_path` to place beside the relevant input (`None` for an entry-level failure such as a cross-field validator), and package or entry context. Present any other `ConfigurationError` as a reference problem. Once the user has reviewed the result, persist it with a separate `save_stack_config(candidate)` call. The library functions raise exceptions without printing CLI text or raising `typer.Exit`.
 
 ---
 

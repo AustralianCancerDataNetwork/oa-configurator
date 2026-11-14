@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import pytest
-import typer
 from pydantic import ValidationError
 from sqlalchemy.engine import URL, make_url
 
 from oa_configurator import (
     CDMDatabaseConfig,
+    ConfigIssuesError,
     ConnectionConfig,
     Dialect,
     GenericDatabaseConfig,
+    IssueCode,
     ModelConfig,
     ProviderConfig,
     ResolvedCDMDatabase,
@@ -796,8 +797,11 @@ class TestCheckTestCollision:
             database_name="d",
             test_only=True,
         )
-        with pytest.raises(typer.Exit):
+        with pytest.raises(ConfigIssuesError) as exc_info:
             _check_test_collision(new_conn, cfg)
+        (issue,) = exc_info.value.issues
+        assert issue.code is IssueCode.TEST_COLLISION
+        assert issue.related
 
     def test_collision_via_vocab_connection_only_raises(self):
         """The production connection is reachable only as a CDM database's
@@ -829,8 +833,11 @@ class TestCheckTestCollision:
             database_name="vocab_db",
             test_only=True,
         )
-        with pytest.raises(typer.Exit):
+        with pytest.raises(ConfigIssuesError) as exc_info:
             _check_test_collision(new_conn, cfg)
+        (issue,) = exc_info.value.issues
+        assert issue.code is IssueCode.TEST_COLLISION
+        assert issue.related
 
     def test_collision_via_connection_not_referenced_by_any_database_raises(self):
         """The production connection isn't wired to any [databases.*] entry
@@ -853,8 +860,11 @@ class TestCheckTestCollision:
             database_name="d",
             test_only=True,
         )
-        with pytest.raises(typer.Exit):
+        with pytest.raises(ConfigIssuesError) as exc_info:
             _check_test_collision(new_conn, cfg)
+        (issue,) = exc_info.value.issues
+        assert issue.code is IssueCode.TEST_COLLISION
+        assert issue.related
 
     def test_no_collision_passes(self):
         cfg = StackConfig.for_session(
@@ -898,8 +908,9 @@ class TestCheckTestCollision:
             raise OSError("no resolver")
 
         monkeypatch.setattr("oa_configurator.domains.resources.sql.socket.getaddrinfo", no_dns)
-        with pytest.raises(ValueError, match="Cannot verify production safety"):
-            _check_test_collision(new_conn, cfg, headless=True)
+        with pytest.raises(ConfigIssuesError, match="Cannot verify production safety") as exc_info:
+            _check_test_collision(new_conn, cfg)
+        assert exc_info.value.issues[0].code is IssueCode.COLLISION_UNVERIFIABLE
 
 
 def _sqlite_production_and_test_connections(tmp_path, test_path):
@@ -925,7 +936,7 @@ class TestHostlessSQLiteProductionCollision:
         alias_path.symlink_to(tmp_path / "production.db")
         target, config = _sqlite_production_and_test_connections(tmp_path, alias_path)
 
-        with pytest.raises(typer.Exit):
+        with pytest.raises(ConfigIssuesError):
             _check_test_collision(target, config)
 
     def test_postgres_target_ignores_hostless_sqlite_candidate(self, monkeypatch, tmp_path):

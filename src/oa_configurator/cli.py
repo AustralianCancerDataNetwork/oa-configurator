@@ -259,6 +259,8 @@ def verify() -> None:
         except Exception as exc:
             if not isinstance(exc, _EXPECTED_ERRORS):
                 logger.exception("Unexpected error resolving connection %r", name)
+            else:
+                logger.debug("Failed resolving connection %r: %s", name, exc)
             table.add_row(name, "?", "[red]FAIL[/red]", str(exc)[:60])
             all_ok = False
             continue
@@ -272,6 +274,8 @@ def verify() -> None:
         except Exception as exc:
             if not isinstance(exc, _EXPECTED_ERRORS):
                 logger.exception("Unexpected error connecting to %r", name)
+            else:
+                logger.debug("Failed connecting to %r: %s", name, exc)
             table.add_row(name, target.safe_url, "[red]FAIL[/red]", str(exc)[:60])
             all_ok = False
 
@@ -285,6 +289,8 @@ def verify() -> None:
         except Exception as exc:
             if not isinstance(exc, _EXPECTED_ERRORS):
                 logger.exception("Unexpected error resolving database %r", db_name)
+            else:
+                logger.debug("Failed resolving database %r: %s", db_name, exc)
             schema_table.add_row(db_name, "-", "-", "[red]FAIL[/red]", str(exc)[:60])
             schema_ok = False
             continue
@@ -299,6 +305,8 @@ def verify() -> None:
         except Exception as exc:
             if not isinstance(exc, _EXPECTED_ERRORS):
                 logger.exception("Unexpected error resolving vector store %r", vs_name)
+            else:
+                logger.debug("Failed resolving vector store %r: %s", vs_name, exc)
             schema_table.add_row(vs_name, "-", "-", "[red]FAIL[/red]", str(exc)[:60])
             schema_ok = False
             continue
@@ -336,6 +344,8 @@ def _print_registry_rows(resolver: Resolver, config: StackConfig) -> None:
             # Already reported as a FAIL row by the schema check above.
             if not isinstance(exc, _EXPECTED_ERRORS):
                 logger.exception("Unexpected error resolving database %r", db_name)
+            else:
+                logger.debug("Failed resolving database %r: %s", db_name, exc)
             continue
         # Bare engines to avoid schema claim registration and drift errors
         roles = (
@@ -364,7 +374,7 @@ def _print_registry_rows(resolver: Resolver, config: StackConfig) -> None:
                         )
             except Exception as exc:
                 if isinstance(exc, _EXPECTED_ERRORS):
-                    logger.warning("Could not read registry rows for database %r: %s", db_name, exc)
+                    logger.debug("Failed reading registry rows for database %r: %s", db_name, exc)
                 else:
                     logger.exception("Unexpected error reading registry rows for %r", db_name)
                 continue
@@ -418,6 +428,8 @@ def _verify_schema_provenance(
     except Exception as exc:
         if not isinstance(exc, _EXPECTED_ERRORS):
             logger.exception("Unexpected error building engine for %r (%s)", label, schema_tag)
+        else:
+            logger.debug("Failed building engine for %r (%s): %s", label, schema_tag, exc)
         table.add_row(label, schema_tag, "?", "[red]FAIL[/red]", str(exc)[:60])
         return False
     try:
@@ -438,6 +450,8 @@ def _verify_schema_provenance(
     except Exception as exc:
         if not isinstance(exc, _EXPECTED_ERRORS):
             logger.exception("Unexpected error in provenance check for %r (%s)", label, schema_tag)
+        else:
+            logger.debug("Provenance check failed for %r (%s): %s", label, schema_tag, exc)
         table.add_row(label, schema_tag, "?", "[red]FAIL[/red]", str(exc)[:60])
         return False
     finally:

@@ -13,7 +13,7 @@ from typing import Annotated
 from urllib.parse import urlsplit
 
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from oa_configurator import (
     CDMDatabaseConfig,
@@ -102,9 +102,7 @@ class TestSafeEndpoint:
         assert safe_endpoint(None) is None
 
     def test_plain_url_unchanged(self):
-        assert (
-            safe_endpoint("https://api.example.org/v1") == "https://api.example.org/v1"
-        )
+        assert safe_endpoint("https://api.example.org/v1") == "https://api.example.org/v1"
 
     def test_port_and_path_preserved(self):
         assert safe_endpoint("http://localhost:11434/v1") == "http://localhost:11434/v1"
@@ -119,17 +117,13 @@ class TestSafeEndpoint:
         )
 
     def test_userinfo_masking_keeps_the_port(self):
-        assert safe_endpoint("https://user:pw@host:8443/v1") == (
-            "https://user:***@host:8443/v1"
-        )
+        assert safe_endpoint("https://user:pw@host:8443/v1") == ("https://user:***@host:8443/v1")
 
     def test_ipv6_host_survives(self):
         assert safe_endpoint("https://[::1]:8443/v1") == "https://[::1]:8443/v1"
 
     def test_at_sign_in_path_is_not_userinfo(self):
-        assert safe_endpoint("https://host/models/org@v1") == (
-            "https://host/models/org@v1"
-        )
+        assert safe_endpoint("https://host/models/org@v1") == ("https://host/models/org@v1")
 
     def test_every_query_value_masked_and_every_key_kept(self):
         """No key is judged: the operator sees which parameters are set, and
@@ -144,9 +138,7 @@ class TestSafeEndpoint:
 
     def test_mask_is_not_percent_encoded(self):
         """The result is display output: it must read as ``***``, not ``%2A%2A%2A``."""
-        assert safe_endpoint("https://host/v1?api_key=abc") == (
-            "https://host/v1?api_key=***"
-        )
+        assert safe_endpoint("https://host/v1?api_key=abc") == ("https://host/v1?api_key=***")
 
     def test_blank_value_still_masked(self):
         assert safe_endpoint("https://host/v1?token=") == "https://host/v1?token=***"
@@ -155,9 +147,7 @@ class TestSafeEndpoint:
         assert safe_endpoint("https://host/v1?stream") == "https://host/v1?stream"
 
     def test_key_spelling_preserved_verbatim(self):
-        assert safe_endpoint("https://host/v1?X-Api-Key=leak") == (
-            "https://host/v1?X-Api-Key=***"
-        )
+        assert safe_endpoint("https://host/v1?X-Api-Key=leak") == ("https://host/v1?X-Api-Key=***")
 
     def test_userinfo_and_query_together(self):
         redacted = safe_endpoint("https://user:pw@host:8443/v1/chat?api_key=abc&model=gpt")
@@ -174,9 +164,7 @@ class TestSafeEndpoint:
         that an operator put something in a ``base_url`` that does not belong
         there.
         """
-        assert safe_endpoint("https://host/v1#access_token=abc") == (
-            "https://host/v1#***"
-        )
+        assert safe_endpoint("https://host/v1#access_token=abc") == ("https://host/v1#***")
 
     def test_opaque_fragment_is_masked_too(self):
         """No fragment is judged on its shape, for the same reason no query key is."""
@@ -248,14 +236,23 @@ def _stack() -> StackConfig:
     return StackConfig.for_session(
         connections={
             "cdm": ConnectionConfig(
-                dialect="postgresql+psycopg", host="db.example", user="analyst",
-                password=CANARY, database_name="omop",
+                dialect="postgresql+psycopg",
+                host="db.example",
+                user="analyst",
+                password=CANARY,
+                database_name="omop",
             )
         },
-        databases={"cdm": CDMDatabaseConfig(kind=DatabaseKind.CDM, connection="cdm", vocab_connection="cdm")},
+        databases={
+            "cdm": CDMDatabaseConfig(
+                kind=DatabaseKind.CDM, connection="cdm", vocab_connection="cdm"
+            )
+        },
         providers={
             "azure": ProviderConfig(
-                provider="openai", base_url="https://api.example.org/v1", api_key=KEY_CANARY,
+                provider="openai",
+                base_url="https://api.example.org/v1",
+                api_key=KEY_CANARY,
             )
         },
     )
@@ -317,9 +314,10 @@ class TestPlaintextStillReachesEverySink:
 
     def test_model_dump_round_trips(self):
         stack = _stack()
-        assert StackConfig.model_validate(
-            stack.model_dump(mode="python")
-        ).connections["cdm"].password == CANARY
+        assert (
+            StackConfig.model_validate(stack.model_dump(mode="python")).connections["cdm"].password
+            == CANARY
+        )
 
     def test_the_written_config_file_carries_the_real_secret(self, tmp_path):
         path = save_stack_config(_stack(), path=tmp_path / "config.toml")
@@ -370,7 +368,7 @@ class TestMaskedJson:
 
     def test_lists_and_tuples_are_walked(self):
         class Holder(SecretSafeBaseModel):
-            entries: list[ConnectionConfig] = []
+            entries: list[ConnectionConfig] = Field(default_factory=list)
 
         holder = Holder(entries=[_stack().connections["cdm"]])
         assert CANARY not in holder.masked_json()

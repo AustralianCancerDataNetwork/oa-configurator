@@ -113,6 +113,7 @@ def mismatched_kind_refs(
             problems.append((field_name, value, ref.target, type(entry)))
     return problems
 
+
 # Which StackConfig dict a RefTo(target) marker resolves against,
 # and is allowed to reference. Deliberately exclude abstract base classes
 # like DatabaseConfig, as they are not meant to be constructed directly.
@@ -218,9 +219,7 @@ class StackConfig(SecretSafeBaseModel):
 
     def _check_refs(self, instance: BaseModel, location: str) -> None:
         for field_name, value, section in unresolved_refs(instance, self):
-            raise ValueError(
-                f"{location}.{field_name} references unknown {section[:-1]} {value!r}"
-            )
+            raise ValueError(f"{location}.{field_name} references unknown {section[:-1]} {value!r}")
         for field_name, value, expected, actual in mismatched_kind_refs(instance, self):
             raise ValueError(
                 f"{location}.{field_name} requires a {expected.__name__} entry, but "
@@ -235,7 +234,7 @@ class StackConfig(SecretSafeBaseModel):
         ------
         ValueError
             If a connection has no schema concept but schemas are configured for it.
-        
+
         Notes
         -----
         Checks each distinct *connection* once to prevent duplicate checks
@@ -363,7 +362,9 @@ class StackConfig(SecretSafeBaseModel):
         for name, database in self.databases.items():
             if not isinstance(database, CDMDatabaseConfig):
                 continue
-            identity = self._identity_for_connection_name(database.connection_name_for_role(Role.PRIMARY))
+            identity = self._identity_for_connection_name(
+                database.connection_name_for_role(Role.PRIMARY)
+            )
             if identity is None:
                 continue
             if identity in seen_cdm:
@@ -379,7 +380,9 @@ class StackConfig(SecretSafeBaseModel):
             backing = self.databases.get(vector_store.database)
             if backing is None:
                 continue
-            identity = self._identity_for_connection_name(backing.connection_name_for_role(Role.PRIMARY))
+            identity = self._identity_for_connection_name(
+                backing.connection_name_for_role(Role.PRIMARY)
+            )
             if identity is None:
                 continue
             if identity in seen_vector_store:
@@ -460,14 +463,18 @@ class StackConfig(SecretSafeBaseModel):
         """
         primaries: dict[tuple[Any, ...], str] = {}
         for name, database in self.databases.items():
-            identity = self._identity_for_connection_name(database.connection_name_for_role(Role.PRIMARY))
+            identity = self._identity_for_connection_name(
+                database.connection_name_for_role(Role.PRIMARY)
+            )
             if identity is not None:
                 primaries.setdefault(identity, name)
         for name, vector_store in self.vector_stores.items():
             backing = self.databases.get(vector_store.database)
             if backing is None:
                 continue
-            identity = self._identity_for_connection_name(backing.connection_name_for_role(Role.PRIMARY))
+            identity = self._identity_for_connection_name(
+                backing.connection_name_for_role(Role.PRIMARY)
+            )
             if identity is not None:
                 primaries.setdefault(identity, name)
 
@@ -477,7 +484,9 @@ class StackConfig(SecretSafeBaseModel):
             vocab_identity = self._identity_for_connection_name(database.vocab_connection)
             if vocab_identity is None:
                 continue
-            own_identity = self._identity_for_connection_name(database.connection_name_for_role(Role.PRIMARY))
+            own_identity = self._identity_for_connection_name(
+                database.connection_name_for_role(Role.PRIMARY)
+            )
             if vocab_identity == own_identity:
                 continue
             other = primaries.get(vocab_identity)
@@ -486,7 +495,8 @@ class StackConfig(SecretSafeBaseModel):
                     "databases.%s.vocab_connection physically coincides with %s's primary "
                     "connection. This is allowed and drift-safe, but double-check it's "
                     "intentional and not a copy-paste/typo.",
-                    name, other,
+                    name,
+                    other,
                 )
 
     @classmethod

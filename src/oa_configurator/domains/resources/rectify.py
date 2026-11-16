@@ -69,7 +69,9 @@ class OrphanTablePreview:
     row_count: int | None
 
 
-def preview_orphan_schema_tables(connection: sa.Connection, schema: str) -> list[OrphanTablePreview]:
+def preview_orphan_schema_tables(
+    connection: sa.Connection, schema: str
+) -> list[OrphanTablePreview]:
     """List tables physically present in *schema*, with an exact row count.
 
     A real ``COUNT(*)`` rather than an approximation: this preview exists to
@@ -83,7 +85,9 @@ def preview_orphan_schema_tables(connection: sa.Connection, schema: str) -> list
         try:
             with connection.begin_nested():
                 count = connection.execute(
-                    sa.text(f"SELECT COUNT(*) FROM {qualified(connection, name, physical_schema=schema)}")
+                    sa.text(
+                        f"SELECT COUNT(*) FROM {qualified(connection, name, physical_schema=schema)}"
+                    )
                 ).scalar()
         except SQLAlchemyError:
             count = None
@@ -92,9 +96,7 @@ def preview_orphan_schema_tables(connection: sa.Connection, schema: str) -> list
 
 
 def schema_is_a_current_target(
-    connection: sa.Connection,
-    stack: StackConfig,
-    schema: str
+    connection: sa.Connection, stack: StackConfig, schema: str
 ) -> str | None:
     """Is this schema still a live target of some configured database's
     Role-tagged schema?
@@ -132,7 +134,7 @@ def drop_orphan_schema_tables(
     """Drop every table found in *orphan_schema*, after the cross-entry safety check.
 
     Preview-only when *confirm* is False: returns what would be dropped
-    without touching anything. Performed using literal, qualified SQL 
+    without touching anything. Performed using literal, qualified SQL
     instead of ``metadata.drop_all``: an orphan_schema that happens
     to equal a schema_translate_map key (e.g. a legacy physical schema
     literally named ``"vocab"``) would silently drop the *configured* schema.
@@ -196,7 +198,9 @@ def drop_orphan_schema_tables(
         for table in reversed(metadata.sorted_tables):
             if table.schema != orphan_schema:
                 continue
-            connection.execute(sa.text(
-                f"DROP TABLE IF EXISTS {qualified(connection, table.name, physical_schema=orphan_schema)}"
-            ))
+            connection.execute(
+                sa.text(
+                    f"DROP TABLE IF EXISTS {qualified(connection, table.name, physical_schema=orphan_schema)}"
+                )
+            )
     return preview

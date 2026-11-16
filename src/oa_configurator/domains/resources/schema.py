@@ -425,7 +425,9 @@ def without_cross_engine_foreign_keys(
             column.type = original.columns[column.name].type
         for constraint in original.constraints:
             if constraint._type_bound:
-                copied.append_constraint(constraint._copy(schema=copied.schema, target_table=copied))
+                copied.append_constraint(
+                    constraint._copy(schema=copied.schema, target_table=copied)
+                )
     for copied in copies:
         for constraint in tuple(copied.foreign_key_constraints):
             if not _crosses_fk_boundary(constraint, resolved, physical_schemas):

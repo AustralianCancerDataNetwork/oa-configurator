@@ -98,7 +98,11 @@ class DuckDBTestStrategy(TestDatabaseStrategy):
             db_path = Path(tmp_dir) / "test.duckdb"
             url = f"duckdb:///{db_path}"
             connection = ResolvedConnection(
-                name="duckdb-isolated", url=url, safe_url=url, _engine_url=sa.engine.make_url(url), test_only=True
+                name="duckdb-isolated",
+                url=url,
+                safe_url=url,
+                _engine_url=sa.engine.make_url(url),
+                test_only=True,
             )
             fresh = resolved or replace(self.resolve_without_config(), name="duckdb-isolated")
             if isinstance(fresh, ResolvedCDMDatabase):
@@ -107,14 +111,18 @@ class DuckDBTestStrategy(TestDatabaseStrategy):
                 fresh = replace(fresh, connection=connection)
             engine = fresh._build_engine(
                 Role.PRIMARY,
-                schema_claims=schema_claims, execution_options=execution_options, **engine_kwargs
+                schema_claims=schema_claims,
+                execution_options=execution_options,
+                **engine_kwargs,
             )
             try:
                 connection = engine.connect()
                 try:
                     session = so.Session(bind=connection)
                     try:
-                        yield IsolatedTestDatabase(connection=connection, session=session, resolved=fresh)
+                        yield IsolatedTestDatabase(
+                            connection=connection, session=session, resolved=fresh
+                        )
                     finally:
                         session.close()
                 finally:
@@ -123,7 +131,9 @@ class DuckDBTestStrategy(TestDatabaseStrategy):
                 engine.dispose()
 
     @contextmanager
-    def temporary_schema(self, engine: sa.Engine, *, prefix: str = "test") -> Generator[str, None, None]:
+    def temporary_schema(
+        self, engine: sa.Engine, *, prefix: str = "test"
+    ) -> Generator[str, None, None]:
         """Yield a uniquely-named, genuinely-committed schema, dropped on exit.
 
         A second connection opened from the same engine sees

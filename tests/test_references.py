@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, ClassVar
+from typing import Annotated, Any, ClassVar
 
 import pytest
 from pydantic import field_validator
@@ -389,14 +389,14 @@ RENAME_REGISTRY: dict[str, type[PackageConfigBase]] = {
 }
 
 
-def _rename_stack(**kwargs) -> StackConfig:
-    base = {
+def _rename_stack(**overrides: Any) -> StackConfig:
+    base: dict[str, Any] = {
         "connections": {"first": _conn(), "c1": _conn(), "last": _conn()},
         "databases": {"cdm_db": CDMDatabaseConfig(connection="c1", vocab_connection="last")},
         "providers": {"p": ProviderConfig(provider="ollama")},
         "models": {"m": ModelConfig(provider="p", model="x")},
     }
-    return StackConfig.for_session(**{**base, **kwargs})
+    return StackConfig.for_session(**{**base, **overrides})
 
 
 class TestRenameEntry:
@@ -414,7 +414,9 @@ class TestRenameEntry:
         assert "renamed" in planned.connections
         assert planned.databases["cdm_db"].connection == "renamed"
         assert planned.databases["generic"].connection == "renamed"
-        assert planned.databases["cdm_db"].vocab_connection == "last"
+        cdm = planned.databases["cdm_db"]
+        assert isinstance(cdm, CDMDatabaseConfig)
+        assert cdm.vocab_connection == "last"
 
     def test_entry_keeps_its_position(self):
         planned = rename_entry(

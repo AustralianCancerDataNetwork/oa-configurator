@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Annotated, ClassVar
+
 import pytest
 import typer
 from pydantic import Field
 from typer.testing import CliRunner
 
-from typing import Annotated, ClassVar
-
-import oa_configurator.cli as cli
 from oa_configurator import (
     CDMDatabaseConfig,
     ConnectionConfig,
@@ -20,12 +19,13 @@ from oa_configurator import (
     StackConfig,
     VectorStoreConfig,
     assert_no_sensitive_values_leak,
+    cli,
 )
+from oa_configurator.domains.resources.sql import Dialect
 from oa_configurator.io import save_stack_config as _real_save_stack_config
 from oa_configurator.loader import load_stack_config
 from oa_configurator.package_base import PackageConfigBase
 from oa_configurator.resolver import _resolve_ref
-from oa_configurator.domains.resources.sql import Dialect
 from oa_configurator.testing.postgres import PostgresTestStrategy
 
 runner = CliRunner()
@@ -37,14 +37,13 @@ _CANARY = "canary-8f21c0-do-not-render"
 
 @pytest.fixture
 def isolated_config(tmp_path, monkeypatch):
-    """Redirect the active config path/load/save to an isolated tmp_path file.
-    """
+    """Redirect the active config path/load/save to an isolated tmp_path file."""
     import oa_configurator.io as io_mod
     import oa_configurator.loader as loader_mod
 
     config_path = tmp_path / "config.toml"
-    load = lambda path=config_path: load_stack_config(path)  # noqa: E731
-    save = lambda config: _real_save_stack_config(config, path=config_path)  # noqa: E731
+    load = lambda path=config_path: load_stack_config(path)
+    save = lambda config: _real_save_stack_config(config, path=config_path)
 
     monkeypatch.setattr(cli, "load_stack_config", load)
     monkeypatch.setattr(cli, "save_stack_config", save)
@@ -59,9 +58,7 @@ def _seed(config_path, config: StackConfig) -> None:
 
 
 class TestInit:
-    def test_save_failure_is_rendered_without_traceback(
-        self, isolated_config, monkeypatch
-    ):
+    def test_save_failure_is_rendered_without_traceback(self, isolated_config, monkeypatch):
         def fail_save(config):
             raise OSError("disk unavailable")
 
@@ -94,9 +91,7 @@ class TestConnectionsAdd:
         assert config.connections["cdm"].dialect == Dialect.SQLITE
         assert config.connections["cdm"].database_name == ":memory:"
 
-    def test_save_failure_is_rendered_without_traceback(
-        self, isolated_config, monkeypatch
-    ):
+    def test_save_failure_is_rendered_without_traceback(self, isolated_config, monkeypatch):
         import oa_configurator.io as io_module
 
         def fail_save(config):
@@ -123,9 +118,7 @@ class TestConnectionsAdd:
         assert "Traceback" not in result.output
 
     def test_non_interactive_missing_required_field_fails(self, isolated_config):
-        result = runner.invoke(
-            cli.app, ["connections", "add", "cdm", "--host", "localhost"]
-        )
+        result = runner.invoke(cli.app, ["connections", "add", "cdm", "--host", "localhost"])
         assert result.exit_code != 0
         assert not isolated_config.exists()
 
@@ -133,12 +126,12 @@ class TestConnectionsAdd:
         _seed(
             isolated_config,
             StackConfig.for_session(
-                connections={"cdm": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")}
+                connections={
+                    "cdm": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
+                }
             ),
         )
-        result = runner.invoke(
-            cli.app, ["connections", "add", "cdm", "--host", "otherhost"]
-        )
+        result = runner.invoke(cli.app, ["connections", "add", "cdm", "--host", "otherhost"])
         assert result.exit_code == 0, result.output
         config = load_stack_config(isolated_config)
         assert config.connections["cdm"].dialect == Dialect.SQLITE
@@ -194,7 +187,9 @@ class TestConnectionsList:
         _seed(
             isolated_config,
             StackConfig.for_session(
-                connections={"cdm": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")}
+                connections={
+                    "cdm": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
+                }
             ),
         )
         result = runner.invoke(cli.app, ["connections", "list"])
@@ -207,7 +202,7 @@ class TestConnectionsList:
         stack = StackConfig.for_session(
             connections={
                 "cdm": ConnectionConfig(
-                    dialect=Dialect.POSTGRESQL+"+psycopg",
+                    dialect=Dialect.POSTGRESQL + "+psycopg",
                     host="db.hospital.org",
                     user="omop",
                     password=_CANARY,
@@ -246,7 +241,9 @@ class TestDatabasesAdd:
             StackConfig.for_session(
                 connections={
                     "cdm": ConnectionConfig(
-                        dialect=Dialect.POSTGRESQL + "+psycopg", host="localhost", database_name="cdm"
+                        dialect=Dialect.POSTGRESQL + "+psycopg",
+                        host="localhost",
+                        database_name="cdm",
                     )
                 }
             ),
@@ -275,7 +272,9 @@ class TestDatabasesAdd:
         _seed(
             isolated_config,
             StackConfig.for_session(
-                connections={"emb": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")}
+                connections={
+                    "emb": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
+                }
             ),
         )
         result = runner.invoke(
@@ -306,9 +305,7 @@ class TestDatabasesAdd:
         config = load_stack_config(isolated_config)
         assert "cdm_db" not in config.databases
 
-    def test_kind_change_refused_when_a_vector_store_depends_on_it(
-        self, isolated_config
-    ):
+    def test_kind_change_refused_when_a_vector_store_depends_on_it(self, isolated_config):
         """emb_db is a GenericDatabaseConfig a vector store depends on
         (RefTo(GenericDatabaseConfig)). Re-adding it as --kind cdm would
         turn that reference into a mismatched-kind error every time the
@@ -320,9 +317,7 @@ class TestDatabasesAdd:
                     "c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
                 },
                 databases={"emb_db": GenericDatabaseConfig(connection="c")},
-                vector_stores={
-                    "vs": VectorStoreConfig(backend_type="pgvector", database="emb_db")
-                },
+                vector_stores={"vs": VectorStoreConfig(backend_type="pgvector", database="emb_db")},
             ),
         )
         result = runner.invoke(
@@ -362,7 +357,9 @@ class TestDatabasesAdd:
         _seed(
             isolated_config,
             StackConfig.for_session(
-                connections={"emb": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")}
+                connections={
+                    "emb": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
+                }
             ),
         )
         result = runner.invoke(
@@ -398,12 +395,12 @@ class TestDatabasesList:
             StackConfig.for_session(
                 connections={
                     "cdm": ConnectionConfig(
-                        dialect=Dialect.POSTGRESQL + "+psycopg", host="localhost", database_name="cdm"
+                        dialect=Dialect.POSTGRESQL + "+psycopg",
+                        host="localhost",
+                        database_name="cdm",
                     )
                 },
-                databases={
-                    "cdm_db": CDMDatabaseConfig(connection="cdm", cdm_schema="omop")
-                },
+                databases={"cdm_db": CDMDatabaseConfig(connection="cdm", cdm_schema="omop")},
             ),
         )
         result = runner.invoke(cli.app, ["databases", "list"])
@@ -411,9 +408,7 @@ class TestDatabasesList:
         assert "cdm_db" in result.output
         assert "omop" in result.output
 
-    def test_shows_cdm_only_columns_in_a_mixed_section(
-        self, isolated_config, monkeypatch
-    ):
+    def test_shows_cdm_only_columns_in_a_mixed_section(self, isolated_config, monkeypatch):
         """A GenericDatabaseConfig alongside a CDMDatabaseConfig must not
         hide the CDM-only columns (vocab_connection etc.), which the base
         DatabaseConfig type alone doesn't have."""
@@ -480,9 +475,7 @@ class TestProvidersAdd:
             isolated_config,
             StackConfig.for_session(providers={"p": ProviderConfig(provider="ollama")}),
         )
-        result = runner.invoke(
-            cli.app, ["providers", "add", "p", "--api-key", "sk-test"]
-        )
+        result = runner.invoke(cli.app, ["providers", "add", "p", "--api-key", "sk-test"])
         assert result.exit_code == 0, result.output
         config = load_stack_config(isolated_config)
         assert config.providers["p"].provider == "ollama"
@@ -515,11 +508,7 @@ class TestProvidersList:
     def test_api_key_is_masked(self, isolated_config):
         """A listing shows that a secret is set, never what it is."""
         stack = StackConfig.for_session(
-            providers={
-                "p": ProviderConfig(
-                    provider="ollama", base_url="http://x", api_key=_CANARY
-                )
-            }
+            providers={"p": ProviderConfig(provider="ollama", base_url="http://x", api_key=_CANARY)}
         )
         _seed(isolated_config, stack)
         result = runner.invoke(cli.app, ["providers", "list"])
@@ -605,9 +594,7 @@ class TestModelsAdd:
                 },
             ),
         )
-        result = runner.invoke(
-            cli.app, ["models", "add", "m", "--embedding-dim", "768"]
-        )
+        result = runner.invoke(cli.app, ["models", "add", "m", "--embedding-dim", "768"])
         assert result.exit_code == 0, result.output
         config = load_stack_config(isolated_config)
         assert config.models["m"].configuration == {"max_tokens": 8000}
@@ -673,9 +660,7 @@ class TestModelsAdd:
         config = load_stack_config(isolated_config)
         assert "m" not in config.models
 
-    def test_validation_error_is_reported_interactively_too(
-        self, isolated_config, monkeypatch
-    ):
+    def test_validation_error_is_reported_interactively_too(self, isolated_config, monkeypatch):
         """The same guard covers the prompt path -- answering the confirms in a
         way that contradicts an earlier answer must not raise through the CLI."""
         _seed(
@@ -684,9 +669,7 @@ class TestModelsAdd:
         )
         answers = iter(["p", "local-chat", "768", "", ""])
         monkeypatch.setattr(cli.typer, "prompt", lambda *a, **k: next(answers))
-        monkeypatch.setattr(
-            cli.typer, "confirm", lambda *a, **k: False
-        )  # declines embeddings
+        monkeypatch.setattr(cli.typer, "confirm", lambda *a, **k: False)  # declines embeddings
         result = runner.invoke(cli.app, ["models", "add", "m"])
         assert result.exit_code == 1
         assert "embedding_dim requires embeddings=true" in result.stderr
@@ -703,9 +686,7 @@ class TestResolveRef:
             providers={"p": ProviderConfig(provider="ollama")},
             models={"m": ModelConfig(provider="p", model="local-chat")},
         )
-        result = _resolve_ref(
-            "embedding_model_name", "desc", ModelConfig, config, default_name="m"
-        )
+        result = _resolve_ref("embedding_model_name", "desc", ModelConfig, config, default_name="m")
         assert result == "m"
         assert set(config.models) == {"m"}
         assert set(config.providers) == {"p"}
@@ -830,16 +811,12 @@ class TestRunConfigurePackage:
                 databases={"cdm_db": CDMDatabaseConfig(connection="db")},
             ),
         )
-        DemoConfig.run_configure(
-            {"cdm_db": "cdm_db", "backend": "custom"}, interactive=False
-        )
+        DemoConfig.run_configure({"cdm_db": "cdm_db", "backend": "custom"}, interactive=False)
         config = load_stack_config(isolated_config)
         assert config.tools["demo_tool"]["cdm_db"] == "cdm_db"
         assert config.tools["demo_tool"]["backend"] == "custom"
 
-    def test_save_failure_is_rendered_without_traceback(
-        self, isolated_config, monkeypatch, capsys
-    ):
+    def test_save_failure_is_rendered_without_traceback(self, isolated_config, monkeypatch, capsys):
         import oa_configurator.io as io_module
 
         _seed(
@@ -922,9 +899,7 @@ class TestRunConfigurePackage:
         assert "test_cdm_db" not in config.tools["demo_tool"]
         assert "secondary_db" not in config.tools["demo_tool"]
 
-    def test_interactive_declines_optional_non_test_database(
-        self, isolated_config, monkeypatch
-    ):
+    def test_interactive_declines_optional_non_test_database(self, isolated_config, monkeypatch):
         """A plain Optional RefTo field (is_test=False) gets the same
         'Configure this?' skip prompt as a test field; declining leaves it
         unset rather than resolving/creating an entry."""
@@ -937,9 +912,7 @@ class TestRunConfigurePackage:
         config = load_stack_config(isolated_config)
         assert "secondary_db" not in config.tools["demo_tool"]
 
-    def test_interactive_opts_into_optional_non_test_database(
-        self, isolated_config, monkeypatch
-    ):
+    def test_interactive_opts_into_optional_non_test_database(self, isolated_config, monkeypatch):
         """Accepting the skip prompt for a non-test Optional RefTo field
         resolves it through the normal RefTo flow, with no test_only
         requirement, unlike the test-database path: it happily reuses
@@ -1002,9 +975,7 @@ class TestRunConfigurePackage:
                 databases={"cdm_db": CDMDatabaseConfig(connection="db")},
             ),
         )
-        DemoConfig.run_configure(
-            {"cdm_db": "cdm_db", "backend": "first_value"}, interactive=False
-        )
+        DemoConfig.run_configure({"cdm_db": "cdm_db", "backend": "first_value"}, interactive=False)
 
         seen_defaults: dict[str, str] = {}
 
@@ -1035,9 +1006,7 @@ class TestRunConfigurePackage:
                 databases={"cdm_db": CDMDatabaseConfig(connection="db")},
             ),
         )
-        DemoConfig.run_configure(
-            {"cdm_db": "cdm_db", "backend": "x"}, interactive=False
-        )
+        DemoConfig.run_configure({"cdm_db": "cdm_db", "backend": "x"}, interactive=False)
 
         seen_defaults: dict[str, str] = {}
 
@@ -1050,16 +1019,11 @@ class TestRunConfigurePackage:
 
         DemoConfig.run_configure({}, interactive=True)
 
-        assert (
-            seen_defaults["  Point to an existing entry, or 'new' to create one"]
-            == "cdm_db"
-        )
+        assert seen_defaults["  Point to an existing entry, or 'new' to create one"] == "cdm_db"
         config = load_stack_config(isolated_config)
         assert config.tools["demo_tool"]["cdm_db"] == "cdm_db"
 
-    def test_non_interactive_one_shot_creates_database_and_connection(
-        self, isolated_config
-    ):
+    def test_non_interactive_one_shot_creates_database_and_connection(self, isolated_config):
         """--set-style nested flags create the whole reference chain (a new
         connection, and the database pointing at it) in one non-interactive
         call, restoring the old one-shot Docker Compose workflow."""
@@ -1087,9 +1051,7 @@ class TestRunConfigurePackage:
         assert config.connections[conn_name].dialect == Dialect.SQLITE
         assert conn_db.cdm_schema is None
 
-    def test_non_interactive_one_shot_missing_required_nested_field_fails(
-        self, isolated_config
-    ):
+    def test_non_interactive_one_shot_missing_required_nested_field_fails(self, isolated_config):
         _seed(isolated_config, StackConfig.for_session())
 
         with pytest.raises(typer.Exit):
@@ -1127,9 +1089,7 @@ class TestConfigureSetFlag:
     for the --set flag, via a faked entry point. Proves --set is actually
     wired through Click/Typer parsing, not just the underlying resolution."""
 
-    def test_set_flag_creates_nested_entry_via_full_cli(
-        self, isolated_config, monkeypatch
-    ):
+    def test_set_flag_creates_nested_entry_via_full_cli(self, isolated_config, monkeypatch):
         class FakeEP:
             name = "demo_tool"
 
@@ -1180,9 +1140,7 @@ class TestConfigureSetFlag:
         assert "--cdm-db" in result.output
         assert "--set" in result.output
 
-    def test_set_flag_clashing_with_same_field_flag_fails(
-        self, isolated_config, monkeypatch
-    ):
+    def test_set_flag_clashing_with_same_field_flag_fails(self, isolated_config, monkeypatch):
         """--cdm-db and --set cdm_db.* both target the cdm_db field: must be
         rejected, not have --set silently win and edit/create the wrong
         (default-named) entry while the flag's chosen entry is untouched."""
@@ -1191,13 +1149,13 @@ class TestConfigureSetFlag:
             StackConfig.for_session(
                 connections={
                     "prod": ConnectionConfig(
-                        dialect=Dialect.POSTGRESQL + "+psycopg", host="localhost", database_name="prod"
+                        dialect=Dialect.POSTGRESQL + "+psycopg",
+                        host="localhost",
+                        database_name="prod",
                     )
                 },
                 databases={
-                    "cdm_db_prod": CDMDatabaseConfig(
-                        connection="prod", cdm_schema="prod_omop"
-                    )
+                    "cdm_db_prod": CDMDatabaseConfig(connection="prod", cdm_schema="prod_omop")
                 },
             ),
         )
@@ -1393,9 +1351,7 @@ class TestVectorStoresList:
                     "emb": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
                 },
                 databases={"emb_db": GenericDatabaseConfig(connection="emb")},
-                vector_stores={
-                    "vs": VectorStoreConfig(backend_type="pgvector", database="emb_db")
-                },
+                vector_stores={"vs": VectorStoreConfig(backend_type="pgvector", database="emb_db")},
             ),
         )
         result = runner.invoke(cli.app, ["vector-stores", "list"])
@@ -1405,9 +1361,7 @@ class TestVectorStoresList:
 
 
 class TestCleanupTestDatabases:
-    def test_preview_filters_to_test_only_postgres_connections(
-        self, isolated_config, monkeypatch
-    ):
+    def test_preview_filters_to_test_only_postgres_connections(self, isolated_config, monkeypatch):
         _seed(
             isolated_config,
             StackConfig.for_session(
@@ -1433,7 +1387,9 @@ class TestCleanupTestDatabases:
         )
         dropped: list[str] = []
         monkeypatch.setattr(
-            PostgresTestStrategy, "drop_test_database", lambda self, connection: dropped.append(connection.url) or True
+            PostgresTestStrategy,
+            "drop_test_database",
+            lambda self, connection: dropped.append(connection.url) or True,
         )
 
         result = runner.invoke(cli.app, ["cleanup-test-databases"])
@@ -1460,7 +1416,9 @@ class TestCleanupTestDatabases:
         )
         dropped: list[str] = []
         monkeypatch.setattr(
-            PostgresTestStrategy, "drop_test_database", lambda self, connection: dropped.append(connection.url) or True
+            PostgresTestStrategy,
+            "drop_test_database",
+            lambda self, connection: dropped.append(connection.url) or True,
         )
 
         result = runner.invoke(cli.app, ["cleanup-test-databases", "--confirm"])

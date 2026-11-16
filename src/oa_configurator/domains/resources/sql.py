@@ -61,6 +61,7 @@ class Role(StrEnum):
     (connection_for_role, create_engine(role=...)); Role.RESULTS has no
     connection of its own and always resolves through Role.PRIMARY's.
     """
+
     PRIMARY = "primary"
     VOCAB = "vocab"
     RESULTS = "results"
@@ -170,6 +171,7 @@ _DIALECT_PROFILES: dict[str, DialectProfile] = {
     ),
 }
 
+
 def _profile_for(dialect_name: str) -> DialectProfile:
     """DialectProfile for dialect_name.
 
@@ -196,7 +198,7 @@ def _skip_deferred_fk_on_duckdb(element: AddConstraint, compiler, **kw) -> str:
 
     Constructing ``AddConstraint`` already set the constraint's
     ``_create_rule`` to permanently exclude it from any future inline
-    ``CREATE TABLE`` rendering. Has to be undone as otherwise a later 
+    ``CREATE TABLE`` rendering. Has to be undone as otherwise a later
     ``create_all()`` against any dialect in the same process would
     silently drop the constraint instead of deferring it again.
     """
@@ -235,7 +237,9 @@ def _skip_partial_index_on_duckdb(element: CreateIndex, compiler, **kw) -> str:
 
     table_name = index.table.fullname if index.table is not None else "<unbound>"
     if not index.unique:
-        logger.warning("Omitting unsupported partial index %s on %s for DuckDB", index.name, table_name)
+        logger.warning(
+            "Omitting unsupported partial index %s on %s for DuckDB", index.name, table_name
+        )
         return "SELECT 1"
 
     policy = index.info.get(DUCKDB_PARTIAL_INDEX_POLICY_KEY)
@@ -280,7 +284,10 @@ def _reject_unsupported_duckdb_fk_actions(element: sa.schema.CreateTable, compil
     unsupported = {"CASCADE", "SET NULL", "SET DEFAULT"}
     for constraint in element.element.foreign_key_constraints:
         for foreign_key in constraint.elements:
-            for event_name, action in (("DELETE", foreign_key.ondelete), ("UPDATE", foreign_key.onupdate)):
+            for event_name, action in (
+                ("DELETE", foreign_key.ondelete),
+                ("UPDATE", foreign_key.onupdate),
+            ):
                 if (action or "").upper() in unsupported:
                     raise CompileError(
                         f"DuckDB does not support ON {event_name} {action} on foreign key "
@@ -303,8 +310,11 @@ def _virtual_computed_column_on_duckdb(element: sa.Computed, compiler, **kw) -> 
             "DuckDB does not support constraints (e.g. NOT NULL) on a generated "
             "column; set the column's 'nullable' flag to True for DuckDB support."
         )
-    rendered = compiler.sql_compiler.process(element.sqltext, include_table=False, literal_binds=True)
+    rendered = compiler.sql_compiler.process(
+        element.sqltext, include_table=False, literal_binds=True
+    )
     return f"GENERATED ALWAYS AS ({rendered}) VIRTUAL"
+
 
 @overload
 def _as_bind(bindable: Engine) -> Engine: ...
@@ -355,10 +365,7 @@ def open_connection(bindable: Bindable) -> Generator[Connection, None, None]:
 
 
 def qualified(
-    bindable: Bindable | IdentifierPreparer,
-    name: str,
-    *,
-    physical_schema: str | None
+    bindable: Bindable | IdentifierPreparer, name: str, *, physical_schema: str | None
 ) -> str:
     """Quoted, schema-qualified identifier, for raw SQL that's genuinely unavoidable.
     Utilises IdentifierPreparer.format_table to quote the name according to the dialect's rules.
@@ -382,7 +389,8 @@ def qualified(
         ``None``, e.g. ``"myschema"."mytable"`` or ``"mytable"``.
     """
     preparer = (
-        bindable if isinstance(bindable, IdentifierPreparer)
+        bindable
+        if isinstance(bindable, IdentifierPreparer)
         else _as_bind(bindable).dialect.identifier_preparer
     )
     return preparer.format_table(sa.table(name, schema=physical_schema))

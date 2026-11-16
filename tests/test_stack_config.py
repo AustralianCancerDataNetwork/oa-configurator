@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -38,7 +38,7 @@ class TestConnectionConfig:
         """dialect may be driver-qualified (e.g. 'sqlite+pysqlite'), not just
         the bare name. requires_host() given a plain string uses it as-is
         with no normalization, so it raises on a compound dialect string
-        directly. Showcases that ConnectionConfig.dialect_name strips the 
+        directly. Showcases that ConnectionConfig.dialect_name strips the
         driver suffix for the benefit of requires_host() and other consumers."""
         db = ConnectionConfig(dialect="sqlite+pysqlite", database_name=":memory:")
         assert db.dialect_name == "sqlite"
@@ -82,11 +82,11 @@ class TestConnectionConfig:
 
     def test_dialect_required(self):
         with pytest.raises(ValidationError):
-            ConnectionConfig()  # type: ignore
+            ConnectionConfig.model_validate({})
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(ValidationError):
-            ConnectionConfig(dialect=Dialect.SQLITE, unknown_field="x")  # type: ignore
+            ConnectionConfig.model_validate({"dialect": Dialect.SQLITE, "unknown_field": "x"})
 
 
 class TestGenericDatabaseConfig:
@@ -97,11 +97,11 @@ class TestGenericDatabaseConfig:
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(ValidationError):
-            GenericDatabaseConfig(connection="db", vocab_schema="x")  # type: ignore
+            GenericDatabaseConfig.model_validate({"connection": "db", "vocab_schema": "x"})
 
     def test_kind_cannot_be_overridden(self):
         with pytest.raises(ValidationError):
-            GenericDatabaseConfig(connection="db", kind="cdm")  # type: ignore
+            GenericDatabaseConfig.model_validate({"connection": "db", "kind": "cdm"})
 
 
 class TestCDMDatabaseConfig:
@@ -118,11 +118,11 @@ class TestCDMDatabaseConfig:
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(ValidationError):
-            CDMDatabaseConfig(connection="db", unknown="x")  # type: ignore
+            CDMDatabaseConfig.model_validate({"connection": "db", "unknown": "x"})
 
     def test_legacy_schema_name_points_to_upgrade_path(self):
         with pytest.raises(ValidationError) as exc_info:
-            CDMDatabaseConfig(connection="db", schema_name="omop")  # type: ignore
+            CDMDatabaseConfig.model_validate({"connection": "db", "schema_name": "omop"})
         message = str(exc_info.value)
         assert "looks like a 1.x config" in message
         assert "schema_name" in message and "cdm_schema" in message
@@ -139,31 +139,35 @@ class TestCDMDatabaseConfig:
 
 class TestDatabaseKindDiscrimination:
     def test_missing_kind_rejected(self):
+        raw_databases: Any = {"r": {"connection": "c"}}
         with pytest.raises(Exception, match="kind"):
             StackConfig.for_session(
-                connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
-                databases={"r": {"connection": "c"}},  # ty: ignore[invalid-argument-type]
+                connections={
+                    "c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
+                },
+                databases=raw_databases,
             )
 
     def test_raw_dict_dispatches_by_kind(self):
+        raw_databases: Any = {
+            "g": {"kind": "generic", "connection": "c"},
+            "d": {"kind": "cdm", "connection": "c"},
+        }
         cfg = StackConfig.for_session(
             connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
-            databases=cast(
-                Any,
-                {
-                    "g": {"kind": "generic", "connection": "c"},
-                    "d": {"kind": "cdm", "connection": "c"},
-                },
-            ),
+            databases=raw_databases,
         )
         assert isinstance(cfg.databases["g"], GenericDatabaseConfig)
         assert isinstance(cfg.databases["d"], CDMDatabaseConfig)
 
     def test_unknown_kind_rejected(self):
+        raw_databases: Any = {"r": {"kind": "bogus", "connection": "c"}}
         with pytest.raises(ValidationError):
             StackConfig.for_session(
-                connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
-                databases={"r": {"kind": "bogus", "connection": "c"}},  # ty: ignore[invalid-argument-type]
+                connections={
+                    "c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
+                },
+                databases=raw_databases,
             )
 
 
@@ -202,18 +206,15 @@ class TestStackConfig:
         assert "default" in minimal_stack.databases
 
     def test_tools_accepts_plain_dicts(self):
-        cfg = StackConfig.for_session(
-            tools={"my_pkg": {"backend": "sqlitevec", "path": "/data"}}
-        )
+        cfg = StackConfig.for_session(tools={"my_pkg": {"backend": "sqlitevec", "path": "/data"}})
         assert cfg.tools["my_pkg"]["backend"] == "sqlitevec"
 
     def test_for_session_accepts_raw_dicts(self):
         """Raw, TOML-table-shaped dicts (not DatabaseConfig instances) still coerce at validation time."""
+        raw_databases: Any = {"r": {"connection": "c", "kind": "cdm"}}
         cfg = StackConfig.for_session(
-            connections={
-                "c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
-            },
-            databases={"r": {"connection": "c", "kind": "cdm"}},  # ty: ignore[invalid-argument-type]
+            connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
+            databases=raw_databases,
         )
         assert isinstance(cfg.connections["c"], ConnectionConfig)
         assert isinstance(cfg.databases["r"], DatabaseConfig)
@@ -222,18 +223,16 @@ class TestStackConfig:
         with pytest.raises(ValueError, match="unknown connection"):
             StackConfig.for_session(
                 connections={},
-                databases={
-                    "r": CDMDatabaseConfig(connection="missing", cdm_schema="s")
-                },
+                databases={"r": CDMDatabaseConfig(connection="missing", cdm_schema="s")},
             )
 
     def test_cross_ref_validation_vocab_connection(self):
         with pytest.raises(ValueError, match="unknown connection"):
             StackConfig.for_session(
-                connections={"c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
-                databases={
-                    "r": CDMDatabaseConfig(connection="c", vocab_connection="missing")
+                connections={
+                    "c": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
                 },
+                databases={"r": CDMDatabaseConfig(connection="c", vocab_connection="missing")},
             )
 
     def test_bind_loaded_path(self, tmp_path):
@@ -243,7 +242,7 @@ class TestStackConfig:
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(ValidationError):
-            StackConfig(unknown_top_level="x")  # type: ignore
+            StackConfig.model_validate({"unknown_top_level": "x"})
 
     def test_cross_ref_validation_unknown_provider(self):
         with pytest.raises(ValueError, match="unknown provider"):
@@ -261,7 +260,10 @@ class TestEntryExclusivity:
     @staticmethod
     def _pg(**overrides: Any) -> ConnectionConfig:
         fields: dict[str, Any] = {
-            "dialect": Dialect.POSTGRESQL + "+psycopg", "host": "db.example", "port": 5432, "database_name": "omop",
+            "dialect": Dialect.POSTGRESQL + "+psycopg",
+            "host": "db.example",
+            "port": 5432,
+            "database_name": "omop",
         }
         fields.update(overrides)
         return ConnectionConfig(**fields)
@@ -343,10 +345,18 @@ class TestEntryExclusivity:
         several independent CDM instances -- exactly why vocab_connection
         is a separate field from connection in the first place."""
         cfg = StackConfig.for_session(
-            connections={"a": self._pg(host="a"), "b": self._pg(host="b"), "vocab": self._pg(host="vocab")},
+            connections={
+                "a": self._pg(host="a"),
+                "b": self._pg(host="b"),
+                "vocab": self._pg(host="vocab"),
+            },
             databases={
-                "cdm_a": CDMDatabaseConfig(connection="a", vocab_connection="vocab", cdm_schema="a"),
-                "cdm_b": CDMDatabaseConfig(connection="b", vocab_connection="vocab", cdm_schema="b"),
+                "cdm_a": CDMDatabaseConfig(
+                    connection="a", vocab_connection="vocab", cdm_schema="a"
+                ),
+                "cdm_b": CDMDatabaseConfig(
+                    connection="b", vocab_connection="vocab", cdm_schema="b"
+                ),
             },
         )
         assert {"cdm_a", "cdm_b"} <= set(cfg.databases)
@@ -361,7 +371,9 @@ class TestEntryExclusivity:
             StackConfig.for_session(
                 connections={"a": self._pg(host="a"), "b": self._pg(host="b")},
                 databases={
-                    "cdm_a": CDMDatabaseConfig(connection="a", vocab_connection="b", cdm_schema="a"),
+                    "cdm_a": CDMDatabaseConfig(
+                        connection="a", vocab_connection="b", cdm_schema="a"
+                    ),
                     "cdm_b": CDMDatabaseConfig(connection="b", cdm_schema="b"),
                 },
             )
@@ -391,7 +403,9 @@ class TestEntryExclusivity:
     def test_test_only_connection_duplicating_a_production_one_raises(self):
         """test_only must never let a connection re-baseline a
         production database's schema provenance by accident."""
-        with pytest.raises(ValueError, match="is test_only but describes the same physical database"):
+        with pytest.raises(
+            ValueError, match="is test_only but describes the same physical database"
+        ):
             StackConfig.for_session(
                 connections={
                     "prod": self._pg(user="app_role"),
@@ -401,7 +415,9 @@ class TestEntryExclusivity:
 
     def test_test_only_connection_duplicating_a_production_one_via_host_alias_raises(self):
         """The twin is expressed through a host alias."""
-        with pytest.raises(ValueError, match="is test_only but describes the same physical database"):
+        with pytest.raises(
+            ValueError, match="is test_only but describes the same physical database"
+        ):
             StackConfig.for_session(
                 connections={
                     "prod": self._pg(host="localhost"),
@@ -451,7 +467,10 @@ class TestDeclaredSchemaNameValidation:
     @staticmethod
     def _pg(**overrides: Any) -> ConnectionConfig:
         fields: dict[str, Any] = {
-            "dialect": Dialect.POSTGRESQL + "+psycopg", "host": "db.example", "port": 5432, "database_name": "omop",
+            "dialect": Dialect.POSTGRESQL + "+psycopg",
+            "host": "db.example",
+            "port": 5432,
+            "database_name": "omop",
         }
         fields.update(overrides)
         return ConnectionConfig(**fields)
@@ -526,11 +545,11 @@ class TestProviderConfig:
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(ValidationError):
-            ProviderConfig(provider="ollama", unknown_field="x")  # type: ignore
+            ProviderConfig.model_validate({"provider": "ollama", "unknown_field": "x"})
 
     def test_provider_required(self):
         with pytest.raises(ValidationError):
-            ProviderConfig()  # type: ignore
+            ProviderConfig.model_validate({})
 
 
 class TestModelConfig:
@@ -577,4 +596,4 @@ class TestModelConfig:
 
     def test_extra_fields_forbidden(self):
         with pytest.raises(ValidationError):
-            ModelConfig(provider="p", model="m", unknown_field="x")  # type: ignore
+            ModelConfig.model_validate({"provider": "p", "model": "m", "unknown_field": "x"})

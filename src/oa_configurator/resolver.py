@@ -24,7 +24,12 @@ from .domains.resources.schema import (
     ResolvedConnection,
     ResolvedDatabase,
 )
-from .domains.resources.sql import connection_key, host_is_resolvable, is_ephemeral_url
+from .domains.resources.sql import (
+    connection_key,
+    host_is_resolvable,
+    is_ephemeral_url,
+    requires_host,
+)
 from .domains.vector_stores.schema import ResolvedVectorStore, VectorStoreConfig
 from .package_base import ConfigurationError, PackageConfigBase
 from .refs import RefTo, _iter_refs, is_sensitive, sanitized_errors
@@ -48,9 +53,7 @@ class ResolvedToolConfig:
     extra: dict[str, Any]
 
     def __repr__(self) -> str:
-        return (
-            f"ResolvedToolConfig(name={self.name!r}, extra_keys={sorted(self.extra)!r})"
-        )
+        return f"ResolvedToolConfig(name={self.name!r}, extra_keys={sorted(self.extra)!r})"
 
 
 # ------------------
@@ -130,16 +133,12 @@ def _check_missing_required(
         return
     if headless:
         fields = ", ".join(missing_required)
-        raise ConfigurationError(
-            f"Missing required field(s) for {display_name}: {fields}"
-        )
+        raise ConfigurationError(f"Missing required field(s) for {display_name}: {fields}")
     import typer
     from rich.console import Console
 
     err_console = Console(stderr=True)
-    hints = ", ".join(
-        f"--set {k}=<value>" if "." in k else _flag_name(k) for k in missing_required
-    )
+    hints = ", ".join(f"--set {k}=<value>" if "." in k else _flag_name(k) for k in missing_required)
     err_console.print(
         f"\n[red bold]Missing required field(s) for {display_name!r}:[/red bold] {hints}\n"
         f"No flag or stored config is available for these. Pass them explicitly."
@@ -229,9 +228,7 @@ def _resolve_ref(
 
     section = _ref_section(target, field_name=field_name)
     section_dict: dict[str, Any] = getattr(config, section)
-    candidates = sorted(
-        n for n in section_dict if _is_test_marked(n, target, config) == is_test
-    )
+    candidates = sorted(n for n in section_dict if _is_test_marked(n, target, config) == is_test)
 
     console.print(f"\n[bold]{escape(field_name)}[/bold]")
     if description:
@@ -288,9 +285,10 @@ def _find_production_collision(target: ConnectionConfig | URL, config: StackConf
     so an omitted port or a different spelling of the same host cannot slip a
     production database past this check.
 
-    Ephemeral connections are skipped: every in-memory SQLite URL is its own
-    database, so one matching key says nothing about the two addressing the
-    same storage, and there is no persistent data to protect either way.
+    Ephemeral connections are skipped: every in-memory SQLite/DuckDB URL is
+    its own database, so one matching key says nothing about the two
+    addressing the same storage, and there is no persistent data to protect
+    either way.
 
     Parameters
     ----------
@@ -303,14 +301,18 @@ def _find_production_collision(target: ConnectionConfig | URL, config: StackConf
     -------
     str or None
     """
+
     def comparison_key(url: URL) -> str:
-        if url.host is None and url.get_backend_name() == "sqlite" and not is_ephemeral_url(url):
-            return f"sqlite:{Path(url.database or '').expanduser().resolve()}"
+        backend = url.get_backend_name()
+        if url.host is None and not requires_host(backend) and not is_ephemeral_url(url):
+            return f"{backend}:{Path(url.database or '').expanduser().resolve()}"
         return connection_key(url)
 
     target_url = target._build_url_obj() if isinstance(target, ConnectionConfig) else target
     if target_url.host is not None and not host_is_resolvable(target_url.host):
-        raise ValueError(f"Cannot verify production safety: host {target_url.host!r} does not resolve.")
+        raise ValueError(
+            f"Cannot verify production safety: host {target_url.host!r} does not resolve."
+        )
     target_key = comparison_key(target_url)
     for conn_name, conn in config.connections.items():
         if conn.test_only or is_ephemeral_url(conn.safe_url()):
@@ -504,8 +506,7 @@ def _resolve_named_entry(
             # `kind`) never does, as it's a fixed per-class constant, and
             # carrying it over could be invalid for a different target class.
             is_fixed_literal = (
-                get_origin(info.annotation) is Literal
-                and len(get_args(info.annotation)) == 1
+                get_origin(info.annotation) is Literal and len(get_args(info.annotation)) == 1
             )
             if stored is not None and not is_fixed_literal:
                 values[field_name] = stored
@@ -606,9 +607,7 @@ def _resolve_named_entry(
             continue
 
         default_value = (
-            str(stored)
-            if stored is not None
-            else (str(info.default) if has_default else "")
+            str(stored) if stored is not None else (str(info.default) if has_default else "")
         )
         raw_input = typer.prompt(
             info.description or field_name,
@@ -769,9 +768,7 @@ class Resolver:
             If *name* (or its database) does not exist in the config.
         """
         resolved = self.get_vector_store(name).resolve(name, self.config)
-        logger.debug(
-            "Resolved vector store %r → backend_type=%r", name, resolved.backend_type
-        )
+        logger.debug("Resolved vector store %r → backend_type=%r", name, resolved.backend_type)
         return resolved
 
     def resolve_tool(self, name: str) -> ResolvedToolConfig:
@@ -839,9 +836,7 @@ class Resolver:
                 f"Run 'omop-config configure {cls.tool_name}' to set it up."
             )
 
-        for field_name, value, expected, actual in mismatched_kind_refs(
-            instance, self.config
-        ):
+        for field_name, value, expected, actual in mismatched_kind_refs(instance, self.config):
             raise ConfigurationError(
                 f"[tools.{cls.tool_name}].{field_name} requires a {expected.__name__} entry, but "
                 f"{value!r} is a {actual.__name__}.\n"

@@ -13,6 +13,7 @@ from oa_configurator import (
     CDMDatabaseConfig,
     ConfigurationError,
     ConnectionConfig,
+    Dialect,
     GenericDatabaseConfig,
     ModelConfig,
     PackageConfigBase,
@@ -26,7 +27,6 @@ from oa_configurator import (
     mismatched_kind_refs,
     plan_configure,
     unresolved_refs,
-    Dialect
 )
 from oa_configurator.domains.resources.schema import DatabaseConfig
 from oa_configurator.refs import Sensitive
@@ -84,7 +84,7 @@ class TestPackageConfigBase:
                 pass
 
             # Accessing tool_name on an instance should fail
-            BadConfig().tool_name  # type: ignore[attr-defined]
+            _ = BadConfig().tool_name
 
 
 class NestedLimits(BaseModel):
@@ -108,9 +108,7 @@ class ValidatedPackageConfig(PackageConfigBase):
 
 def _validated_stack(tool_values: dict[str, Any]) -> StackConfig:
     return StackConfig.for_session(
-        connections={
-            "db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
-        },
+        connections={"db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
         databases={"cdm_db": CDMDatabaseConfig(connection="db")},
         tools={"validated_tool": tool_values},
     )
@@ -147,16 +145,12 @@ class TestPackageCandidateValidation:
     def test_missing_reference_identifies_package_field(self):
         cfg = _validated_stack({"cdm_db": "missing"})
 
-        with pytest.raises(
-            ConfigurationError, match=r"\[tools\.validated_tool\]\.cdm_db"
-        ):
+        with pytest.raises(ConfigurationError, match=r"\[tools\.validated_tool\]\.cdm_db"):
             ValidatedPackageConfig.validate_candidate(cfg)
 
     def test_wrong_reference_kind_identifies_package_field(self):
         cfg = StackConfig.for_session(
-            connections={
-                "db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
-            },
+            connections={"db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
             databases={"generic": GenericDatabaseConfig(connection="db")},
             tools={"validated_tool": {"cdm_db": "generic"}},
         )
@@ -192,9 +186,7 @@ class TestPackageCandidateValidation:
 
 
 class TestPlanConfigure:
-    def test_returns_new_validated_candidate_without_file_io(
-        self, tmp_path, monkeypatch
-    ):
+    def test_returns_new_validated_candidate_without_file_io(self, tmp_path, monkeypatch):
         cfg = _validated_stack({"cdm_db": "cdm_db", "port": 8000})
         cfg.bind_loaded_path(tmp_path / "config.toml")
         before = cfg.model_dump(mode="python")
@@ -240,9 +232,7 @@ class TestPlanConfigure:
 
     def test_invalid_nested_entry_traceback_omits_rejected_secret(self):
         canary = "secret-model-canary"
-        cfg = StackConfig.for_session(
-            providers={"provider": ProviderConfig(provider="ollama")}
-        )
+        cfg = StackConfig.for_session(providers={"provider": ProviderConfig(provider="ollama")})
 
         with pytest.raises(ConfigurationError) as exc_info:
             plan_configure(
@@ -376,9 +366,7 @@ class TestRefToPackageField:
 
     def test_passes_when_referenced_database_exists(self):
         cfg = StackConfig.for_session(
-            connections={
-                "db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
-            },
+            connections={"db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
             databases={"cdm_db": CDMDatabaseConfig(connection="db")},
         )
         result = Resolver(cfg).resolve_package_config(DatabaseUserConfig)
@@ -395,9 +383,7 @@ class TestRefToPackageField:
     def test_passes_when_referenced_model_exists(self):
         cfg = StackConfig.for_session(
             providers={"p": ProviderConfig(provider="ollama")},
-            models={
-                "embed-default": ModelConfig(provider="p", model="nomic-embed-text")
-            },
+            models={"embed-default": ModelConfig(provider="p", model="nomic-embed-text")},
         )
         result = Resolver(cfg).resolve_package_config(EmbeddingConfig)
         assert result.embedding_model_name == "embed-default"
@@ -425,9 +411,7 @@ class TestConventionBasedSharing:
 
     def test_two_packages_resolve_to_the_same_database(self):
         cfg = StackConfig.for_session(
-            connections={
-                "db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
-            },
+            connections={"db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
             databases={"cdm_db": CDMDatabaseConfig(connection="db")},
         )
         a = Resolver(cfg).resolve_package_config(DatabaseUserConfig)
@@ -453,15 +437,11 @@ class TestRefToIsTest:
 
         class OddlyNamedConfig(PackageConfigBase):
             tool_name: ClassVar[str] = "oddly_named_tool"
-            playground_db: Annotated[
-                str | None, RefTo(CDMDatabaseConfig, is_test=True)
-            ] = None
+            playground_db: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = None
             test_flavoured_prod_db: Annotated[str, RefTo(CDMDatabaseConfig)] = "prod_db"
 
         fields = dict(OddlyNamedConfig.model_fields)
-        playground_ref = next(
-            m for m in fields["playground_db"].metadata if isinstance(m, RefTo)
-        )
+        playground_ref = next(m for m in fields["playground_db"].metadata if isinstance(m, RefTo))
         prod_ref = next(
             m for m in fields["test_flavoured_prod_db"].metadata if isinstance(m, RefTo)
         )
@@ -486,9 +466,9 @@ class TestIsTestOnlyMatchEnforcement:
 
         class NeedsTestDb(PackageConfigBase):
             tool_name: ClassVar[str] = "needs_test_db_tool"
-            test_cdm_db: Annotated[
-                str | None, RefTo(CDMDatabaseConfig, is_test=True)
-            ] = "test_cdm_db"
+            test_cdm_db: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = (
+                "test_cdm_db"
+            )
 
         with pytest.raises(ConfigurationError, match="is_test=True"):
             Resolver(cfg).resolve_package_config(NeedsTestDb)
@@ -522,9 +502,9 @@ class TestIsTestOnlyMatchEnforcement:
 
         class NeedsTestDb(PackageConfigBase):
             tool_name: ClassVar[str] = "matching_test_db_tool"
-            test_cdm_db: Annotated[
-                str | None, RefTo(CDMDatabaseConfig, is_test=True)
-            ] = "test_cdm_db"
+            test_cdm_db: Annotated[str | None, RefTo(CDMDatabaseConfig, is_test=True)] = (
+                "test_cdm_db"
+            )
 
         result = Resolver(cfg).resolve_package_config(NeedsTestDb)
         assert result.test_cdm_db == "test_cdm_db"
@@ -564,9 +544,7 @@ class TestIsTestOnlyMatchEnforcement:
                     ),
                 },
                 databases={
-                    "cdm_db": CDMDatabaseConfig(
-                        connection="prod", vocab_connection="test_vocab"
-                    )
+                    "cdm_db": CDMDatabaseConfig(connection="prod", vocab_connection="test_vocab")
                 },
             )
 
@@ -582,16 +560,12 @@ class TestIsTestOnlyMatchEnforcement:
                 )
             },
             databases={"emb_db": GenericDatabaseConfig(connection="test_conn")},
-            vector_stores={
-                "vs": VectorStoreConfig(backend_type="pgvector", database="emb_db")
-            },
+            vector_stores={"vs": VectorStoreConfig(backend_type="pgvector", database="emb_db")},
         )
 
         class NeedsTestVectorStore(PackageConfigBase):
             tool_name: ClassVar[str] = "vector_store_test_tool"
-            vector_store_name: Annotated[
-                str | None, RefTo(VectorStoreConfig, is_test=True)
-            ] = "vs"
+            vector_store_name: Annotated[str | None, RefTo(VectorStoreConfig, is_test=True)] = "vs"
 
         result = Resolver(cfg).resolve_package_config(NeedsTestVectorStore)
         assert result.vector_store_name == "vs"
@@ -604,16 +578,12 @@ class TestIsTestOnlyMatchEnforcement:
                 )
             },
             databases={"emb_db": GenericDatabaseConfig(connection="prod_conn")},
-            vector_stores={
-                "vs": VectorStoreConfig(backend_type="pgvector", database="emb_db")
-            },
+            vector_stores={"vs": VectorStoreConfig(backend_type="pgvector", database="emb_db")},
         )
 
         class NeedsTestVectorStore(PackageConfigBase):
             tool_name: ClassVar[str] = "vector_store_test_tool_2"
-            vector_store_name: Annotated[
-                str | None, RefTo(VectorStoreConfig, is_test=True)
-            ] = "vs"
+            vector_store_name: Annotated[str | None, RefTo(VectorStoreConfig, is_test=True)] = "vs"
 
         with pytest.raises(ConfigurationError, match="is_test=True"):
             Resolver(cfg).resolve_package_config(NeedsTestVectorStore)
@@ -631,9 +601,7 @@ class TestRefToAbstractDatabaseConfigRejected:
             cdm_db: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"
 
         cfg = StackConfig.for_session(
-            connections={
-                "db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
-            },
+            connections={"db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},
             databases={"cdm_db": CDMDatabaseConfig(connection="db")},
         )
         with pytest.raises(UnknownRefTarget) as exc_info:
@@ -656,7 +624,7 @@ class RequiredFieldConfig(PackageConfigBase):
 
 class DictFieldConfig(PackageConfigBase):
     tool_name: ClassVar[str] = "dict_field_tool"
-    configuration: dict[str, Any] = {}
+    configuration: dict[str, Any] = Field(default_factory=dict)
 
 
 class TestResolveFieldsPlainFieldHandling:
@@ -687,12 +655,8 @@ class TestResolveFieldsPlainFieldHandling:
         assert seen_defaults["required_value"] == ""
         assert extra["required_value"] == "configured"
 
-    def test_dict_field_is_not_prompted_and_carries_over_stored_value(
-        self, monkeypatch
-    ):
-        cfg = StackConfig.for_session(
-            tools={"dict_field_tool": {"configuration": {"k": "v"}}}
-        )
+    def test_dict_field_is_not_prompted_and_carries_over_stored_value(self, monkeypatch):
+        cfg = StackConfig.for_session(tools={"dict_field_tool": {"configuration": {"k": "v"}}})
         # If this field were free-text prompted, this monkeypatch would be hit and fail the test.
         monkeypatch.setattr(
             typer,

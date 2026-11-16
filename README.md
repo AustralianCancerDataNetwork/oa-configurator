@@ -12,6 +12,8 @@
 
 A consuming package subclasses `PackageConfigBase`, declares its fields with `RefTo(...)` to name entries in the sections above, and registers via a `pyproject.toml` entry point. `omop-config configure <package>` then discovers it and interactively resolves or creates whatever it needs.
 
+Supported dialects: PostgreSQL, SQLite, and DuckDB. SQLite and DuckDB are both file-based (no `host` needed) and need `database_name` set explicitly, with no implicit default.
+
 ## Install
 
 ```bash
@@ -23,11 +25,11 @@ pip install oa-configurator
 ```python
 from oa_configurator import load_stack_config, Resolver
 
-config = load_stack_config()          # OA_CONFIG_PATH is read at import; set it before process startup
+config = load_stack_config()  # OA_CONFIG_PATH is read at import; set it before process startup
 resolver = Resolver(config)
 
 database = resolver.resolve_database("cdm_db")
-primary, vocab = database.create_engines()   # SQLAlchemy Engines, schema_translate_map applied
+primary, vocab = database.create_engines()  # SQLAlchemy Engines, schema_translate_map applied
 ```
 
 Or without a file, for tests and scripts:
@@ -36,8 +38,11 @@ Or without a file, for tests and scripts:
 from oa_configurator import StackConfig, ConnectionConfig, CDMDatabaseConfig, Resolver
 
 config = StackConfig.for_session(
-    connections={"local": ConnectionConfig(dialect="postgresql+psycopg", host="localhost",
-                                            database_name="omop", password="omop")},
+    connections={
+        "local": ConnectionConfig(
+            dialect="postgresql+psycopg", host="localhost", database_name="omop", password="omop"
+        )
+    },
     databases={"cdm_db": CDMDatabaseConfig(connection="local", cdm_schema="omop")},
 )
 primary, vocab = Resolver(config).resolve_database("cdm_db").create_engines()

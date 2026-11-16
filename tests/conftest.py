@@ -6,6 +6,9 @@ All tests use StackConfig.for_session() or tmp_path.
 
 from __future__ import annotations
 
+import ipaddress
+import socket
+
 import pytest
 import sqlalchemy as sa
 import typer.rich_utils as _typer_rich_utils
@@ -40,7 +43,11 @@ from oa_configurator.testing import (
 # uncolored output everywhere; real users still get colour in a real terminal.
 _typer_rich_utils.FORCE_TERMINAL = None
 
-_FIELD_BY_DIALECT = {Dialect.POSTGRESQL: "test_db_pg", Dialect.SQLITE: "test_db_sqlite"}
+_FIELD_BY_DIALECT = {
+    Dialect.POSTGRESQL: "test_db_pg",
+    Dialect.SQLITE: "test_db_sqlite",
+    Dialect.DUCKDB: "test_db_duckdb",
+}
 assert set(_FIELD_BY_DIALECT) == {param.values[0] for param in DIALECT_PARAMS}, (
     "_FIELD_BY_DIALECT is missing an entry for a dialect DIALECT_PARAMS now covers."
 )
@@ -58,7 +65,9 @@ def registry_row(
     """
     if schema_tag in _ROLE_TAG_VALUES and database_config_name is None:
         raise ValueError(f"database_config_name is required for Role tag {schema_tag!r}.")
-    mapped = _with_provenance_translate_map(connection, physical_schema="oa_configurator_provenance")
+    mapped = _with_provenance_translate_map(
+        connection, physical_schema="oa_configurator_provenance"
+    )
     conditions = _row_conditions(schema_tag, database_config_name or "")
     return mapped.execute(sa.select(SchemaRegistry).where(*conditions)).one()
 
@@ -104,9 +113,30 @@ def pg_connection_config(pg_db) -> ConnectionConfig:
     """
     url = make_url(pg_db.connection.engine.url)
     return ConnectionConfig(
-        dialect=url.drivername, host=url.host, port=url.port,
-        user=url.username, password=url.password, database_name=url.database,
+        dialect=url.drivername,
+        host=url.host,
+        port=url.port,
+        user=url.username,
+        password=url.password,
+        database_name=url.database,
     )
+
+
+@pytest.fixture
+def pg_host_aliases(pg_connection_config) -> tuple[str, str]:
+    """Two spellings of the host pg_db is reached at: its name and its IP.
+
+    A loopback IP pairs with ``localhost``. A server addressed by an
+    IP that is not loopback has no second spelling, so the test is skipped.
+    """
+    host = pg_connection_config.host
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return host, socket.gethostbyname(host)
+    if address.is_loopback:
+        return "localhost", host
+    pytest.skip(f"test_db_pg is addressed by the non-loopback IP {host}; no second spelling")
 
 
 @pytest.fixture
@@ -124,6 +154,27 @@ def sqlite_db(request):
     """
     with isolated_test_database(
         OAConfiguratorConfig, "test_db_sqlite", dialect=Dialect.SQLITE, request=request
+    ) as db:
+        yield db
+
+
+@pytest.fixture
+def duckdb_db(request):
+    """Isolated, disposable DuckDB database, for a test that needs a real
+    DuckDB engine/connection with no Postgres counterpart (unlike the
+    dialect-parametrized ``engine`` fixture below). ``test_db_duckdb`` is
+    deliberately never configured, so this always falls back to
+    ``DuckDBTestStrategy``'s own disposable database, a fresh tempfile with
+    no rollback wrapping needed (DuckDB isolation is free per-call, same as
+    SQLite).
+
+    Use ``duckdb_db.connection`` where a ``Connection`` is needed,
+    ``duckdb_db.committing_engine`` where a real ``Engine`` is needed (e.g.
+    to open more than one connection/transaction in the same test, such as
+    ``DuckDBTestStrategy.temporary_schema()``'s cross-connection visibility).
+    """
+    with isolated_test_database(
+        OAConfiguratorConfig, "test_db_duckdb", dialect=Dialect.DUCKDB, request=request
     ) as db:
         yield db
 
@@ -151,10 +202,11 @@ def engine(request):
 
     """
     with isolated_test_database(
-        OAConfiguratorConfig, _FIELD_BY_DIALECT[request.param],
+        OAConfiguratorConfig,
+        _FIELD_BY_DIALECT[request.param],
         dialect=request.param,
         request=request,
-        schema_claims=()
+        schema_claims=(),
     ) as db:
         yield db.connection.engine.execution_options(
             schema_translate_map={Role.PRIMARY.value: "myschema"},
@@ -183,7 +235,7 @@ def pg_stack() -> StackConfig:
     return StackConfig.for_session(
         connections={
             "cdm": ConnectionConfig(
-                dialect=Dialect.POSTGRESQL+"+psycopg",
+                dialect=Dialect.POSTGRESQL + "+psycopg",
                 host="localhost",
                 port=5432,
                 user="omop",

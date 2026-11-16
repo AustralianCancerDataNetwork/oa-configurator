@@ -8,15 +8,16 @@ table. No other code changes are needed.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Iterable, Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from sqlalchemy import Connection, Engine
 from sqlalchemy.orm import Session
 
-from ..domains.resources.sql import connection_key
+from ..domains.resources.sql import EXECUTION_OPTION_TEST_ONLY, connection_key
 
 if TYPE_CHECKING:
     from ..domains.resources.schema import (
@@ -67,7 +68,7 @@ class IsolatedTestDatabase:
 
     connection: Connection
     session: Session
-    resolved: "ResolvedDatabase | None" = None
+    resolved: ResolvedDatabase | None = None
 
     @property
     def committing_engine(self) -> Engine:
@@ -126,11 +127,11 @@ class TestDatabaseStrategy(ABC):
 
     @staticmethod
     def _resolve_and_check(
-        config_cls: type["PackageConfigBase"], 
-        field_name: str, 
-        *, 
-        resolver: "Resolver | None" = None
-    ) -> "ResolvedDatabase":
+        config_cls: type[PackageConfigBase],
+        field_name: str,
+        *,
+        resolver: Resolver | None = None,
+    ) -> ResolvedDatabase:
         """Resolve *field_name* off *config_cls* and enforce ``test_only``.
 
         Dialect-agnostic: resolving a config field and checking a
@@ -189,7 +190,7 @@ class TestDatabaseStrategy(ABC):
             pytest.fail(_not_test_only_message(name, connection_name))
         return resolved
 
-    def resolve_without_config(self) -> "ResolvedDatabase":
+    def resolve_without_config(self) -> ResolvedDatabase:
         """Build a ``ResolvedDatabase`` needing no real configuration.
 
         Raises :class:`TestDatabaseNotConfigured` for any strategy that requires a
@@ -204,16 +205,16 @@ class TestDatabaseStrategy(ABC):
     @staticmethod
     def _require_test_only_engine(engine: Engine) -> None:
         """Refuse to use *engine* with ``isolated_test_schema()`` unless it
-        matches a ``test_only=true`` connection in the active config.
+        is known to be test-only.
 
-        Unlike ``isolated_database()``, this path is handed an already-built
-        engine directly, not a config field name, so there's nothing to
-        resolve through ``_resolve_and_check()``. The engine's own URL is
-        matched against ``config.connections`` by host/database/port
-        instead, applying the same safety posture: refuse by default,
-        require a positive, known, test_only match before creating a real,
-        committed schema.
+        Accepts an engine already carrying ``EXECUTION_OPTION_TEST_ONLY``
+        in its execution options. Otherwise matches it against a
+        ``test_only=true`` connection in the active config by physical
+        identity, failing if none matches.
         """
+        if engine.get_execution_options().get(EXECUTION_OPTION_TEST_ONLY):
+            return
+
         from ..loader import load_stack_config
 
         url = engine.url
@@ -225,11 +226,7 @@ class TestDatabaseStrategy(ABC):
 
         target = connection_key(url)
         match = next(
-            (
-                name
-                for name, conn in config.connections.items()
-                if conn.physical_key() == target
-            ),
+            (name for name, conn in config.connections.items() if conn.physical_key() == target),
             None,
         )
         if match is None:
@@ -240,9 +237,9 @@ class TestDatabaseStrategy(ABC):
     @abstractmethod
     def isolated_database(
         self,
-        resolved: "ResolvedDatabase",
+        resolved: ResolvedDatabase,
         *,
-        schema_claims: Iterable["SchemaClaim"] = (),
+        schema_claims: Iterable[SchemaClaim] = (),
         execution_options: dict[str, Any] | None = None,
         **engine_kwargs: Any,
     ) -> AbstractContextManager[IsolatedTestDatabase]:
@@ -277,7 +274,7 @@ class TestDatabaseStrategy(ABC):
         """
 
     @abstractmethod
-    def drop_test_database(self, connection: "ResolvedConnection") -> bool:
+    def drop_test_database(self, connection: ResolvedConnection) -> bool:
         """Drop connection's leftover test database, if this dialect has one.
 
         Only for connections marked ``test_only=true``. Returns True if a

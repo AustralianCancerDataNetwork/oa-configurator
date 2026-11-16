@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable, Iterable, Iterator, Sequence
-from contextlib import AbstractContextManager
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import cached_property
@@ -20,6 +20,7 @@ from ...refs import RefTo, Secret, SecretSafeBaseModel
 from .schema_registry import (
     _SCHEMA_PROVENANCE_SCHEMA,
     CrossDatabaseStatementError,
+    UnregisteredSchemaTagError,
     _check_schema_claim,
     _ensure_schema_registry_table,
     _guard_schema_provenance,
@@ -32,7 +33,9 @@ from .sql import (
     EXECUTION_OPTION_TEST_ONLY,
     SCHEMA_TRANSLATE_MAP_KEY,
     Bindable,
+    Dialect,
     Role,
+    _profile_for,
     connection_key,
     ensure_schema,
     is_ephemeral_url,
@@ -46,13 +49,16 @@ MIGRATION_COMMAND = (
     "main/migrations/to_v2.py"
 )
 
-UPGRADING_GUIDE_URL = "https://AustralianCancerDataNetwork.github.io/oa-configurator/upgrading-from-1.x/"
+UPGRADING_GUIDE_URL = (
+    "https://AustralianCancerDataNetwork.github.io/oa-configurator/upgrading-from-1.x/"
+)
 
 if TYPE_CHECKING:
     from ...stack_config import StackConfig
 
 # Types for route_for_schema_tag()
 _T = TypeVar("_T")
+
 
 class SchemaClaim(NamedTuple):
     """Explicit entry to the schema_translate_map passed to create_engine().
@@ -80,6 +86,7 @@ class SchemaClaim(NamedTuple):
     reserved: bool = False
     owner: str | None = None
 
+
 class ConnectionConfig(SecretSafeBaseModel):
     """Complete specification of one physical database connection: server
     address, credentials, and target database.
@@ -100,8 +107,8 @@ class ConnectionConfig(SecretSafeBaseModel):
     host: str | None = Field(
         default=None,
         description=(
-            "Hostname or IP address. Required for every dialect except SQLite, which "
-            "connects to a local file and has no host to speak of."
+            "Hostname or IP address. Required for every dialect except SQLite and "
+            "DuckDB, which connect to a local file and have no host to speak of."
         ),
     )
     port: int | None = Field(default=None, description="Port number.")
@@ -113,8 +120,9 @@ class ConnectionConfig(SecretSafeBaseModel):
     database_name: str | None = Field(
         default=None,
         description=(
-            "Database name on the server. Required for SQLite, which has no implicit "
-            "default: pass an absolute path, or ':memory:' for an in-memory database."
+            "Database name on the server. Required for SQLite and DuckDB, which have "
+            "no implicit default: pass an absolute path, or ':memory:' for an "
+            "in-memory database."
         ),
     )
     test_only: bool = Field(
@@ -279,7 +287,11 @@ def _derive_owner() -> str | None:
     frame = frame.f_back if frame is not None else None
     while frame is not None:
         module_name = frame.f_globals.get("__name__", "")
-        if module_name and not module_name.startswith("oa_configurator") and module_name != "contextlib":
+        if (
+            module_name
+            and not module_name.startswith("oa_configurator")
+            and module_name != "contextlib"
+        ):
             return module_name.split(".")[0]
         frame = frame.f_back
     return None
@@ -317,7 +329,7 @@ def _install_cross_database_guard(engine: Engine, resolved: ResolvedDatabase) ->
     hosted = {role.value for role in resolved.roles_on_connection(engine)}
 
     @event.listens_for(engine, "before_execute")
-    def _guard(  # type: ignore[misc]
+    def _guard(
         conn: Connection,
         clauseelement: Any,
         multiparams: Any,
@@ -348,17 +360,36 @@ def referred_schema_tag(foreign_key: sa.ForeignKey, default: str) -> str:
     return parts[0] if len(parts) == 3 else default
 
 
+def _crosses_fk_boundary(
+    constraint: sa.ForeignKeyConstraint,
+    resolved: ResolvedDatabase,
+    physical_schemas: Mapping[str, str | None] | None,
+) -> bool:
+    """Whether *constraint* references a tag this dialect cannot enforce a key against."""
+    own_tag = constraint.table.schema
+    if own_tag is None:
+        return False
+    return any(
+        not resolved.foreign_key_can_span(
+            own_tag, referred_schema_tag(element, own_tag), physical_schemas=physical_schemas
+        )
+        for element in constraint.elements
+    )
+
+
 def without_cross_engine_foreign_keys(
     tables: Iterable[sa.Table],
     *,
     resolved: ResolvedDatabase,
+    physical_schemas: Mapping[str, str | None] | None = None,
 ) -> list[sa.Table]:
-    """Copies of *tables* with foreign keys that cross a database boundary removed.
+    """Copies of *tables* with foreign keys crossing an unsupported boundary removed.
 
     Derived from the real tables so a column or type added to a model cannot
-    drift from its copy. Only constraints whose referred tag is hosted on
-    another connection are dropped; a composite key targeting the same tag
-    survives untouched.
+    drift from its copy. Only constraints whose referred tag cannot be
+    enforced from the owning tag (another physical database, or another
+    physical schema on a dialect that cannot express cross-schema keys) are
+    dropped; a composite key targeting an enforceable tag survives untouched.
 
     This changes only the DDL emitted for a split deployment. The ORM models
     keep their own ``ForeignKey`` declarations, and SQLAlchemy infers join
@@ -372,6 +403,9 @@ def without_cross_engine_foreign_keys(
         own ``schema`` is the tag it belongs to.
     resolved : ResolvedDatabase
         Topology answering whether a foreign key can span two tags.
+    physical_schemas : Mapping[str, str | None], optional
+        Physical schema names for tags beyond *resolved*'s own configured
+        ones, forwarded to :meth:`ResolvedDatabase.foreign_key_can_span`.
 
     Returns
     -------
@@ -383,27 +417,115 @@ def without_cross_engine_foreign_keys(
     target = sa.MetaData()
     copies = [table.to_metadata(target) for table in tables]
     for copied in copies:
-        own_tag = copied.schema
-        if own_tag is None:
-            continue
-        for constraint in [
-            candidate
-            for candidate in copied.constraints
-            if isinstance(candidate, sa.ForeignKeyConstraint)
-        ]:
-            crosses = any(
-                not resolved.foreign_key_can_span(
-                    own_tag, referred_schema_tag(element, own_tag)
-                )
-                for element in constraint.elements
-            )
-            if not crosses:
+        for constraint in tuple(copied.foreign_key_constraints):
+            if not _crosses_fk_boundary(constraint, resolved, physical_schemas):
                 continue
             copied.constraints.discard(constraint)
             for element in constraint.elements:
                 copied.foreign_keys.discard(element)
                 element.parent.foreign_keys.discard(element)
     return copies
+
+
+class UnenforcedForeignKey(NamedTuple):
+    """An original FK constraint and why the database will not enforce it.
+
+    ``cross_database`` and ``cross_schema`` identify keys
+    :func:`without_cross_engine_foreign_keys` removes from DDL copies.
+    ``deferred`` means the constraint survives in the DDL as a cyclic or
+    ``use_alter=True`` dependency. It only ever applies on DuckDB. There,
+    the later ``ALTER TABLE ADD CONSTRAINT`` SQLAlchemy would use to add
+    it is itself unsupported, and the DuckDB compile shim no-ops that
+    statement instead of raising. The key is therefore never actually
+    created, the same practical outcome as
+    ``cross_database``/``cross_schema``, just reached by a different
+    path. Inspecting this record does not change the original
+    constraint.
+    """
+
+    constraint: sa.ForeignKeyConstraint
+    reason: Literal["cross_database", "cross_schema", "deferred"]
+
+
+def unenforced_foreign_keys(
+    tables: Iterable[sa.Table],
+    *,
+    resolved: ResolvedDatabase,
+    physical_schemas: Mapping[str, str | None] | None = None,
+) -> tuple[UnenforcedForeignKey, ...]:
+    """Report every FK in *tables* the database will not enforce, and why.
+
+    A read-only counterpart to :func:`without_cross_engine_foreign_keys`: it
+    classifies the same boundary cases plus deferred keys, without copying
+    or mutating anything. Cllers that need their own reporting (e.g. a
+    schema-reconciliation report) have one shared source of truth instead
+    of each maintaining an independent list.
+
+    Parameters
+    ----------
+    tables : Iterable[sqlalchemy.Table]
+        Tables to classify. Pass the complete set being created together:
+        a cyclic dependency is only visible across the whole set.
+    resolved : ResolvedDatabase
+        Topology answering whether a foreign key can span two tags.
+    physical_schemas : Mapping[str, str | None], optional
+        Forwarded to :meth:`ResolvedDatabase.foreign_key_can_span`.
+
+    Returns
+    -------
+    tuple[UnenforcedForeignKey, ...]
+        One entry per unenforced constraint, in table input order.
+    """
+    tables = tuple(dict.fromkeys(tables))
+    boundary_crossing = {
+        constraint
+        for table in tables
+        for constraint in table.foreign_key_constraints
+        if _crosses_fk_boundary(constraint, resolved, physical_schemas)
+    }
+
+    def _reason(constraint: sa.ForeignKeyConstraint) -> Literal["cross_database", "cross_schema"]:
+        # Only ever called for a constraint already in boundary_crossing,
+        # which _crosses_fk_boundary only populates for a schema-tagged
+        # table, so own_tag is never None here.
+        own_tag = constraint.table.schema
+        assert own_tag is not None
+        for element in constraint.elements:
+            target = referred_schema_tag(element, own_tag)
+            if not resolved.tags_share_a_transaction(own_tag, target):
+                return "cross_database"
+        return "cross_schema"
+
+    duckdb_tables = [
+        table
+        for table in tables
+        if resolved.connection_for_schema_tag(table.schema or Role.PRIMARY).dialect_name
+        == Dialect.DUCKDB
+    ]
+    deferred: set[sa.ForeignKeyConstraint] = set()
+    if duckdb_tables:
+        duckdb_constraints = {
+            constraint for table in duckdb_tables for constraint in table.foreign_key_constraints
+        }
+        ordered = sa.schema.sort_tables_and_constraints(
+            tables, filter_fn=lambda fk: True if fk in boundary_crossing else None
+        )
+        deferred = set(ordered[-1][1]) & duckdb_constraints - boundary_crossing
+
+    return tuple(
+        UnenforcedForeignKey(
+            constraint, _reason(constraint) if constraint in boundary_crossing else "deferred"
+        )
+        for table in tables
+        for constraint in sorted(
+            table.foreign_key_constraints,
+            key=lambda fk: (
+                tuple(fk.columns.keys()),
+                tuple(e.target_fullname for e in fk.elements),
+            ),
+        )
+        if constraint in boundary_crossing or constraint in deferred
+    )
 
 
 def _process_schema_claims(
@@ -462,40 +584,41 @@ def _process_schema_claims(
     )
     with connection_cm as connection:
         transaction = connection.begin() if register_claims else None
+        lock_cm = _lock_schema_registry(connection) if register_claims else nullcontext()
         try:
-            if register_claims:
-                _lock_schema_registry(connection)
-                connection = _ensure_schema_registry_table(connection)
-            for claim in claims:
-                physical_schema = (
-                    claim.physical_schema
-                    if claim.physical_schema is not None
-                    else sa.inspect(connection).default_schema_name
-                )
-                translate_map[claim.schema_tag] = physical_schema
+            with lock_cm:
                 if register_claims:
-                    _register_schema_claim(
-                        connection,
-                        database_config_name=database_config_name,
-                        schema_tag=claim.schema_tag,
-                        physical_schema=physical_schema,
-                        owner=claim.owner,
-                        reserved=claim.reserved,
-                        test_only=test_only,
+                    connection = _ensure_schema_registry_table(connection)
+                for claim in claims:
+                    physical_schema = (
+                        claim.physical_schema
+                        if claim.physical_schema is not None
+                        else sa.inspect(connection).default_schema_name
                     )
-                    ensure_schema(connection, physical_schema)
-                else:
-                    _check_schema_claim(
-                        connection,
-                        database_config_name=database_config_name,
-                        schema_tag=claim.schema_tag,
-                        physical_schema=physical_schema,
-                        owner=claim.owner,
-                        reserved=claim.reserved,
-                        test_only=test_only,
-                    )
-            if transaction is not None:
-                transaction.commit()
+                    translate_map[claim.schema_tag] = physical_schema
+                    if register_claims:
+                        _register_schema_claim(
+                            connection,
+                            database_config_name=database_config_name,
+                            schema_tag=claim.schema_tag,
+                            physical_schema=physical_schema,
+                            owner=claim.owner,
+                            reserved=claim.reserved,
+                            test_only=test_only,
+                        )
+                        ensure_schema(connection, physical_schema)
+                    else:
+                        _check_schema_claim(
+                            connection,
+                            database_config_name=database_config_name,
+                            schema_tag=claim.schema_tag,
+                            physical_schema=physical_schema,
+                            owner=claim.owner,
+                            reserved=claim.reserved,
+                            test_only=test_only,
+                        )
+                if transaction is not None:
+                    transaction.commit()
         except BaseException:
             if transaction is not None:
                 transaction.rollback()
@@ -510,7 +633,7 @@ class DatabaseKind(str, Enum):
     CDM = "cdm"
 
 
-class DatabaseConfig(SecretSafeBaseModel):
+class DatabaseConfig[KindT: DatabaseKind](SecretSafeBaseModel):
     """Shared interface for every named database: a connection, plus each
     concrete kind's own schema field(s).
 
@@ -524,13 +647,13 @@ class DatabaseConfig(SecretSafeBaseModel):
     -----
     schema dispatch is handled in subclasses. See :class:`GenericDatabaseConfig`
     for `schema_name` and :class:`CDMDatabaseConfig` for `cdm_schema`,
-    `vocab_schema`, and `results_schema`. 
+    `vocab_schema`, and `results_schema`.
 
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: DatabaseKind = Field(description="Which concrete database shape this entry is.")
+    kind: KindT = Field(description="Which concrete database shape this entry is.")
     connection: Annotated[str, RefTo(ConnectionConfig)] = Field(
         description="Name of the connection entry (from [connections]) used as the primary server."
     )
@@ -544,14 +667,14 @@ class DatabaseConfig(SecretSafeBaseModel):
         return self.connection
 
 
-class GenericDatabaseConfig(DatabaseConfig):
+class GenericDatabaseConfig(DatabaseConfig[Literal[DatabaseKind.GENERIC]]):
     """A connection plus one optional schema. No CDM role-splitting.
 
     Used by consumers that need a single database with no vocab/results
     distinction, e.g. an embedding store or a metadata database.
     """
 
-    kind: Literal[DatabaseKind.GENERIC] = DatabaseKind.GENERIC  # type: ignore[assignment]
+    kind: Literal[DatabaseKind.GENERIC] = DatabaseKind.GENERIC
     schema_name: Annotated[str | None, Role.PRIMARY] = Field(
         default=None,
         description=(
@@ -570,7 +693,7 @@ class GenericDatabaseConfig(DatabaseConfig):
         return ResolvedDatabase(name=name, connection=primary, schema_name=self.schema_name)
 
 
-class CDMDatabaseConfig(DatabaseConfig):
+class CDMDatabaseConfig(DatabaseConfig[Literal[DatabaseKind.CDM]]):
     """Maps the OMOP logical roles (CDM, vocab, results) to named connections and schema names.
 
     This is what a CDM-consuming package treats as "its database": the
@@ -579,14 +702,14 @@ class CDMDatabaseConfig(DatabaseConfig):
     packages only need a single ``cdm_db`` database.
     """
 
-    kind: Literal[DatabaseKind.CDM] = DatabaseKind.CDM  # type: ignore[assignment]
+    kind: Literal[DatabaseKind.CDM] = DatabaseKind.CDM
 
     @model_validator(mode="before")
     @classmethod
     def _reject_legacy_schema_name(cls, value: Any) -> Any:
         if isinstance(value, dict) and "schema_name" in value:
             raise ValueError(
-                "This looks like a 1.x config: `schema_name` on a `kind = \"cdm\"` "
+                'This looks like a 1.x config: `schema_name` on a `kind = "cdm"` '
                 "entry became `cdm_schema` in 2.0, whose default is now None. "
                 f"Run the migration script with `{MIGRATION_COMMAND}` (a dry run unless "
                 f"given --apply), or follow the manual upgrade steps at {UPGRADING_GUIDE_URL}."
@@ -646,7 +769,9 @@ class CDMDatabaseConfig(DatabaseConfig):
         effective_vocab_schema = self._schema_for_role(Role.VOCAB)
         effective_results_schema = self._schema_for_role(Role.RESULTS)
         primary_connection_name = self.connection_name_for_role(Role.PRIMARY)
-        primary_connection = stack.connections[primary_connection_name].resolve(primary_connection_name)
+        primary_connection = stack.connections[primary_connection_name].resolve(
+            primary_connection_name
+        )
         vocab_connection_name = self.connection_name_for_role(Role.VOCAB)
         vocab_connection = (
             primary_connection
@@ -692,7 +817,7 @@ class ResolvedConnection:
         SQLAlchemy URL object used for engine creation. Avoids the lossy string
         round-trip through ``url`` for SQLite paths containing ``?``/``#``.
     test_only : bool
-        Whether it is a test-only connection. 
+        Whether it is a test-only connection.
     """
 
     name: str
@@ -735,7 +860,7 @@ class ResolvedConnection:
         ``pool_pre_ping=True`` checks a pooled connection is still alive
         before handing it out, avoiding stale-connection failures after
         a long-idle period. It adds a small overhead to every checkout,
-        so it can be disabled when the database is known to be reliable 
+        so it can be disabled when the database is known to be reliable
         and the application is latency-sensitive using ``**kwargs``.
 
         Returns
@@ -786,13 +911,13 @@ class ResolvedDatabase:
     def configured_internal_schema_translate_map(self) -> dict[str, str | None]:
         """Schema translate map for this database.
         Routing:
-            - ``"primary"`` → ``schema_name`` (or None if the dialect 
+            - ``"primary"`` → ``schema_name`` (or None if the dialect
                 has no real multi-schema concept, e.g. SQLite)
-            
+
         Notes
         -----
         This is NOT the full schema_translate_map for an engine!
-        See :meth:`create_engine` for the full map, which merges the resolver's own 
+        See :meth:`create_engine` for the full map, which merges the resolver's own
         config-derived claims with any additional claims passed in by the caller.
         """
         return {
@@ -921,9 +1046,7 @@ class ResolvedDatabase:
         )
         role_tags = {role.value for role in Role}
         invalid_role_tags = sorted(
-            claim.schema_tag
-            for claim in caller_claims
-            if claim.schema_tag in role_tags
+            claim.schema_tag for claim in caller_claims if claim.schema_tag in role_tags
         )
         if invalid_role_tags and not isinstance(self, ResolvedCDMDatabase):
             raise ValueError(
@@ -981,17 +1104,17 @@ class ResolvedDatabase:
                 *caller_claims,
             ],
             database_config_name=self.name,
-            translate_only=[
-                claim for r, claim in role_claims.items() if r not in local_roles
-            ],
+            translate_only=[claim for r, claim in role_claims.items() if r not in local_roles],
             test_only=connection_test_only,
             register_claims=register_claims,
         )
-        return engine.execution_options(**{
-            SCHEMA_TRANSLATE_MAP_KEY: translate_map,
-            EXECUTION_OPTION_DATABASE_CONFIG_NAME: self.name,
-            EXECUTION_OPTION_TEST_ONLY: connection_test_only,
-        })
+        return engine.execution_options(
+            **{
+                SCHEMA_TRANSLATE_MAP_KEY: translate_map,
+                EXECUTION_OPTION_DATABASE_CONFIG_NAME: self.name,
+                EXECUTION_OPTION_TEST_ONLY: connection_test_only,
+            }
+        )
 
     def connection_for_role(self, role: Role = Role.PRIMARY) -> ResolvedConnection:
         """Return the resolved connection for a given role.
@@ -1026,7 +1149,7 @@ class ResolvedDatabase:
         return self.schema_name
 
     def _verify_route_for_schema_tag(self, vocab: Any, primary: Any) -> None:
-        """ Verifies that vocab and primary are the same type, or both are Bindable. 
+        """Verifies that vocab and primary are the same type, or both are Bindable.
 
         Raises
         ------
@@ -1034,23 +1157,16 @@ class ResolvedDatabase:
             If vocab and primary are not the same type, and aren't both
             members of Bindable.
         """
-        if (
-            not (isinstance(vocab, Bindable) and isinstance(primary, Bindable))
-            and type(vocab) is not type(primary)
-        ):
+        if not (isinstance(vocab, Bindable) and isinstance(primary, Bindable)) and type(
+            vocab
+        ) is not type(primary):
             raise TypeError(
                 f"vocab ({type(vocab).__name__}) and primary ({type(primary).__name__}) "
                 "must be the same type."
             )
 
-    def route_for_schema_tag(
-        self,
-        schema_tag: Role | str, 
-        *,
-        vocab: _T,
-        primary: _T
-    ) -> _T:
-        """Determines the right connection, engine, or session to use 
+    def route_for_schema_tag(self, schema_tag: Role | str, *, vocab: _T, primary: _T) -> _T:
+        """Determines the right connection, engine, or session to use
         for a given schema_tag in a split-connection database.
 
         Notes
@@ -1082,19 +1198,73 @@ class ResolvedDatabase:
         asking where a tag lives gets the same answer as a caller routing a
         statement to it.
         """
-        return self.route_for_schema_tag(
-            schema_tag, vocab=self.connection, primary=self.connection
-        )
+        return self.route_for_schema_tag(schema_tag, vocab=self.connection, primary=self.connection)
 
-    def foreign_key_can_span(self, from_tag: Role | str, to_tag: Role | str) -> bool:
+    def foreign_key_can_span(
+        self,
+        from_tag: Role | str,
+        to_tag: Role | str,
+        *,
+        physical_schemas: Mapping[str, str | None] | None = None,
+    ) -> bool:
         """Can a foreign key reference *to_tag*'s tables from *from_tag*'s?
 
-        False when the two tags live on different physical databases, where
-        no dialect can express the constraint. Ask this instead of deriving
-        a split flag, so the answer stays correct if a deployment later
-        colocates the two or federates them behind one connection.
+        False for:
+        - physical databases where no dialect can express the constraint
+        - physical schemas on a dialect that cannot express a cross-schema key
+        at all, even within one physical database (e.g. DuckDB)
+            - two distinct logical tags may still share one physical schema and
+            need no cross-schema key
+
+        Ask this instead of deriving a split flag, so the answer stays correct if a
+        deployment later colocates, federates, or re-schemas either tag.
+
+        Parameters
+        ----------
+        physical_schemas : Mapping[str, str | None], optional
+            Physical schema names for tags beyond this database's own
+            configured ones (e.g. a caller-claimed tag from
+            ``schema_claims``). ``None`` for a tag means the dialect's own
+            default schema. Only consulted on a dialect that cannot cross
+            schemas; opens no connection.
+
+        Raises
+        ------
+        UnregisteredSchemaTagError
+            If *from_tag* or *to_tag* has no entry in this database's
+            configured schema-translate map or in *physical_schemas*, on a
+            dialect that cannot cross schemas. Failing loud here rather
+            than guessing avoids silently treating two unresolved tags as
+            the same schema.
         """
-        return self.tags_share_a_transaction(from_tag, to_tag)
+        if not self.tags_share_a_transaction(from_tag, to_tag):
+            return False
+        if from_tag == to_tag:
+            return True
+        profile = _profile_for(self.connection_for_schema_tag(from_tag).dialect_name)
+        if profile.supports_cross_schema_fks or not profile.supports_schemas:
+            return True
+        schemas = {**self.configured_internal_schema_translate_map(), **(physical_schemas or {})}
+        missing = {from_tag, to_tag} - schemas.keys()
+        if missing:
+            raise UnregisteredSchemaTagError(
+                f"Cannot determine foreign-key feasibility for schema tag(s) {sorted(missing)}: "
+                "no entry in the configured schema-translate map or in physical_schemas."
+            )
+        from_schema = schemas[from_tag] or profile.default_schema
+        to_schema = schemas[to_tag] or profile.default_schema
+        if from_schema is None or to_schema is None:
+            raise ValueError(
+                "Foreign-key feasibility requires an explicit schema name for this dialect; "
+                f"got from_tag={from_tag!r} -> {from_schema!r}, to_tag={to_tag!r} -> {to_schema!r}."
+            )
+        if self.connection_for_schema_tag(from_tag).dialect_name == Dialect.DUCKDB:
+            # DuckDB folds unquoted *and* quoted identifiers to lowercase
+            # (ASCII letters only), so two differently-cased spellings of
+            # the same schema name are the same schema to DuckDB.
+            fold = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+            return from_schema.translate(fold) == to_schema.translate(fold)
+        return from_schema == to_schema
 
     def tags_share_a_transaction(self, *schema_tags: Role | str) -> bool:
         """Can one transaction cover statements against all of *schema_tags*?
@@ -1125,9 +1295,9 @@ class ResolvedDatabase:
         probe_options = probe_options or _SchemaProbeOptions()
         configured = self.configured_internal_schema_translate_map()
         unset = sorted(
-            tag for tag, schema in configured.items()
-            if schema is None
-            and supports_schemas(self.connection_for_schema_tag(tag).dialect_name)
+            tag
+            for tag, schema in configured.items()
+            if schema is None and supports_schemas(self.connection_for_schema_tag(tag).dialect_name)
         )
         if not unset:
             return configured
@@ -1152,7 +1322,9 @@ class ResolvedDatabase:
             and options.built_connection is not None
             and connection.physical_key() == options.built_connection.physical_key()
         )
-        engine = built_engine if use_built_engine else connection.create_engine(**options.engine_kwargs)
+        engine = (
+            built_engine if use_built_engine else connection.create_engine(**options.engine_kwargs)
+        )
         if not use_built_engine:
             for extension in options.extensions:
                 event.listens_for(engine, "connect")(extension)
@@ -1290,13 +1462,7 @@ class ResolvedCDMDatabase(ResolvedDatabase):
             "only Role.PRIMARY and Role.VOCAB select a connection."
         )
 
-    def route_for_schema_tag(
-        self,
-        schema_tag: Role | str, 
-        *,
-        vocab: _T,
-        primary: _T
-    ) -> _T:
+    def route_for_schema_tag(self, schema_tag: Role | str, *, vocab: _T, primary: _T) -> _T:
         """Determines the right connection, engine, or session to use
         for a given schema_tag in a split-connection database.
 
@@ -1342,7 +1508,7 @@ class ResolvedCDMDatabase(ResolvedDatabase):
         Raises
         ------
         ValueError
-            If role is not recognised as a Role member. 
+            If role is not recognised as a Role member.
         """
         if role == Role.VOCAB:
             return self.vocab_schema
@@ -1350,7 +1516,9 @@ class ResolvedCDMDatabase(ResolvedDatabase):
             return self.results_schema
         if role == Role.PRIMARY:
             return self.schema_name
-        raise ValueError(f"Role.{role.name} is not handled by {type(self).__name__}.schema_for_role.")
+        raise ValueError(
+            f"Role.{role.name} is not handled by {type(self).__name__}.schema_for_role."
+        )
 
     def configured_internal_schema_translate_map(self) -> dict[str, str | None]:
         """SQLAlchemy schema translate map for OMOP ORM models.
@@ -1363,13 +1531,17 @@ class ResolvedCDMDatabase(ResolvedDatabase):
         Notes
         -----
         This is NOT the full schema_translate_map for an engine!
-        See :meth:`create_engine` for the full map, which merges the resolver's own 
+        See :meth:`create_engine` for the full map, which merges the resolver's own
         config-derived claims with any additional claims passed in by the caller.
         """
         return {
             Role.PRIMARY.value: schema_if_supported(self.schema_name, self.connection.dialect_name),
-            Role.VOCAB.value: schema_if_supported(self.vocab_schema, self.vocab_connection.dialect_name),
-            Role.RESULTS.value: schema_if_supported(self.results_schema, self.connection.dialect_name),
+            Role.VOCAB.value: schema_if_supported(
+                self.vocab_schema, self.vocab_connection.dialect_name
+            ),
+            Role.RESULTS.value: schema_if_supported(
+                self.results_schema, self.connection.dialect_name
+            ),
         }
 
     def schema_tags(self) -> tuple[Role, ...]:
@@ -1413,7 +1585,6 @@ class ResolvedCDMDatabase(ResolvedDatabase):
             for role in roles
             if (resolved := translated[role.value] or default) is not None
         }
-
 
     def create_engine(self, **kwargs: Any) -> Engine:
         """Always raises: a CDM database has a primary and a vocabulary engine.

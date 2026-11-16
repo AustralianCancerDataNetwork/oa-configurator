@@ -49,9 +49,7 @@ def assert_no_sensitive_values_leak(instance: BaseModel, rendered: object) -> No
             )
 
 
-def _sensitive_values(
-    model: BaseModel, path: str, seen: set[int]
-) -> list[tuple[str, str]]:
+def _sensitive_values(model: BaseModel, path: str, seen: set[int]) -> list[tuple[str, str]]:
     """Collect ``(dotted_path, value)`` for every sensitive value under *model*."""
     if id(model) in seen:
         return []
@@ -71,9 +69,7 @@ def _walk(value: Any, path: str, seen: set[int]) -> list[tuple[str, str]]:
         return _sensitive_values(value, path, seen)
     if isinstance(value, dict):
         return [
-            found
-            for key, item in value.items()
-            for found in _walk(item, f"{path}[{key!r}]", seen)
+            found for key, item in value.items() for found in _walk(item, f"{path}[{key!r}]", seen)
         ]
     if isinstance(value, (list, tuple, set, frozenset)):
         return [

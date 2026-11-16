@@ -42,13 +42,15 @@ raise ValueError(f"could not connect: {connection}")
 Reading a secret attribute returns the real value, because that is the only way it can reach SQLAlchemy, the `.env` writer and the TOML writer:
 
 ```python
-connection.password        # 'hunter2' - real value
+connection.password  # 'hunter2' - real value
 ```
 
 So this leaks, and nothing will stop it:
 
 ```python
-logger.debug("password=%s", connection.password)   # this is considered the responsibility of downstream consumers - if you ask to log a raw string like this, that's your explicit choice at that point
+logger.debug(
+    "password=%s", connection.password
+)  # this is considered the responsibility of downstream consumers - if you ask to log a raw string like this, that's your explicit choice at that point
 ```
 
 `configure_logging()` covers one case none of the above reaches: a URL written into a log record by *another* library, such as a SQLAlchemy connection error echoing the DSN it was handed. Those bytes never pass through a config model, so `RedactingFilter` scrubs them with `safe_endpoint` before the handler emits. It is installed on the handler, not the formatter, so the guarantee is the same whether you log through a plain stream or pass `console=` for Rich output, and replacing the formatter does not remove it. It does not attempt anything else.

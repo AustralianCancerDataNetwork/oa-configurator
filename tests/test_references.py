@@ -572,14 +572,14 @@ def _pg(database_name: str = "d", **kwargs) -> ConnectionConfig:
     )
 
 
-def _pg_stack(**kwargs) -> StackConfig:
-    base = {
+def _pg_stack(**overrides: Any) -> StackConfig:
+    base: dict[str, Any] = {
         "connections": {"prod": _pg()},
         "databases": {"cdm_db": CDMDatabaseConfig(connection="prod", cdm_schema="cdm")},
         "providers": {"p": ProviderConfig(provider="ollama", api_key=_CANARY)},
         "models": {"m": ModelConfig(provider="p", model="x")},
     }
-    return StackConfig.for_session(**{**base, **kwargs})
+    return StackConfig.for_session(**{**base, **overrides})
 
 
 class TestCloneEntry:
@@ -633,7 +633,9 @@ class TestCloneEntry:
         )
 
         assert planned.databases["cdm_test"].connection == "test"
-        assert planned.databases["cdm_test"].cdm_schema == "cdm"
+        cdm_test = planned.databases["cdm_test"]
+        assert isinstance(cdm_test, CDMDatabaseConfig)
+        assert cdm_test.cdm_schema == "cdm"
         assert planned.databases["cdm_db"].connection == "prod"
         assert planned.connections["test"].password == _CANARY
         assert _CANARY not in repr(planned)

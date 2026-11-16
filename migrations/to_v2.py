@@ -132,13 +132,21 @@ console = Console(highlight=False)
 def find_values(node: Any, value: str, path: str = "") -> list[str]:
     """Dotted paths under *node* whose scalar value equals *value*."""
     if isinstance(node, dict):
-        return [hit for key, child in node.items() for hit in find_values(child, value, f"{path}.{key}" if path else str(key))]
+        return [
+            hit
+            for key, child in node.items()
+            for hit in find_values(child, value, f"{path}.{key}" if path else str(key))
+        ]
     if isinstance(node, list):
-        return [hit for i, child in enumerate(node) for hit in find_values(child, value, f"{path}[{i}]")]
+        return [
+            hit for i, child in enumerate(node) for hit in find_values(child, value, f"{path}[{i}]")
+        ]
     return [path] if node == value else []
 
 
-def plan_config(text: str, renames: dict[str, str], path: Path) -> tuple[str, StackConfig | None, Plan]:
+def plan_config(
+    text: str, renames: dict[str, str], path: Path
+) -> tuple[str, StackConfig | None, Plan]:
     """Rewrite *text* to the 2.0 config shape and validate it.
 
     Parameters
@@ -170,9 +178,13 @@ def plan_config(text: str, renames: dict[str, str], path: Path) -> tuple[str, St
             for store_name, store in doc.get("vector_stores", {}).items():
                 if store.get("database") == old:
                     store["database"] = new
-                    plan.notes.append(f"config: vector_stores.{store_name}.database {old!r} -> {new!r}")
+                    plan.notes.append(
+                        f"config: vector_stores.{store_name}.database {old!r} -> {new!r}"
+                    )
             for hit in find_values(doc.unwrap().get("tools", {}), old):
-                plan.notes.append(f"config: WARNING tools.{hit} still names {old!r}; update it by hand.")
+                plan.notes.append(
+                    f"config: WARNING tools.{hit} still names {old!r}; update it by hand."
+                )
         elif new not in databases:
             plan.problems.append(f"config: --rename {old}={new}: neither entry exists.")
 
@@ -185,7 +197,9 @@ def plan_config(text: str, renames: dict[str, str], path: Path) -> tuple[str, St
         try:
             dialect = ConnectionConfig.model_validate(connection.unwrap()).dialect_name
         except ValidationError as exc:
-            plan.problems.append(f"config: connection of databases.{name}: {StackConfigInvalidError(path, exc)}")
+            plan.problems.append(
+                f"config: connection of databases.{name}: {StackConfigInvalidError(path, exc)}"
+            )
             continue
         has_old, has_new = "schema_name" in entry, "cdm_schema" in entry
         if has_old and has_new:
@@ -193,14 +207,20 @@ def plan_config(text: str, renames: dict[str, str], path: Path) -> tuple[str, St
         elif dialect == Dialect.POSTGRESQL:
             if has_old:
                 entry["cdm_schema"] = entry.pop("schema_name")
-                plan.notes.append(f"config: databases.{name}: schema_name -> cdm_schema = {entry['cdm_schema']!r}")
+                plan.notes.append(
+                    f"config: databases.{name}: schema_name -> cdm_schema = {entry['cdm_schema']!r}"
+                )
             elif not has_new:
                 entry["cdm_schema"] = "omop"
-                plan.notes.append(f'config: databases.{name}: no schema field, write cdm_schema = "omop"')
+                plan.notes.append(
+                    f'config: databases.{name}: no schema field, write cdm_schema = "omop"'
+                )
         elif dialect == Dialect.SQLITE:
             if has_old:
                 del entry["schema_name"]
-                plan.notes.append(f"config: databases.{name}: delete schema_name (SQLite takes no schema)")
+                plan.notes.append(
+                    f"config: databases.{name}: delete schema_name (SQLite takes no schema)"
+                )
         elif has_old:
             plan.problems.append(
                 f"config: databases.{name} uses dialect {dialect!r}; 1.x only supported "
@@ -211,7 +231,9 @@ def plan_config(text: str, renames: dict[str, str], path: Path) -> tuple[str, St
     try:
         stack = StackConfig.model_validate(doc.unwrap())
     except ValidationError as exc:
-        plan.problems.append(f"config: does not validate against 2.0 StackConfig. {StackConfigInvalidError(path, exc)}")
+        plan.problems.append(
+            f"config: does not validate against 2.0 StackConfig. {StackConfigInvalidError(path, exc)}"
+        )
         stack = None
     return new_text, stack, plan
 
@@ -269,7 +291,10 @@ def registry_layout(connection: sa.Connection) -> str:
         return "absent"
     if columns == expected:
         return "current"
-    if "connection_key" in columns and expected <= columns <= expected | Names.PRERELEASE_REGISTRY_COLUMNS:
+    if (
+        "connection_key" in columns
+        and expected <= columns <= expected | Names.PRERELEASE_REGISTRY_COLUMNS
+    ):
         return "connection_key"
     return "unknown"
 
@@ -352,7 +377,15 @@ def plan_baselines(stack: StackConfig, renames: dict[str, str]) -> Plan:
                 plan.notes.append(f"baseline: {name} {tag}: database file does not exist, skipped.")
                 continue
             seen_connections[connection.physical_key()] = connection
-            _plan_one_baseline(plan, resolved, name, tag, connection, wanted[connection.physical_key()], previous_names.get(name))
+            _plan_one_baseline(
+                plan,
+                resolved,
+                name,
+                tag,
+                connection,
+                wanted[connection.physical_key()],
+                previous_names.get(name),
+            )
 
     for key, connection in seen_connections.items():
         _plan_registry_cleanup(plan, connection, wanted[key], renames)
@@ -361,8 +394,15 @@ def plan_baselines(stack: StackConfig, renames: dict[str, str]) -> Plan:
 
 def schema_and_tables(live: sa.Connection, resolved: Any, tag: str) -> tuple[str | None, list[str]]:
     """The schema *tag* resolves to on *live* and the tables it holds."""
-    schema = resolved.configured_internal_schema_translate_map().get(tag) or sa.inspect(live).default_schema_name
-    tables = sa.inspect(live).get_table_names(schema=schema) if schema or not supports_schemas(live) else []
+    schema = (
+        resolved.configured_internal_schema_translate_map().get(tag)
+        or sa.inspect(live).default_schema_name
+    )
+    tables = (
+        sa.inspect(live).get_table_names(schema=schema)
+        if schema or not supports_schemas(live)
+        else []
+    )
     return schema, tables
 
 
@@ -391,12 +431,15 @@ def _plan_one_baseline(
                     (
                         row
                         for row in _list_registry_rows(live)
-                        if row.schema_tag == tag and row.database_config_name in (name, previous_name)
+                        if row.schema_tag == tag
+                        and row.database_config_name in (name, previous_name)
                     ),
                     None,
                 )
     except SQLAlchemyError as exc:
-        plan.problems.append(f"baseline: {name} {tag}: cannot read {connection.safe_url}: {type(exc).__name__}")
+        plan.problems.append(
+            f"baseline: {name} {tag}: cannot read {connection.safe_url}: {type(exc).__name__}"
+        )
         return
     finally:
         engine.dispose()
@@ -412,7 +455,12 @@ def _plan_one_baseline(
             )
         return
 
-    def run(connection: ResolvedConnection = connection, name: str = name, tag: str = tag, schema: str | None = schema) -> None:
+    def run(
+        connection: ResolvedConnection = connection,
+        name: str = name,
+        tag: str = tag,
+        schema: str | None = schema,
+    ) -> None:
         engine = connection.create_engine()
         try:
             with engine.begin() as live:
@@ -426,7 +474,9 @@ def _plan_one_baseline(
         finally:
             engine.dispose()
 
-    plan.actions.append(Action(f"baseline: {name} {tag} -> {schema or '(default)'} ({len(tables)} table(s))", run))
+    plan.actions.append(
+        Action(f"baseline: {name} {tag} -> {schema or '(default)'} ({len(tables)} table(s))", run)
+    )
 
 
 def _plan_registry_cleanup(
@@ -441,7 +491,9 @@ def _plan_registry_cleanup(
         with engine.connect() as live:
             layout = registry_layout(live)
             if layout == "unknown":
-                plan.problems.append(f"registry: {connection.safe_url} has an unrecognised schema_registry layout.")
+                plan.problems.append(
+                    f"registry: {connection.safe_url} has an unrecognised schema_registry layout."
+                )
                 return
             if layout == "absent":
                 return
@@ -452,10 +504,18 @@ def _plan_registry_cleanup(
     finally:
         engine.dispose()
 
-    renamed = [(row.database_config_name, row.schema_tag) for row in old_rows if row.database_config_name in renames]
-    clashes = {(renames[o], t) for o, t in renamed} & {(r.database_config_name, r.schema_tag) for r in old_rows}
+    renamed = [
+        (row.database_config_name, row.schema_tag)
+        for row in old_rows
+        if row.database_config_name in renames
+    ]
+    clashes = {(renames[o], t) for o, t in renamed} & {
+        (r.database_config_name, r.schema_tag) for r in old_rows
+    }
     if clashes:
-        plan.problems.append(f"registry: renaming would duplicate existing rows {sorted(clashes)} on {connection.safe_url}.")
+        plan.problems.append(
+            f"registry: renaming would duplicate existing rows {sorted(clashes)} on {connection.safe_url}."
+        )
         return
 
     def run(connection: ResolvedConnection = connection, layout: str = layout) -> None:
@@ -476,9 +536,16 @@ def _plan_registry_cleanup(
             engine.dispose()
 
     if layout == "connection_key":
-        plan.actions.insert(0, Action(f"registry: rebuild {connection.safe_url} schema_registry in the 2.0 layout", run))
+        plan.actions.insert(
+            0,
+            Action(
+                f"registry: rebuild {connection.safe_url} schema_registry in the 2.0 layout", run
+            ),
+        )
     elif renamed:
-        plan.actions.insert(0, Action(f"registry: rename {len(renamed)} row(s) on {connection.safe_url}", run))
+        plan.actions.insert(
+            0, Action(f"registry: rename {len(renamed)} row(s) on {connection.safe_url}", run)
+        )
 
 
 # --------------------------------------------------------------------------
@@ -510,7 +577,9 @@ def schemas_holding(live: sa.Connection, table: str) -> list[str | None]:
     inspector = sa.inspect(live)
     if not supports_schemas(live):
         return [None] if inspector.has_table(table) else []
-    own = [MODEL_REGISTRY_SCHEMA] if inspector.has_table(table, schema=MODEL_REGISTRY_SCHEMA) else []
+    own = (
+        [MODEL_REGISTRY_SCHEMA] if inspector.has_table(table, schema=MODEL_REGISTRY_SCHEMA) else []
+    )
     return [*own, *find_table_in_other_schemas(live, table, physical_schema=MODEL_REGISTRY_SCHEMA)]
 
 
@@ -530,10 +599,16 @@ def find_legacy_registries(live: sa.Connection) -> tuple[list[LegacyRegistry], l
             if not _is_legacy_layout(columns_of(inspector, table, schema)):
                 continue
             qualified_name = qualified(live, table, physical_schema=schema)
-            models = tuple(row[0] for row in live.execute(sa.text(f"SELECT model_name FROM {qualified_name}")))
-            nulls = live.execute(sa.text(f"SELECT count(*) FROM {qualified_name} WHERE provider_type IS NULL")).scalar_one()
+            models = tuple(
+                row[0] for row in live.execute(sa.text(f"SELECT model_name FROM {qualified_name}"))
+            )
+            nulls = live.execute(
+                sa.text(f"SELECT count(*) FROM {qualified_name} WHERE provider_type IS NULL")
+            ).scalar_one()
             if nulls:
-                problems.append(f"{qualified_name} has {nulls} row(s) with NULL provider_type; 2.0 requires one.")
+                problems.append(
+                    f"{qualified_name} has {nulls} row(s) with NULL provider_type; 2.0 requires one."
+                )
             found.append(LegacyRegistry(schema, table, models))
     for schema in {registry.schema for registry in found}:
         tables = {registry.table for registry in found if registry.schema == schema}
@@ -552,7 +627,10 @@ def current_registry_rows(live: sa.Connection) -> list[tuple[str, str]]:
     if columns is None or "database_config_name" not in columns:
         return []
     table = qualified(live, Names.REGISTRY_TABLE, physical_schema=schema)
-    return [(r[0], r[1]) for r in live.execute(sa.text(f"SELECT database_config_name, model_name FROM {table}"))]
+    return [
+        (r[0], r[1])
+        for r in live.execute(sa.text(f"SELECT database_config_name, model_name FROM {table}"))
+    ]
 
 
 def plan_embedding_registries(stack: StackConfig, renames: dict[str, str]) -> Plan:
@@ -569,7 +647,9 @@ def plan_embedding_registries(stack: StackConfig, renames: dict[str, str]) -> Pl
         entry = resolver.resolve_vector_store(store_name).database
         if entry.name not in seen:
             seen.add(entry.name)
-            _plan_entry_registry(plan, entry, {new: old for old, new in renames.items()}.get(entry.name))
+            _plan_entry_registry(
+                plan, entry, {new: old for old, new in renames.items()}.get(entry.name)
+            )
     return plan
 
 
@@ -582,7 +662,9 @@ def _plan_entry_registry(plan: Plan, entry: Any, previous_name: str | None) -> N
     connection = entry.connection_for_role(Role.PRIMARY)
     label = f"emb: {entry.name} ({connection.safe_url})"
     if connection.dialect_name not in Names.SUPPORTED_DIALECTS:
-        plan.problems.append(f"{label}: dialect {connection.dialect_name!r} is not supported by the migration.")
+        plan.problems.append(
+            f"{label}: dialect {connection.dialect_name!r} is not supported by the migration."
+        )
         return
     if not is_openable(connection):
         plan.notes.append(f"{label}: database file does not exist, skipped.")
@@ -593,7 +675,11 @@ def _plan_entry_registry(plan: Plan, entry: Any, previous_name: str | None) -> N
         with engine.connect() as live:
             legacy, problems = find_legacy_registries(live)
             current = current_registry_rows(live)
-            owned_schema = entry.schema_name or sa.inspect(live).default_schema_name if supports_schemas(live) else None
+            owned_schema = (
+                entry.schema_name or sa.inspect(live).default_schema_name
+                if supports_schemas(live)
+                else None
+            )
             registry_home = MODEL_REGISTRY_SCHEMA if supports_schemas(live) else None
     except SQLAlchemyError as exc:
         plan.problems.append(f"{label}: cannot read the database: {type(exc).__name__}")
@@ -601,10 +687,16 @@ def _plan_entry_registry(plan: Plan, entry: Any, previous_name: str | None) -> N
     finally:
         engine.dispose()
 
-    renamed_rows = [model for owner, model in current if previous_name is not None and owner == previous_name]
+    renamed_rows = [
+        model for owner, model in current if previous_name is not None and owner == previous_name
+    ]
     current = [(entry.name if owner == previous_name else owner, model) for owner, model in current]
     migrated_models = {model for _, model in current}
-    todo = [r for r in legacy if not (r.table == Names.LEGACY_TABLE and set(r.models) <= migrated_models)]
+    todo = [
+        r
+        for r in legacy
+        if not (r.table == Names.LEGACY_TABLE and set(r.models) <= migrated_models)
+    ]
     owned_schemas = (owned_schema, registry_home)
     owned = [r for r in todo if r.schema in owned_schemas]
     problems = [f"{label}: {line}" for line in problems]
@@ -619,7 +711,9 @@ def _plan_entry_registry(plan: Plan, entry: Any, previous_name: str | None) -> N
         holders[model].add(owner)
     for registry in todo:
         for model in registry.models:
-            holders[model].add(entry.name if registry.schema in owned_schemas else qualified_label(registry))
+            holders[model].add(
+                entry.name if registry.schema in owned_schemas else qualified_label(registry)
+            )
     problems += [
         f"{label}: model {model!r} is held by several registries ({', '.join(sorted(who))}); "
         "2.0 allows one per database."
@@ -638,7 +732,11 @@ def _plan_entry_registry(plan: Plan, entry: Any, previous_name: str | None) -> N
             )
         )
     for registry in owned:
-        target = MODEL_REGISTRY_SCHEMA if supports_schemas(connection.dialect_name) else Names.REGISTRY_TABLE
+        target = (
+            MODEL_REGISTRY_SCHEMA
+            if supports_schemas(connection.dialect_name)
+            else Names.REGISTRY_TABLE
+        )
         plan.actions.append(
             Action(
                 f"emb: {entry.name}: migrate {qualified_label(registry)} ({len(registry.models)} model(s)) "
@@ -653,9 +751,15 @@ def rename_registry_rows(connection: ResolvedConnection, old: str, new: str) -> 
     engine = connection.create_engine()
     try:
         with engine.begin() as live:
-            table = qualified(live, Names.REGISTRY_TABLE, physical_schema=schema_if_supported(MODEL_REGISTRY_SCHEMA, live))
+            table = qualified(
+                live,
+                Names.REGISTRY_TABLE,
+                physical_schema=schema_if_supported(MODEL_REGISTRY_SCHEMA, live),
+            )
             live.execute(
-                sa.text(f"UPDATE {table} SET database_config_name = :new WHERE database_config_name = :old"),
+                sa.text(
+                    f"UPDATE {table} SET database_config_name = :new WHERE database_config_name = :old"
+                ),
                 {"new": new, "old": old},
             )
     finally:
@@ -692,17 +796,27 @@ def migrate_registry(entry: Any, registry: LegacyRegistry) -> None:
         if registry.table == Names.REGISTRY_TABLE:
             with bare.begin() as live:
                 source = qualified(live, Names.REGISTRY_TABLE, physical_schema=registry.schema)
-                live.execute(sa.text(f"ALTER TABLE {source} RENAME TO {live.dialect.identifier_preparer.quote(Names.LEGACY_TABLE)}"))
+                live.execute(
+                    sa.text(
+                        f"ALTER TABLE {source} RENAME TO {live.dialect.identifier_preparer.quote(Names.LEGACY_TABLE)}"
+                    )
+                )
     finally:
         bare.dispose()
 
     writer = registry_writer_engine(entry)
     try:
         with writer.begin() as live:
-            target = qualified(live, Names.REGISTRY_TABLE, physical_schema=resolve_registry_physical_schema(live))
+            target = qualified(
+                live, Names.REGISTRY_TABLE, physical_schema=resolve_registry_physical_schema(live)
+            )
             source = qualified(live, Names.LEGACY_TABLE, physical_schema=registry.schema)
-            columns = [c.name for c in ModelRegistry.__table__.columns if c.name != "database_config_name"]
-            select = ", ".join("lower(provider_type)" if c == "provider_type" else c for c in columns)
+            columns = [
+                c.name for c in ModelRegistry.__table__.columns if c.name != "database_config_name"
+            ]
+            select = ", ".join(
+                "lower(provider_type)" if c == "provider_type" else c for c in columns
+            )
             live.execute(
                 sa.text(
                     f"INSERT INTO {target} (database_config_name, {', '.join(columns)}) "
@@ -767,7 +881,9 @@ def verify(stack: StackConfig) -> bool:
     for store_name in resolver.vector_store_names():
         database = resolver.resolve_vector_store(store_name).database
         if not is_openable(database.connection_for_role(Role.PRIMARY)):
-            table.add_row(store_name, "registry", "-", "[yellow]SKIP[/yellow]", "database file missing")
+            table.add_row(
+                store_name, "registry", "-", "[yellow]SKIP[/yellow]", "database file missing"
+            )
             continue
         try:
             engine = registry_reader_engine(database)
@@ -776,14 +892,24 @@ def verify(stack: StackConfig) -> bool:
                     schema = schema_if_supported(MODEL_REGISTRY_SCHEMA, live)
                     present = sa.inspect(live).has_table(Names.REGISTRY_TABLE, schema=schema)
                     count = (
-                        live.execute(sa.text(f"SELECT count(*) FROM {qualified(live, Names.REGISTRY_TABLE, physical_schema=schema)}")).scalar_one()
+                        live.execute(
+                            sa.text(
+                                f"SELECT count(*) FROM {qualified(live, Names.REGISTRY_TABLE, physical_schema=schema)}"
+                            )
+                        ).scalar_one()
                         if present
                         else 0
                     )
             finally:
                 engine.dispose()
         except Exception as exc:  # noqa: BLE001 - report every failure per store
-            table.add_row(store_name, "registry", "?", "[red]FAIL[/red]", f"{type(exc).__name__}: {str(exc)[:70]}")
+            table.add_row(
+                store_name,
+                "registry",
+                "?",
+                "[red]FAIL[/red]",
+                f"{type(exc).__name__}: {str(exc)[:70]}",
+            )
             ok = False
         else:
             table.add_row(store_name, "registry", "-", "[green]OK[/green]", f"{count} model(s)")
@@ -796,7 +922,9 @@ def verify(stack: StackConfig) -> bool:
 # --------------------------------------------------------------------------
 
 
-def backup_files(config_path: Path, plan_connections: list[ResolvedConnection], backup_dir: Path) -> list[Path]:
+def backup_files(
+    config_path: Path, plan_connections: list[ResolvedConnection], backup_dir: Path
+) -> list[Path]:
     """Copy the config and every SQLite file the run may change into *backup_dir*."""
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     backup_dir.mkdir(parents=True, exist_ok=True)
@@ -816,7 +944,9 @@ def backup_files(config_path: Path, plan_connections: list[ResolvedConnection], 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--config", type=Path, default=active_config_path(), help="config.toml to migrate")
+    parser.add_argument(
+        "--config", type=Path, default=active_config_path(), help="config.toml to migrate"
+    )
     parser.add_argument("--apply", action="store_true", help="make the changes (default: dry run)")
     parser.add_argument(
         "--rename",
@@ -825,7 +955,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         metavar="OLD=NEW",
         help="rename a [databases.*] entry; repeatable",
     )
-    parser.add_argument("--backup-dir", type=Path, default=None, help="where backups go (default: next to the config)")
+    parser.add_argument(
+        "--backup-dir",
+        type=Path,
+        default=None,
+        help="where backups go (default: next to the config)",
+    )
     return parser.parse_args(argv)
 
 

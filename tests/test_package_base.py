@@ -335,7 +335,7 @@ class TestPlanConfigure:
         canary = "secret-model-canary"
         cfg = StackConfig.for_session(providers={"provider": ProviderConfig(provider="ollama")})
 
-        with pytest.raises(ConfigurationError) as exc_info:
+        with pytest.raises(ConfigIssuesError) as exc_info:
             plan_configure(
                 EmbeddingConfig,
                 cfg,

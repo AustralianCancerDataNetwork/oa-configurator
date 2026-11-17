@@ -22,12 +22,32 @@ from .resolver import _check_missing_required, _flag_name, _is_flag_settable, _r
 from .stack_config import StackConfig, mismatched_kind_refs, unresolved_refs
 
 
+def _load_draft() -> tuple[StackConfig, str]:
+    """Load the active config for editing, with the revision it was read at.
+
+    A missing file yields an empty config and the revision of an absent file,
+    so a save refuses if the file appears in the meantime.
+    """
+    from .loader import _ABSENT_REVISION, active_config_path, load_stack_config_with_revision
+
+    try:
+        return load_stack_config_with_revision()
+    except FileNotFoundError:
+        active_config_path().parent.mkdir(parents=True, exist_ok=True)
+        return StackConfig(), _ABSENT_REVISION
+
+
 def _save_stack_config_or_exit(
     config: StackConfig,
     *,
-    save: Callable[[StackConfig], object] | None = None,
+    save: Callable[..., object] | None = None,
+    expected_revision: str | None = None,
 ) -> None:
-    """Save for a CLI flow, rendering filesystem failures without a traceback."""
+    """Save for a CLI flow, rendering filesystem failures without a traceback.
+
+    With *expected_revision*, the save is refused if the file changed since
+    that revision was read.
+    """
     import typer
     from rich.console import Console
     from rich.markup import escape
@@ -38,7 +58,7 @@ def _save_stack_config_or_exit(
         save = save_stack_config
 
     try:
-        save(config)
+        save(config, expected_revision=expected_revision)
     except OSError as exc:
         Console(stderr=True).print(
             f"[red bold]Could not save configuration:[/red bold] {escape(str(exc))}"
@@ -109,16 +129,12 @@ def _add_entry(
     import typer
     from rich.console import Console
 
-    from .loader import active_config_path, load_stack_config
+    from .loader import active_config_path
 
     console = Console()
     err_console = Console(stderr=True)
 
-    try:
-        config = load_stack_config()
-    except FileNotFoundError:
-        active_config_path().parent.mkdir(parents=True, exist_ok=True)
-        config = StackConfig()
+    config, revision = _load_draft()
 
     section_dict = getattr(config, section)
     existing = section_dict.get(name)
@@ -152,7 +168,7 @@ def _add_entry(
         raise typer.Exit(1)
 
     section_dict[name] = entry
-    _save_stack_config_or_exit(config)
+    _save_stack_config_or_exit(config, expected_revision=revision)
     console.print(
         f"[green]✓[/green] Saved \\[{section}.{name}] to [dim]{active_config_path()}[/dim]"
     )

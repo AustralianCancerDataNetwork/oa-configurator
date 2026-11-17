@@ -240,15 +240,15 @@ def _fail(title: str, detail: str) -> NoReturn:
     raise typer.Exit(1)
 
 
-def _load_existing_or_exit() -> StackConfig:
-    """Load the active config, or exit if the file is missing."""
+def _load_existing_or_exit() -> tuple[StackConfig, str]:
+    """Load the active config with the revision it was read at, or exit if the file is missing."""
     import typer
     from rich.console import Console
 
-    from .loader import active_config_path, load_stack_config
+    from .loader import active_config_path, load_stack_config_with_revision
 
     try:
-        return load_stack_config()
+        return load_stack_config_with_revision()
     except FileNotFoundError:
         err_console = Console(stderr=True)
         err_console.print(f"[red]Config file not found:[/red] {active_config_path()}")
@@ -299,7 +299,7 @@ def _clone_entry(
     section = target.section
     singular = section[:-1]
 
-    config = _load_existing_or_exit()
+    config, revision = _load_existing_or_exit()
     entries = getattr(config, section)
     source = entries.get(source_name)
     if source is None:
@@ -340,7 +340,7 @@ def _clone_entry(
     except ConfigurationError as exc:
         _fail(f"Cloning {source_name!r} to {new_name!r} would be invalid.", str(exc))
 
-    _save_stack_config_or_exit(planned)
+    _save_stack_config_or_exit(planned, expected_revision=revision)
     console.print(
         f"[green]✓[/green] Saved \\[{section}.{new_name}] to [dim]{active_config_path()}[/dim]"
     )
@@ -354,7 +354,7 @@ def _delete_entry(target: type[Sectioned], name: str, yes: bool) -> None:
     from .loader import active_config_path
 
     section = target.section
-    config = _load_existing_or_exit()
+    config, revision = _load_existing_or_exit()
     package_configs, problems = discover_package_configs()
     try:
         planned = delete_entry(config, section, name, package_configs=package_configs)
@@ -367,7 +367,7 @@ def _delete_entry(target: type[Sectioned], name: str, yes: bool) -> None:
 
     if not yes:
         typer.confirm(f"Delete {section[:-1]} {name!r}?", abort=True)
-    _save_stack_config_or_exit(planned)
+    _save_stack_config_or_exit(planned, expected_revision=revision)
     Console().print(
         f"[green]✓[/green] Deleted \\[{section}.{name}] from [dim]{active_config_path()}[/dim]"
     )
@@ -380,7 +380,7 @@ def _list_tools() -> None:
     from rich.table import Table
 
     console = Console()
-    config = _load_existing_or_exit()
+    config, _ = _load_existing_or_exit()
     if not config.tools:
         console.print("[yellow]No tool sections configured.[/yellow]")
         return
@@ -404,7 +404,7 @@ def _remove_tool(name: str, yes: bool) -> None:
 
     from .loader import active_config_path
 
-    config = _load_existing_or_exit()
+    config, revision = _load_existing_or_exit()
     try:
         planned = remove_tool_section(config, name)
     except ConfigurationError as exc:
@@ -416,7 +416,7 @@ def _remove_tool(name: str, yes: bool) -> None:
             "the previous file is kept as a .bak copy.",
             abort=True,
         )
-    _save_stack_config_or_exit(planned)
+    _save_stack_config_or_exit(planned, expected_revision=revision)
     Console().print(
         f"[green]✓[/green] Removed \\[tools.{name}] from [dim]{active_config_path()}[/dim]"
     )

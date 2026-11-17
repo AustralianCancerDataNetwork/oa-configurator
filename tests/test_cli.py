@@ -1645,6 +1645,49 @@ class TestClone:
         assert config.providers["p2"] == config.providers["p"]
 
 
+@pytest.mark.usefixtures("known_packages")
+class TestStaleRead:
+    """clone, delete and tools remove refuse to overwrite a newer save."""
+
+    @pytest.mark.parametrize(
+        ("argv", "planner", "tools"),
+        [
+            (["connections", "clone", "c1", "c3", "--database-name", "c.db"], "clone_entry", {}),
+            (["providers", "delete", "spare", "--yes"], "delete_entry", {}),
+            (
+                ["tools", "remove", "stale_pkg", "--yes"],
+                "remove_tool_section",
+                {"stale_pkg": {"x": 1}},
+            ),
+        ],
+    )
+    def test_command_refuses_to_overwrite_a_concurrent_change(
+        self, isolated_config, monkeypatch, argv, planner, tools
+    ):
+        _seed(isolated_config, _two_connection_stack(tools=tools))
+        plan = getattr(cli_support, planner)
+
+        def plan_then_other_writer(*args, **kwargs):
+            planned = plan(*args, **kwargs)
+            _seed(
+                isolated_config,
+                StackConfig.for_session(
+                    connections={
+                        "newer": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
+                    }
+                ),
+            )
+            return planned
+
+        monkeypatch.setattr(cli_support, planner, plan_then_other_writer)
+
+        result = runner.invoke(cli.app, argv)
+
+        assert result.exit_code == 1
+        assert "changed after it was read" in result.output
+        assert list(load_stack_config(isolated_config).connections) == ["newer"]
+
+
 class TestStoredSecretsAreNotEchoed:
     def test_updating_an_entry_interactively_keeps_the_password_without_showing_it(
         self, isolated_config

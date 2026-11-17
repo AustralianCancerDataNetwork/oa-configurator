@@ -74,11 +74,18 @@ class _ConfigCache:
 
 
 def _resolve_config_path() -> Path:
+    """Return the ``OA_CONFIG_PATH`` target, or the default path when unset.
+
+    The file need not exist yet, so ``omop-config init`` can create it.
+
+    Raises
+    ------
+    ValueError
+        If ``OA_CONFIG_PATH`` does not end in ``.toml``.
+    """
     raw = os.environ.get(ENV_CONFIG_PATH)
     if raw:
         p = _normalize_path(raw)
-        if not p.exists():
-            raise FileNotFoundError(f"{ENV_CONFIG_PATH} points to a non-existent file: {raw!r}")
         if p.suffix != ".toml":
             raise ValueError(f"{ENV_CONFIG_PATH} must point to a .toml file, got: {raw!r}")
         return p

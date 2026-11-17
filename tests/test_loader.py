@@ -121,10 +121,10 @@ class TestResolveConfigPath:
         monkeypatch.setenv(ENV_CONFIG_PATH, "custom.toml")
         assert _resolve_config_path() == target.resolve()
 
-    def test_env_var_missing_file_raises(self, tmp_path, monkeypatch):
-        monkeypatch.setenv(ENV_CONFIG_PATH, str(tmp_path / "does_not_exist.toml"))
-        with pytest.raises(FileNotFoundError):
-            _resolve_config_path()
+    def test_env_var_missing_file_resolves(self, tmp_path, monkeypatch):
+        target = tmp_path / "nested" / "does_not_exist.toml"
+        monkeypatch.setenv(ENV_CONFIG_PATH, str(target))
+        assert _resolve_config_path() == target.resolve()
 
     def test_env_var_non_toml_suffix_raises(self, tmp_path, monkeypatch):
         target = tmp_path / "custom.json"
@@ -253,13 +253,15 @@ class TestConfigCache:
             connections={"cdm": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")}
         )
 
-        _ConfigCache.put(path, st, original)
-        retrieved = _ConfigCache.get(path, st)
+        _ConfigCache.put(path, st, original, "rev-1")
+        cached = _ConfigCache.get(path, st)
 
-        assert retrieved is not None
+        assert cached is not None
+        retrieved, revision = cached
         assert retrieved == original
         assert retrieved is not original
         assert retrieved.connections["cdm"] is not original.connections["cdm"]
+        assert revision == "rev-1"
 
     def test_get_miss_returns_none(self, tmp_path):
         path = tmp_path / "config.toml"
@@ -271,7 +273,7 @@ class TestConfigCache:
         path = tmp_path / "config.toml"
         path.write_text("")
         st = path.stat()
-        _ConfigCache.put(path, st, StackConfig.for_session())
+        _ConfigCache.put(path, st, StackConfig.for_session(), "rev-1")
         _ConfigCache.clear()
         assert _ConfigCache.get(path, st) is None
 

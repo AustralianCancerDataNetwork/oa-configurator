@@ -19,6 +19,7 @@ from .domains.resources.schema import (
     UnenforcedForeignKey,
     guard_schema_provenance_for,
     referred_schema_tag,
+    reject_claimed_tags,
     statement_schema_tags,
     unenforced_foreign_keys,
     without_cross_engine_foreign_keys,
@@ -52,11 +53,13 @@ from .domains.resources.sql import (
     supports_schemas,
 )
 from .domains.vector_stores.schema import ResolvedVectorStore, VectorStoreConfig
-from .io import ConfigSaveError, save_stack_config, write_env_file
+from .io import ConfigSaveError, StaleConfigRevisionError, save_stack_config, write_env_file
 from .loader import (
     DEFAULT_CONFIG_PATH,
     active_config_path,
     load_stack_config,
+    load_stack_config_with_revision,
+    stack_config_revision,
 )
 from .logging_config import (
     LoggingConfig,
@@ -127,6 +130,7 @@ __all__ = [
     "SensitiveValueLeak",
     "StackConfig",
     "StackConfigInvalidError",
+    "StaleConfigRevisionError",
     "UnenforcedForeignKey",
     "UnknownRefTarget",
     "UnregisteredSchemaTagError",
@@ -147,6 +151,7 @@ __all__ = [
     "is_ephemeral_url",
     "is_sensitive",
     "load_stack_config",
+    "load_stack_config_with_revision",
     "mismatched_kind_refs",
     "open_connection",
     "physical_schema_of",
@@ -157,11 +162,13 @@ __all__ = [
     "reflects_float_as_double_precision",
     "reflects_text_as_varchar",
     "reflects_varchar_length",
+    "reject_claimed_tags",
     "rename_entry",
     "requires_host",
     "safe_endpoint",
     "save_stack_config",
     "schema_if_supported",
+    "stack_config_revision",
     "statement_schema_tags",
     "supports_schemas",
     "unenforced_foreign_keys",

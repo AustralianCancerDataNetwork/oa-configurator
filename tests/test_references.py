@@ -731,6 +731,12 @@ class TestDeleteEntry:
         with pytest.raises(ConfigurationError, match="tools.db_tool.cdm_db"):
             delete_entry(cfg, "databases", "cdm_db", package_configs=REGISTRY)
 
+    def test_package_without_a_section_blocks_delete_through_its_default(self):
+        cfg = _pg_stack()
+
+        with pytest.raises(ConfigurationError, match="tools.db_tool.cdm_db"):
+            delete_entry(cfg, "databases", "cdm_db", package_configs=REGISTRY)
+
     def test_tool_field_pointing_elsewhere_does_not_block_delete(self):
         cfg = _pg_stack(
             databases={

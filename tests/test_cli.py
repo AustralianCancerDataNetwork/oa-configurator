@@ -46,7 +46,7 @@ def isolated_config(tmp_path, monkeypatch):
 
     config_path = tmp_path / "config.toml"
     load = lambda path=config_path: load_stack_config(path)
-    save = lambda config: _real_save_stack_config(config, path=config_path)
+    save = lambda config, **kwargs: _real_save_stack_config(config, path=config_path, **kwargs)
 
     monkeypatch.setattr(cli, "load_stack_config", load)
     monkeypatch.setattr(cli, "save_stack_config", save)
@@ -62,7 +62,7 @@ def _seed(config_path, config: StackConfig) -> None:
 
 class TestInit:
     def test_save_failure_is_rendered_without_traceback(self, isolated_config, monkeypatch):
-        def fail_save(config):
+        def fail_save(config, **kwargs):
             raise OSError("disk unavailable")
 
         monkeypatch.setattr(cli, "save_stack_config", fail_save)
@@ -73,6 +73,25 @@ class TestInit:
         assert "Could not save configuration" in result.output
         assert "disk unavailable" in result.output
         assert "Traceback" not in result.output
+
+
+class TestInitEnvPath:
+    def test_init_creates_file_and_parents_at_missing_env_path(self, tmp_path):
+        import os
+        import subprocess
+        import sys
+
+        target = tmp_path / "nested" / "config.toml"
+        result = subprocess.run(
+            [sys.executable, "-c", "from oa_configurator.cli import app; app()", "init"],
+            env={**os.environ, "OA_CONFIG_PATH": str(target)},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert target.is_file()
 
 
 class TestConnectionsAdd:
@@ -97,7 +116,7 @@ class TestConnectionsAdd:
     def test_save_failure_is_rendered_without_traceback(self, isolated_config, monkeypatch):
         import oa_configurator.io as io_module
 
-        def fail_save(config):
+        def fail_save(config, **kwargs):
             raise OSError("disk unavailable")
 
         monkeypatch.setattr(io_module, "save_stack_config", fail_save)
@@ -836,7 +855,7 @@ class TestRunConfigurePackage:
             ),
         )
 
-        def fail_save(config):
+        def fail_save(config, **kwargs):
             raise OSError("disk unavailable")
 
         monkeypatch.setattr(io_module, "save_stack_config", fail_save)
@@ -1471,3 +1490,99 @@ class TestExitOnConfigIssues:
     def test_unrelated_exceptions_pass_through(self):
         with pytest.raises(ValueError, match="boom"), _exit_on_config_issues():
             raise ValueError("boom")
+
+
+class TestStaleDraft:
+    """A CLI edit built from an older read must not overwrite a newer save."""
+
+    @staticmethod
+    def _other_writer(isolated_config):
+        _seed(
+            isolated_config,
+            StackConfig.for_session(
+                connections={
+                    "someone_else": ConnectionConfig(
+                        dialect=Dialect.SQLITE, database_name=":memory:"
+                    )
+                },
+                databases={"cdm_db": CDMDatabaseConfig(connection="someone_else")},
+            ),
+        )
+
+    def test_add_entry_refuses_to_overwrite_a_concurrent_change(self, isolated_config, monkeypatch):
+        from oa_configurator import cli_support
+
+        self._other_writer(isolated_config)
+        resolve = cli_support._resolve_named_entry
+
+        def resolve_then_other_writer(*args, **kwargs):
+            entry = resolve(*args, **kwargs)
+            _seed(
+                isolated_config,
+                StackConfig.for_session(
+                    connections={
+                        "newer": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
+                    }
+                ),
+            )
+            return entry
+
+        monkeypatch.setattr(cli_support, "_resolve_named_entry", resolve_then_other_writer)
+
+        result = runner.invoke(
+            cli.app,
+            ["connections", "add", "mine", "--dialect", "sqlite", "--database-name", ":memory:"],
+        )
+
+        assert result.exit_code == 1
+        assert "Could not save configuration" in result.output
+        assert "changed after it was read" in result.output
+        assert list(load_stack_config(isolated_config).connections) == ["newer"]
+
+    def test_run_configure_refuses_to_overwrite_a_concurrent_change(
+        self, isolated_config, monkeypatch, capsys
+    ):
+        self._other_writer(isolated_config)
+        resolve_fields = DemoConfig.resolve_fields
+
+        def resolve_then_other_writer(config, **kwargs):
+            extra = resolve_fields(config, **kwargs)
+            _seed(
+                isolated_config,
+                StackConfig.for_session(
+                    connections={
+                        "newer": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
+                    }
+                ),
+            )
+            return extra
+
+        monkeypatch.setattr(DemoConfig, "resolve_fields", resolve_then_other_writer)
+
+        with pytest.raises(typer.Exit):
+            DemoConfig.run_configure({"cdm_db": "cdm_db"}, interactive=False)
+
+        assert "changed after it was read" in capsys.readouterr().err
+        assert list(load_stack_config(isolated_config).connections) == ["newer"]
+
+    def test_add_entry_on_a_missing_file_refuses_if_the_file_appears(
+        self, isolated_config, monkeypatch
+    ):
+        from oa_configurator import cli_support
+
+        resolve = cli_support._resolve_named_entry
+
+        def resolve_then_other_writer(*args, **kwargs):
+            entry = resolve(*args, **kwargs)
+            self._other_writer(isolated_config)
+            return entry
+
+        monkeypatch.setattr(cli_support, "_resolve_named_entry", resolve_then_other_writer)
+
+        result = runner.invoke(
+            cli.app,
+            ["connections", "add", "mine", "--dialect", "sqlite", "--database-name", ":memory:"],
+        )
+
+        assert result.exit_code == 1
+        assert list(load_stack_config(isolated_config).connections) == ["someone_else"]

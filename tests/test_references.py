@@ -244,6 +244,15 @@ class TestToolReferences:
             Reference("tools", "db_tool", "cdm_db", "databases", "cdm_db"),
         )
 
+    def test_package_without_a_section_refers_to_its_default(self):
+        cfg = _stack(databases={"cdm_db": CDMDatabaseConfig(connection="c1")})
+
+        report = references_to(cfg, "databases", "cdm_db", package_configs=REGISTRY)
+
+        assert report.references == (
+            Reference("tools", "db_tool", "cdm_db", "databases", "cdm_db"),
+        )
+
     def test_explicit_value_overrides_default(self):
         cfg = _stack(
             databases={
@@ -451,13 +460,21 @@ class TestRenameEntry:
 
         assert planned.tools["db_tool"] == {"cdm_db": "main"}
 
+    def test_package_without_a_section_gets_one_with_the_new_name(self):
+        cfg = _rename_stack()
+
+        planned = rename_entry(cfg, "databases", "cdm_db", "main", package_configs=RENAME_REGISTRY)
+
+        assert planned.tools == {"db_tool": {"cdm_db": "main"}, "picky_tool": {"cdm_db": "main"}}
+        assert cfg.tools == {}
+
     def test_unrelated_tool_section_is_untouched(self):
         cfg = _rename_stack(
             databases={
                 "cdm_db": CDMDatabaseConfig(connection="c1"),
                 "main": CDMDatabaseConfig(connection="c1"),
             },
-            tools={"db_tool": {"cdm_db": "main"}},
+            tools={"db_tool": {"cdm_db": "main"}, "picky_tool": {"cdm_db": "main"}},
         )
 
         planned = rename_entry(cfg, "databases", "cdm_db", "other", package_configs=RENAME_REGISTRY)

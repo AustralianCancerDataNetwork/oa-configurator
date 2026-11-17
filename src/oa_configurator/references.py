@@ -296,8 +296,10 @@ def collect_references(
     Lists both the forward and reverse directions for references. Filter on the source
     for what an entry uses, on the target for what uses it.
 
-    No file I/O and no entry-point discovery. A package field whose section omits
-    it refers to its declared default, so that default counts as a reference.
+    No file I/O and no entry-point discovery. Every known package is read, with
+    a missing ``[tools.*]`` section treated as empty (same as the resolver). A
+    package field the section omits refers to its declared default, so that
+    default counts as a reference.
 
     Parameters
     ----------
@@ -319,19 +321,16 @@ def collect_references(
                 target_section = _ref_section(ref.target, field_name=field)
                 found.append(Reference(source_section, source_name, field, target_section, value))
 
-    unknown: list[str] = []
-    for tool_name, stored in config.tools.items():
-        package_config = package_configs.get(tool_name)
-        if package_config is None:
-            unknown.append(tool_name)
-            continue
+    for tool_name, package_config in package_configs.items():
+        stored = config.tools.get(tool_name, {})
         for field, ref, value in _set_refs(package_config, _tool_values(package_config, stored)):
             if isinstance(value, str):
                 target_section = _ref_section(ref.target, field_name=field)
                 found.append(Reference("tools", tool_name, field, target_section, value))
 
+    unknown = sorted(set(config.tools) - set(package_configs))
     found.sort(key=lambda r: (r.source_section, r.source_name, r.field))
-    return ReferenceReport(tuple(found), tuple(sorted(unknown)))
+    return ReferenceReport(tuple(found), tuple(unknown))
 
 
 def references_to(
@@ -468,7 +467,8 @@ def rename_entry(
     a separate :func:`~oa_configurator.io.save_stack_config` call. The entry
     keeps its position in the section. A package field that omitted its value
     and so referred to *old* through its default gets an explicit *new* value,
-    because the default would otherwise no longer resolve. The candidate is
+    because the default would otherwise no longer resolve. A package with no
+    section at all gets one holding just that value. The candidate is
     validated as a whole: forward references, database kinds, and the package
     sections that were repointed.
 
@@ -531,7 +531,7 @@ def rename_entry(
     repointed_tools: set[str] = set()
     for ref in report.references:
         if ref.source_section == "tools":
-            candidate.tools[ref.source_name][ref.field] = new
+            candidate.tools.setdefault(ref.source_name, {})[ref.field] = new
             repointed_tools.add(ref.source_name)
             continue
         source_name = (

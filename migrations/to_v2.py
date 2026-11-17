@@ -17,6 +17,7 @@ Old layouts are read with plain SQL and TOML. Only 2.x libraries are imported.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import sqlite3
 import sys
@@ -311,6 +312,8 @@ def rebuild_registry(
 
     Per ``(database_config_name, schema_tag)`` keeps the row whose
     ``physical_schema`` matches the current resolution, else the first.
+    Rows are re-inserted without their surrogate ``id`` so the database
+    assigns new ids from its own sequence.
 
     Parameters
     ----------
@@ -345,7 +348,14 @@ def rebuild_registry(
                 kept[key] = row
     SchemaRegistry.__table__.drop(bind=mapped)
     mapped = _ensure_schema_registry_table(connection)
-    mapped.execute(sa.insert(SchemaRegistry), [dict(row) for row in kept.values()])
+    columns = [column.name for column in SchemaRegistry.table().columns if not column.primary_key]
+    mapped.execute(
+        sa.insert(SchemaRegistry),
+        [
+            {name: row[name] for name in columns}
+            for row in sorted(kept.values(), key=lambda row: row["id"])
+        ],
+    )
     return warnings
 
 
@@ -922,23 +932,54 @@ def verify(stack: StackConfig) -> bool:
 # --------------------------------------------------------------------------
 
 
+def backup_path(source: Path, backup_dir: Path, stamp: str) -> Path:
+    """Backup location for *source*, unique per resolved source path.
+
+    Parameters
+    ----------
+    source : pathlib.Path
+        File being backed up.
+    backup_dir : pathlib.Path
+        Directory the backup goes into.
+    stamp : str
+        Timestamp shared by every backup of one run.
+
+    Returns
+    -------
+    pathlib.Path
+        ``<backup_dir>/<name>.<stamp>.<digest>.bak``, where ``digest`` is the first
+        8 hex characters of the SHA-256 of the resolved source path.
+    """
+    digest = hashlib.sha256(str(source.resolve()).encode("utf-8")).hexdigest()[:8]
+    return backup_dir / f"{source.name}.{stamp}.{digest}.bak"
+
+
 def backup_files(
     config_path: Path, plan_connections: list[ResolvedConnection], backup_dir: Path
-) -> list[Path]:
-    """Copy the config and every SQLite file the run may change into *backup_dir*."""
+) -> list[tuple[Path, Path]]:
+    """Copy the config and every SQLite file the run may change into *backup_dir*.
+
+    Returns
+    -------
+    list[tuple[pathlib.Path, pathlib.Path]]
+        ``(source, backup)`` for every file copied.
+    """
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     backup_dir.mkdir(parents=True, exist_ok=True)
     copies = []
-    target = backup_dir / f"{config_path.name}.{stamp}.bak"
+    target = backup_path(config_path, backup_dir, stamp)
     os.replace(_copy_secure_temp(config_path, target), target)
-    copies.append(target)
-    for path in dict.fromkeys(filter(None, map(sqlite_file, plan_connections))):
+    copies.append((config_path, target))
+    sources = dict.fromkeys(
+        path.resolve() for path in filter(None, map(sqlite_file, plan_connections))
+    )
+    for path in sources:
         if not path.exists():
             continue
-        target = backup_dir / f"{path.name}.{stamp}.bak"
+        target = backup_path(path, backup_dir, stamp)
         with sqlite3.connect(path) as source, sqlite3.connect(target) as destination:
             source.backup(destination)
-        copies.append(target)
+        copies.append((path, target))
     return copies
 
 
@@ -1011,8 +1052,8 @@ def main(argv: list[str] | None = None) -> int:
         for connection in connections_of(resolver.resolve_database(name))
     ]
     backup_dir = args.backup_dir or config_path.parent
-    for copy in backup_files(config_path, connections, backup_dir):
-        console.print(f"  backup: {copy}")
+    for source, copy in backup_files(config_path, connections, backup_dir):
+        console.print(f"  backup: {source} -> {copy}")
     for action in plan.actions:
         action.run()
         console.print(f"  done: {escape(action.label)}")

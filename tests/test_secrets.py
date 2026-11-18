@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, ValidationError
 from oa_configurator import (
     CDMDatabaseConfig,
     ConnectionConfig,
+    Dialect,
     PackageConfigBase,
     ProviderConfig,
     SensitiveValueLeak,
@@ -382,7 +383,7 @@ class TestMaskedJson:
         assert KEY_CANARY not in rendered
 
     def test_exclude_none_is_honoured(self):
-        connection = ConnectionConfig(dialect="sqlite", database_name=":memory:")
+        connection = ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")
         assert "port" not in connection.masked_json(exclude_none=True)
         assert "port" in connection.masked_json(exclude_none=False)
 

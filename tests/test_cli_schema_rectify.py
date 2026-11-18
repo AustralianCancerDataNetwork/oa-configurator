@@ -23,7 +23,6 @@ from oa_configurator.testing import isolated_test_schema, reset_schema_registry_
 
 pytestmark = [
     pytest.mark.postgresql,
-    pytest.mark.db_dialect,
     pytest.mark.usefixtures("fresh_role_registry_rows"),
 ]
 

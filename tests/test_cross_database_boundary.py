@@ -22,6 +22,7 @@ from oa_configurator import (
     CDMDatabaseConfig,
     ConnectionConfig,
     CrossDatabaseStatementError,
+    Dialect,
     GenericDatabaseConfig,
     Resolver,
     Role,
@@ -104,7 +105,7 @@ def compile_split_cdm():
 
 
 def oa_connection(database_name: str):
-    return ConnectionConfig(dialect="sqlite", database_name=database_name, test_only=True)
+    return ConnectionConfig(dialect=Dialect.SQLITE, database_name=database_name, test_only=True)
 
 
 @pytest.fixture
@@ -114,7 +115,7 @@ def duckdb_cdm(tmp_path):
     stack = StackConfig.for_session(
         connections={
             "db": ConnectionConfig(
-                dialect="duckdb", database_name=str(tmp_path / "cdm.duckdb"), test_only=True
+                dialect=Dialect.DUCKDB, database_name=str(tmp_path / "cdm.duckdb"), test_only=True
             )
         },
         databases={
@@ -168,7 +169,6 @@ class TestForeignKeyDerivation:
 class TestBoundaryGuard:
     pytestmark: ClassVar[list[pytest.MarkDecorator]] = [
         pytest.mark.postgresql,
-        pytest.mark.db_dialect,
     ]
 
     def test_cross_tag_statement_raises_before_execution(self, split_cdm):
@@ -517,7 +517,7 @@ class TestForeignKeyPolicy:
         assert [item.reason for item in report] == ["cross_schema", "cross_schema"]
         assert {item.constraint.table for item in report} == {b, v}
 
-    @pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+    @pytest.mark.parametrize("dialect", [d for d in Dialect if d is not Dialect.DUCKDB])
     def test_other_dialects_do_not_report_deferred_keys(self, dialect):
         stack = StackConfig.for_session(
             connections={
@@ -537,7 +537,6 @@ class TestForeignKeyPolicy:
         assert unenforced_foreign_keys((table,), resolved=resolved) == ()
 
     @pytest.mark.duckdb
-    @pytest.mark.db_dialect
     @pytest.mark.parametrize("vocab_schema", ["clinical", "vocabulary", "CLINICAL"])
     def test_real_duckdb_ddl_preserves_supported_constraints(self, duckdb_cdm, vocab_schema):
         resolved = replace(duckdb_cdm, vocab_schema=vocab_schema)
@@ -562,13 +561,11 @@ class TestForeignKeyPolicy:
                 owned.dispose()
 
     @pytest.mark.duckdb
-    @pytest.mark.db_dialect
     def test_unset_duckdb_schema_matches_explicit_main(self, duckdb_cdm):
         resolved = replace(duckdb_cdm, schema_name=None, vocab_schema="main", results_schema=None)
         assert resolved.foreign_key_can_span(Role.PRIMARY, Role.VOCAB)
 
     @pytest.mark.postgresql
-    @pytest.mark.db_dialect
     def test_postgresql_enforces_cross_schema_keys(self, pg_db, pg_connection_config):
         primary_schema = f"fk_primary_{uuid.uuid4().hex[:8]}"
         vocab_schema = f"fk_vocab_{uuid.uuid4().hex[:8]}"

@@ -77,9 +77,9 @@ def preview_orphan_schema_tables(
     A real ``COUNT(*)`` rather than an approximation: this preview exists to
     inform a destructive drop, and a stale catalog estimate is worse than a
     table scan here. ``row_count`` is ``None`` only if counting itself fails
-    (e.g. a view rather than a real table).
+    (e.g. a view rather than a real table). Previews are ordered by table name.
     """
-    table_names = sa.inspect(connection).get_table_names(schema=schema)
+    table_names = sorted(sa.inspect(connection).get_table_names(schema=schema))
     previews = []
     for name in table_names:
         try:

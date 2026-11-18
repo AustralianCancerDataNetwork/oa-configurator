@@ -216,19 +216,22 @@ For tests that exercise a real database (e.g. PostgreSQL-specific SQL, bulk load
 
 The convention is `test_<package>_db_<dialect>` (e.g. `test_cdm_db_pg` for a Postgres-backed field, `test_cdm_db_sqlite` for a SQLite one), one field per dialect your package's tests actually exercise. What marks a field as a test field is `RefTo(CDMDatabaseConfig, is_test=True)` (or `RefTo(GenericDatabaseConfig, is_test=True)`, whichever kind the package's real database is), not its Python name, which carries no meaning to `oa-configurator` itself. Keeping the *value* distinct from the production database is still a mandatory safety guard: the test suite must never accidentally connect to a production database. Declare one field per dialect rather than reusing a single field for both: a field that's genuinely dialect-agnostic (works whether it happens to resolve to Postgres or SQLite) is rare in practice, and a field pinned to a specific dialect via `dialect=` (below) will raise if it ever resolves to the wrong one, since a mismatch is treated as a real misconfiguration, never silently substituted.
 
-In `conftest.py`, resolve the test database via the `isolated_test_database()` context manager, which skips cleanly whether `config.toml` is entirely missing or simply doesn't have this database configured yet, provisions it if needed, and yields an already-isolated `.connection`/`.session` pair.
+In `conftest.py`, resolve the test database via the `isolated_test_database()` context manager, which fails with a message naming the field when `config.toml` is missing or doesn't have this database configured yet, provisions it if needed, and yields an already-isolated `.connection`/`.session` pair.
 - Postgres wraps the whole thing in one transaction that's rolled back on exit (nothing your test does ever commits, so concurrent test runs against the same shared server can't collide);
 - SQLite gets a fresh, disposable database per call:
 
 ```python
 @pytest.fixture
-def pg_db():
+def pg_db(request):
     from oa_configurator.testing import isolated_test_database
     from my_package.config import MyPackageConfig
 
-    with isolated_test_database(MyPackageConfig, "test_cdm_db_pg") as db:
+    with isolated_test_database(MyPackageConfig, "test_cdm_db_pg", request=request) as db:
         yield db  # db.connection (Core) / db.session (ORM)
 ```
+
+!!! info
+    Passing `request` makes the fixture fail at setup when its test lacks the routing mark (see [Routing marks](#routing-marks)).
 
 `isolated_test_database(cls, field_name)` always takes the field name explicitly, with no auto-discovery, so it resolves without requiring the rest of your package's config (e.g. a required `cdm_db` field) to also be configured. That's deliberate on both counts: a CI runner that only provisions a test database shouldn't need a "production" database configured just to find it, and a class with more than one `is_test=True` field (one per dialect, per the convention above) would otherwise have no way to say which one a caller means.
 
@@ -236,11 +239,12 @@ Pass `dialect=` to pin the resolved connection to a specific dialect regardless 
 
 ```python
 @pytest.fixture
-def empty_engine():
+def empty_engine(request):
     with isolated_test_database(
         MyPackageConfig,
         "test_cdm_db_sqlite",
-        dialect="sqlite",
+        dialect=Dialect.SQLITE,
+        request=request,
     ) as db:
         yield db.connection.engine
 ```
@@ -294,47 +298,78 @@ omop-config configure <package> \
     resolved URL of `test_cdm_db_pg` against all other configured databases and calls
     `pytest.fail()` on any match.
 
-### Testing across dialects
+### Routing marks
 
-A fixture that needs to exercise the *same* test body against every supported dialect should use `DIALECT_PARAMS` rather than a hand-rolled `params=` list:
+Every supported dialect has a pytest mark named after it: `postgresql`, `sqlite` and `duckdb`. These routing marks select the CI job that runs a test. A test that needs a database carries the mark of every job it should run in, and a test without a routing mark needs no database. Mark a whole module with `pytestmark` and a single test with a decorator:
 
 ```python
+pytestmark = pytest.mark.postgresql
+
+
+@pytest.mark.sqlite
+def test_on_sqlite(sqlite_db): ...
+```
+
+A fixture that passes `request` to `isolated_test_database()` raises at setup, before any DDL runs, when its test lacks the routing mark. The required mark is the dialect by default. A package whose CI jobs route on something else names it with `routing_mark=`:
+
+```python
+with isolated_test_database(
+    MyPackageConfig, "test_cdm_db_pg", request=request, routing_mark="pgvector"
+) as db:
+    yield db
+```
+
+A session-scoped fixture cannot see the marks of the test that uses it. A function-scoped fixture that builds on it calls `require_routing_mark(request, field_name, mark)` from `oa_configurator.testing` itself.
+
+A test whose database field is not configured fails, and the message names the field. A machine without that database deselects its tests by routing mark, for example `pytest -m "not postgresql"`. SQLite and DuckDB need no configuration.
+
+Run one job's tests with `pytest -m postgresql`, and the tests that need no database with `pytest -m "not (sqlite or duckdb or postgresql)"`. Set `--strict-markers` in `addopts` so a misspelled mark is an error.
+
+### Testing across dialects
+
+A fixture that needs to exercise the *same* test body against every supported dialect should use `DIALECT_PARAMS` rather than a hand-rolled `params=` list. Each param carries the routing mark of its dialect, so the test runs in each dialect's job:
+
+```python
+from oa_configurator import Dialect
 from oa_configurator.testing import DIALECT_PARAMS, isolated_test_database
 
-# request.param is SQLAlchemy's own dialect name ("postgresql", "sqlite",
-# ...), not the field-naming convention's abbreviation ("pg"), so this maps
-# one to the other explicitly rather than interpolating request.param
-# straight into the field name.
-_FIELD_BY_DIALECT = {"postgresql": "test_cdm_db_pg", "sqlite": "test_cdm_db_sqlite"}
+# Maps each dialect to this repo's test database field.
+_FIELD_BY_DIALECT = {
+    Dialect.POSTGRESQL: "test_cdm_db_pg",
+    Dialect.SQLITE: "test_cdm_db_sqlite",
+    Dialect.DUCKDB: "test_cdm_db_duckdb",
+}
 
 
 @pytest.fixture(params=DIALECT_PARAMS)
 def db(request):
     with isolated_test_database(
-        MyPackageConfig, _FIELD_BY_DIALECT[request.param], dialect=request.param
+        MyPackageConfig,
+        _FIELD_BY_DIALECT[request.param],
+        dialect=request.param,
+        request=request,
     ) as db:
         yield db
 ```
 
-`DIALECT_PARAMS` is generated from the same registry that backs `isolated_test_database()`'s dialect dispatch, so it always matches whatever dialects your installed `oa-configurator` actually supports, with no list to keep in sync by hand. Each param always carries its own dialect name (`sqlite`, `postgresql`, ...), plus a second, generic `db_dialect` mark, but only if that dialect is actually capable of the corruption described below; a dialect that structurally can't cause it (SQLite today) skips that second mark, since excluding it from the default run would buy nothing.
+`DIALECT_PARAMS` is generated from the same registry that backs `isolated_test_database()`'s dialect dispatch, so it always matches whatever dialects your installed `oa-configurator` actually supports.
 
-Add this to your package's `pyproject.toml` so tests capable of that corruption are excluded from the default run and only execute when explicitly selected:
+#### Dialects in one process
 
-```toml
-[tool.pytest.ini_options]
-addopts = "-m 'not db_dialect'"
+The `oa_configurator.testing` plugin wraps `MetaData.create_all()` and `MetaData.drop_all()` in `preserve_create_rules()`, so tests of different dialects share one process. Without it, SQLAlchemy's `create_all()` on a dialect with `ALTER` support defers circular foreign keys and marks those constraints as such, and a later `create_all()` on SQLite then omits them silently.
+
+Code that runs `create_all()` or `drop_all()` outside a test, such as an application bootstrap that may touch several dialects in one process, uses the helper directly:
+
+```python
+from oa_configurator import preserve_create_rules
+
+with preserve_create_rules(Base.metadata):
+    Base.metadata.create_all(engine)
 ```
-
-Then `pytest -m postgresql` (or `-m sqlite`) runs just that dialect's tests, explicitly, regardless of whether it's excluded by default. This is the shape a CI pipeline should use for its Postgres step, typically as a second job or step alongside the default run. 
-
-!!! note "Reason for exclusion"
-  The exclusion exists because SQLAlchemy's `create_all()` permanently mutates shared `ForeignKeyConstraint` state the first time it defers a circular-dependency foreign key on a dialect whose `supports_alter` is true, which corrupts a *later* `create_all()` call against the same shared metadata on any other dialect in the same process. The fix is making sure that never happens within one pytest invocation, not chasing the mutation itself, and only excluding dialects that can actually cause it in the first place.
-
-If a test already gets its Postgres connection through a `pg_db`-named fixture (rather than `DIALECT_PARAMS`), it's marked `postgresql` + `db_dialect` automatically, with no changes needed, as long as the fixture keeps the established `pg_db` name.
 
 ### Adding a new dialect
 
-`oa_configurator.testing` dispatches to one `TestDatabaseStrategy` subclass per dialect via a plain dict, keyed off SQLAlchemy's own dialect name string. Supporting a new dialect in tests means writing one subclass and registering it there. Once registered, that dialect's pytest marker, its slot in `DIALECT_PARAMS`, and whether it's excluded from `-m 'not db_dialect'` all follow automatically, based on that dialect's own real `supports_alter` value, with no further changes needed anywhere.
+`oa_configurator.testing` dispatches to one `TestDatabaseStrategy` subclass per dialect via a plain dict, keyed off SQLAlchemy's own dialect name string. Supporting a new dialect in tests means writing one subclass and registering it there. Once registered, that dialect's pytest marker and its slot in `DIALECT_PARAMS` follow automatically. Add the CI job that runs its mark.
 
 ---
 

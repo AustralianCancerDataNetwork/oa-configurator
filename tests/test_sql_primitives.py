@@ -170,7 +170,6 @@ class TestDuckDBDDLShims:
             str(CreateTable(t).compile(dialect=_duckdb_dialect()))
 
     @pytest.mark.duckdb
-    @pytest.mark.db_dialect
     def test_deferred_fk_cycle_creates_and_drops_end_to_end(self, duckdb_db):
         """Real round trip on a committing engine: a two-table FK cycle
         creates (the deferred FK silently skipped) and drops cleanly
@@ -231,7 +230,7 @@ class TestDuckDBPartialIndexPolicy:
         assert "application-enforced policy" in caplog.text
         assert not any(record.levelno == logging.WARNING for record in caplog.records)
 
-    @pytest.mark.parametrize("dialect_name", ["postgresql", "sqlite"])
+    @pytest.mark.parametrize("dialect_name", [d for d in Dialect if d is not Dialect.DUCKDB])
     def test_other_dialects_keep_numeric_and_partial_index_ddl(self, dialect_name):
         """DuckDB's guards must not leak into dialects that support both features."""
         dialect = registry.load(dialect_name)()
@@ -296,7 +295,6 @@ class TestDuckDBSemanticGuardrails:
                 str(CreateTable(child).compile(dialect=_duckdb_dialect()))
 
     @pytest.mark.duckdb
-    @pytest.mark.db_dialect
     def test_duckdb_registry_policy_keeps_python_reservation_check(self, duckdb_db):
         """ensure_schema()/`_register_schema_claim()` run their reservation
         check against a real DuckDB file, which serializes writers itself
@@ -337,7 +335,6 @@ class TestDuckDBSemanticGuardrails:
                 )
 
     @pytest.mark.duckdb
-    @pytest.mark.db_dialect
     def test_explicit_numeric_scale_round_trips(self, duckdb_db):
         """An explicit Numeric(18, 9) must round-trip a value the bare
         Numeric() default (DECIMAL(18, 3)) would have truncated."""
@@ -532,6 +529,7 @@ class TestPhysicalSchemaOf:
             assert physical_schema_of(primary_only, schema_tag=Role.VOCAB) is None
 
 
+@pytest.mark.postgresql
 class TestPhysicalSchemaOfUnregisteredTagValidation:
     """The literal-fallback branch checks the connection's own
     schema_registry table directly. Needs a real, live Postgres
@@ -581,11 +579,13 @@ class TestQualified:
 
 
 class TestSupportsSchemas:
+    @pytest.mark.sqlite
     def test_sqlite_does_not(self, sqlite_db):
         assert supports_schemas(sqlite_db.committing_engine) is False
 
+    @pytest.mark.postgresql
     def test_postgres_does(self, pg_db):
-        """Used pg_db fixture rather than the parametrized engine fixture to prevent skipping this test"""
+        """Needs a real PostgreSQL connection."""
         assert supports_schemas(pg_db.connection) is True
 
     def test_accepts_a_dialect_name_string_directly(self):
@@ -653,6 +653,7 @@ class TestAutocommitConnection:
             conn.close()
 
 
+@pytest.mark.sqlite
 class TestEnsureSchemaSqlite:
     """sqlite has no schema DDL at all. Every call is a no-op, regardless
     of *why* (arbitrary name, None, or "public"), covering the two distinct
@@ -679,6 +680,7 @@ class TestEnsureSchemaSqlite:
         assert sa.inspect(engine).get_schema_names() == before
 
 
+@pytest.mark.postgresql
 class TestEnsureSchemaPostgres:
     """Real CREATE SCHEMA DDL and transaction participation. The one
     ensure_schema() branch sqlite structurally can't reach."""
@@ -720,6 +722,7 @@ class TestEnsureSchemaPostgres:
         assert sa.inspect(conn).get_schema_names() == before
 
 
+@pytest.mark.sqlite
 class TestRegisterSchemaClaim:
     """Every check is scoped to one connection via connection.engine.url,
     so a disposable SQLite connection exercises the real logic; no live
@@ -811,6 +814,7 @@ class TestRegisterSchemaClaim:
         )  # must not raise, and writes nothing
 
 
+@pytest.mark.postgresql
 class TestRegisterSchemaClaimAlreadyPopulated:
     """Runs at create_engine() time, not deferred until DDL runs. Needs a
     real multi-schema dialect: physical_schema is an arbitrary label on
@@ -857,6 +861,7 @@ class TestRegisterSchemaClaimAlreadyPopulated:
         )  # must not raise
 
 
+@pytest.mark.sqlite
 class TestReservation:
     """_register_schema_claim(reserved=True)/_reject_reservation_conflict
     guard a physical schema no other owner may use on the same connection,
@@ -1058,6 +1063,7 @@ class TestSystemSchemasFor:
 
 
 class TestFindTableInOtherSchemas:
+    @pytest.mark.postgresql
     def test_finds_a_table_relocated_to_another_schema(self, pg_db):
         conn = pg_db.connection
         expected = f"test_{uuid.uuid4().hex[:8]}"
@@ -1068,6 +1074,7 @@ class TestFindTableInOtherSchemas:
         found = find_table_in_other_schemas(conn, "orphan", physical_schema=expected)
         assert found == (actual,)
 
+    @pytest.mark.postgresql
     def test_empty_when_table_only_exists_where_expected(self, pg_db):
         conn = pg_db.connection
         expected = f"test_{uuid.uuid4().hex[:8]}"
@@ -1076,17 +1083,20 @@ class TestFindTableInOtherSchemas:
         found = find_table_in_other_schemas(conn, "present", physical_schema=expected)
         assert found == ()
 
+    @pytest.mark.postgresql
     def test_empty_when_table_does_not_exist_anywhere(self, pg_db):
         found = find_table_in_other_schemas(
             pg_db.connection, "nonexistent_table_xyz", physical_schema="public"
         )
         assert found == ()
 
+    @pytest.mark.postgresql
     def test_excludes_postgres_system_schemas(self, pg_db):
         found = find_table_in_other_schemas(pg_db.connection, "pg_tables", physical_schema="public")
         assert "information_schema" not in found
         assert "pg_catalog" not in found
 
+    @pytest.mark.postgresql
     def test_finds_a_table_in_a_schema_whose_name_contains_a_literal_dot(self, pg_db):
         """A quoted Postgres schema name with a literal dot (e.g. "a.b") must
         not be mistaken for a DuckDB-style catalog-qualified name and have
@@ -1101,7 +1111,6 @@ class TestFindTableInOtherSchemas:
         assert found == (dotted,)
 
     @pytest.mark.duckdb
-    @pytest.mark.db_dialect
     def test_finds_a_table_relocated_to_another_schema_on_duckdb(self, duckdb_db):
         """get_schema_names() on DuckDB returns catalog-qualified names
         (e.g. "mydb.main"), so the current schema (bare "main") must not
@@ -1116,12 +1125,12 @@ class TestFindTableInOtherSchemas:
         assert found[0].rsplit(".", 1)[-1] == "other"
 
     @pytest.mark.duckdb
-    @pytest.mark.db_dialect
     def test_excludes_duckdb_system_and_temp_catalogs(self, duckdb_db):
         found = find_table_in_other_schemas(duckdb_db.connection, "tables", physical_schema="main")
         assert found == ()
 
 
+@pytest.mark.postgresql
 class TestGuardSchemaProvenance:
     """Guard's core drift semantics, exercised against real Postgres:
     SQLite's supports_schemas()=False collapses every schema_tag to the
@@ -1348,6 +1357,7 @@ class TestGuardSchemaProvenance:
         assert (row.database_config_name, row.physical_schema) == ("entry_a", schema_a)
 
 
+@pytest.mark.sqlite
 class TestGuardSchemaProvenanceSqlite:
     """physical_schema=None means this dialect has no schema concept at
     all (e.g. SQLite): nothing to protect, nothing to check, regardless
@@ -1384,6 +1394,7 @@ class TestGuardSchemaProvenanceSqlite:
             pass  # must not raise: nothing is tracked for this dialect at all
 
 
+@pytest.mark.postgresql
 class TestRecordSchemaProvenance:
     def test_blank_reason_raises(self, pg_db):
         db_name = f"ack_{uuid.uuid4().hex[:8]}"
@@ -1586,6 +1597,7 @@ class TestRecordSchemaProvenance:
             )
 
 
+@pytest.mark.postgresql
 class TestProvenanceClaimAfterAcknowledgment:
     def test_registry_table_created_by_acknowledgment_is_not_pre_existing_data(self, pg_db):
         conn = pg_db.connection
@@ -1743,7 +1755,6 @@ class TestIntraProcessRegistryLock:
     """
 
     @pytest.mark.duckdb
-    @pytest.mark.db_dialect
     def test_eight_concurrent_threads_claiming_against_one_duckdb_file_all_succeed(self, tmp_path):
         import concurrent.futures
 
@@ -1763,6 +1774,7 @@ class TestIntraProcessRegistryLock:
         assert failures == [], f"{len(failures)}/8 workers failed: {failures}"
 
 
+@pytest.mark.postgresql
 class TestOutdatedRegistryLayout:
     def test_a_registry_with_connection_key_raises(self, pg_db):
         conn = pg_db.connection

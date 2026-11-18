@@ -44,7 +44,6 @@ from oa_configurator.testing.postgres import PostgresTestStrategy
 
 pytestmark = [
     pytest.mark.postgresql,
-    pytest.mark.db_dialect,
     pytest.mark.usefixtures("fresh_role_registry_rows"),
 ]
 
@@ -457,7 +456,9 @@ def test_both_engines_agree_on_every_shared_tag(pg_db, pg_connection_config, cle
     )
     # A different default schema on the vocabulary database, so "ask that
     # connection" and "assume this engine's default" cannot coincide.
-    admin = sa.create_engine(vocab_connection_config.build_url(), isolation_level="AUTOCOMMIT")
+    admin = sa.create_engine(  # noqa: TID251 - admin connection to a database created by this test
+        vocab_connection_config.build_url(), isolation_level="AUTOCOMMIT"
+    )
     try:
         with admin.connect() as connection:
             connection.execute(sa.text(f"CREATE SCHEMA IF NOT EXISTS {vocab_home}"))

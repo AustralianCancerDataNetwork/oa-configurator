@@ -36,43 +36,17 @@ from oa_configurator import (
 )
 from oa_configurator.config import OAConfiguratorConfig
 from oa_configurator.testing import (
+    DIALECT_PARAMS,
     assert_compiles_for_every_dialect,
     install_postgres_extension,
     isolated_test_database,
     isolated_test_schema,
+    require_routing_mark,
     scoped_test_schema,
 )
 from oa_configurator.testing.base import TestDatabaseNotConfigured, TestDatabaseStrategy
 from oa_configurator.testing.duckdb import DuckDBTestStrategy
 from oa_configurator.testing.sqlite import SQLiteTestStrategy
-
-
-def test_dialect_params_handles_missing_optional_driver(monkeypatch):
-    """DIALECT_PARAMS must not crash building its duckdb entry when
-    duckdb-sqlalchemy isn't installed. Patches registry.load() directly so
-    this holds regardless of whether the duckdb extra is installed here."""
-    import importlib
-
-    from sqlalchemy.dialects import registry
-    from sqlalchemy.exc import NoSuchModuleError
-
-    real_load = registry.load
-
-    def fake_load(name):
-        if name == "duckdb":
-            raise NoSuchModuleError(f"Can't load plugin: sqlalchemy.dialects:{name}")
-        return real_load(name)
-
-    monkeypatch.setattr(registry, "load", fake_load)
-
-    import oa_configurator.testing as testing_module
-
-    reloaded = importlib.reload(testing_module)
-    try:
-        duckdb_param = next(p for p in reloaded.DIALECT_PARAMS if p.values[0] == Dialect.DUCKDB)
-        assert {mark.name for mark in duckdb_param.marks} == {"duckdb", "db_dialect"}
-    finally:
-        importlib.reload(testing_module)
 
 
 class DemoTestConfig(PackageConfigBase):
@@ -112,10 +86,7 @@ class TestIsolatedTestDatabase:
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
 
         with isolated_test_database(DemoTestConfig, "test_cdm_db") as db:
-            assert (
-                db.connection.execute(pytest.importorskip("sqlalchemy").text("SELECT 1")).scalar()
-                == 1
-            )
+            assert db.connection.execute(sa.text("SELECT 1")).scalar() == 1
             assert db.session.connection() is db.connection
             assert db.committing_engine is db.connection.engine
 
@@ -129,15 +100,69 @@ class TestIsolatedTestDatabase:
         ):
             pass
 
-    def test_skips_when_database_is_not_configured(self, monkeypatch):
+    def test_fails_when_database_is_not_configured(self, monkeypatch):
         cfg = StackConfig.for_session()
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
 
         with (
-            pytest.raises(pytest.skip.Exception),
+            pytest.raises(pytest.fail.Exception, match="'test_cdm_db' is not configured"),
             isolated_test_database(DemoTestConfig, "test_cdm_db"),
         ):
             pass
+
+
+class TestRoutingMark:
+    """A fixture that passes ``request`` fails at setup when its test lacks the routing mark."""
+
+    @staticmethod
+    def _open(request, monkeypatch, **kwargs):
+        cfg = _stack_config(test_only=True)
+        monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
+        return isolated_test_database(
+            DemoTestConfig, "test_cdm_db", dialect=Dialect.SQLITE, request=request, **kwargs
+        )
+
+    def test_an_unmarked_test_fails_at_setup(self, request, monkeypatch):
+        with (
+            pytest.raises(RuntimeError, match="routing mark 'sqlite'"),
+            self._open(request, monkeypatch),
+        ):
+            pass
+
+    @pytest.mark.sqlite
+    def test_a_test_with_the_dialect_mark_proceeds(self, request, monkeypatch):
+        with self._open(request, monkeypatch) as db:
+            assert db.committing_engine.dialect.name == Dialect.SQLITE
+
+    @pytest.mark.sqlite
+    def test_another_mark_can_be_required_instead_of_the_dialect(self, request, monkeypatch):
+        with (
+            pytest.raises(RuntimeError, match="routing mark 'duckdb'"),
+            self._open(request, monkeypatch, routing_mark="duckdb"),
+        ):
+            pass
+
+    @pytest.mark.duckdb
+    def test_the_named_mark_is_accepted(self, request, monkeypatch):
+        with self._open(request, monkeypatch, routing_mark="duckdb"):
+            pass
+
+    def test_the_check_is_available_to_fixtures_that_share_a_wider_scoped_database(self, request):
+        with pytest.raises(RuntimeError, match="routing mark 'sqlite'"):
+            require_routing_mark(request, "shared_db", Dialect.SQLITE)
+
+    @pytest.mark.sqlite
+    def test_the_check_passes_for_a_marked_test(self, request):
+        require_routing_mark(request, "shared_db", Dialect.SQLITE)
+
+    def test_dialect_params_carry_exactly_their_dialect_mark(self):
+        assert [
+            (param.values[0], [mark.name for mark in param.marks]) for param in DIALECT_PARAMS
+        ] == [
+            (Dialect.POSTGRESQL, ["postgresql"]),
+            (Dialect.SQLITE, ["sqlite"]),
+            (Dialect.DUCKDB, ["duckdb"]),
+        ]
 
 
 class TestIsolatedTestDatabaseDialect:
@@ -151,10 +176,7 @@ class TestIsolatedTestDatabaseDialect:
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
 
         with isolated_test_database(DemoTestConfig, "test_cdm_db", dialect=Dialect.SQLITE) as db:
-            assert (
-                db.connection.execute(pytest.importorskip("sqlalchemy").text("SELECT 1")).scalar()
-                == 1
-            )
+            assert db.connection.execute(sa.text("SELECT 1")).scalar() == 1
             assert isinstance(db.resolved, ResolvedCDMDatabase)
 
     def test_mismatched_dialect_raises_even_though_configured(self, monkeypatch):
@@ -178,17 +200,14 @@ class TestIsolatedTestDatabaseDialect:
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
 
         with isolated_test_database(DemoTestConfig, "test_cdm_db", dialect=Dialect.SQLITE) as db:
-            assert (
-                db.connection.execute(pytest.importorskip("sqlalchemy").text("SELECT 1")).scalar()
-                == 1
-            )
+            assert db.connection.execute(sa.text("SELECT 1")).scalar() == 1
 
-    def test_unconfigured_field_still_skips_for_a_dialect_needing_real_config(self, monkeypatch):
+    def test_unconfigured_field_fails_for_a_dialect_needing_real_config(self, monkeypatch):
         cfg = StackConfig.for_session()
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
 
         with (
-            pytest.raises(pytest.skip.Exception),
+            pytest.raises(pytest.fail.Exception, match="is not configured"),
             isolated_test_database(DemoTestConfig, "test_cdm_db", dialect=Dialect.POSTGRESQL),
         ):
             pass
@@ -229,12 +248,7 @@ class TestSQLiteStrategyResolvedTypes:
             engine = isolated.resolved.create_engine(register_claims=False)
             try:
                 with engine.connect() as connection:
-                    assert (
-                        connection.execute(
-                            pytest.importorskip("sqlalchemy").text("SELECT 1")
-                        ).scalar()
-                        == 1
-                    )
+                    assert connection.execute(sa.text("SELECT 1")).scalar() == 1
             finally:
                 engine.dispose()
 
@@ -256,17 +270,13 @@ class TestSQLiteStrategyResolvedTypes:
             try:
                 for engine in set(engines):
                     with engine.connect() as connection:
-                        assert (
-                            connection.execute(
-                                pytest.importorskip("sqlalchemy").text("SELECT 1")
-                            ).scalar()
-                            == 1
-                        )
+                        assert connection.execute(sa.text("SELECT 1")).scalar() == 1
             finally:
                 for engine in set(engines):
                     engine.dispose()
 
 
+@pytest.mark.duckdb
 class TestDuckDBStrategyResolvedTypes:
     def test_generic_resolved_database_keeps_create_engine(self, tmp_path):
         cfg = StackConfig.for_session(
@@ -287,12 +297,7 @@ class TestDuckDBStrategyResolvedTypes:
             engine = isolated.resolved.create_engine(register_claims=False)
             try:
                 with engine.connect() as connection:
-                    assert (
-                        connection.execute(
-                            pytest.importorskip("sqlalchemy").text("SELECT 1")
-                        ).scalar()
-                        == 1
-                    )
+                    assert connection.execute(sa.text("SELECT 1")).scalar() == 1
             finally:
                 engine.dispose()
 
@@ -316,12 +321,7 @@ class TestDuckDBStrategyResolvedTypes:
             try:
                 for engine in set(engines):
                     with engine.connect() as connection:
-                        assert (
-                            connection.execute(
-                                pytest.importorskip("sqlalchemy").text("SELECT 1")
-                            ).scalar()
-                            == 1
-                        )
+                        assert connection.execute(sa.text("SELECT 1")).scalar() == 1
             finally:
                 for engine in set(engines):
                     engine.dispose()
@@ -338,7 +338,6 @@ class TestDuckDBStrategyTemporarySchema:
     """
 
     @pytest.mark.duckdb
-    @pytest.mark.db_dialect
     def test_creates_and_drops_a_real_schema_visible_from_a_second_connection(self, duckdb_db):
         engine = duckdb_db.committing_engine
         with (
@@ -351,7 +350,6 @@ class TestDuckDBStrategyTemporarySchema:
             assert not sa.inspect(conn).has_schema(schema)
 
     @pytest.mark.duckdb
-    @pytest.mark.db_dialect
     def test_refuses_a_non_test_only_engine(self, duckdb_db):
         """A plain engine built straight from a URL carries no tag and matches no config."""
         untagged_engine = sa.create_engine(duckdb_db.resolved.connection.url)
@@ -437,10 +435,7 @@ class TestIsolatedTestDatabaseExtensions:
             dialect=Dialect.SQLITE,
             extensions=[lambda conn, record: calls.append(1)],
         ) as db:
-            assert (
-                db.connection.execute(pytest.importorskip("sqlalchemy").text("SELECT 1")).scalar()
-                == 1
-            )
+            assert db.connection.execute(sa.text("SELECT 1")).scalar() == 1
 
         assert len(calls) == 1
 
@@ -594,7 +589,6 @@ class TestIsolatedTestSchema:
             pass
 
     @pytest.mark.postgresql
-    @pytest.mark.db_dialect
     def test_creates_and_drops_a_real_schema_for_a_test_only_engine(self, request):
         """A genuinely separate connection can see the schema while it exists,
         and it's gone once the context manager exits. Proves the real point of
@@ -730,7 +724,7 @@ class TestResolveAndCheck:
 
     def test_unconfigured_field_falling_back_to_its_own_name_still_skips(self, monkeypatch):
         """The field was never set at all (falls back to its own name/default,
-        not a user-provided value): still the ordinary "not configured" skip,
+        not a user-provided value): still the ordinary "not configured" failure,
         not the loud typo failure above."""
         cfg = StackConfig.for_session(connections={}, databases={})
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
@@ -795,7 +789,6 @@ class TestResetSchemaRegistryRowsSafety:
 
 
 @pytest.mark.postgresql
-@pytest.mark.db_dialect
 class TestResolveWithRoleSchemas:
     """resolve_with_role_schemas() overrides the config entry in memory and resolves it again."""
 
@@ -824,7 +817,6 @@ class TestResolveWithRoleSchemas:
 
 
 @pytest.mark.postgresql
-@pytest.mark.db_dialect
 class TestGuardedResolver:
     def test_resolves_the_same_entry_without_test_only(self, pg_db):
         from oa_configurator import Role
@@ -837,7 +829,6 @@ class TestGuardedResolver:
 
 
 @pytest.mark.postgresql
-@pytest.mark.db_dialect
 class TestScopedTestSchema:
     """scoped_test_schema() re-points a resolved database at fresh committed
     schemas and builds its engine through create_engine()."""

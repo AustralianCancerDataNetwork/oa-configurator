@@ -127,7 +127,7 @@ def pg_host_aliases(pg_connection_config) -> tuple[str, str]:
     """Two spellings of the host pg_db is reached at: its name and its IP.
 
     A loopback IP pairs with ``localhost``. A server addressed by an
-    IP that is not loopback has no second spelling, so the test is skipped.
+    IP that is not loopback has no second spelling, so the test fails.
     """
     host = pg_connection_config.host
     try:
@@ -136,7 +136,11 @@ def pg_host_aliases(pg_connection_config) -> tuple[str, str]:
         return host, socket.gethostbyname(host)
     if address.is_loopback:
         return "localhost", host
-    pytest.skip(f"test_db_pg is addressed by the non-loopback IP {host}; no second spelling")
+    pytest.fail(
+        f"test_db_pg is addressed by the non-loopback IP {host}, which has no second spelling. "
+        "Address it by hostname or a loopback IP.",
+        pytrace=False,
+    )
 
 
 @pytest.fixture

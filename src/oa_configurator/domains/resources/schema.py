@@ -413,16 +413,24 @@ def without_cross_engine_foreign_keys(
         The copies, in input order, all in one fresh MetaData so a surviving
         foreign key resolves its target at DDL compilation. The originals
         and their MetaData are never mutated.
+
+    Notes
+    -----
+    ``Table.to_metadata()`` rebuilds column types without their
+    ``with_variant()`` overrides and regenerates type-bound constraints (for
+    example an Enum CHECK) only from the rebuilt type. Each copy therefore gets
+    the original column types back and has its type-bound constraints replaced
+    by the original's, so both sets are identical.
     """
     target = sa.MetaData()
     tables = list(tables)
     copies = [table.to_metadata(target) for table in tables]
     for original, copied in zip(tables, copies):
-        # to_metadata() drops with_variant() overrides and type-bound constraints (e.g. Enum CHECK),
-        # and a variant-wrapped type never regenerates them. Restore the original type and re-copy
-        # the constraints explicitly.
         for column in copied.columns:
             column.type = original.columns[column.name].type
+        for constraint in tuple(copied.constraints):
+            if constraint._type_bound:
+                copied.constraints.discard(constraint)
         for constraint in original.constraints:
             if constraint._type_bound:
                 copied.append_constraint(

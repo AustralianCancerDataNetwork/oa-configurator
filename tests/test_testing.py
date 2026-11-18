@@ -81,6 +81,7 @@ class TestIsolatedTestDatabase:
     """isolated_test_database() must enforce test_only/skip/fail safety,
     plus actually hand back a working, isolated connection/session pair."""
 
+    @pytest.mark.sqlite
     def test_yields_a_working_connection_and_session(self, monkeypatch):
         cfg = _stack_config(test_only=True)
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
@@ -171,6 +172,7 @@ class TestIsolatedTestDatabaseDialect:
     falls back to a strategy's resolve_without_config() when the field
     isn't configured at all and that dialect supports it."""
 
+    @pytest.mark.sqlite
     def test_matching_dialect_passes_through(self, monkeypatch):
         cfg = _stack_config(test_only=True)
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
@@ -195,6 +197,7 @@ class TestIsolatedTestDatabaseDialect:
         ):
             pass
 
+    @pytest.mark.sqlite
     def test_unconfigured_field_falls_back_to_config_free_dialect(self, monkeypatch):
         cfg = StackConfig.for_session()
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)
@@ -229,6 +232,7 @@ class TestIsolatedTestDatabaseDialect:
 
 
 class TestSQLiteStrategyResolvedTypes:
+    @pytest.mark.sqlite
     def test_generic_resolved_database_keeps_create_engine(self, tmp_path):
         cfg = StackConfig.for_session(
             connections={
@@ -252,6 +256,7 @@ class TestSQLiteStrategyResolvedTypes:
             finally:
                 engine.dispose()
 
+    @pytest.mark.sqlite
     def test_cdm_resolved_database_keeps_create_engines(self, tmp_path):
         cfg = StackConfig.for_session(
             connections={
@@ -424,6 +429,7 @@ class TestIsolatedTestDatabaseExtensions:
     the Postgres-specific "install this named extension" callable builder).
     """
 
+    @pytest.mark.sqlite
     def test_extensions_callable_reaches_create_engine_through_engine_kwargs(self, monkeypatch):
         cfg = StackConfig.for_session()
         monkeypatch.setattr("oa_configurator.loader.load_stack_config", lambda: cfg)

@@ -7,8 +7,9 @@ CLI renders the same issues as Rich output.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Generator, Iterable
+from contextlib import contextmanager
+from dataclasses import dataclass, replace
 from enum import StrEnum
 
 from pydantic_core import ErrorDetails
@@ -99,6 +100,44 @@ class ConfigIssue:
             return f"{kind} {self.entry!r}"
         return None
 
+    def within(
+        self,
+        *,
+        field: str | None = None,
+        package: str | None = None,
+        section: str | None = None,
+        entry: str | None = None,
+    ) -> ConfigIssue:
+        """Place this issue inside an enclosing field, package or entry.
+
+        Parameters
+        ----------
+        field : str or None
+            Name of the enclosing field. It is prepended to ``field_path``, which
+            becomes just the field name for an entry-level issue.
+        package : str or None
+            Tool name used when the issue has none yet.
+        section : str or None
+            Stack section used when the issue has none yet.
+        entry : str or None
+            Entry name used when the issue has none yet.
+
+        Returns
+        -------
+        ConfigIssue
+            A copy with the context applied. Context already set is kept.
+        """
+        path = self.field_path
+        if field is not None:
+            path = f"{field}.{path}" if path else field
+        return replace(
+            self,
+            field_path=path,
+            package=self.package if self.package is not None else package,
+            section=self.section if self.section is not None else section,
+            entry=self.entry if self.entry is not None else entry,
+        )
+
 
 class ConfigIssuesError(ConfigurationError):
     """Resolution or planning failed with one or more structured issues.
@@ -155,3 +194,44 @@ def issues_from_errors(
         )
         for error in errors
     ]
+
+
+@contextmanager
+def issue_context(
+    *,
+    field: str | None = None,
+    package: str | None = None,
+    section: str | None = None,
+    entry: str | None = None,
+) -> Generator[None]:
+    """Add context to every issue of a :class:`ConfigIssuesError` raised inside.
+
+    Raise sites report only what they know. The code that knows the enclosing
+    field, package or entry applies it here, so ``package``, ``section``,
+    ``entry`` and ``field_path`` together locate an issue from the outermost
+    entry being configured.
+
+    Parameters
+    ----------
+    field : str or None
+        Enclosing field name, prepended to each ``field_path``.
+    package : str or None
+        Tool name, applied where an issue has none.
+    section : str or None
+        Stack section, applied where an issue has none.
+    entry : str or None
+        Entry name, applied where an issue has none.
+
+    Yields
+    ------
+    None
+        The raised error keeps its type and traceback, with ``issues`` replaced.
+    """
+    try:
+        yield
+    except ConfigIssuesError as exc:
+        exc.issues = tuple(
+            issue.within(field=field, package=package, section=section, entry=entry)
+            for issue in exc.issues
+        )
+        raise

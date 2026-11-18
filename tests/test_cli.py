@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 
 from oa_configurator import (
     CDMDatabaseConfig,
+    ConfigIssue,
     ConfigIssuesError,
     ConnectionConfig,
     GenericDatabaseConfig,
@@ -1486,6 +1487,31 @@ class TestExitOnConfigIssues:
         assert "tool 'my_tool'" in err
         assert "--set cdm_db.connection=<value>" in err
         assert "--port" in err
+
+    def test_invalid_nested_field_renders_set_hint(self, capsys):
+        issue = ConfigIssue(
+            IssueCode.INVALID_ENTRY,
+            "must be an integer",
+            schema="ConnectionConfig",
+            field_path="cdm_db.connection.port",
+        )
+        with pytest.raises(typer.Exit), _exit_on_config_issues():
+            raise ConfigIssuesError("invalid", [issue])
+        err = capsys.readouterr().err
+        assert "--set cdm_db.connection.port: must be an integer" in err
+
+    def test_entry_level_issues_name_the_section_and_entry(self, isolated_config, monkeypatch):
+        from oa_configurator.cli_support import _add_entry
+
+        seen: list[tuple[ConfigIssue, ...]] = []
+        monkeypatch.setattr("oa_configurator.cli_support._render_issues", seen.append)
+
+        with pytest.raises(typer.Exit):
+            _add_entry(ConnectionConfig, "connections", "conn", {"nope": "x"})
+
+        (issue,) = seen[0]
+        assert issue.code is IssueCode.UNKNOWN_FIELD
+        assert (issue.section, issue.entry) == ("connections", "conn")
 
     def test_unrelated_exceptions_pass_through(self):
         with pytest.raises(ValueError, match="boom"), _exit_on_config_issues():

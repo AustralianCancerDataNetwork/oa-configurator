@@ -42,7 +42,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self
 from pydantic import ValidationError
 from pydantic_core import ErrorDetails, PydanticUndefined
 
-from .issues import ConfigIssuesError, ConfigurationError, issues_from_errors
+from .issues import ConfigIssuesError, ConfigurationError, issue_context, issues_from_errors
 from .refs import SecretSafeBaseModel, describe_errors, sanitized_errors
 
 if TYPE_CHECKING:
@@ -254,6 +254,18 @@ class PackageConfigBase(SecretSafeBaseModel):
             If resolution fails; ``issues`` holds the structured problems.
             Nothing is printed.
         """
+        with issue_context(package=cls.tool_name):
+            return cls._resolve_field_values(config, set_dict=set_dict, interactive=interactive)
+
+    @classmethod
+    def _resolve_field_values(
+        cls,
+        config: StackConfig,
+        *,
+        set_dict: dict[str, Any],
+        interactive: bool,
+    ) -> dict[str, Any]:
+        """Resolve every field of this package; see :meth:`resolve_fields`."""
         import typer
         from rich.console import Console
 

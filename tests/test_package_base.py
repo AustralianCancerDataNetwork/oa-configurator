@@ -232,7 +232,8 @@ class TestPlanConfigure:
         (issue,) = exc_info.value.issues
         assert issue.code is IssueCode.UNKNOWN_FIELD
         assert issue.schema == "CDMDatabaseConfig"
-        assert issue.field_path == "unknown"
+        assert issue.package == "database_user_tool"
+        assert issue.field_path == "cdm_db.unknown"
         assert "cdm_schema" in issue.related
         captured = capsys.readouterr()
         assert captured.out == ""
@@ -268,7 +269,8 @@ class TestPlanConfigure:
         (issue,) = exc_info.value.issues
         assert issue.code is IssueCode.INVALID_ENTRY
         assert issue.schema == "ModelConfig"
-        assert issue.field_path is None
+        assert issue.package == "embedding_tool"
+        assert issue.field_path == "embedding_model_name"
         assert "embedding_dim requires embeddings=true" in issue.message
 
     def test_field_level_validation_failure_carries_dotted_path(self):
@@ -291,6 +293,24 @@ class TestPlanConfigure:
         issues = exc_info.value.issues
         assert {i.code for i in issues} == {IssueCode.INVALID_ENTRY}
         assert any(i.field_path is not None and i.error_type for i in issues)
+        assert all(i.field_path.startswith("embedding_model_name") for i in issues if i.field_path)
+        assert {i.package for i in issues} == {"embedding_tool"}
+
+    def test_two_level_nesting_prefixes_every_enclosing_field(self):
+        cfg = StackConfig.for_session()
+
+        with pytest.raises(ConfigIssuesError) as exc_info:
+            plan_configure(
+                DatabaseUserConfig,
+                cfg,
+                {"cdm_db": {"connection": {"dialect": "sqlite", "nope": "x"}}},
+            )
+
+        (issue,) = exc_info.value.issues
+        assert issue.code is IssueCode.UNKNOWN_FIELD
+        assert issue.schema == "ConnectionConfig"
+        assert issue.package == "database_user_tool"
+        assert issue.field_path == "cdm_db.connection.nope"
 
     def test_test_only_collision_is_a_structured_issue(self, capsys):
         cfg = StackConfig.for_session(
@@ -329,6 +349,8 @@ class TestPlanConfigure:
         (issue,) = exc_info.value.issues
         assert issue.code is IssueCode.TEST_COLLISION
         assert issue.related == ("prod",)
+        assert issue.package == "colliding_tool"
+        assert issue.field_path == "test_cdm_db.connection"
         assert capsys.readouterr().err == ""
 
     def test_invalid_nested_entry_traceback_omits_rejected_secret(self):

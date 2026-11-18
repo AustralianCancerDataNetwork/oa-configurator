@@ -18,7 +18,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel
 
-from .issues import ConfigIssue, ConfigIssuesError, IssueCode
+from .issues import ConfigIssue, ConfigIssuesError, IssueCode, issue_context
 from .refs import MASK, is_sensitive
 from .resolver import _check_missing_required, _flag_name, _is_flag_settable, _resolve_named_entry
 from .stack_config import StackConfig, mismatched_kind_refs, unresolved_refs
@@ -68,6 +68,26 @@ def _save_stack_config_or_exit(
         raise typer.Exit(1) from None
 
 
+def _field_hint(path: str, *, value: bool = False) -> str:
+    """Return the CLI flag that sets the field at *path*.
+
+    Parameters
+    ----------
+    path : str
+        Field name, or dotted path into a nested entry.
+    value : bool
+        Whether a dotted path is shown with a ``=<value>`` placeholder.
+
+    Returns
+    -------
+    str
+        ``--field-name`` for a plain name, ``--set path`` for a dotted path.
+    """
+    if "." not in path:
+        return _flag_name(path)
+    return f"--set {path}=<value>" if value else f"--set {path}"
+
+
 def _render_issues(issues: tuple[ConfigIssue, ...]) -> None:
     """Print the issues of one :class:`ConfigIssuesError` to stderr as Rich output."""
     from rich.console import Console
@@ -79,7 +99,7 @@ def _render_issues(issues: tuple[ConfigIssue, ...]) -> None:
 
     match first.code:
         case IssueCode.MISSING_REQUIRED:
-            hints = ", ".join(f"--set {p}=<value>" if "." in p else _flag_name(p) for p in paths)
+            hints = ", ".join(_field_hint(p, value=True) for p in paths)
             err_console.print(
                 f"\n[red bold]Missing required field(s) for {escape(repr(first.subject))}:"
                 f"[/red bold] {escape(hints)}\n"
@@ -96,7 +116,7 @@ def _render_issues(issues: tuple[ConfigIssue, ...]) -> None:
             )
         case IssueCode.INVALID_ENTRY:
             problems = [
-                f"  {_flag_name(i.field_path)}: {i.message}" if i.field_path else f"  {i.message}"
+                f"  {_field_hint(i.field_path)}: {i.message}" if i.field_path else f"  {i.message}"
                 for i in issues
             ]
             err_console.print(
@@ -203,9 +223,10 @@ def _add_entry(
     existing = section_dict.get(name)
     missing_required: list[str] = []
     with _exit_on_config_issues():
-        entry = _resolve_named_entry(
-            target, config, flags=flags, existing=existing, missing_required=missing_required
-        )
+        with issue_context(section=section, entry=name):
+            entry = _resolve_named_entry(
+                target, config, flags=flags, existing=existing, missing_required=missing_required
+            )
         _check_missing_required(
             missing_required, non_interactive=flags is not None, section=section, entry=name
         )

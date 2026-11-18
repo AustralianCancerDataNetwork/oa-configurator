@@ -31,7 +31,7 @@ from .domains.resources.sql import (
     requires_host,
 )
 from .domains.vector_stores.schema import ResolvedVectorStore, VectorStoreConfig
-from .issues import ConfigIssue, ConfigIssuesError, IssueCode, issues_from_errors
+from .issues import ConfigIssue, ConfigIssuesError, IssueCode, issue_context, issues_from_errors
 from .package_base import ConfigurationError, PackageConfigBase
 from .refs import RefTo, _iter_refs, is_sensitive, sanitized_errors
 from .stack_config import (
@@ -263,15 +263,16 @@ def _resolve_ref(
         name = typer.prompt(f"  New {section[:-1]} name", default=default_name)
 
     if name not in section_dict:
-        section_dict[name] = _resolve_named_entry(
-            target,
-            config,
-            flags=None,
-            existing=None,
-            missing_required=[],
-            name_hint=name,
-            is_test=is_test,
-        )
+        with issue_context(field=field_name):
+            section_dict[name] = _resolve_named_entry(
+                target,
+                config,
+                flags=None,
+                existing=None,
+                missing_required=[],
+                name_hint=name,
+                is_test=is_test,
+            )
     elif is_test != _is_test_marked(name, target, config):
         message = (
             f"{name!r} is not marked test_only=true. "
@@ -443,15 +444,16 @@ def _resolve_nested_flag_value(
     )
 
     nested_missing: list[str] = []
-    nested_entry = _resolve_named_entry(
-        nested.target,
-        config,
-        flags=sub_flags,
-        existing=section_dict.get(name),
-        missing_required=nested_missing,
-        name_hint=name,
-        is_test=is_test,
-    )
+    with issue_context(field=field_name):
+        nested_entry = _resolve_named_entry(
+            nested.target,
+            config,
+            flags=sub_flags,
+            existing=section_dict.get(name),
+            missing_required=nested_missing,
+            name_hint=name,
+            is_test=is_test,
+        )
     if nested_missing:
         missing_required.extend(f"{field_name}.{m}" for m in nested_missing)
         return None

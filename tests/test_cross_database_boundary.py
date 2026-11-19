@@ -158,6 +158,37 @@ class TestForeignKeyDerivation:
         dialect = postgresql.dialect()
         assert str(CreateTable(derived).compile(dialect=dialect)).count("FOREIGN KEY") == 2
 
+    def test_type_bound_constraints_are_copied_once(self, compile_split_cdm):
+        """A CHECK the copied type regenerates and one a with_variant() type loses
+        both end up on the copy exactly once."""
+        metadata = sa.MetaData()
+        plain = sa.Enum("a", "b", name="plain_kind", native_enum=False, create_constraint=True)
+        variant = sa.Enum("a", "b", name="variant_kind").with_variant(
+            sa.Enum("a", "b", name="variant_kind", native_enum=False, create_constraint=True),
+            "duckdb",
+        )
+        table = sa.Table(
+            "typed",
+            metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("plain", plain),
+            sa.Column("variant", variant),
+            sa.Column("flag", sa.Boolean(create_constraint=True, name="flag_ok")),
+            sa.Column("person_id", sa.Integer, sa.ForeignKey("vocab.concept.concept_id")),
+            schema=Role.PRIMARY.value,
+        )
+        (copied,) = without_cross_engine_foreign_keys((table,), resolved=compile_split_cdm)
+
+        def check_names(t: sa.Table) -> list[str]:
+            return sorted(str(c.name) for c in t.constraints if isinstance(c, sa.CheckConstraint))
+
+        assert (
+            check_names(copied) == check_names(table) == ["flag_ok", "plain_kind", "variant_kind"]
+        )
+        ddl = str(CreateTable(copied).compile(dialect=postgresql.dialect()))
+        assert ddl.count("CONSTRAINT plain_kind") == 1
+        assert copied.columns["variant"].type is table.columns["variant"].type
+
     def test_the_original_table_is_never_mutated(self, compile_split_cdm):
         _, _, _, cond = _cdm_tables()
         before = str(CreateTable(cond).compile(dialect=postgresql.dialect()))

@@ -218,6 +218,11 @@ def _resolve_ref(
 
     A new entry is prompted from scratch unless *template* is given, in which
     case its values are offered as the defaults.
+
+    Notes
+    -----
+    Choosing ``new`` always creates an entry. The default name is offered
+    only while it is free, and a name already in use is asked for again.
     """
     import typer
     from rich.console import Console
@@ -242,11 +247,18 @@ def _resolve_ref(
         )
         if choice != "new" and choice in candidates:
             return choice
-        name = (
-            typer.prompt(f"  New {section[:-1]} name", default=default_name)
-            if choice == "new"
-            else choice
-        )
+        if choice == "new":
+            default = None if default_name in section_dict else default_name
+            while True:
+                name = typer.prompt(f"  New {section[:-1]} name", default=default)
+                if name not in section_dict:
+                    break
+                err_console.print(
+                    f"  [red]{escape(name)!r} already exists. Pick another name.[/red]"
+                )
+                default = None
+        else:
+            name = choice
     else:
         console.print(f"  No {section} configured yet.")
         name = typer.prompt(f"  New {section[:-1]} name", default=default_name)

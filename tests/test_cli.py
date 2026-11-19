@@ -711,6 +711,33 @@ class TestResolveRef:
         assert set(config.models) == {"m"}
         assert set(config.providers) == {"p"}
 
+    def test_new_never_reuses_existing_name(self, monkeypatch, capsys):
+        """Choosing 'new' with the default name already taken offers no
+        default, and a taken name is asked for again."""
+        typed = iter(["new", "", "m", "fresh"])
+        defaults = []
+
+        def fake_prompt(text, default=None, **_):
+            if "New model name" in text:
+                defaults.append(default)
+            while True:
+                answer = next(typed, "")
+                if answer or default is not None:
+                    return answer or default
+
+        monkeypatch.setattr(cli.typer, "prompt", fake_prompt)
+        monkeypatch.setattr(cli.typer, "confirm", lambda *a, **k: True)
+        config = StackConfig.for_session(
+            providers={"p": ProviderConfig(provider="ollama")},
+            models={"m": ModelConfig(provider="p", model="local-chat")},
+        )
+        result = _resolve_ref("embedding_model_name", "desc", ModelConfig, config, default_name="m")
+        assert result == "fresh"
+        assert defaults == [None, None]
+        assert "already exists" in capsys.readouterr().err
+        assert set(config.models) == {"m", "fresh"}
+        assert config.models["m"].provider == "p"
+
     def test_create_new_model_and_provider(self, monkeypatch):
         answers = iter(
             [

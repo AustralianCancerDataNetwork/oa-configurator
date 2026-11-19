@@ -43,6 +43,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self
 from pydantic import ValidationError
 from pydantic_core import ErrorDetails, PydanticUndefined
 
+from .issues import ConfigIssuesError, ConfigurationError, issue_context, issues_from_errors
 from .sensitive import SecretSafeBaseModel, describe_errors, sanitized_errors
 
 if TYPE_CHECKING:
@@ -56,22 +57,6 @@ ENTRY_POINT_GROUP = "omop.config"
 def package_entry_points() -> EntryPoints:
     """Return the entry points of every package registered under ``omop.config``."""
     return entry_points(group=ENTRY_POINT_GROUP)
-
-
-class ConfigurationError(ValueError):
-    """General-purpose config-error type for this package.
-
-    Raised across many distinct situations, not just a missing database or
-    connection:
-    - malformed stack-config TOML,
-    - a missing required CLI field,
-    - an unrecognized ``--set``/flag key,
-    - a failed entry validation,
-    -a test/production connection collision,
-    - an unresolved or kind-mismatched ref,
-    - an ``is_test``/``test_only`` mismatch, and a headless ``plan_configure`` failure,
-    - ...
-    """
 
 
 class _SanitizedValidationErrorMixin:
@@ -107,17 +92,19 @@ class _SanitizedValidationErrorMixin:
         return list(self._errors)
 
 
-class PackageConfigInvalidError(_SanitizedValidationErrorMixin, ConfigurationError):
+class PackageConfigInvalidError(_SanitizedValidationErrorMixin, ConfigIssuesError):
     """A package section failed its concrete pydantic schema.
 
-    :meth:`errors` exposes sanitized pydantic details so field locations,
-    including the empty location used by model-level validators, are preserved
-    without retaining rejected input or validator context.
+    ``issues`` holds one ``INVALID_ENTRY`` issue per error, with a ``None``
+    ``field_path`` for model-level validators. :meth:`errors` exposes the same
+    sanitized pydantic details without retaining rejected input or validator
+    context.
     """
 
     def __init__(self, tool_name: str, validation_error: ValidationError) -> None:
         self.tool_name = tool_name
-        super().__init__(f"Invalid [tools.{tool_name}]: " + self._sanitize(validation_error))
+        message = f"Invalid [tools.{tool_name}]: " + self._sanitize(validation_error)
+        super().__init__(message, issues_from_errors(self._errors, package=tool_name))
 
 
 class StackConfigInvalidError(_SanitizedValidationErrorMixin, ConfigurationError):
@@ -238,7 +225,6 @@ class PackageConfigBase(SecretSafeBaseModel):
         *,
         set_dict: dict[str, Any],
         interactive: bool,
-        headless: bool = False,
     ) -> dict[str, Any]:
         """Resolve this package's own fields: flag (``--set`` or the field's
         own auto-generated flag), then stored, then an interactive prompt
@@ -267,10 +253,6 @@ class PackageConfigBase(SecretSafeBaseModel):
             Non-interactively, fields covered by neither are simply omitted
             (they fall back to the field's own pydantic default when the
             config class is loaded).
-        headless : bool
-            Raise library exceptions without printing CLI-oriented errors.
-            Intended for :func:`plan_configure`; ignored by interactive paths.
-
         Returns
         -------
         dict[str, Any]
@@ -278,11 +260,22 @@ class PackageConfigBase(SecretSafeBaseModel):
 
         Raises
         ------
-        ConfigurationError
-            If headless non-interactive resolution fails.
-        typer.Exit
-            If CLI-oriented non-interactive resolution fails.
+        ConfigIssuesError
+            If resolution fails; ``issues`` holds the structured problems.
+            Nothing is printed.
         """
+        with issue_context(package=cls.tool_name):
+            return cls._resolve_field_values(config, set_dict=set_dict, interactive=interactive)
+
+    @classmethod
+    def _resolve_field_values(
+        cls,
+        config: StackConfig,
+        *,
+        set_dict: dict[str, Any],
+        interactive: bool,
+    ) -> dict[str, Any]:
+        """Resolve every field of this package; see :meth:`resolve_fields`."""
         import typer
         from rich.console import Console
 
@@ -298,12 +291,7 @@ class PackageConfigBase(SecretSafeBaseModel):
 
         console = Console()
 
-        _check_unrecognized_keys(
-            f"tool {cls.tool_name!r}",
-            set_dict,
-            cls.model_fields.keys(),
-            headless=headless,
-        )
+        _check_unrecognized_keys(cls.tool_name, set_dict, cls.model_fields.keys())
 
         try:
             current = Resolver(config).resolve_package_config(cls)
@@ -329,7 +317,6 @@ class PackageConfigBase(SecretSafeBaseModel):
                     name_hint=field_name,
                     is_test=is_test,
                     missing_required=missing_required,
-                    headless=headless,
                 )
                 if resolved_name is not None:
                     extra[field_name] = resolved_name
@@ -408,10 +395,7 @@ class PackageConfigBase(SecretSafeBaseModel):
                     extra[field_name] = raw
 
         _check_missing_required(
-            f"tool {cls.tool_name!r}",
-            missing_required,
-            non_interactive=not interactive,
-            headless=headless,
+            missing_required, non_interactive=not interactive, package=cls.tool_name
         )
         return extra
 
@@ -423,7 +407,7 @@ class PackageConfigBase(SecretSafeBaseModel):
         """
         from rich.console import Console
 
-        from .cli_support import _load_draft, _save_stack_config_or_exit
+        from .cli_support import _exit_on_config_issues, _load_draft, _save_stack_config_or_exit
         from .loader import active_config_path
 
         console = Console()
@@ -434,7 +418,8 @@ class PackageConfigBase(SecretSafeBaseModel):
         console.print(f"\n[bold]Configuring [cyan]{tool_name}[/cyan][/bold]")
         console.print(f"[dim]TOML section: \\[tools.{tool_name}][/dim]")
 
-        extra = cls.resolve_fields(config, set_dict=set_dict, interactive=interactive)
+        with _exit_on_config_issues():
+            extra = cls.resolve_fields(config, set_dict=set_dict, interactive=interactive)
 
         config.tools[tool_name] = extra
         try:
@@ -467,23 +452,19 @@ def plan_configure(
     ``RefTo`` creation or updates. The returned stack contains pydantic-
     normalized package values and preserves the input's ``loaded_path`` as
     provenance. The caller's stack remains unchanged on success and failure.
-    """
-    import typer
+    Nothing is printed.
 
+    Raises
+    ------
+    ConfigIssuesError
+        If field resolution fails; ``issues`` holds the structured problems.
+    ConfigurationError
+        If the assembled candidate fails package or reference validation.
+    """
     from .stack_config import StackConfig
 
     candidate = config.model_copy(deep=True)
-    try:
-        values = package_config.resolve_fields(
-            candidate,
-            set_dict=dict(set_dict),
-            interactive=False,
-            headless=True,
-        )
-    except typer.Exit as exc:
-        # Keep this public headless boundary free of CLI control-flow errors,
-        # including any future resolver path that accidentally raises one.
-        raise ConfigurationError(f"Could not plan [tools.{package_config.tool_name}]") from exc
+    values = package_config.resolve_fields(candidate, set_dict=dict(set_dict), interactive=False)
     candidate.tools[package_config.tool_name] = values
     validated = package_config.validate_candidate(candidate)
     candidate.tools[package_config.tool_name] = validated.to_extra_dict()

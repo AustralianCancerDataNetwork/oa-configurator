@@ -54,6 +54,7 @@ from .domains.resources.sql import (
 )
 from .domains.vector_stores.schema import ResolvedVectorStore, VectorStoreConfig
 from .io import ConfigSaveError, StaleConfigRevisionError, save_stack_config, write_env_file
+from .issues import ConfigIssue, ConfigIssuesError, IssueCode, Severity
 from .loader import (
     DEFAULT_CONFIG_PATH,
     active_config_path,
@@ -92,12 +93,15 @@ __all__ = [
     "SCHEMA_TRANSLATE_MAP_KEY",
     "Bindable",
     "CDMDatabaseConfig",
+    "ConfigIssue",
+    "ConfigIssuesError",
     "ConfigSaveError",
     "ConfigurationError",
     "ConnectionConfig",
     "CrossDatabaseStatementError",
     "Dialect",
     "GenericDatabaseConfig",
+    "IssueCode",
     "LoggingConfig",
     "ModelConfig",
     "PackageConfigBase",
@@ -118,6 +122,7 @@ __all__ = [
     "SchemaOwnershipError",
     "SchemaRegistryOutdatedError",
     "SensitiveValueLeak",
+    "Severity",
     "StackConfig",
     "StackConfigInvalidError",
     "StaleConfigRevisionError",

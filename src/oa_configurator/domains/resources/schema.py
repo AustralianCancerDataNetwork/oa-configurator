@@ -8,7 +8,7 @@ from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import cached_property
-from typing import TYPE_CHECKING, Annotated, Any, Literal, NamedTuple, TypeVar
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, NamedTuple, TypeVar
 
 import sqlalchemy as sa
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -16,7 +16,8 @@ from sqlalchemy import event
 from sqlalchemy.engine import URL, Connection, Engine
 from sqlalchemy.sql import visitors
 
-from ...refs import RefTo, Secret, SecretSafeBaseModel
+from ...references import Referenceable, RefTo, Sectioned
+from ...sensitive import Secret, SecretSafeBaseModel
 from .schema_registry import (
     _SCHEMA_PROVENANCE_SCHEMA,
     CrossDatabaseStatementError,
@@ -120,7 +121,7 @@ def reject_claimed_tags(
         raise ValueError(f"schema_claims must not include schema_tag(s) {conflicts}: {context}.")
 
 
-class ConnectionConfig(SecretSafeBaseModel):
+class ConnectionConfig(SecretSafeBaseModel, Referenceable):
     """Complete specification of one physical database connection: server
     address, credentials, and target database.
 
@@ -131,6 +132,8 @@ class ConnectionConfig(SecretSafeBaseModel):
     Passwords are stored in plaintext for now; secret management support
     is planned for a future release.
     """
+
+    section: ClassVar[str] = "connections"
 
     model_config = ConfigDict(extra="forbid")
 
@@ -666,7 +669,7 @@ class DatabaseKind(str, Enum):
     CDM = "cdm"
 
 
-class DatabaseConfig[KindT: DatabaseKind](SecretSafeBaseModel):
+class DatabaseConfig[KindT: DatabaseKind](SecretSafeBaseModel, Sectioned):
     """Shared interface for every named database: a connection, plus each
     concrete kind's own schema field(s).
 
@@ -684,6 +687,8 @@ class DatabaseConfig[KindT: DatabaseKind](SecretSafeBaseModel):
 
     """
 
+    section: ClassVar[str] = "databases"
+
     model_config = ConfigDict(extra="forbid")
 
     kind: KindT = Field(description="Which concrete database shape this entry is.")
@@ -700,7 +705,7 @@ class DatabaseConfig[KindT: DatabaseKind](SecretSafeBaseModel):
         return self.connection
 
 
-class GenericDatabaseConfig(DatabaseConfig[Literal[DatabaseKind.GENERIC]]):
+class GenericDatabaseConfig(DatabaseConfig[Literal[DatabaseKind.GENERIC]], Referenceable):
     """A connection plus one optional schema. No CDM role-splitting.
 
     Used by consumers that need a single database with no vocab/results
@@ -726,7 +731,7 @@ class GenericDatabaseConfig(DatabaseConfig[Literal[DatabaseKind.GENERIC]]):
         return ResolvedDatabase(name=name, connection=primary, schema_name=self.schema_name)
 
 
-class CDMDatabaseConfig(DatabaseConfig[Literal[DatabaseKind.CDM]]):
+class CDMDatabaseConfig(DatabaseConfig[Literal[DatabaseKind.CDM]], Referenceable):
     """Maps the OMOP logical roles (CDM, vocab, results) to named connections and schema names.
 
     This is what a CDM-consuming package treats as "its database": the

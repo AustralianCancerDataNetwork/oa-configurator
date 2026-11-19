@@ -33,13 +33,9 @@ from .domains.resources.sql import (
 from .domains.vector_stores.schema import ResolvedVectorStore, VectorStoreConfig
 from .issues import ConfigIssue, ConfigIssuesError, IssueCode, issue_context, issues_from_errors
 from .package_base import ConfigurationError, PackageConfigBase
-from .refs import RefTo, _iter_refs, is_sensitive, sanitized_errors
-from .stack_config import (
-    StackConfig,
-    _ref_section,
-    mismatched_kind_refs,
-    unresolved_refs,
-)
+from .references import RefTo, _iter_refs, _ref_section, mismatched_kind_refs, unresolved_refs
+from .sensitive import is_sensitive, sanitized_errors
+from .stack_config import StackConfig
 
 T = TypeVar("T")
 TConfig = TypeVar("TConfig", bound=PackageConfigBase)
@@ -357,7 +353,7 @@ def _raise_invalid_entry(target: type[BaseModel], exc: ValidationError) -> NoRet
     ``embedding_dim`` on a model that doesn't declare ``embeddings``).
     A model validator has no field location, so its issue has no
     ``field_path``. Reads ``exc`` through
-    :func:`~oa_configurator.refs.sanitized_errors` rather than calling
+    :func:`~oa_configurator.sensitive.sanitized_errors` rather than calling
     ``exc.errors()`` directly, so a value like a database password can
     never end up in an issue.
 

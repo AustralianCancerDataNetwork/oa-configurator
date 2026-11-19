@@ -39,10 +39,10 @@ def vector_stores_add(
         }.items()
         if v is not None
     } or None
-    _add_entry(VectorStoreConfig, "vector_stores", name, flags)
+    _add_entry(VectorStoreConfig, name, flags)
 
 
 @vector_stores_app.command("list")
 def vector_stores_list() -> None:
     """List configured vector store entries."""
-    _list_entries(VectorStoreConfig, "vector_stores")
+    _list_entries(VectorStoreConfig)

@@ -171,7 +171,7 @@ def issues_from_errors(
     Parameters
     ----------
     errors : iterable of ErrorDetails
-        Errors already passed through :func:`~oa_configurator.refs.sanitized_errors`.
+        Errors already passed through :func:`~oa_configurator.sensitive.sanitized_errors`.
     package : str or None
         Tool name of the package section that failed.
     schema : str or None

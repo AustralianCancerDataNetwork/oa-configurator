@@ -9,7 +9,7 @@ from typing import Any, Protocol
 
 from pydantic import ConfigDict, Field, field_validator
 
-from .refs import MASK, SecretSafeBaseModel, safe_endpoint
+from .sensitive import MASK, SecretSafeBaseModel, safe_endpoint
 
 _OWN_NAMESPACE = "oa_configurator"
 
@@ -28,7 +28,7 @@ def _scrub_urls(text: str) -> str:
 
     The single implementation of what a safe URL looks like: :class:`RedactingFilter`
     routes through here, delegating the actual masking to
-    :func:`~oa_configurator.refs.safe_endpoint`.
+    :func:`~oa_configurator.sensitive.safe_endpoint`.
     """
     return _URL_RE.sub(lambda m: safe_endpoint(m.group(0)) or MASK, text)
 

@@ -31,7 +31,7 @@ from oa_configurator import (
     unresolved_refs,
 )
 from oa_configurator.domains.resources.schema import DatabaseConfig
-from oa_configurator.refs import Sensitive
+from oa_configurator.sensitive import Sensitive
 
 
 class SampleConfig(PackageConfigBase):
@@ -729,7 +729,7 @@ class TestRefToAbstractDatabaseConfigRejected:
     def test_raises_unknown_ref_target(self):
         class BadConfig(PackageConfigBase):
             tool_name: ClassVar[str] = "bad_tool"
-            cdm_db: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"
+            cdm_db: Annotated[str, RefTo(DatabaseConfig)] = "cdm_db"  # ty: ignore[invalid-argument-type]
 
         cfg = StackConfig.for_session(
             connections={"db": ConnectionConfig(dialect=Dialect.SQLITE, database_name=":memory:")},

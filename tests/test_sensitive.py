@@ -29,8 +29,8 @@ from oa_configurator import (
 )
 from oa_configurator.domains.resources.schema import DatabaseKind
 from oa_configurator.io import write_env_file
-from oa_configurator.refs import MASK, Secret, SecretSafeBaseModel, Sensitive
 from oa_configurator.resolver import Resolver
+from oa_configurator.sensitive import MASK, Secret, SecretSafeBaseModel, Sensitive
 
 
 class _Fields(BaseModel):

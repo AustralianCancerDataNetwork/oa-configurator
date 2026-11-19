@@ -14,6 +14,16 @@ Use `plan_configure()` when your application needs to preview a change before th
 
 Planning never reads or writes the active configuration file. The returned candidate keeps `loaded_path` as provenance, but your application still decides whether and when to call `save_stack_config()`. Failures are ordinary `ConfigurationError` or `PackageConfigInvalidError` exceptions: this API does not print CLI guidance or raise `typer.Exit`.
 
+## Defaults and unknown keys
+
+A planned section stores only fields that are already stored, were passed in the proposal, or were reached through a `RefTo` field. Defaults used to validate are not written, so a later change of a package default still reaches the installation. Stored keys that the package does not declare are kept unchanged.
+
+Use `plan_package_config()` when the caller needs to tell these apart. It returns a `PackagePlan` with the candidate stack, `defaulted_fields` (fields that take their class default) and `unknown_fields` (stored keys the package does not declare). Only names are reported, never values, and the repr of the plan leaves out the stack. `plan_configure()` returns just the candidate stack.
+
+## Remove unknown keys
+
+`prune_unknown_keys()` takes a stack and the installed package classes and returns a `PruneReport` with a validated copy of the stack without the keys those classes do not declare, and the removed names per tool. It does not alter the input and writes nothing. Sections without a class in the list are left alone. The CLI equivalent is `omop-config prune`, which only lists until `--apply` is passed.
+
 ::: oa_configurator.package_base.PackageConfigBase
 
 ::: oa_configurator.package_base.PackageConfigInvalidError
@@ -25,3 +35,11 @@ Planning never reads or writes the active configuration file. The returned candi
 ::: oa_configurator.package_base.StackConfigInvalidError
 
 ::: oa_configurator.package_base.plan_configure
+
+::: oa_configurator.package_base.plan_package_config
+
+::: oa_configurator.package_base.PackagePlan
+
+::: oa_configurator.package_base.prune_unknown_keys
+
+::: oa_configurator.package_base.PruneReport

@@ -25,7 +25,12 @@ from rich.table import Table
 from sqlalchemy.exc import SQLAlchemyError
 from typer.core import TyperGroup
 
-from .cli_support import _build_entry_params, _save_stack_config_or_exit
+from .cli_support import (
+    _build_entry_params,
+    _list_tools,
+    _remove_tool,
+    _save_stack_config_or_exit,
+)
 from .domains.llm.cli import models_app, providers_app
 from .domains.resources.cli import connections_app, databases_app
 from .domains.resources.rectify import drop_orphan_schema_tables
@@ -61,6 +66,28 @@ app.add_typer(databases_app, name="databases")
 app.add_typer(providers_app, name="providers")
 app.add_typer(models_app, name="models")
 app.add_typer(vector_stores_app, name="vector-stores")
+
+tools_app = typer.Typer(
+    name="tools",
+    no_args_is_help=True,
+    help=r"Manage \[tools.<package>] sections.",
+)
+app.add_typer(tools_app, name="tools")
+
+
+@tools_app.command("list")
+def tools_list() -> None:
+    """List configured tool sections and whether their package is available."""
+    _list_tools()
+
+
+@tools_app.command("remove")
+def tools_remove(
+    name: Annotated[str, typer.Argument(help="Tool section to remove, e.g. 'omop_graph'.")],
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip the confirmation prompt.")] = False,
+) -> None:
+    r"""Remove a \[tools.<name>] section, including one whose package is not installed."""
+    _remove_tool(name, yes)
 
 
 # ------------------

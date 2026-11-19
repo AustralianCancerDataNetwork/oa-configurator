@@ -222,10 +222,19 @@ def _resolve_ref(
     *,
     default_name: str,
     is_test: bool = False,
+    template: BaseModel | None = None,
 ) -> str | None:
     """Resolve a RefTo(target)-marked field interactively: offer reuse of an
     existing entry in target's section, or create one on the spot, recursing
     into any RefTo fields *target* itself has.
+
+    A new entry is prompted from scratch unless *template* is given, in which
+    case its values are offered as the defaults.
+
+    Notes
+    -----
+    Choosing ``new`` always creates an entry. The default name is offered
+    only while it is free, and a name already in use is asked for again.
     """
     import typer
     from rich.console import Console
@@ -249,11 +258,16 @@ def _resolve_ref(
         )
         if choice != "new" and choice in candidates:
             return choice
-        name = (
-            typer.prompt(f"  New {section[:-1]} name", default=default_name)
-            if choice == "new"
-            else choice
-        )
+        if choice == "new":
+            default = None if default_name in section_dict else default_name
+            while True:
+                name = typer.prompt(f"  New {section[:-1]} name", default=default)
+                if name not in section_dict:
+                    break
+                typer.echo(f"  {name!r} already exists. Pick another name.", err=True)
+                default = None
+        else:
+            name = choice
     else:
         console.print(f"  No {section} configured yet.")
         name = typer.prompt(f"  New {section[:-1]} name", default=default_name)
@@ -264,10 +278,11 @@ def _resolve_ref(
                 target,
                 config,
                 flags=None,
-                existing=None,
+                existing=template,
                 missing_required=[],
                 name_hint=name,
                 is_test=is_test,
+                prefill_new_refs=template is not None,
             )
     elif is_test != _is_test_marked(name, target, config):
         message = (
@@ -466,6 +481,7 @@ def _resolve_named_entry(
     missing_required: list[str],
     name_hint: str | None = None,
     is_test: bool = False,
+    prefill_new_refs: bool = False,
 ) -> BaseModel | None:
     """Resolve one entry of *target*: flag, then stored value, then an
     interactive prompt, recursing into any RefTo field via
@@ -476,6 +492,10 @@ def _resolve_named_entry(
     *name_hint*/*is_test* only apply to the brand-new-entry path (no
     *flags*, no *existing*): the nested-ref default name, and the
     test-only wizard's recursion flag.
+
+    With *prefill_new_refs*, a RefTo field the user points at a new entry
+    starts that entry from the one the stored value currently names, instead
+    of from blank prompts.
 
     Returns None if a required field is missing non-interactively (check
     *missing_required*), and raises :class:`ConfigIssuesError` if *flags*
@@ -573,6 +593,10 @@ def _resolve_named_entry(
                     if stored is not None
                     else (str(info.default) if has_default else (name_hint or ""))
                 )
+                template = None
+                if prefill_new_refs and stored is not None:
+                    named = getattr(config, _ref_section(nested.target)).get(stored)
+                    template = named if isinstance(named, nested.target) else None
                 values[field_name] = _resolve_ref(
                     field_name,
                     info.description or "",
@@ -580,6 +604,7 @@ def _resolve_named_entry(
                     config,
                     default_name=default_name,
                     is_test=is_test,
+                    template=template,
                 )
             continue
 
@@ -597,10 +622,12 @@ def _resolve_named_entry(
         default_value = (
             str(stored) if stored is not None else (str(info.default) if has_default else "")
         )
+        sensitive = is_sensitive(info)
         raw_input = typer.prompt(
             info.description or field_name,
             default=default_value,
-            hide_input=is_sensitive(info),
+            hide_input=sensitive,
+            show_default=not sensitive,
         )
         values[field_name] = raw_input if info.is_required() else (raw_input or None)
 

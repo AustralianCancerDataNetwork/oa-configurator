@@ -6,7 +6,7 @@ from typing import Annotated
 
 import typer
 
-from ...cli_support import _add_entry, _list_entries
+from ...cli_support import _add_entry, _list_entries, _register_clone, _register_delete
 from .schema import ModelConfig, ProviderConfig
 
 providers_app = typer.Typer(
@@ -103,3 +103,19 @@ def models_add(
 def models_list() -> None:
     """List configured model entries."""
     _list_entries(ModelConfig)
+
+
+_register_clone(
+    providers_app,
+    ProviderConfig,
+    help=r"Copy a \[providers] entry under a new name. Flags change the copy; without flags every field is prompted.",
+)
+_register_delete(
+    providers_app, ProviderConfig, help=r"Delete a \[providers] entry that nothing references."
+)
+_register_clone(
+    models_app,
+    ModelConfig,
+    help=r"Copy a \[models] entry under a new name. Flags change the copy; without flags every field is prompted.",
+)
+_register_delete(models_app, ModelConfig, help=r"Delete a \[models] entry that nothing references.")

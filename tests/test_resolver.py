@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import pytest
+import sqlalchemy as sa
 from pydantic import ValidationError
+from sqlalchemy import event
 from sqlalchemy.engine import URL, make_url
+from sqlalchemy.exc import IntegrityError
 
 from oa_configurator import (
     CDMDatabaseConfig,
@@ -27,6 +30,7 @@ from oa_configurator import (
     StackConfig,
     VectorStoreConfig,
 )
+from oa_configurator.domains.resources.sql import enable_sqlite_foreign_keys
 from oa_configurator.resolver import _check_test_collision
 
 
@@ -82,6 +86,74 @@ class TestResolveConnection:
         assert make_url(target._engine_url) == expected
         assert isinstance(target.url, str)
         assert isinstance(target.safe_url, str)
+
+
+class TestSQLiteForeignKeys:
+    """A SQLite engine enforces foreign keys on every connection, as the other dialects do."""
+
+    @staticmethod
+    def _engine(tmp_path, dialect=Dialect.SQLITE, filename="fk.db"):
+        cfg = StackConfig.for_session(
+            connections={
+                "db": ConnectionConfig(dialect=dialect, database_name=str(tmp_path / filename))
+            }
+        )
+        return Resolver(cfg).resolve_connection("db").create_engine()
+
+    def test_every_pooled_connection_has_enforcement_on(self, tmp_path):
+        engine = self._engine(tmp_path)
+        try:
+            with engine.connect() as first, engine.connect() as second:
+                assert first.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
+                assert second.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
+        finally:
+            engine.dispose()
+
+    def test_child_inserted_before_its_parent_is_refused(self, tmp_path):
+        engine = self._engine(tmp_path)
+        metadata = sa.MetaData()
+        parent = sa.Table("parent", metadata, sa.Column("id", sa.Integer, primary_key=True))
+        child = sa.Table(
+            "child",
+            metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("parent_id", sa.ForeignKey("parent.id")),
+        )
+        metadata.create_all(engine)
+        try:
+            with engine.begin() as connection, pytest.raises(IntegrityError):
+                connection.execute(child.insert().values(id=1, parent_id=7))
+            with engine.begin() as connection:
+                connection.execute(parent.insert().values(id=7))
+                connection.execute(child.insert().values(id=1, parent_id=7))
+        finally:
+            engine.dispose()
+
+    def test_listener_attached_afterwards_can_turn_enforcement_off(self, tmp_path):
+        engine = self._engine(tmp_path)
+
+        @event.listens_for(engine, "connect")
+        def _relax(dbapi_connection, _connection_record):
+            dbapi_connection.execute("PRAGMA foreign_keys = OFF")
+
+        try:
+            with engine.connect() as connection:
+                assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar() == 0
+        finally:
+            engine.dispose()
+
+    def test_isolated_test_database_has_enforcement_on(self, sqlite_db):
+        with sqlite_db.committing_engine.connect() as connection:
+            assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
+
+    @pytest.mark.duckdb
+    @pytest.mark.db_dialect
+    def test_other_dialects_get_no_sqlite_listener(self, tmp_path):
+        engine = self._engine(tmp_path, dialect=Dialect.DUCKDB, filename="fk.duckdb")
+        try:
+            assert not event.contains(engine, "connect", enable_sqlite_foreign_keys)
+        finally:
+            engine.dispose()
 
 
 class TestResolveDatabase:

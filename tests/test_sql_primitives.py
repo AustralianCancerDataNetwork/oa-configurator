@@ -40,8 +40,10 @@ from oa_configurator import (
     physical_schema_of,
     qualified,
     supports_schemas,
+    table_of,
 )
 from oa_configurator.domains.resources.schema_registry import (
+    SchemaRegistry,
     SchemaRegistryOutdatedError,
     _guard_schema_provenance,
     _record_schema_provenance,
@@ -349,6 +351,55 @@ class TestDuckDBSemanticGuardrails:
         with engine.begin() as connection:
             connection.execute(table.insert(), {"value": value})
             assert connection.scalar(sa.select(table.c.value)) == value
+
+
+class TestTableOf:
+    """table_of() returns a mapped class's table and refuses anything else."""
+
+    def test_returns_the_mapped_table(self):
+        class Base(so.DeclarativeBase):
+            pass
+
+        class Item(Base):
+            __tablename__ = "table_of_item"
+            id: so.Mapped[int] = so.mapped_column(primary_key=True)
+
+        table = table_of(Item)
+        assert isinstance(table, sa.Table)
+        assert table is Item.__table__
+        assert table.primary_key.columns.keys() == ["id"]
+
+    def test_schema_registry_table_is_its_mapped_table(self):
+        assert SchemaRegistry.table() is table_of(SchemaRegistry)
+
+    def test_class_mapped_to_a_join_is_refused(self):
+        class Base(so.DeclarativeBase):
+            pass
+
+        left = sa.Table(
+            "table_of_left", Base.metadata, sa.Column("id", sa.Integer, primary_key=True)
+        )
+        right = sa.Table(
+            "table_of_right",
+            Base.metadata,
+            sa.Column("id", sa.Integer, primary_key=True),
+            sa.Column("left_id", sa.ForeignKey("table_of_left.id")),
+        )
+
+        class Joined(Base):
+            __table__ = sa.join(left, right)
+            id = so.column_property(left.c.id, right.c.left_id)
+            right_id = right.c.id
+
+        with pytest.raises(TypeError, match="Joined is not mapped to a table"):
+            table_of(Joined)
+
+    def test_unmapped_class_is_refused(self):
+        class Plain:
+            pass
+
+        with pytest.raises(TypeError, match="Plain is not mapped to a table"):
+            table_of(Plain)
 
 
 class TestConnectionKey:

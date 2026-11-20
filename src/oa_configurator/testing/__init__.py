@@ -6,20 +6,22 @@ is ever imported directly::
     from oa_configurator.testing import isolated_test_database
 
     @pytest.fixture
-    def pg_db():
-        with isolated_test_database(OmopAlchemyConfig, "test_cdm_db_pg") as db:
+    def pg_db(request):
+        with isolated_test_database(
+            OmopAlchemyConfig, "test_cdm_db_pg", request=request
+        ) as db:
             yield db
 
 Dialect is resolved from the target connection: Postgres gets rollback-based
 isolation, SQLite gets a fresh disposable database per call. Pass
 ``dialect=`` to pin one dialect regardless of what the field resolves to
 (mismatch always raises; unconfigured falls back to that dialect's own
-``resolve_without_config()`` if supported, else skips)::
+``resolve_without_config()`` if supported, else fails)::
 
     @pytest.fixture
-    def empty_engine():
+    def empty_engine(request):
         with isolated_test_database(
-            OmopAlchemyConfig, "test_cdm_db_sqlite", dialect=Dialect.SQLITE,
+            OmopAlchemyConfig, "test_cdm_db_sqlite", dialect=Dialect.SQLITE, request=request,
         ) as db:
             yield db.connection.engine
 
@@ -32,21 +34,27 @@ transaction, so register cleanup with ``cleanup_after_test``::
     def pg_engine(pg_db):
         return pg_db.committing_engine
 
-Every supported dialect gets its own pytest marker, plus ``db_dialect`` on
-whichever ones are capable of corrupting shared ORM metadata across
-dialects in one process (see ``_can_corrupt_shared_metadata`` for the
-mechanism). A consuming repo's ``addopts = "-m 'not db_dialect'"`` excludes
-those by default; ``pytest -m <dialect>`` runs just one. Parametrize a
-fixture across dialects with ``DIALECT_PARAMS`` since each param already
-carries the right marks. It also auto-applies to any test whose fixture
-closure includes ``pg_db``.
+Every supported dialect has a pytest marker named after it. These routing marks
+select the CI job that runs a test, and a test needs the mark of every job it
+should run in. Parametrize a fixture across dialects with ``DIALECT_PARAMS``,
+which marks each param. Pass the fixture's own ``request``
+(``isolated_test_database(..., request=request)``) and the fixture fails at
+setup, before any DDL runs, if the test lacks the routing mark it needs. The
+required mark is the dialect by default. A repo whose jobs route on something
+else names it with ``routing_mark=``::
 
-That auto-detection is static and name-based, so it silently misses a
-fixture that doesn't follow the ``pg_db`` convention. Pass your fixture's
-own ``request`` (``isolated_test_database(..., request=request)``) to
-close that gap: it raises at fixture-setup time, before any DDL runs, if
-the resolved dialect needs ``db_dialect`` but the test isn't marked.
-Recommended for every fixture not already covered by ``DIALECT_PARAMS``.
+    with isolated_test_database(
+        OmopEmbConfig, "test_emb_db_pg", request=request, routing_mark="pgvector"
+    ) as db:
+        yield db
+
+A test whose database field is not configured fails with a message that names
+the field. A machine without that database deselects its tests by routing mark
+(``pytest -m "not postgresql"``). SQLite and DuckDB need no configuration.
+
+The plugin also keeps ``MetaData.create_all`` and ``MetaData.drop_all`` from
+changing shared metadata for later calls (see ``preserve_create_rules``), so
+tests of different dialects can share a process.
 
 A test that must hold a real, committing ``Engine``/``Connection`` gets no
 automatic cleanup from ``isolated_test_database()``, since rollback only
@@ -57,21 +65,21 @@ teardown.
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Callable, Generator, Iterable, Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 import pytest
 import sqlalchemy as sa
-from sqlalchemy.dialects import registry
-from sqlalchemy.exc import DBAPIError, NoSuchModuleError
+from sqlalchemy.exc import DBAPIError
 
-from ..domains.resources.sql import Dialect, Role
+from ..domains.resources.sql import Dialect, Role, preserve_create_rules
 from .base import (
     IsolatedTestDatabase,
     TestDatabaseNotConfigured,
     TestDatabaseStrategy,
-    _skip_message,
+    _not_configured_message,
 )
 from .duckdb import DuckDBTestStrategy
 from .postgres import (
@@ -98,6 +106,7 @@ __all__ = [
     "install_postgres_extension",
     "isolated_test_database",
     "isolated_test_schema",
+    "require_routing_mark",
     "reset_schema_registry_rows",
     "resolve_with_role_schemas",
     "scoped_test_schema",
@@ -136,38 +145,23 @@ def assert_compiles_for_every_dialect(
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    # See _can_corrupt_shared_metadata() for what "corrupting" means here.
     for dialect in _STRATEGIES:
         config.addinivalue_line("markers", f"{dialect}: exercises the {dialect} dialect")
-    config.addinivalue_line(
-        "markers", "db_dialect: exercises a dialect capable of corrupting shared metadata"
-    )
+    for name in ("create_all", "drop_all"):
+        original = getattr(sa.MetaData, name)
+        setattr(sa.MetaData, name, _preserving_create_rules(original))
+        config.add_cleanup(functools.partial(setattr, sa.MetaData, name, original))
 
 
-def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """Auto-mark any test whose fixture closure includes ``pg_db``.
+def _preserving_create_rules(method: Callable[..., Any]) -> Callable[..., Any]:
+    """Wrap a ``MetaData`` DDL method so it leaves the metadata's create rules as it found them."""
 
-    ``item.fixturenames`` is the full transitive fixture closure, so a test
-    requesting ``pg_session`` (which depends on ``pg_engine``, which depends
-    on ``pg_db``) still has ``pg_db`` in it. No repo needs to mark its own
-    tests, as long as its real-database fixture follows the established
-    ``pg_db`` name every consumer already uses. A dialect-parametrized
-    fixture that resolves ``pg_db`` dynamically via
-    ``request.getfixturevalue`` isn't visible here. Use ``DIALECT_PARAMS``
-    for those, which marks each param directly instead of relying on
-    static detection.
+    @functools.wraps(method)
+    def wrapper(self: sa.MetaData, *args: Any, **kwargs: Any) -> Any:
+        with preserve_create_rules(self):
+            return method(self, *args, **kwargs)
 
-    ``db_dialect`` is derived from ``_can_corrupt_shared_metadata`` rather
-    than applied unconditionally, so this stays the same source of truth
-    ``DIALECT_PARAMS`` uses instead of a second, independent guess. This
-    detection can still miss a renamed or unconventional fixture silently
-    -- see ``_require_db_dialect_mark`` for the actual backstop.
-    """
-    for item in items:
-        if "pg_db" in getattr(item, "fixturenames", ()):
-            item.add_marker(pytest.mark.postgresql)
-            if _can_corrupt_shared_metadata(Dialect.POSTGRESQL):
-                item.add_marker(pytest.mark.db_dialect)
+    return wrapper
 
 
 _STRATEGIES: dict[Dialect, type[TestDatabaseStrategy]] = {
@@ -177,42 +171,8 @@ _STRATEGIES: dict[Dialect, type[TestDatabaseStrategy]] = {
 }
 
 
-def _can_corrupt_shared_metadata(dialect: str) -> bool:
-    """Whether *dialect*'s create_all() can defer a constraint via ALTER,
-    the one mechanism that mutates shared metadata state process-wide.
-
-    SQLAlchemy's AddConstraint permanently mutates a ForeignKeyConstraint
-    object the first time it defers a circular-dependency FK on an
-    ALTER-capable dialect, corrupting later create_all() calls against the
-    same shared Base.metadata on any other dialect in the same process. A
-    dialect that can't ALTER (e.g. SQLite) can never trigger this itself.
-
-    Loads the dialect class through SQLAlchemy's own plugin so this needs
-    no real connection. If an optional dialect's driver isn't installed,
-    conservatively treat it as capable of corrupting shared metadata.
-
-    Notes
-    -----
-    Its ``DIALECT_PARAMS`` entry still gets marked ``db_dialect`` and stays
-    excluded from the default suite. The answer self-corrects once the driver
-    actually is installed.
-    """
-    try:
-        return bool(registry.load(dialect).supports_alter)
-    except NoSuchModuleError:
-        return True
-
-
 DIALECT_PARAMS = tuple(
-    pytest.param(
-        dialect,
-        marks=(
-            (getattr(pytest.mark, dialect), pytest.mark.db_dialect)
-            if _can_corrupt_shared_metadata(dialect)
-            else getattr(pytest.mark, dialect)
-        ),
-    )
-    for dialect in _STRATEGIES
+    pytest.param(dialect, marks=getattr(pytest.mark, dialect)) for dialect in _STRATEGIES
 )
 
 
@@ -227,30 +187,35 @@ def _strategy_for(dialect_name: str) -> TestDatabaseStrategy:
     return _STRATEGIES[dialect]()
 
 
-def _require_db_dialect_mark(
-    request: pytest.FixtureRequest, field_name: str, dialect_name: str
-) -> None:
-    """Raise if *request*'s test can corrupt shared metadata but isn't marked for it.
+def require_routing_mark(request: pytest.FixtureRequest, field_name: str, mark: str) -> None:
+    """Raise if *request*'s test does not carry the routing mark *mark*.
 
-    ``pytest_collection_modifyitems``'s ``pg_db``-name detection is static
-    and can miss a renamed or unconventionally-named fixture with no error
-    at all -- just silent under-marking, letting a corruption-capable
-    dialect run in the default suite alongside SQLite. This is the actual
-    backstop: it runs at fixture-setup time, with the real resolved
-    dialect in hand, before any DDL executes, so a drifted naming
-    convention fails loudly here instead of causing an intermittent,
-    unrelated failure in some other test later in the same process.
+    Runs at fixture setup, before any DDL, so a test that no CI job selects fails
+    here instead of never running. ``isolated_test_database`` calls it. A function
+    scoped fixture built on a database that a wider scoped fixture opened calls it
+    directly, as the wider fixture cannot see the test.
+
+    Parameters
+    ----------
+    request : pytest.FixtureRequest
+        Request of a function scoped fixture.
+    field_name : str
+        Name of the database field, used in the message.
+    mark : str
+        Name of the required mark. A ``Dialect`` is its own name.
+
+    Raises
+    ------
+    RuntimeError
+        If the test lacks the mark.
     """
-    if not _can_corrupt_shared_metadata(dialect_name):
-        return
-    if request.node.get_closest_marker("db_dialect") is not None:
+    name = str(mark)
+    if request.node.get_closest_marker(name) is not None:
         return
     raise RuntimeError(
-        f"{field_name!r} resolved to dialect {dialect_name!r}, which can corrupt shared "
-        "ORM metadata if it shares a process with another dialect, but this test isn't "
-        "marked db_dialect. If this fixture doesn't match a known auto-detected naming "
-        "convention (e.g. 'pg_db'), mark the test explicitly with pytest.mark.db_dialect, "
-        "or parametrize it with DIALECT_PARAMS instead."
+        f"{field_name!r} needs the routing mark {name!r}, but this test isn't marked "
+        f"{name!r}. Mark the test (or its module) with pytest.mark.{name}, or parametrize "
+        "it with DIALECT_PARAMS."
     )
 
 
@@ -261,6 +226,7 @@ def isolated_test_database(
     *,
     dialect: Dialect | str | None = None,
     request: pytest.FixtureRequest | None = None,
+    routing_mark: str | None = None,
     resolver: Resolver | None = None,
     schema_claims: Iterable[SchemaClaim] = (),
     execution_options: dict[str, Any] | None = None,
@@ -281,15 +247,15 @@ def isolated_test_database(
         if not. A field configured for the wrong dialect is a bug, never
         silently substituted. If *field_name* isn't configured at all and
         *dialect* names a strategy whose ``resolve_without_config()``
-        succeeds, that's used instead of skipping.
+        succeeds, that's used instead of failing.
     request : pytest.FixtureRequest, optional
-        Pass the calling fixture's own ``request`` to enable a safety
-        check: if the resolved dialect can corrupt shared ORM metadata
-        (see ``pytest_configure``) but the current test isn't marked
-        ``db_dialect``, raise immediately rather than silently letting it
-        run unmarked in the default suite. Strongly recommended for any
-        fixture not already covered by ``DIALECT_PARAMS`` (whose marks are
-        always correct by construction).
+        Pass the calling fixture's own ``request`` to require a routing mark:
+        if the current test lacks it, raise before any DDL runs. Recommended
+        for every fixture.
+    routing_mark : str, optional
+        Name of the mark the test must carry. Defaults to the resolved dialect.
+        Name another mark when the repo's CI jobs route on it, such as a backend.
+        Has no effect without *request*.
     engine_kwargs
         Forwarded to the primary engine build, e.g.
         ``poolclass``/``connect_args`` for a caller that needs to tune the
@@ -310,11 +276,11 @@ def isolated_test_database(
         )
     except TestDatabaseNotConfigured as exc:
         if dialect is None:
-            pytest.skip(_skip_message(exc.field_name or field_name))
+            pytest.fail(_not_configured_message(exc.field_name or field_name), pytrace=False)
         try:
             resolved = _STRATEGIES[Dialect(dialect)]().resolve_without_config()
         except TestDatabaseNotConfigured:
-            pytest.skip(_skip_message(exc.field_name or field_name))
+            pytest.fail(_not_configured_message(exc.field_name or field_name), pytrace=False)
 
     resolved_dialect_name = sa.engine.make_url(resolved.connection.url).get_backend_name()
     if dialect is not None and resolved_dialect_name != dialect:
@@ -324,7 +290,7 @@ def isolated_test_database(
         )
 
     if request is not None:
-        _require_db_dialect_mark(request, field_name, resolved_dialect_name)
+        require_routing_mark(request, field_name, routing_mark or resolved_dialect_name)
 
     strategy = _strategy_for(resolved_dialect_name)
     with strategy.isolated_database(

@@ -54,6 +54,7 @@ class TestResolveConnection:
         assert Resolver(minimal_stack).resolve_connection("db").dialect_name == Dialect.SQLITE
         assert Resolver(pg_stack).resolve_connection("cdm").dialect_name == Dialect.POSTGRESQL
 
+    @pytest.mark.sqlite
     def test_sqlite_path_with_reserved_characters_connects_to_the_right_file(self, tmp_path):
         """`?`/`#` in a sqlite path are query/fragment syntax once rendered
         to a URL string and re-parsed -- create_engine() must not round-trip
@@ -603,6 +604,7 @@ class TestCreateEngine:
                 schema_claims=[SchemaClaim(schema_tag="vocab", physical_schema="wrong")]
             )
 
+    @pytest.mark.sqlite
     def test_extensions_callable_fires_on_the_first_connection(self, minimal_stack):
         """Attached before anything else touches the engine, so it covers even the
         very first connection opened after create_engines() returns -- the exact
@@ -617,6 +619,7 @@ class TestCreateEngine:
 
         assert len(calls) == 1
 
+    @pytest.mark.sqlite
     def test_extensions_callable_fires_on_every_new_physical_connection(self, tmp_path):
         """Not a one-shot setup hook: it must fire again for every later
         connection the engine's pool opens, for as long as the engine lives."""

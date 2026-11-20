@@ -33,8 +33,8 @@ class TestDatabaseNotConfigured(Exception):
     """No real configuration is available.
 
     Raised by ``_resolve_and_check()`` when a config field has no
-    resolvable value (rather than skipping immediately, so
-    ``isolated_test_database()`` can decide whether to skip or try a
+    resolvable value (rather than failing immediately, so
+    ``isolated_test_database()`` can decide whether to fail or try a
     strategy's ``resolve_without_config()`` fallback first), and by a
     strategy's own ``resolve_without_config()`` when it genuinely needs
     real configuration (the default for anything but an embedded,
@@ -81,11 +81,13 @@ class IsolatedTestDatabase:
         return self.connection.engine
 
 
-def _skip_message(name: str) -> str:
+def _not_configured_message(name: str) -> str:
     return (
-        f"Database {name!r} not configured.\n"
+        f"Database {name!r} is not configured.\n"
         f"  Run: omop-config databases add {name} ...\n"
-        f"  (or configure it interactively via omop-config configure <package>)"
+        f"  (or configure it interactively via omop-config configure <package>)\n"
+        f"  To run without it, deselect the tests that need it, "
+        f'e.g. pytest -m "not <routing mark>".'
     )
 
 
@@ -140,7 +142,7 @@ class TestDatabaseStrategy(ABC):
         relies on before diverging into dialect-specific work, not
         duplicated per subclass.
 
-        Raises ``TestDatabaseNotConfigured`` (rather than skipping directly) when
+        Raises ``TestDatabaseNotConfigured`` (rather than failing directly) when
         *field_name* has no resolvable value, so a caller with a
         config-free fallback available gets a chance to use it first.
 
@@ -156,7 +158,7 @@ class TestDatabaseStrategy(ABC):
         ValueError
             If *field_name* is explicitly set in config to a name that isn't
             a ``[databases.*]`` entry. A config-typo must fail loudly, not be
-            folded into the same "not configured" skip as a field nobody set.
+            folded into the same "not configured" failure as a field nobody set.
         """
         if field_name not in config_cls.model_fields:
             raise ValueError(f"{config_cls.__name__} has no field {field_name!r}.")

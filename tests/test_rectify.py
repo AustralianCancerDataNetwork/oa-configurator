@@ -30,7 +30,6 @@ _EMPTY_STACK = StackConfig.for_session(connections={}, databases={})
 
 
 @pytest.mark.postgresql
-@pytest.mark.db_dialect
 def test_preview_count_error_isolated_from_following_tables(pg_db, cleanup_after_test, monkeypatch):
     schema = f"count_savepoint_{uuid.uuid4().hex[:8]}"
     engine = pg_db.committing_engine
@@ -62,11 +61,12 @@ def test_preview_count_error_isolated_from_following_tables(pg_db, cleanup_after
     ]
 
 
-def test_drop_orphan_schema_tables_refuses_a_dialect_with_no_schema_concept():
+@pytest.mark.sqlite
+def test_drop_orphan_schema_tables_refuses_a_dialect_with_no_schema_concept(sqlite_db):
     """ "Orphan schema" doesn't apply to a dialect with no real schema
     concept at all. Must fail clearly and early, before the cross-entry
     safety check or any DDL, rather than a raw error partway through."""
-    engine = sa.create_engine("sqlite:///:memory:")
+    engine = sqlite_db.committing_engine
     with engine.connect() as connection, pytest.raises(ValueError, match="no real schema concept"):
         drop_orphan_schema_tables(
             connection,
@@ -77,7 +77,6 @@ def test_drop_orphan_schema_tables_refuses_a_dialect_with_no_schema_concept():
 
 
 @pytest.mark.postgresql
-@pytest.mark.db_dialect
 def test_drop_orphan_schema_tables_does_not_touch_a_table_outside_the_orphan_schema(
     pg_db, cleanup_after_test
 ):
@@ -129,7 +128,6 @@ def test_drop_orphan_schema_tables_does_not_touch_a_table_outside_the_orphan_sch
 
 
 @pytest.mark.postgresql
-@pytest.mark.db_dialect
 def test_drop_orphan_schema_tables_does_not_translate_an_orphan_named_like_a_tag(
     pg_db, pg_connection_config, cleanup_after_test
 ):
@@ -206,7 +204,6 @@ def test_drop_orphan_schema_tables_does_not_translate_an_orphan_named_like_a_tag
 
 
 @pytest.mark.postgresql
-@pytest.mark.db_dialect
 def test_schema_is_a_current_target_never_leaks_a_role_from_a_different_server(
     pg_db, pg_connection_config
 ):

@@ -192,6 +192,38 @@ def _profile_for(dialect_name: str) -> DialectProfile:
         ) from None
 
 
+@contextmanager
+def preserve_create_rules(metadata: sa.MetaData) -> Generator[None, None, None]:
+    """Keep ``create_all()`` and ``drop_all()`` from changing *metadata* for later calls.
+
+    On a dialect that supports ``ALTER``, SQLAlchemy defers circular foreign keys
+    through ``AddConstraint``, which sets a private ``_create_rule`` on each deferred
+    constraint. A later ``create_all()`` on a dialect without ``ALTER`` then omits
+    those foreign keys silently. This restores every constraint's ``_create_rule``
+    on exit.
+
+    Parameters
+    ----------
+    metadata : sqlalchemy.MetaData
+        Metadata whose constraints are saved on entry and restored on exit.
+
+    Examples
+    --------
+    >>> with preserve_create_rules(Base.metadata):  # doctest: +SKIP
+    ...     Base.metadata.create_all(engine)
+    """
+    saved = [
+        (constraint, constraint._create_rule)
+        for table in metadata.tables.values()
+        for constraint in table.constraints
+    ]
+    try:
+        yield
+    finally:
+        for constraint, rule in saved:
+            constraint._create_rule = rule
+
+
 @compiles(AddConstraint, Dialect.DUCKDB)
 def _skip_deferred_fk_on_duckdb(element: AddConstraint, compiler, **kw) -> str:
     """No-op a deferred ``ALTER TABLE ADD CONSTRAINT`` FK: DuckDB can't execute it.

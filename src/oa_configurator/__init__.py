@@ -51,6 +51,7 @@ from .domains.resources.sql import (
     requires_host,
     schema_if_supported,
     supports_schemas,
+    table_of,
 )
 from .domains.vector_stores.schema import ResolvedVectorStore, VectorStoreConfig
 from .io import ConfigSaveError, StaleConfigRevisionError, save_stack_config, write_env_file
@@ -163,6 +164,7 @@ __all__ = [
     "stack_config_revision",
     "statement_schema_tags",
     "supports_schemas",
+    "table_of",
     "unenforced_foreign_keys",
     "unresolved_refs",
     "without_cross_engine_foreign_keys",

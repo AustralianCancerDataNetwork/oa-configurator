@@ -711,3 +711,37 @@ def autocommit_connection(bindable: Engine | Connection) -> Generator[Connection
     finally:
         bind.rollback()
         bind.execution_options(isolation_level=previous_isolation_level)
+
+
+def table_of(model: type) -> sa.Table:
+    """Return the table a mapped class is mapped to.
+
+    Parameters
+    ----------
+    model : type
+        An ORM class mapped to a single table.
+
+    Returns
+    -------
+    sqlalchemy.Table
+        The class's ``__table__``, typed as a table so that ``.c``, ``.schema``
+        and ``.primary_key`` need no cast.
+
+    Raises
+    ------
+    TypeError
+        If *model* is not mapped, or is mapped to something other than a
+        table, such as a join.
+
+    Notes
+    -----
+    SQLAlchemy types ``__table__`` as ``FromClause``. The result is the same
+    object, so the mapper, schema and ``schema_translate_map`` behaviour are
+    unchanged.
+    """
+    table = getattr(model, "__table__", None)
+    if not isinstance(table, sa.Table):
+        raise TypeError(
+            f"{model.__qualname__} is not mapped to a table (found {type(table).__name__})"
+        )
+    return table

@@ -38,6 +38,7 @@ from .sql import (
     ensure_schema,
     schema_if_supported,
     supports_schemas,
+    table_of,
 )
 
 logger = logging.getLogger(__name__)
@@ -283,9 +284,7 @@ class SchemaRegistry(_SchemaRegistryBase):
         sqlalchemy.Table
             The mapped table.
         """
-        table = cls.__table__
-        assert isinstance(table, sa.Table)
-        return table
+        return table_of(cls)
 
 
 class RegistryRow(NamedTuple):

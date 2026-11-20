@@ -13,10 +13,11 @@ from __future__ import annotations
 import functools
 import ipaddress
 import logging
+import re
 import socket
 from collections.abc import Generator, Iterable
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import overload
 
@@ -113,15 +114,12 @@ class DialectProfile:
         (e.g. libpq's 5432). None for a dialect that takes no port. Used to
         make an omitted port and an explicitly-stated default port compare
         as the same physical address.
-    reflects_varchar_length : bool
-        Whether reflecting a declared ``VARCHAR(n)`` column back from the
-        database preserves ``n``.
-    reflects_text_as_varchar : bool
-        Whether reflecting a declared ``TEXT`` column back from the
-        database returns ``VARCHAR`` instead.
-    reflects_float_as_double_precision : bool
-        Whether reflecting a declared unparameterized ``FLOAT`` column back
-        from the database returns ``DOUBLE PRECISION`` instead.
+    reflected_type_names : dict[str, str]
+        Declared type names whose reflection reports a different type. Each
+        key is a regular expression matched against the compiled, lowercased
+        type name with spaces removed, such as ``"text"`` or
+        ``"varchar\\(\\d+\\)"``. Each value is the name reflection reports.
+        The first matching key applies. A name with no match reflects as itself.
     schema_names_are_catalog_qualified : bool
         Whether ``Inspector.get_schema_names()`` returns names prefixed with
         a catalog (e.g. ``"mydb.main"``) rather than a bare schema name.
@@ -137,9 +135,7 @@ class DialectProfile:
     requires_host: bool = True
     default_schema: str | None = None
     default_port: int | None = None
-    reflects_varchar_length: bool = True
-    reflects_text_as_varchar: bool = False
-    reflects_float_as_double_precision: bool = False
+    reflected_type_names: dict[str, str] = field(default_factory=dict)
     schema_names_are_catalog_qualified: bool = False
     supports_cross_schema_fks: bool = True
 
@@ -150,12 +146,16 @@ _DIALECT_PROFILES: dict[str, DialectProfile] = {
         supports_schemas=True,
         default_schema="public",
         default_port=5432,
-        reflects_float_as_double_precision=True,
+        reflected_type_names={
+            r"float\((?:[1-9]|1\d|2[0-4])\)": "real",
+            r"float(?:\(\d+\))?": "doubleprecision",
+        },
     ),
     Dialect.SQLITE: DialectProfile(
         system_schemas=frozenset(),
         supports_schemas=False,
         requires_host=False,
+        reflected_type_names={"doubleprecision": "real"},
         supports_cross_schema_fks=False,
     ),
     Dialect.DUCKDB: DialectProfile(
@@ -164,8 +164,13 @@ _DIALECT_PROFILES: dict[str, DialectProfile] = {
         supports_schemas=True,
         requires_host=False,
         default_schema="main",
-        reflects_varchar_length=False,
-        reflects_text_as_varchar=True,
+        reflected_type_names={
+            r"varchar\(\d+\)": "varchar",
+            r"char(?:\(\d+\))?": "varchar",
+            "text": "varchar",
+            "float": "real",
+            "doubleprecision": "double",
+        },
         schema_names_are_catalog_qualified=True,
         supports_cross_schema_fks=False,
     ),
@@ -579,40 +584,36 @@ def requires_host(bindable: Bindable | str) -> bool:
     return _profile_for(dialect_name).requires_host
 
 
-def reflects_varchar_length(bindable: Bindable | str) -> bool:
-    """True if reflecting a declared ``VARCHAR(n)`` column preserves ``n``.
+def normalized_type(type_: sa.types.TypeEngine[object], dialect: sa.engine.Dialect) -> str:
+    """Return the comparison form of *type_* as *dialect* would report it.
+
+    Compiles *type_* for *dialect*, lowercases it and removes spaces. A declared
+    type and the type reflected back from the database compare equal when their
+    normalized forms are equal.
 
     Parameters
     ----------
-    bindable : Engine | Connection | Session | str
-        A live bindable, or a bare dialect name directly (e.g. "duckdb").
+    type_ : sqlalchemy.types.TypeEngine
+        A declared or reflected column type.
+    dialect : sqlalchemy.engine.Dialect
+        The dialect of the database the type is declared on or reflected from.
+
+    Returns
+    -------
+    str
+        The normalized type name.
+
+    Notes
+    -----
+    The name is replaced by the first matching entry of the dialect's
+    ``reflected_type_names``, which lists the declared names that reflection
+    reports differently. Other names are returned as compiled.
     """
-    dialect_name = bindable if isinstance(bindable, str) else _as_bind(bindable).dialect.name
-    return _profile_for(dialect_name).reflects_varchar_length
-
-
-def reflects_text_as_varchar(bindable: Bindable | str) -> bool:
-    """True if reflecting a declared ``TEXT`` column returns ``VARCHAR`` instead.
-
-    Parameters
-    ----------
-    bindable : Engine | Connection | Session | str
-        A live bindable, or a bare dialect name directly (e.g. "duckdb").
-    """
-    dialect_name = bindable if isinstance(bindable, str) else _as_bind(bindable).dialect.name
-    return _profile_for(dialect_name).reflects_text_as_varchar
-
-
-def reflects_float_as_double_precision(bindable: Bindable | str) -> bool:
-    """True if reflecting a declared unparameterized ``FLOAT`` column returns ``DOUBLE PRECISION`` instead.
-
-    Parameters
-    ----------
-    bindable : Engine | Connection | Session | str
-        A live bindable, or a bare dialect name directly (e.g. "postgresql").
-    """
-    dialect_name = bindable if isinstance(bindable, str) else _as_bind(bindable).dialect.name
-    return _profile_for(dialect_name).reflects_float_as_double_precision
+    normalized = type_.compile(dialect=dialect).lower().replace(" ", "")
+    for pattern, reflected in _profile_for(dialect.name).reflected_type_names.items():
+        if re.fullmatch(pattern, normalized):
+            return reflected
+    return normalized
 
 
 def system_schemas(bindable: Bindable | str) -> frozenset[str]:

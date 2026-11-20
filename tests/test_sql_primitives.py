@@ -36,6 +36,7 @@ from oa_configurator import (
     autocommit_connection,
     ensure_schema,
     find_table_in_other_schemas,
+    normalized_type,
     open_connection,
     physical_schema_of,
     qualified,
@@ -349,6 +350,96 @@ class TestDuckDBSemanticGuardrails:
         with engine.begin() as connection:
             connection.execute(table.insert(), {"value": value})
             assert connection.scalar(sa.select(table.c.value)) == value
+
+
+def _round_trip_types() -> dict[str, sa.types.TypeEngine]:
+    """Common column types whose declared and reflected forms must compare equal."""
+    return {
+        "integer": sa.Integer(),
+        "biginteger": sa.BigInteger(),
+        "smallinteger": sa.SmallInteger(),
+        "numeric": sa.Numeric(18, 6),
+        "float": sa.Float(),
+        "float_24": sa.Float(24),
+        "float_53": sa.Float(53),
+        "double": sa.Double(),
+        "double_precision": sa.DOUBLE_PRECISION(),
+        "real": sa.REAL(),
+        "string": sa.String(),
+        "string_20": sa.String(20),
+        "text": sa.Text(),
+        "char_5": sa.CHAR(5),
+        "boolean": sa.Boolean(),
+        "date": sa.Date(),
+        "datetime": sa.DateTime(),
+        "datetime_tz": sa.DateTime(timezone=True),
+        "time": sa.Time(),
+        "large_binary": sa.LargeBinary(),
+        "uuid": sa.Uuid(),
+        "json": sa.JSON(),
+        "interval": sa.Interval(),
+    }
+
+
+def _assert_declared_matches_reflected(engine: sa.Engine) -> None:
+    """Create one column per round-trip type on *engine* and compare each to its reflection."""
+    metadata = sa.MetaData()
+    table = sa.Table(
+        "normalized_type_round_trip",
+        metadata,
+        *[sa.Column(name, type_) for name, type_ in _round_trip_types().items()],
+    )
+    metadata.create_all(engine)
+    try:
+        reflected = {
+            column["name"]: column["type"] for column in sa.inspect(engine).get_columns(table.name)
+        }
+        for column in table.columns:
+            assert normalized_type(column.type, engine.dialect) == normalized_type(
+                reflected[column.name], engine.dialect
+            ), column.name
+    finally:
+        metadata.drop_all(engine)
+
+
+class TestNormalizedType:
+    """normalized_type() folds a type to the form its dialect reflects it as."""
+
+    @pytest.mark.parametrize(
+        "dialect_name, declared, expected",
+        [
+            ("duckdb", sa.Double(), "double"),
+            ("duckdb", sa.DOUBLE_PRECISION(), "double"),
+            ("duckdb", sa.Float(), "double"),
+            ("duckdb", sa.Text(), "varchar"),
+            ("duckdb", sa.String(20), "varchar"),
+            ("duckdb", sa.CHAR(5), "varchar"),
+            ("postgresql", sa.Double(), "doubleprecision"),
+            ("postgresql", sa.Float(), "doubleprecision"),
+            ("postgresql", sa.Float(24), "real"),
+            ("postgresql", sa.Float(53), "doubleprecision"),
+            ("postgresql", sa.String(20), "varchar(20)"),
+            ("postgresql", sa.CHAR(5), "char(5)"),
+            ("sqlite", sa.Float(), "float"),
+            ("sqlite", sa.String(20), "varchar(20)"),
+        ],
+    )
+    def test_declared_type_folds_to_reflected_form(self, dialect_name, declared, expected):
+        dialect = registry.load(dialect_name)()
+        assert normalized_type(declared, dialect) == expected
+
+    def test_declared_and_reflected_types_match_on_sqlite(self):
+        _assert_declared_matches_reflected(sa.create_engine("sqlite://"))
+
+    @pytest.mark.duckdb
+    @pytest.mark.db_dialect
+    def test_declared_and_reflected_types_match_on_duckdb(self, duckdb_db):
+        _assert_declared_matches_reflected(duckdb_db.committing_engine)
+
+    @pytest.mark.postgresql
+    @pytest.mark.db_dialect
+    def test_declared_and_reflected_types_match_on_postgresql(self, pg_db):
+        _assert_declared_matches_reflected(pg_db.committing_engine)
 
 
 class TestConnectionKey:

@@ -18,7 +18,7 @@ from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import overload
+from typing import Any, overload
 
 import sqlalchemy as sa
 from sqlalchemy.engine import Connection, Engine
@@ -660,6 +660,24 @@ def ensure_schema(bindable: Engine | Connection, physical_schema: str | None) ->
             conn.execute(ddl)
     else:
         bind.execute(ddl)
+
+
+def enable_sqlite_foreign_keys(dbapi_connection: Any, _connection_record: Any) -> None:
+    """Turn on foreign key enforcement for a new SQLite connection.
+
+    Parameters
+    ----------
+    dbapi_connection : Any
+        The new DBAPI connection.
+    _connection_record : Any
+        The pool's record for the connection. Unused.
+
+    Notes
+    -----
+    Has the signature of SQLAlchemy's ``connect`` event. SQLite ignores the
+    pragma inside an open transaction, so it must run before the first statement.
+    """
+    dbapi_connection.execute("PRAGMA foreign_keys = ON")
 
 
 @contextmanager

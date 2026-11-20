@@ -37,6 +37,7 @@ from .sql import (
     Role,
     _profile_for,
     connection_key,
+    enable_sqlite_foreign_keys,
     ensure_schema,
     is_ephemeral_url,
     requires_host,
@@ -896,12 +897,20 @@ class ResolvedConnection:
         so it can be disabled when the database is known to be reliable
         and the application is latency-sensitive using ``**kwargs``.
 
+        A SQLite engine enables foreign key enforcement on every connection,
+        as PostgreSQL and DuckDB enforce theirs. SQLite leaves it off unless
+        ``PRAGMA foreign_keys`` is set on each connection. A connect listener
+        attached to the returned engine runs afterwards and can change it.
+
         Returns
         -------
         sqlalchemy.engine.Engine
         """
         kwargs.setdefault("pool_pre_ping", True)
-        return sa.create_engine(self._engine_url, **kwargs)
+        engine = sa.create_engine(self._engine_url, **kwargs)
+        if self.dialect_name == Dialect.SQLITE:
+            event.listens_for(engine, "connect")(enable_sqlite_foreign_keys)
+        return engine
 
     @property
     def dialect_name(self) -> str:
